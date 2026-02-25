@@ -37,6 +37,10 @@ class VisitReject(BaseModel):
 class VisitResponse(BaseModel):
     visit_id: UUID
     status: str
+    business_id: int | None = None
+    representative_id: int | None = None
+    visit_date: date | None = None
+    visit_type: str | None = None
     reviewer_id: int | None = None
     review_timestamp: datetime | None = None
     change_notes: str | None = None

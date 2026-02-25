@@ -25,7 +25,13 @@ class Visit(Base):
     visit_date: Mapped[Date] = mapped_column(Date, nullable=False)
     visit_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[VisitStatus] = mapped_column(
-        Enum(VisitStatus, name="visit_status"), nullable=False, default=VisitStatus.DRAFT
+        Enum(
+            VisitStatus,
+            name="visit_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=VisitStatus.DRAFT,
     )
     reviewer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     review_timestamp: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)

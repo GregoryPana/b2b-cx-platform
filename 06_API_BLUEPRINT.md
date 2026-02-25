@@ -23,6 +23,7 @@
 - POST /visits
 - GET /visits/my
 - GET /visits/pending
+- GET /visits/{id}
 - PUT /visits/{id}/submit
 - PUT /visits/{id}/needs-changes
 - PUT /visits/{id}/approve
