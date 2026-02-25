@@ -70,7 +70,7 @@ Response:
 - visit_id
 - status (Rejected)
 - reviewer_id
-- decision_timestamp
+- review_timestamp
 - rejection_notes
 
 ## Responses

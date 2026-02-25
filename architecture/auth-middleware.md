@@ -13,3 +13,6 @@
 ## Error Handling
 - 401 for missing or invalid token.
 - 403 for unauthorized role.
+
+## Dev Mode
+- Local development may use header-based identity stubs while Entra integration is pending.

@@ -6,6 +6,8 @@ DEV – Local
 STAGING – Test VM  
 PRODUCTION – DMZ + Internal VMs
 
+Current state: only local development is active; staging and production VMs are not provisioned yet.
+
 Each environment has:
 
 - Separate .env

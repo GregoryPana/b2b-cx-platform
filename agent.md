@@ -67,3 +67,7 @@ Potential failures: auth misconfig (Entra JWT), DB connectivity, migration error
 - 2026-02-19: Added JWT validation contract, auth middleware spec, and implementation plan.
 - 2026-02-19: Scaffolded monorepo folders, FastAPI app with /health, env example, and dev compose.
 - 2026-02-19: Added backend deps/tests and CI workflows; added staging/production deploy workflows.
+- 2026-02-19: Added SQLAlchemy models and Alembic initial migration; set deploy workflows to manual; noted local-only env status.
+- 2026-02-19: Added visit/response routers, schemas, auth stub, frontend scaffolds, and local tooling scripts.
+- 2026-02-19: Added Makefile, dev DB scripts, updated API docs, and aligned local CI dependencies.
+- 2026-02-19: Noted header-based auth stubs for local development.
