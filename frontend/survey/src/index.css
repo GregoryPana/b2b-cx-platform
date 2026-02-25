@@ -76,6 +76,70 @@ h1 {
   font-size: 20px;
 }
 
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  background: #eff4fa;
+  border: 1px solid rgba(26, 36, 51, 0.1);
+}
+
+.tabs button {
+  margin-top: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.tabs button.active {
+  background: var(--accent);
+  color: #f4f7fb;
+}
+
+.ghost {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  margin-top: 0;
+}
+
+.planned-list {
+  display: grid;
+  gap: 12px;
+}
+
+.planned-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: #f9fbff;
+  text-align: left;
+}
+
+.planned-card p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

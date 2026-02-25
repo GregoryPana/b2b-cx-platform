@@ -5,6 +5,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 export default function App() {
   const [userId, setUserId] = useState("4");
   const [role, setRole] = useState("Representative");
+  const [activeTab, setActiveTab] = useState("planned");
   const [visitId, setVisitId] = useState("");
   const [status, setStatus] = useState("Draft");
   const [message, setMessage] = useState("");
@@ -39,6 +40,14 @@ export default function App() {
     "X-User-Id": userId,
     "X-User-Role": role
   };
+
+  const todayString = (() => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  })();
 
   useEffect(() => {
     const loadBusinesses = async () => {
@@ -95,6 +104,25 @@ export default function App() {
       setSelectedDraftName("");
     }
   }, [visitSource]);
+
+  const plannedVisits = draftVisits
+    .filter((visit) => (visit.visit_date || "") >= todayString)
+    .sort((a, b) => (a.visit_date || "").localeCompare(b.visit_date || ""));
+
+  const handleSelectPlannedVisit = (draft) => {
+    setSelectedDraftId(draft.visit_id);
+    setSelectedDraftName(draft.business_name || "");
+    setVisitSource("planned");
+    setVisitForm((prev) => ({
+      ...prev,
+      business_id: String(draft.business_id || ""),
+      visit_date: draft.visit_date || "",
+      visit_type: draft.visit_type || "Planned"
+    }));
+    setVisitId(draft.visit_id);
+    setStatus(draft.status || "Draft");
+    setActiveTab("survey");
+  };
 
   const createBusinessIfNeeded = async () => {
     if (businessMode !== "new") return null;
@@ -261,126 +289,183 @@ export default function App() {
       </section>
 
       <section className="panel">
-        <h2>Create Visit</h2>
-        <div className="grid">
-          <label>
-            Visit Source
-            <select
-              value={visitSource}
-              onChange={(e) => setVisitSource(e.target.value)}
-            >
-              <option value="new">New visit</option>
-              <option value="planned">Planned visit</option>
-            </select>
-          </label>
-          {visitSource === "planned" ? (
-            <label>
-              Planned Visits
-              <select
-                value={selectedDraftId}
-                onChange={(e) => {
-                  const draft = draftVisits.find((item) => item.visit_id === e.target.value);
-                  setSelectedDraftId(e.target.value);
-                  if (draft) {
-                    setVisitForm((prev) => ({
-                      ...prev,
-                      business_id: String(draft.business_id || ""),
-                      visit_date: draft.visit_date || "",
-                      visit_type: draft.visit_type || "Planned"
-                    }));
-                    setSelectedDraftName(draft.business_name || "");
-                    setVisitId(draft.visit_id);
-                    setStatus(draft.status || "Draft");
-                  }
-                }}
-              >
-                <option value="">Select a planned visit</option>
-                {draftVisits.map((draft) => (
-                  <option key={draft.visit_id} value={draft.visit_id}>
-                    {draft.business_name} ({draft.business_priority || "medium"}) · {draft.visit_date}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <div className="tabs">
+          <button
+            type="button"
+            className={activeTab === "planned" ? "active" : ""}
+            onClick={() => setActiveTab("planned")}
+          >
+            Planned Visits
+          </button>
+          <button
+            type="button"
+            className={activeTab === "survey" ? "active" : ""}
+            onClick={() => setActiveTab("survey")}
+          >
+            Survey
+          </button>
+        </div>
+      </section>
+
+      {activeTab === "planned" ? (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Upcoming & Today</h2>
+            <button type="button" className="ghost" onClick={() => setActiveTab("survey")}>
+              Start Survey
+            </button>
+          </div>
+          {plannedVisits.length === 0 ? (
+            <p className="message">No planned visits for today or later.</p>
           ) : (
-            <label>
-            Business Source
-            <select
-              value={businessMode}
-              onChange={(e) => setBusinessMode(e.target.value)}
-            >
-              <option value="existing">Choose existing</option>
-              <option value="new">Add new business</option>
-            </select>
-            </label>
+            <div className="planned-list">
+              {plannedVisits.map((draft) => (
+                <button
+                  type="button"
+                  key={draft.visit_id}
+                  className="planned-card"
+                  onClick={() => handleSelectPlannedVisit(draft)}
+                >
+                  <div>
+                    <strong>{draft.business_name}</strong>
+                    <p>
+                      {draft.business_priority ? `${draft.business_priority} priority` : "standard priority"}
+                    </p>
+                  </div>
+                  <div>
+                    <span>{draft.visit_date}</span>
+                    <span>Representative #{draft.representative_id}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
           )}
-          {visitSource === "planned" ? (
+        </section>
+      ) : null}
+
+      {activeTab === "survey" ? (
+        <section className="panel">
+          <h2>Survey Visit</h2>
+          <div className="grid">
             <label>
-              Business
-              <input value={selectedDraftName || "Selected business"} disabled />
-            </label>
-          ) : businessMode === "existing" ? (
-            <label>
-              Business
+              Visit Source
               <select
-                value={visitForm.business_id}
-                onChange={(e) => setVisitForm({ ...visitForm, business_id: e.target.value })}
+                value={visitSource}
+                onChange={(e) => setVisitSource(e.target.value)}
               >
-                {businesses.length === 0 ? (
-                  <option value="">No businesses</option>
-                ) : (
-                  businesses.map((business) => (
-                    <option key={business.id} value={business.id}>
-                      {business.name} ({business.priority_level || "medium"})
-                    </option>
-                  ))
-                )}
+                <option value="new">New visit</option>
+                <option value="planned">Planned visit</option>
               </select>
             </label>
-          ) : (
+            {visitSource === "planned" ? (
+              <label>
+                Planned Visits
+                <select
+                  value={selectedDraftId}
+                  onChange={(e) => {
+                    const draft = draftVisits.find((item) => item.visit_id === e.target.value);
+                    setSelectedDraftId(e.target.value);
+                    if (draft) {
+                      setVisitForm((prev) => ({
+                        ...prev,
+                        business_id: String(draft.business_id || ""),
+                        visit_date: draft.visit_date || "",
+                        visit_type: draft.visit_type || "Planned"
+                      }));
+                      setSelectedDraftName(draft.business_name || "");
+                      setVisitId(draft.visit_id);
+                      setStatus(draft.status || "Draft");
+                    }
+                  }}
+                >
+                  <option value="">Select a planned visit</option>
+                  {draftVisits.map((draft) => (
+                    <option key={draft.visit_id} value={draft.visit_id}>
+                      {draft.business_name} ({draft.business_priority || "medium"}) · {draft.visit_date}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label>
+                Business Source
+                <select
+                  value={businessMode}
+                  onChange={(e) => setBusinessMode(e.target.value)}
+                >
+                  <option value="existing">Choose existing</option>
+                  <option value="new">Add new business</option>
+                </select>
+              </label>
+            )}
+            {visitSource === "planned" ? (
+              <label>
+                Business
+                <input value={selectedDraftName || "Selected business"} disabled />
+              </label>
+            ) : businessMode === "existing" ? (
+              <label>
+                Business
+                <select
+                  value={visitForm.business_id}
+                  onChange={(e) => setVisitForm({ ...visitForm, business_id: e.target.value })}
+                >
+                  {businesses.length === 0 ? (
+                    <option value="">No businesses</option>
+                  ) : (
+                    businesses.map((business) => (
+                      <option key={business.id} value={business.id}>
+                        {business.name} ({business.priority_level || "medium"})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+            ) : (
+              <label>
+                New Business Name
+                <input
+                  value={newBusinessName}
+                  onChange={(e) => setNewBusinessName(e.target.value)}
+                  placeholder="Enter business name"
+                />
+              </label>
+            )}
             <label>
-              New Business Name
+              Representative ID
               <input
-                value={newBusinessName}
-                onChange={(e) => setNewBusinessName(e.target.value)}
-                placeholder="Enter business name"
+                value={visitForm.representative_id}
+                onChange={(e) =>
+                  setVisitForm({ ...visitForm, representative_id: e.target.value })
+                }
               />
             </label>
-          )}
-          <label>
-            Representative ID
-            <input
-              value={visitForm.representative_id}
-              onChange={(e) =>
-                setVisitForm({ ...visitForm, representative_id: e.target.value })
-              }
-            />
-          </label>
-          <label>
-            Visit Date
-            <input
-              type="date"
-              value={visitForm.visit_date}
-              onChange={(e) => setVisitForm({ ...visitForm, visit_date: e.target.value })}
-            />
-          </label>
-          <label>
-            Visit Type
-            <select
-              value={visitForm.visit_type}
-              onChange={(e) => setVisitForm({ ...visitForm, visit_type: e.target.value })}
-            >
-              <option>Planned</option>
-              <option>Priority</option>
-              <option>Substitution</option>
-            </select>
-          </label>
-        </div>
-        <button type="button" onClick={handleCreateVisit}>
-          {visitSource === "planned" ? "Update Planned Visit" : "Create Draft Visit"}
-        </button>
-        {businessError ? <p className="message">{businessError}</p> : null}
-      </section>
+            <label>
+              Visit Date
+              <input
+                type="date"
+                value={visitForm.visit_date}
+                onChange={(e) => setVisitForm({ ...visitForm, visit_date: e.target.value })}
+              />
+            </label>
+            <label>
+              Visit Type
+              <select
+                value={visitForm.visit_type}
+                onChange={(e) => setVisitForm({ ...visitForm, visit_type: e.target.value })}
+              >
+                <option>Planned</option>
+                <option>Priority</option>
+                <option>Substitution</option>
+              </select>
+            </label>
+          </div>
+          <button type="button" onClick={handleCreateVisit}>
+            {visitSource === "planned" ? "Update Planned Visit" : "Create Draft Visit"}
+          </button>
+          {businessError ? <p className="message">{businessError}</p> : null}
+        </section>
+      ) : null}
 
       <section className="panel">
         <h2>Add Response</h2>

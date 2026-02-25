@@ -356,6 +356,20 @@ textarea {
   border-bottom: 1px solid rgba(26, 36, 51, 0.1);
 }
 
+.table-row.selectable {
+  background: transparent;
+  border: none;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
+
+.table-row.selectable.active {
+  background: #eef3fb;
+  border-radius: 12px;
+  padding: 12px 12px;
+}
+
 .header-row {
   text-transform: uppercase;
   font-size: 12px;

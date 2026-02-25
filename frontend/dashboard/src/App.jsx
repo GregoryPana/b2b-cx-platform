@@ -16,12 +16,18 @@ export default function App() {
   const [accountExecutives, setAccountExecutives] = useState([]);
   const [representatives, setRepresentatives] = useState([]);
   const [draftVisits, setDraftVisits] = useState([]);
+  const [selectedDraft, setSelectedDraft] = useState(null);
   const [selectedBusiness, setSelectedBusiness] = useState(null);
   const [plannedForm, setPlannedForm] = useState({
     business_id: "",
     representative_id: "",
-    visit_date: "",
-    visit_type: "Planned"
+    visit_date: ""
+  });
+  const [plannedEditForm, setPlannedEditForm] = useState({
+    visit_id: "",
+    business_name: "",
+    representative_id: "",
+    visit_date: ""
   });
   const [businessForm, setBusinessForm] = useState({
     name: "",
@@ -49,6 +55,15 @@ export default function App() {
         return acc;
       }, {}),
     [representatives]
+  );
+
+  const accountExecutiveMap = useMemo(
+    () =>
+      accountExecutives.reduce((acc, exec) => {
+        acc[exec.id] = exec.name;
+        return acc;
+      }, {}),
+    [accountExecutives]
   );
 
   const canViewMetrics = role === "Manager" || role === "Admin";
@@ -221,7 +236,7 @@ export default function App() {
       business_id: Number(plannedForm.business_id),
       representative_id: Number(plannedForm.representative_id),
       visit_date: plannedForm.visit_date,
-      visit_type: plannedForm.visit_type,
+      visit_type: "Planned",
       meeting_attendees: []
     };
 
@@ -240,8 +255,55 @@ export default function App() {
     setPlannedForm({
       business_id: "",
       representative_id: "",
-      visit_date: "",
-      visit_type: "Planned"
+      visit_date: ""
+    });
+    await loadDraftVisits();
+  };
+
+  const handleSelectDraft = (visit) => {
+    setSelectedDraft(visit);
+    setPlannedEditForm({
+      visit_id: visit.visit_id,
+      business_name: visit.business_name || "",
+      representative_id: visit.representative_id ? String(visit.representative_id) : "",
+      visit_date: visit.visit_date || ""
+    });
+  };
+
+  const handleUpdatePlannedVisit = async () => {
+    if (!plannedEditForm.visit_id) {
+      setError("Select a planned visit to edit.");
+      return;
+    }
+
+    setError("");
+    setMessage("");
+
+    const payload = {
+      representative_id: plannedEditForm.representative_id
+        ? Number(plannedEditForm.representative_id)
+        : null,
+      visit_date: plannedEditForm.visit_date || null
+    };
+
+    const res = await fetch(`${API_BASE}/visits/${plannedEditForm.visit_id}/draft`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to update planned visit");
+      return;
+    }
+
+    setMessage("Planned visit updated.");
+    setSelectedDraft(null);
+    setPlannedEditForm({
+      visit_id: "",
+      business_name: "",
+      representative_id: "",
+      visit_date: ""
     });
     await loadDraftVisits();
   };
@@ -623,19 +685,6 @@ export default function App() {
                   }
                 />
               </label>
-              <label>
-                Visit Type
-                <select
-                  value={plannedForm.visit_type}
-                  onChange={(event) =>
-                    setPlannedForm((prev) => ({ ...prev, visit_type: event.target.value }))
-                  }
-                >
-                  <option>Planned</option>
-                  <option>Priority</option>
-                  <option>Substitution</option>
-                </select>
-              </label>
             </div>
             <div className="actions form-cta">
               <button type="button" onClick={handleCreatePlannedVisit}>
@@ -661,15 +710,89 @@ export default function App() {
               <p className="caption">No draft visits yet.</p>
             ) : (
               draftVisits.map((visit) => (
-                <div className="table-row" key={visit.visit_id}>
+                <button
+                  type="button"
+                  key={visit.visit_id}
+                  className={`table-row selectable ${
+                    selectedDraft?.visit_id === visit.visit_id ? "active" : ""
+                  }`}
+                  onClick={() => handleSelectDraft(visit)}
+                >
                   <span>
                     {visit.business_name} ({visit.business_priority})
                   </span>
                   <span>{representativeMap[visit.representative_id] || visit.representative_id}</span>
                   <span>{visit.visit_date}</span>
-                </div>
+                </button>
               ))
             )}
+          </section>
+
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Edit Planned Visit</h2>
+              {selectedDraft ? (
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setSelectedDraft(null);
+                    setPlannedEditForm({
+                      visit_id: "",
+                      business_name: "",
+                      representative_id: "",
+                      visit_date: ""
+                    });
+                  }}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            <div className="grid">
+              <label>
+                Business
+                <input value={plannedEditForm.business_name} disabled />
+              </label>
+              <label>
+                Representative
+                <select
+                  value={plannedEditForm.representative_id}
+                  onChange={(event) =>
+                    setPlannedEditForm((prev) => ({
+                      ...prev,
+                      representative_id: event.target.value
+                    }))
+                  }
+                >
+                  <option value="">Select representative</option>
+                  {representatives.map((rep) => (
+                    <option key={rep.id} value={rep.id}>
+                      {rep.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Visit Date
+                <input
+                  type="date"
+                  value={plannedEditForm.visit_date}
+                  onChange={(event) =>
+                    setPlannedEditForm((prev) => ({
+                      ...prev,
+                      visit_date: event.target.value
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <div className="actions form-cta">
+              <button type="button" onClick={handleUpdatePlannedVisit}>
+                Update Planned Visit
+              </button>
+            </div>
+            <p className="caption">Business is locked for planned visits.</p>
           </section>
         </>
       ) : null}
@@ -696,7 +819,7 @@ export default function App() {
                   <strong>{business.name}</strong>
                   <p className="caption">{business.location || "No location"}</p>
                   <p className="caption">
-                    Account Executive: {business.account_executive_id || "Unassigned"}
+                    Account Executive: {accountExecutiveMap[business.account_executive_id] || "Unassigned"}
                   </p>
                 </div>
                 <span>{business.priority_level}</span>
