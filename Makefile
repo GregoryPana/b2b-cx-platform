@@ -1,4 +1,4 @@
-.PHONY: dev-db-up dev-db-down dev-db-reset backend-install backend-test backend-run alembic-upgrade alembic-downgrade alembic-revision
+.PHONY: dev-db-up dev-db-down dev-db-reset backend-install backend-test backend-run alembic-upgrade alembic-downgrade alembic-revision seed-db
 
 dev-db-up:
 	docker compose -f docker-compose.dev.yml up -d
@@ -26,3 +26,6 @@ alembic-downgrade:
 
 alembic-revision:
 	PYTHONPATH=backend alembic -c backend/alembic.ini revision --autogenerate -m "$(MSG)"
+
+seed-db:
+	PYTHONPATH=backend python backend/scripts/seed.py

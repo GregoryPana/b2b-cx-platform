@@ -4,10 +4,20 @@
 - POST /auth/login (dev mock)
 - GET /auth/me
 
+## Users
+- GET /users (Admin)
+- POST /users (Admin)
+- PUT /users/{id} (Admin)
+
 ## Businesses
 - GET /businesses
 - POST /businesses (Admin)
 - PUT /businesses/{id}
+
+## Account Executives
+- GET /account-executives
+- POST /account-executives (Admin)
+- PUT /account-executives/{id}
 
 ## Visits
 - POST /visits
@@ -122,3 +132,8 @@ Response:
 - GET /dashboard/nps
 - GET /dashboard/coverage
 - GET /dashboard/category-breakdown
+
+## Questions
+- GET /questions
+- POST /questions (Admin)
+- PUT /questions/{id}

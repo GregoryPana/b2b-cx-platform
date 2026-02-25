@@ -74,3 +74,4 @@ Potential failures: auth misconfig (Entra JWT), DB connectivity, migration error
 - 2026-02-19: Added PowerShell scripts for running backend, tests, and frontends.
 - 2026-02-19: Added CMD equivalents for local run scripts.
 - 2026-02-19: Reorganized scripts into scripts/cmd, scripts/powershell, and scripts/bash.
+- 2026-02-19: Added CRUD endpoints, dashboard metrics, seed script, and wired frontends to API.
