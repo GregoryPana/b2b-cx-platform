@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser, require_roles
 from app.core.db import get_db
-from app.core.roles import ROLE_ADMIN
+from app.core.roles import ROLE_ADMIN, ROLE_MANAGER
 from app.models import User
 from app.schemas.user import UserCreate, UserOut, UserUpdate
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("", response_model=list[UserOut])
 def list_users(
     db: Session = Depends(get_db),
-    _user: CurrentUser = Depends(require_roles([ROLE_ADMIN])),
+    _user: CurrentUser = Depends(require_roles([ROLE_ADMIN, ROLE_MANAGER])),
 ):
     return db.scalars(select(User).order_by(User.id)).all()
 

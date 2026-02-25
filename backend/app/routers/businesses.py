@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser, require_roles
@@ -18,14 +18,20 @@ def list_businesses(
         require_roles([ROLE_REPRESENTATIVE, ROLE_REVIEWER, ROLE_MANAGER, ROLE_ADMIN])
     ),
 ):
-    return db.scalars(select(Business).order_by(Business.name)).all()
+    priority_order = case(
+        (Business.priority_level == "high", 0),
+        (Business.priority_level == "medium", 1),
+        (Business.priority_level == "low", 2),
+        else_=3,
+    )
+    return db.scalars(select(Business).order_by(priority_order, Business.name)).all()
 
 
 @router.post("", response_model=BusinessOut, status_code=status.HTTP_201_CREATED)
 def create_business(
     payload: BusinessCreate,
     db: Session = Depends(get_db),
-    _user: CurrentUser = Depends(require_roles([ROLE_ADMIN])),
+    _user: CurrentUser = Depends(require_roles([ROLE_ADMIN, ROLE_MANAGER])),
 ):
     business = Business(**payload.model_dump())
     db.add(business)
@@ -39,7 +45,7 @@ def update_business(
     business_id: int,
     payload: BusinessUpdate,
     db: Session = Depends(get_db),
-    _user: CurrentUser = Depends(require_roles([ROLE_ADMIN])),
+    _user: CurrentUser = Depends(require_roles([ROLE_ADMIN, ROLE_MANAGER])),
 ):
     business = db.get(Business, business_id)
     if not business:

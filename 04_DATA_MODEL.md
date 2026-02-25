@@ -15,7 +15,7 @@
 - name
 - location
 - account_executive_id
-- priority_flag
+- priority_level (low, medium, high)
 - active
 - created_at
 

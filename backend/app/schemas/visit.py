@@ -22,6 +22,12 @@ class VisitSubmit(BaseModel):
     submit_notes: str | None = None
 
 
+class VisitDraftUpdate(BaseModel):
+    representative_id: int | None = None
+    visit_date: date | None = None
+    visit_type: str | None = None
+
+
 class VisitNeedsChanges(BaseModel):
     change_notes: str = Field(min_length=1)
 
@@ -38,6 +44,8 @@ class VisitResponse(BaseModel):
     visit_id: UUID
     status: str
     business_id: int | None = None
+    business_name: str | None = None
+    business_priority: str | None = None
     representative_id: int | None = None
     visit_date: date | None = None
     visit_type: str | None = None

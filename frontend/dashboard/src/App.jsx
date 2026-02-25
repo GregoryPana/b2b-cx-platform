@@ -10,8 +10,26 @@ export default function App() {
   const [categories, setCategories] = useState([]);
   const [pendingVisits, setPendingVisits] = useState([]);
   const [selectedVisit, setSelectedVisit] = useState(null);
-  const [activeView, setActiveView] = useState("metrics");
+  const [activeView, setActiveView] = useState("analytics");
   const [reviewNote, setReviewNote] = useState("");
+  const [businesses, setBusinesses] = useState([]);
+  const [accountExecutives, setAccountExecutives] = useState([]);
+  const [representatives, setRepresentatives] = useState([]);
+  const [draftVisits, setDraftVisits] = useState([]);
+  const [selectedBusiness, setSelectedBusiness] = useState(null);
+  const [plannedForm, setPlannedForm] = useState({
+    business_id: "",
+    representative_id: "",
+    visit_date: "",
+    visit_type: "Planned"
+  });
+  const [businessForm, setBusinessForm] = useState({
+    name: "",
+    location: "",
+    priority_level: "medium",
+    active: true,
+    account_executive_id: ""
+  });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -24,8 +42,18 @@ export default function App() {
     [userId, role]
   );
 
+  const representativeMap = useMemo(
+    () =>
+      representatives.reduce((acc, rep) => {
+        acc[rep.id] = rep.name;
+        return acc;
+      }, {}),
+    [representatives]
+  );
+
   const canViewMetrics = role === "Manager" || role === "Admin";
   const canReview = role === "Reviewer" || role === "Admin";
+  const canManageBusinesses = role === "Manager" || role === "Admin";
 
   const loadMetrics = async () => {
     setError("");
@@ -120,12 +148,231 @@ export default function App() {
     setSelectedVisit(null);
   };
 
+  const loadBusinesses = async () => {
+    if (!canManageBusinesses) {
+      setBusinesses([]);
+      return;
+    }
+
+    const res = await fetch(`${API_BASE}/businesses`, { headers });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to load businesses");
+      return;
+    }
+    setBusinesses(data);
+  };
+
+  const loadAccountExecutives = async () => {
+    if (!canManageBusinesses) {
+      setAccountExecutives([]);
+      return;
+    }
+
+    const res = await fetch(`${API_BASE}/account-executives`, { headers });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to load account executives");
+      return;
+    }
+    setAccountExecutives(data);
+  };
+
+  const loadRepresentatives = async () => {
+    if (!canManageBusinesses) {
+      setRepresentatives([]);
+      return;
+    }
+
+    const res = await fetch(`${API_BASE}/users`, { headers });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to load users");
+      return;
+    }
+    setRepresentatives(data.filter((user) => user.role === "Representative"));
+  };
+
+  const loadDraftVisits = async () => {
+    if (!canManageBusinesses) {
+      setDraftVisits([]);
+      return;
+    }
+
+    const res = await fetch(`${API_BASE}/visits/drafts`, { headers });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to load draft visits");
+      return;
+    }
+    setDraftVisits(data);
+  };
+
+  const handleCreatePlannedVisit = async () => {
+    setError("");
+    setMessage("");
+
+    if (!plannedForm.business_id || !plannedForm.representative_id || !plannedForm.visit_date) {
+      setError("Business, representative, and date are required.");
+      return;
+    }
+
+    const payload = {
+      business_id: Number(plannedForm.business_id),
+      representative_id: Number(plannedForm.representative_id),
+      visit_date: plannedForm.visit_date,
+      visit_type: plannedForm.visit_type,
+      meeting_attendees: []
+    };
+
+    const res = await fetch(`${API_BASE}/visits`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to create planned visit");
+      return;
+    }
+
+    setMessage("Planned visit created.");
+    setPlannedForm({
+      business_id: "",
+      representative_id: "",
+      visit_date: "",
+      visit_type: "Planned"
+    });
+    await loadDraftVisits();
+  };
+
+  const handleCreateBusiness = async () => {
+    setError("");
+    setMessage("");
+
+    if (!businessForm.name.trim()) {
+      setError("Business name is required.");
+      return;
+    }
+
+    const payload = {
+      name: businessForm.name.trim(),
+      location: businessForm.location.trim() || null,
+      priority_level: businessForm.priority_level,
+      active: businessForm.active,
+      account_executive_id: businessForm.account_executive_id
+        ? Number(businessForm.account_executive_id)
+        : null
+    };
+
+    const res = await fetch(`${API_BASE}/businesses`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to create business");
+      return;
+    }
+
+    setBusinessForm({
+      name: "",
+      location: "",
+      priority_level: "medium",
+      active: true,
+      account_executive_id: ""
+    });
+    setMessage(`Business created: ${data.name}`);
+    await loadBusinesses();
+  };
+
+  const handleEditBusiness = (business) => {
+    setSelectedBusiness(business);
+    setBusinessForm({
+      name: business.name,
+      location: business.location || "",
+      priority_level: business.priority_level || "medium",
+      active: business.active,
+      account_executive_id: business.account_executive_id
+        ? String(business.account_executive_id)
+        : ""
+    });
+  };
+
+  const handleUpdateBusiness = async () => {
+    if (!selectedBusiness) return;
+
+    setError("");
+    setMessage("");
+
+    const payload = {
+      name: businessForm.name.trim(),
+      location: businessForm.location.trim() || null,
+      priority_level: businessForm.priority_level,
+      active: businessForm.active,
+      account_executive_id: businessForm.account_executive_id
+        ? Number(businessForm.account_executive_id)
+        : null
+    };
+
+    const res = await fetch(`${API_BASE}/businesses/${selectedBusiness.id}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to update business");
+      return;
+    }
+
+    setMessage(`Business updated: ${data.name}`);
+    setSelectedBusiness(null);
+    setBusinessForm({
+      name: "",
+      location: "",
+      priority_level: "medium",
+      active: true,
+      account_executive_id: ""
+    });
+    await loadBusinesses();
+  };
+
+  const handleRetireBusiness = async (business) => {
+    setError("");
+    setMessage("");
+
+    const res = await fetch(`${API_BASE}/businesses/${business.id}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ active: false })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to retire business");
+      return;
+    }
+
+    setMessage(`Business retired: ${data.name}`);
+    await loadBusinesses();
+  };
+
   useEffect(() => {
-    if (activeView === "metrics") {
+    if (activeView === "analytics") {
       loadMetrics();
     }
     if (activeView === "review") {
       loadPending();
+    }
+    if (activeView === "businesses") {
+      loadBusinesses();
+      loadAccountExecutives();
+    }
+    if (activeView === "visits") {
+      loadBusinesses();
+      loadRepresentatives();
+      loadDraftVisits();
     }
   }, [role, userId, activeView]);
 
@@ -139,55 +386,340 @@ export default function App() {
         <button className="cta" type="button">Export Snapshot</button>
       </header>
 
-      <section className="panel">
-        <h2>Identity</h2>
-        <div className="grid">
-          <label>
-            User ID
-            <input value={userId} onChange={(event) => setUserId(event.target.value)} />
-          </label>
-          <label>
-            Role
-            <select value={role} onChange={(event) => setRole(event.target.value)}>
-              <option>Manager</option>
-              <option>Reviewer</option>
-              <option>Admin</option>
-            </select>
-          </label>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Workspace</h2>
-        <div className="toggle">
+      <nav className="top-nav" aria-label="Primary">
+        <div className="nav-tabs" role="tablist">
           <button
             type="button"
-            className={activeView === "metrics" ? "active" : ""}
-            onClick={() => setActiveView("metrics")}
+            role="tab"
+            aria-selected={activeView === "analytics"}
+            className={activeView === "analytics" ? "active" : ""}
+            onClick={() => setActiveView("analytics")}
             disabled={!canViewMetrics}
           >
-            Metrics Dashboard
+            Analytics
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={activeView === "review"}
             className={activeView === "review" ? "active" : ""}
             onClick={() => setActiveView("review")}
             disabled={!canReview}
           >
             Review Queue
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === "businesses"}
+            className={activeView === "businesses" ? "active" : ""}
+            onClick={() => setActiveView("businesses")}
+            disabled={!canManageBusinesses}
+          >
+            Businesses
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === "visits"}
+            className={activeView === "visits" ? "active" : ""}
+            onClick={() => setActiveView("visits")}
+            disabled={!canManageBusinesses}
+          >
+            Visits
+          </button>
         </div>
-        <p className="caption">
-          {activeView === "metrics"
-            ? "Viewing aggregated metrics for approved visits."
-            : "Reviewing submissions awaiting approval, rejection, or changes."}
+        <div className="nav-account">
+          <span className="caption">Local account</span>
+          <div className="account-select">
+            <label>
+              User ID
+              <input value={userId} onChange={(event) => setUserId(event.target.value)} />
+            </label>
+            <label>
+              Role
+              <select value={role} onChange={(event) => setRole(event.target.value)}>
+                <option>Manager</option>
+                <option>Reviewer</option>
+                <option>Admin</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </nav>
+
+      <section className="subhead">
+        <h3>
+          {activeView === "analytics"
+            ? "Analytics Overview"
+            : activeView === "review"
+            ? "Review Queue"
+            : activeView === "businesses"
+            ? "Business Management"
+            : "Planned Visits"}
+        </h3>
+        <p>
+          {activeView === "analytics"
+            ? "KPIs from approved visits and category trends."
+            : activeView === "review"
+            ? "Approve, reject, or request changes for submitted visits."
+            : activeView === "businesses"
+            ? "Create, update, and retire businesses with priorities."
+            : "Assign draft visits for representatives to complete."}
         </p>
       </section>
 
       {error ? <p className="notice">{error}</p> : null}
       {message ? <p className="notice success">{message}</p> : null}
 
-      {activeView === "metrics" && canViewMetrics ? (
+      {activeView === "businesses" && canManageBusinesses ? (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>{selectedBusiness ? "Edit Business" : "Create Business"}</h2>
+            {selectedBusiness ? (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setSelectedBusiness(null);
+                  setBusinessForm({
+                    name: "",
+                    location: "",
+                    priority_level: "medium",
+                    active: true,
+                    account_executive_id: ""
+                  });
+                }}
+              >
+                Cancel Edit
+              </button>
+            ) : null}
+          </div>
+          <div className="grid">
+            <label>
+              Business Name
+              <input
+                value={businessForm.name}
+                onChange={(event) =>
+                  setBusinessForm((prev) => ({ ...prev, name: event.target.value }))
+                }
+              />
+            </label>
+            <label>
+              Location
+              <input
+                value={businessForm.location}
+                onChange={(event) =>
+                  setBusinessForm((prev) => ({ ...prev, location: event.target.value }))
+                }
+              />
+            </label>
+            <label>
+              Priority
+              <select
+                value={businessForm.priority_level}
+                onChange={(event) =>
+                  setBusinessForm((prev) => ({ ...prev, priority_level: event.target.value }))
+                }
+              >
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+            <label>
+              Account Executive
+              <select
+                value={businessForm.account_executive_id}
+                onChange={(event) =>
+                  setBusinessForm((prev) => ({
+                    ...prev,
+                    account_executive_id: event.target.value
+                  }))
+                }
+              >
+                <option value="">Unassigned</option>
+                {accountExecutives.map((executive) => (
+                  <option key={executive.id} value={executive.id}>
+                    {executive.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Status
+              <select
+                value={businessForm.active ? "active" : "inactive"}
+                onChange={(event) =>
+                  setBusinessForm((prev) => ({ ...prev, active: event.target.value === "active" }))
+                }
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </label>
+          </div>
+          <div className="actions form-cta">
+            <button
+              type="button"
+              onClick={selectedBusiness ? handleUpdateBusiness : handleCreateBusiness}
+            >
+              {selectedBusiness ? "Update Business" : "Save Business"}
+            </button>
+          </div>
+          <p className="caption">Managers and Admins can create businesses and set priority.</p>
+        </section>
+      ) : null}
+
+      {activeView === "visits" && canManageBusinesses ? (
+        <>
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Create Planned Visit</h2>
+              <button type="button" className="ghost" onClick={loadDraftVisits}>
+                Refresh
+              </button>
+            </div>
+            <div className="grid">
+              <label>
+                Business
+                <select
+                  value={plannedForm.business_id}
+                  onChange={(event) =>
+                    setPlannedForm((prev) => ({ ...prev, business_id: event.target.value }))
+                  }
+                >
+                  <option value="">Select business</option>
+                  {businesses.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name} ({business.priority_level})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Representative
+                <select
+                  value={plannedForm.representative_id}
+                  onChange={(event) =>
+                    setPlannedForm((prev) => ({ ...prev, representative_id: event.target.value }))
+                  }
+                >
+                  <option value="">Select representative</option>
+                  {representatives.map((rep) => (
+                    <option key={rep.id} value={rep.id}>
+                      {rep.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Visit Date
+                <input
+                  type="date"
+                  value={plannedForm.visit_date}
+                  onChange={(event) =>
+                    setPlannedForm((prev) => ({ ...prev, visit_date: event.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Visit Type
+                <select
+                  value={plannedForm.visit_type}
+                  onChange={(event) =>
+                    setPlannedForm((prev) => ({ ...prev, visit_type: event.target.value }))
+                  }
+                >
+                  <option>Planned</option>
+                  <option>Priority</option>
+                  <option>Substitution</option>
+                </select>
+              </label>
+            </div>
+            <div className="actions form-cta">
+              <button type="button" onClick={handleCreatePlannedVisit}>
+                Create Draft Visit
+              </button>
+            </div>
+            <p className="caption">Draft visits appear in the survey app for the assigned rep.</p>
+          </section>
+
+          <section className="table">
+            <div className="panel-header">
+              <h2>Planned Visits</h2>
+              <button type="button" className="ghost" onClick={loadDraftVisits}>
+                Refresh
+              </button>
+            </div>
+            <div className="table-row header-row">
+              <span>Business</span>
+              <span>Representative</span>
+              <span>Date</span>
+            </div>
+            {draftVisits.length === 0 ? (
+              <p className="caption">No draft visits yet.</p>
+            ) : (
+              draftVisits.map((visit) => (
+                <div className="table-row" key={visit.visit_id}>
+                  <span>
+                    {visit.business_name} ({visit.business_priority})
+                  </span>
+                  <span>{representativeMap[visit.representative_id] || visit.representative_id}</span>
+                  <span>{visit.visit_date}</span>
+                </div>
+              ))
+            )}
+          </section>
+        </>
+      ) : null}
+
+      {activeView === "businesses" && canManageBusinesses ? (
+        <section className="table">
+          <div className="panel-header">
+            <h2>Business Directory</h2>
+            <button type="button" className="ghost" onClick={loadBusinesses}>
+              Refresh
+            </button>
+          </div>
+          <div className="table-row header-row">
+            <span>Business</span>
+            <span>Priority</span>
+            <span>Status</span>
+          </div>
+          {businesses.length === 0 ? (
+            <p className="caption">No businesses found.</p>
+          ) : (
+            businesses.map((business) => (
+              <div className="table-row" key={business.id}>
+                <div>
+                  <strong>{business.name}</strong>
+                  <p className="caption">{business.location || "No location"}</p>
+                  <p className="caption">
+                    Account Executive: {business.account_executive_id || "Unassigned"}
+                  </p>
+                </div>
+                <span>{business.priority_level}</span>
+                <div className="row-actions">
+                  <span>{business.active ? "Active" : "Retired"}</span>
+                  <div className="actions">
+                    <button type="button" onClick={() => handleEditBusiness(business)}>
+                      Edit
+                    </button>
+                    {business.active ? (
+                      <button type="button" className="danger" onClick={() => handleRetireBusiness(business)}>
+                        Retire
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </section>
+      ) : null}
+
+      {activeView === "analytics" && canViewMetrics ? (
         <>
           <section className="grid">
             <article>
@@ -251,7 +783,10 @@ export default function App() {
                     }`}
                     onClick={() => loadVisitDetail(visit.visit_id)}
                   >
-                    <span>Visit {visit.visit_id.slice(0, 8)}</span>
+                    <span>
+                      {visit.business_name || "Visit"}
+                      {visit.business_priority ? ` · ${visit.business_priority} priority` : ""}
+                    </span>
                     <span>{visit.visit_date}</span>
                   </button>
                 ))
@@ -264,7 +799,12 @@ export default function App() {
                 <>
                   <h3>Visit Details</h3>
                   <p className="caption">
-                    Business ID: {selectedVisit.business_id} · Representative ID: {selectedVisit.representative_id}
+                    {selectedVisit.business_name}
+                    {selectedVisit.business_priority
+                      ? ` (${selectedVisit.business_priority} priority)`
+                      : ""}
+                    {" · "}
+                    Representative ID: {selectedVisit.representative_id}
                   </p>
                   <div className="responses">
                     {selectedVisit.responses.map((response) => (

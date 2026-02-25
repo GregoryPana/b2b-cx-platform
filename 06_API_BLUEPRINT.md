@@ -11,8 +11,8 @@
 
 ## Businesses
 - GET /businesses
-- POST /businesses (Admin)
-- PUT /businesses/{id}
+- POST /businesses (Admin or Manager)
+- PUT /businesses/{id} (Admin or Manager)
 
 ## Account Executives
 - GET /account-executives
@@ -22,9 +22,11 @@
 ## Visits
 - POST /visits
 - GET /visits/my
+- GET /visits/drafts
 - GET /visits/pending
 - GET /visits/{id}
 - PUT /visits/{id}/submit
+- PUT /visits/{id}/draft
 - PUT /visits/{id}/needs-changes
 - PUT /visits/{id}/approve
 - PUT /visits/{id}/reject

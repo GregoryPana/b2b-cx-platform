@@ -1,7 +1,7 @@
 :root {
   color-scheme: light;
   font-family: "Georgia", "Times New Roman", serif;
-  background: linear-gradient(135deg, #f6f8fb 0%, #edf2f8 40%, #e3eaf2 100%);
+  background: linear-gradient(180deg, #f4f7fb 0%, #e8eef7 55%, #dfe7f2 100%);
   color: #1a2433;
   --ink: #1a2433;
   --muted: #4a6b8a;
@@ -12,11 +12,15 @@
   --accent-soft: #e7eef6;
   --danger: #7a1f1f;
   --success: #245737;
+  --card: #f9fbff;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 55%),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.8), transparent 60%),
+    var(--background, transparent);
 }
 
 .page {
@@ -31,6 +35,8 @@ body {
   justify-content: space-between;
   gap: 24px;
   flex-wrap: wrap;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(26, 36, 51, 0.08);
 }
 
 .eyebrow {
@@ -55,6 +61,16 @@ h1 {
   font-size: 14px;
   cursor: pointer;
   box-shadow: 0 10px 22px rgba(26, 36, 51, 0.18);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(26, 36, 51, 0.2);
+}
+
+.form-cta {
+  margin-top: 18px;
 }
 
 .grid {
@@ -92,6 +108,92 @@ h1 {
   box-shadow: 0 16px 32px rgba(24, 45, 72, 0.1);
 }
 
+.top-nav {
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.nav-tabs {
+  display: inline-flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
+  background: #eff4fa;
+  border: 1px solid rgba(26, 36, 51, 0.08);
+}
+
+.nav-tabs button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.nav-tabs button.active {
+  background: var(--accent);
+  color: #f4f7fb;
+}
+
+.nav-tabs button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nav-account {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid rgba(26, 36, 51, 0.08);
+}
+
+.nav-account .caption {
+  font-size: 12px;
+}
+
+.account-select {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.account-select label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.subhead {
+  margin-top: 24px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.subhead h3 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.subhead p {
+  margin: 0;
+  color: var(--muted);
+}
+
 .panel-header {
   display: flex;
   align-items: center;
@@ -103,31 +205,10 @@ h1 {
   margin: 0 0 18px;
 }
 
-.toggle {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+.panel .caption {
+  margin-top: 12px;
 }
 
-.toggle button {
-  border: 1px solid var(--accent);
-  background: transparent;
-  color: var(--accent);
-  padding: 10px 18px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
-}
-
-.toggle button.active {
-  background: var(--accent);
-  color: #f4f7fb;
-}
-
-.toggle button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 .grid label {
   display: flex;
@@ -182,6 +263,7 @@ textarea {
   border-radius: 14px;
   padding: 12px 14px;
   cursor: pointer;
+  width: 100%;
 }
 
 .queue-item.active {
@@ -193,6 +275,12 @@ textarea {
   margin-top: 0;
 }
 
+.queue-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .responses {
   display: grid;
   gap: 12px;
@@ -200,7 +288,7 @@ textarea {
 }
 
 .response-card {
-  background: #f9fbff;
+  background: var(--card);
   border: 1px solid #d4deea;
   border-radius: 14px;
   padding: 14px;
@@ -216,6 +304,7 @@ textarea {
   gap: 12px;
   margin-top: 16px;
   flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 .actions button {
@@ -230,6 +319,21 @@ textarea {
 
 .actions .danger {
   background: var(--danger);
+}
+
+.row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.queue-detail label {
+  margin-top: 4px;
+}
+
+.queue-detail textarea {
+  width: 100%;
 }
 
 .table {
@@ -272,6 +376,10 @@ textarea {
 @media (max-width: 900px) {
   .queue {
     grid-template-columns: 1fr;
+  }
+
+  .top-nav {
+    align-items: flex-start;
   }
 }
 

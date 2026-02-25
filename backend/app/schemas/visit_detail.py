@@ -26,6 +26,8 @@ class ResponseItem(BaseModel):
 class VisitDetail(BaseModel):
     visit_id: UUID
     business_id: int
+    business_name: str
+    business_priority: str
     representative_id: int
     visit_date: date
     visit_type: str

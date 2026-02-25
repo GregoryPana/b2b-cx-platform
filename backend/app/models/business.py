@@ -13,6 +13,6 @@ class Business(Base):
     account_executive_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("account_executives.id"), nullable=True
     )
-    priority_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    priority_level: Mapped[str] = mapped_column(String(20), nullable=False, server_default="medium")
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())

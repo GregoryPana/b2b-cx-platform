@@ -29,17 +29,31 @@ def seed_data() -> None:
             session.add_all(
                 [
                     Business(
-                        name="Northwind Logistics",
-                        location="London",
+                        name="Air Seychelles",
+                        location="Mahe",
                         account_executive_id=executive.id if executive else None,
-                        priority_flag=True,
+                        priority_level="high",
                         active=True,
                     ),
                     Business(
-                        name="Contoso Labs",
-                        location="Manchester",
+                        name="Four Seasons",
+                        location="Mahe",
                         account_executive_id=executive.id if executive else None,
-                        priority_flag=False,
+                        priority_level="high",
+                        active=True,
+                    ),
+                    Business(
+                        name="State House",
+                        location="Victoria",
+                        account_executive_id=executive.id if executive else None,
+                        priority_level="medium",
+                        active=True,
+                    ),
+                    Business(
+                        name="Hilton",
+                        location="Mahe",
+                        account_executive_id=executive.id if executive else None,
+                        priority_level="low",
                         active=True,
                     ),
                 ]
