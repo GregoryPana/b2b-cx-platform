@@ -71,3 +71,6 @@ Potential failures: auth misconfig (Entra JWT), DB connectivity, migration error
 - 2026-02-19: Added visit/response routers, schemas, auth stub, frontend scaffolds, and local tooling scripts.
 - 2026-02-19: Added Makefile, dev DB scripts, updated API docs, and aligned local CI dependencies.
 - 2026-02-19: Noted header-based auth stubs for local development.
+- 2026-02-19: Added PowerShell scripts for running backend, tests, and frontends.
+- 2026-02-19: Added CMD equivalents for local run scripts.
+- 2026-02-19: Reorganized scripts into scripts/cmd, scripts/powershell, and scripts/bash.

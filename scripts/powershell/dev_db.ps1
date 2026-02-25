@@ -3,6 +3,9 @@ param(
     [string]$Action = "up"
 )
 
+$root = Join-Path $PSScriptRoot "..\.."
+Set-Location $root
+
 if ($Action -eq "up") {
     docker compose -f docker-compose.dev.yml up -d
 } elseif ($Action -eq "down") {
