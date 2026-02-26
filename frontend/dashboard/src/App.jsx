@@ -23,6 +23,8 @@ export default function App() {
     representative_id: "",
     visit_date: ""
   });
+  const [plannedBusinessQuery, setPlannedBusinessQuery] = useState("");
+  const [plannedRepresentativeQuery, setPlannedRepresentativeQuery] = useState("");
   const [plannedEditForm, setPlannedEditForm] = useState({
     visit_id: "",
     business_name: "",
@@ -36,8 +38,14 @@ export default function App() {
     active: true,
     account_executive_id: ""
   });
+  const [accountExecutiveQuery, setAccountExecutiveQuery] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [reviewActionState, setReviewActionState] = useState({
+    loading: false,
+    type: "info",
+    text: ""
+  });
 
   const headers = useMemo(
     () => ({
@@ -134,10 +142,16 @@ export default function App() {
 
     if ((action === "needs-changes" || action === "reject") && !reviewNote.trim()) {
       setError("Review notes are required for Needs Changes or Reject.");
+      setReviewActionState({
+        loading: false,
+        type: "error",
+        text: "Add review notes before this action."
+      });
       return;
     }
 
     setMessage("");
+    setReviewActionState({ loading: true, type: "info", text: "Saving review action..." });
     const endpoint = `${API_BASE}/visits/${selectedVisit.visit_id}/${action}`;
     const payload =
       action === "needs-changes"
@@ -154,10 +168,20 @@ export default function App() {
     const data = await res.json();
     if (!res.ok) {
       setError(data.detail || "Failed to update visit");
+      setReviewActionState({
+        loading: false,
+        type: "error",
+        text: data.detail || "Failed to update visit"
+      });
       return;
     }
 
     setMessage(`Visit ${data.status}.`);
+    setReviewActionState({
+      loading: false,
+      type: "success",
+      text: `Review saved: ${data.status}`
+    });
     setReviewNote("");
     await loadPending();
     setSelectedVisit(null);
@@ -257,6 +281,8 @@ export default function App() {
       representative_id: "",
       visit_date: ""
     });
+    setPlannedBusinessQuery("");
+    setPlannedRepresentativeQuery("");
     await loadDraftVisits();
   };
 
@@ -345,6 +371,7 @@ export default function App() {
       active: true,
       account_executive_id: ""
     });
+    setAccountExecutiveQuery("");
     setMessage(`Business created: ${data.name}`);
     await loadBusinesses();
   };
@@ -360,6 +387,11 @@ export default function App() {
         ? String(business.account_executive_id)
         : ""
     });
+    setAccountExecutiveQuery(
+      business.account_executive_id
+        ? accountExecutiveMap[business.account_executive_id] || ""
+        : ""
+    );
   };
 
   const handleUpdateBusiness = async () => {
@@ -398,6 +430,7 @@ export default function App() {
       active: true,
       account_executive_id: ""
     });
+    setAccountExecutiveQuery("");
     await loadBusinesses();
   };
 
@@ -591,22 +624,28 @@ export default function App() {
             </label>
             <label>
               Account Executive
-              <select
-                value={businessForm.account_executive_id}
-                onChange={(event) =>
+              <input
+                list="account-executives"
+                value={accountExecutiveQuery}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setAccountExecutiveQuery(value);
+                  const match = accountExecutives.find(
+                    (exec) => exec.name.toLowerCase() === value.toLowerCase()
+                  );
                   setBusinessForm((prev) => ({
                     ...prev,
-                    account_executive_id: event.target.value
-                  }))
-                }
-              >
-                <option value="">Unassigned</option>
+                    account_executive_id: match ? String(match.id) : ""
+                  }));
+                }}
+                placeholder="Start typing an executive"
+              />
+              <datalist id="account-executives">
                 {accountExecutives.map((executive) => (
-                  <option key={executive.id} value={executive.id}>
-                    {executive.name}
-                  </option>
+                  <option key={executive.id} value={executive.name} />
                 ))}
-              </select>
+              </datalist>
+              <span className="caption">Select an executive from the list.</span>
             </label>
             <label>
               Status
@@ -645,35 +684,53 @@ export default function App() {
             <div className="grid">
               <label>
                 Business
-                <select
-                  value={plannedForm.business_id}
-                  onChange={(event) =>
-                    setPlannedForm((prev) => ({ ...prev, business_id: event.target.value }))
-                  }
-                >
-                  <option value="">Select business</option>
+                <input
+                  list="planned-businesses"
+                  value={plannedBusinessQuery}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setPlannedBusinessQuery(value);
+                    const match = businesses.find(
+                      (business) => business.name.toLowerCase() === value.toLowerCase()
+                    );
+                    setPlannedForm((prev) => ({
+                      ...prev,
+                      business_id: match ? String(match.id) : ""
+                    }));
+                  }}
+                  placeholder="Start typing a business name"
+                />
+                <datalist id="planned-businesses">
                   {businesses.map((business) => (
-                    <option key={business.id} value={business.id}>
-                      {business.name} ({business.priority_level})
-                    </option>
+                    <option key={business.id} value={business.name} />
                   ))}
-                </select>
+                </datalist>
+                <span className="caption">Select a business from the list.</span>
               </label>
               <label>
                 Representative
-                <select
-                  value={plannedForm.representative_id}
-                  onChange={(event) =>
-                    setPlannedForm((prev) => ({ ...prev, representative_id: event.target.value }))
-                  }
-                >
-                  <option value="">Select representative</option>
+                <input
+                  list="planned-representatives"
+                  value={plannedRepresentativeQuery}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setPlannedRepresentativeQuery(value);
+                    const match = representatives.find(
+                      (rep) => rep.name.toLowerCase() === value.toLowerCase()
+                    );
+                    setPlannedForm((prev) => ({
+                      ...prev,
+                      representative_id: match ? String(match.id) : ""
+                    }));
+                  }}
+                  placeholder="Start typing a representative"
+                />
+                <datalist id="planned-representatives">
                   {representatives.map((rep) => (
-                    <option key={rep.id} value={rep.id}>
-                      {rep.name}
-                    </option>
+                    <option key={rep.id} value={rep.name} />
                   ))}
-                </select>
+                </datalist>
+                <span className="caption">Select a representative from the list.</span>
               </label>
               <label>
                 Visit Date
@@ -798,14 +855,14 @@ export default function App() {
       ) : null}
 
       {activeView === "businesses" && canManageBusinesses ? (
-        <section className="table">
+        <section className="table business-directory">
           <div className="panel-header">
             <h2>Business Directory</h2>
             <button type="button" className="ghost" onClick={loadBusinesses}>
               Refresh
             </button>
           </div>
-          <div className="table-row header-row">
+          <div className="table-row header-row business-directory-row">
             <span>Business</span>
             <span>Priority</span>
             <span>Status</span>
@@ -814,13 +871,21 @@ export default function App() {
             <p className="caption">No businesses found.</p>
           ) : (
             businesses.map((business) => (
-              <div className="table-row" key={business.id}>
+                <div
+                  className={`table-row business-directory-row ${
+                    !business.location || !business.account_executive_id ? "needs-attention" : ""
+                  }`}
+                key={business.id}
+              >
                 <div>
                   <strong>{business.name}</strong>
                   <p className="caption">{business.location || "No location"}</p>
                   <p className="caption">
                     Account Executive: {accountExecutiveMap[business.account_executive_id] || "Unassigned"}
                   </p>
+                  {!business.location || !business.account_executive_id ? (
+                    <span className="badge">Needs details</span>
+                  ) : null}
                 </div>
                 <span>{business.priority_level}</span>
                 <div className="row-actions">
@@ -947,16 +1012,44 @@ export default function App() {
                     />
                   </label>
                   <div className="actions">
-                    <button type="button" onClick={() => submitReviewAction("needs-changes")}>
+                    <button
+                      type="button"
+                      onClick={() => submitReviewAction("needs-changes")}
+                      disabled={reviewActionState.loading}
+                      className="transition duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
                       Needs Changes
                     </button>
-                    <button type="button" onClick={() => submitReviewAction("approve")}>
+                    <button
+                      type="button"
+                      onClick={() => submitReviewAction("approve")}
+                      disabled={reviewActionState.loading}
+                      className="transition duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
                       Approve
                     </button>
-                    <button type="button" className="danger" onClick={() => submitReviewAction("reject")}>
+                    <button
+                      type="button"
+                      className="danger transition duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => submitReviewAction("reject")}
+                      disabled={reviewActionState.loading}
+                    >
                       Reject
                     </button>
                   </div>
+                  {reviewActionState.text ? (
+                    <p
+                      className={`mt-3 rounded-xl border px-3 py-2 text-sm ${
+                        reviewActionState.type === "success"
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                          : reviewActionState.type === "error"
+                          ? "border-red-300 bg-red-50 text-red-800"
+                          : "border-sky-300 bg-sky-50 text-sky-800"
+                      }`}
+                    >
+                      {reviewActionState.text}
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>

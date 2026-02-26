@@ -1,6 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   color-scheme: light;
-  font-family: "Georgia", "Times New Roman", serif;
+  font-family: "Source Sans 3", "Segoe UI", "Trebuchet MS", sans-serif;
   background: linear-gradient(135deg, #f6f8fb 0%, #edf2f8 40%, #e3eaf2 100%);
   color: #1a2433;
   --ink: #1a2433;
@@ -10,22 +14,32 @@
   --border: #c7d3e0;
   --accent: #1a2433;
   --accent-soft: #e7eef6;
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 20px;
+  --space-5: 24px;
+  --space-6: 30px;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  line-height: 1.5;
+  font-family: inherit;
 }
 
 .page {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 80px 24px 96px;
+  padding: 88px 28px 104px;
 }
 
 .hero {
   background: var(--panel-strong);
-  padding: 32px;
+  padding: 34px;
   border-radius: 24px;
   box-shadow: 0 16px 32px rgba(24, 45, 72, 0.12);
 }
@@ -40,6 +54,7 @@ body {
 
 h1 {
   font-size: 40px;
+  line-height: 1.1;
   margin: 0 0 12px;
 }
 
@@ -50,37 +65,38 @@ h1 {
 }
 
 .status {
-  margin-top: 24px;
+  margin-top: var(--space-5);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
+  gap: var(--space-3);
 }
 
 .status div {
   background: var(--panel);
-  padding: 20px;
+  padding: var(--space-4);
   border-radius: 18px;
   border: 1px solid var(--border);
 }
 
 .panel {
-  margin-top: 30px;
+  margin-top: var(--space-6);
   background: var(--panel);
-  padding: 26px;
-  border-radius: 20px;
+  padding: 28px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 16px 32px rgba(24, 45, 72, 0.1);
 }
 
 .panel h2 {
-  margin: 0 0 18px;
+  margin: 0 0 var(--space-4);
   font-size: 20px;
+  line-height: 1.2;
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-3);
 }
 
 .tabs {
@@ -121,18 +137,41 @@ h1 {
 
 .planned-list {
   display: grid;
-  gap: 12px;
+  gap: var(--space-2);
+}
+
+.planned-group {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.group-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--muted);
 }
 
 .planned-card {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3);
   border-radius: 16px;
   border: 1px solid var(--border);
   background: #f9fbff;
   text-align: left;
+  color: var(--ink);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.planned-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(26, 36, 51, 0.12);
+  border-color: #9bb1c8;
 }
 
 .planned-card p {
@@ -140,16 +179,125 @@ h1 {
   color: var(--muted);
 }
 
+.planned-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: #1a2433;
+  color: #f4f7fb;
+}
+
+.pill.priority-high {
+  background: #c1121f;
+  color: #fff1f1;
+}
+
+.pill.priority-medium {
+  background: #f5b700;
+  color: #fff7cc;
+}
+
+.pill.priority-low {
+  background: #23a971;
+  color: #e8fff2;
+}
+
+.pill.muted {
+  background: #dbe6f2;
+  color: #1a2433;
+}
+
+.pill.outline {
+  background: transparent;
+  border: 1px solid #1a2433;
+  color: #1a2433;
+}
+
+.pill.type-planned {
+  background: #dde7f5;
+  color: #1d3557;
+}
+
+.pill.type-priority {
+  background: #fde1d9;
+  color: #9b2226;
+}
+
+.pill.type-substitution {
+  background: #e6f4f1;
+  color: #1b5b4b;
+}
+
+.planned-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.question-groups {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.question-group {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.question-group h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.question-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.question-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: var(--space-4);
+}
+
+.question-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: flex-start;
+  margin-bottom: var(--space-3);
+}
+
+.question-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
+  gap: var(--space-3);
 }
 
 label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   font-size: 13px;
   color: var(--muted);
 }
@@ -157,15 +305,25 @@ label {
 input,
 select,
 textarea {
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  padding: 10px 12px;
+  padding: 11px 13px;
   font-size: 14px;
   background: #fefefe;
+  min-height: 44px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #6f8dad;
+  box-shadow: 0 0 0 3px rgba(111, 141, 173, 0.2);
 }
 
 textarea {
-  min-height: 100px;
+  min-height: 112px;
   resize: vertical;
 }
 
@@ -174,23 +332,35 @@ textarea {
 }
 
 button {
-  margin-top: 16px;
+  margin-top: var(--space-3);
   border: none;
   background: var(--accent);
   color: #f4f7fb;
-  padding: 10px 18px;
+  padding: 11px 18px;
   border-radius: 999px;
   cursor: pointer;
   font-size: 14px;
   box-shadow: 0 10px 18px rgba(26, 36, 51, 0.18);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 22px rgba(26, 36, 51, 0.2);
+}
+
+button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .message {
-  margin-top: 18px;
-  padding: 12px 16px;
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   background: #e7eef6;
   border-left: 4px solid var(--accent);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 
 .label {
@@ -204,10 +374,14 @@ button {
 
 @media (max-width: 600px) {
   .page {
-    padding: 48px 18px 72px;
+    padding: 52px 18px 76px;
   }
 
   h1 {
     font-size: 32px;
+  }
+
+  .question-head {
+    flex-direction: column;
   }
 }
