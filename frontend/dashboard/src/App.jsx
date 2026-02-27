@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  `http://${window.location.hostname === "localhost" ? "localhost" : window.location.hostname}:8000`;
 
 export default function App() {
   const [userId, setUserId] = useState("3");
@@ -998,8 +1000,22 @@ export default function App() {
                     {selectedVisit.responses.map((response) => (
                       <div key={response.response_id} className="response-card">
                         <strong>Q{response.question_id}</strong>
-                        <span>Score: {response.score}</span>
-                        <p>{response.verbatim}</p>
+                        {response.score !== null && response.score !== undefined ? (
+                          <span>Score: {response.score}</span>
+                        ) : (
+                          <span>Text response</span>
+                        )}
+                        <p>{response.answer_text || response.verbatim || "No verbatim provided."}</p>
+                        {response.actions && response.actions.length > 0 ? (
+                          <div>
+                            {response.actions.map((action) => (
+                              <p key={action.id}>
+                                Action: {action.action_required} · Owner: {action.action_owner} · Time: {action.action_timeframe}
+                                {action.action_support_needed ? ` · Support: ${action.action_support_needed}` : ""}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>

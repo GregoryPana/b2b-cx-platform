@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  `http://${window.location.hostname === "localhost" ? "localhost" : window.location.hostname}:8000`;
 const QUESTION_CATEGORY_ORDER = [
-  "Classic NPS",
-  "Relationship Management",
-  "Service Performance",
-  "Communication & Transparency",
-  "Overall Value & Partnership"
+  "Category 1: Relationship Strength",
+  "Category 2: Service & Operational Performance",
+  "Category 3: Commercial & Billing",
+  "Category 4: Competitive & Portfolio Intelligence",
+  "Category 5: Growth & Expansion",
+  "Category 6: Advocacy"
 ];
 const NOTICE_STYLE = {
   success: "border-emerald-300 bg-emerald-50 text-emerald-800",
@@ -44,6 +47,8 @@ export default function App() {
     submit: null
   });
   const [toast, setToast] = useState(null);
+  const [showQuestionsTopFab, setShowQuestionsTopFab] = useState(false);
+  const questionsSectionRef = useRef(null);
 
   const [visitForm, setVisitForm] = useState({
     business_id: "1",
@@ -90,6 +95,33 @@ export default function App() {
     const timer = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const section = questionsSectionRef.current;
+      if (!section) {
+        setShowQuestionsTopFab(false);
+        return;
+      }
+
+      const rect = section.getBoundingClientRect();
+      const passedQuestions = rect.bottom < window.innerHeight * 0.45;
+      setShowQuestionsTopFab(passedQuestions);
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll);
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [questions.length]);
+
+  const scrollToQuestionsTop = () => {
+    questionsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   useEffect(() => {
     const loadBusinesses = async () => {
@@ -139,11 +171,9 @@ export default function App() {
             if (!next[question.id]) {
               next[question.id] = {
                 score: "",
+                answer_text: "",
                 verbatim: "",
-                action_required: "",
-                action_target: "",
-                priority_level: "",
-                due_date: ""
+                actions: []
               };
             }
           });
@@ -214,11 +244,14 @@ export default function App() {
         nextResponses[response.question_id] = response;
         nextDrafts[response.question_id] = {
           score: String(response.score ?? ""),
+          answer_text: response.answer_text || "",
           verbatim: response.verbatim || "",
-          action_required: response.action_required || "",
-          action_target: response.action_target || "",
-          priority_level: response.priority_level || "",
-          due_date: response.due_date || ""
+          actions: (response.actions || []).map((action) => ({
+            action_required: action.action_required || "",
+            action_owner: action.action_owner || "",
+            action_timeframe: action.action_timeframe || "",
+            action_support_needed: action.action_support_needed || ""
+          }))
         };
       });
 
@@ -266,6 +299,27 @@ export default function App() {
     return match ? match.name : "Business";
   };
 
+  const getDraftProgressLabel = (draft) => {
+    const answered = draft.mandatory_answered_count ?? 0;
+    const total = draft.mandatory_total_count ?? 0;
+    if (draft.is_completed) {
+      return {
+        text: total > 0 ? `Ready to submit (${answered}/${total})` : "Ready to submit",
+        className: "progress-complete"
+      };
+    }
+    if (draft.is_started) {
+      return {
+        text: total > 0 ? `In progress (${answered}/${total})` : "In progress",
+        className: "progress-started"
+      };
+    }
+    return {
+      text: total > 0 ? `Not started (0/${total})` : "Not started",
+      className: "progress-not-started"
+    };
+  };
+
   const handleSelectPlannedVisit = (draft) => {
     setSelectedDraftId(draft.visit_id);
     setSelectedDraftName(resolveBusinessName(draft));
@@ -289,15 +343,66 @@ export default function App() {
       [questionId]: {
         ...(prev[questionId] || {
           score: "",
+          answer_text: "",
           verbatim: "",
-          action_required: "",
-          action_target: "",
-          priority_level: "",
-          due_date: ""
+          actions: []
         }),
         [field]: value
       }
     }));
+  };
+
+  const addActionItem = (questionId) => {
+    setResponseDrafts((prev) => {
+      const current = prev[questionId] || { score: "", answer_text: "", verbatim: "", actions: [] };
+      return {
+        ...prev,
+        [questionId]: {
+          ...current,
+          actions: [
+            ...(current.actions || []),
+            {
+              action_required: "",
+              action_owner: "",
+              action_timeframe: "",
+              action_support_needed: ""
+            }
+          ]
+        }
+      };
+    });
+  };
+
+  const updateActionItem = (questionId, index, field, value) => {
+    setResponseDrafts((prev) => {
+      const current = prev[questionId] || { score: "", answer_text: "", verbatim: "", actions: [] };
+      const updatedActions = [...(current.actions || [])];
+      if (!updatedActions[index]) return prev;
+      updatedActions[index] = {
+        ...updatedActions[index],
+        [field]: value
+      };
+      return {
+        ...prev,
+        [questionId]: {
+          ...current,
+          actions: updatedActions
+        }
+      };
+    });
+  };
+
+  const removeActionItem = (questionId, index) => {
+    setResponseDrafts((prev) => {
+      const current = prev[questionId] || { score: "", answer_text: "", verbatim: "", actions: [] };
+      return {
+        ...prev,
+        [questionId]: {
+          ...current,
+          actions: (current.actions || []).filter((_, actionIndex) => actionIndex !== index)
+        }
+      };
+    });
   };
 
   const createBusinessIfNeeded = async () => {
@@ -420,25 +525,68 @@ export default function App() {
 
     const responseForm = responseDrafts[question.id] || {};
     const scoreNum = Number(responseForm.score);
-    if (!responseForm.score || Number.isNaN(scoreNum) || scoreNum < 0 || scoreNum > 10) {
-      const errorText = `Enter a valid score (0-10) for ${question.category}.`;
+
+    if (question.input_type === "score") {
+      if (
+        responseForm.score === "" ||
+        Number.isNaN(scoreNum) ||
+        (question.score_min !== null && question.score_min !== undefined && scoreNum < question.score_min) ||
+        (question.score_max !== null && question.score_max !== undefined && scoreNum > question.score_max)
+      ) {
+        const min = question.score_min ?? 0;
+        const max = question.score_max ?? 10;
+        const errorText = `Enter a valid score (${min}-${max}) for ${question.category}.`;
+        setSectionNotice("response", "error", errorText);
+        notify("error", errorText);
+        return;
+      }
+    }
+
+    if (question.input_type === "text" && question.is_mandatory && !responseForm.answer_text?.trim()) {
+      const errorText = `Answer is required for "${question.question_text}".`;
       setSectionNotice("response", "error", errorText);
       notify("error", errorText);
       return;
     }
 
-    if (question.is_mandatory && !responseForm.verbatim?.trim()) {
-      const errorText = `Verbatim is required for "${question.question_text}".`;
+    if (question.input_type === "yes_no" && !["Y", "N"].includes(responseForm.answer_text || "")) {
+      const errorText = `Select Yes or No for "${question.question_text}".`;
       setSectionNotice("response", "error", errorText);
       notify("error", errorText);
       return;
     }
 
     if (
-      responseForm.action_required?.trim() &&
-      (!responseForm.action_target?.trim() || !responseForm.priority_level?.trim())
+      question.input_type === "always_sometimes_never" &&
+      !["Always", "Sometimes", "Never"].includes(responseForm.answer_text || "")
     ) {
-      const errorText = "Action target and priority level are required when action required is filled.";
+      const errorText = `Select Always, Sometimes, or Never for "${question.question_text}".`;
+      setSectionNotice("response", "error", errorText);
+      notify("error", errorText);
+      return;
+    }
+
+    const normalizedActions = (responseForm.actions || [])
+      .map((action) => ({
+        action_required: action.action_required?.trim() || "",
+        action_owner: action.action_owner?.trim() || "",
+        action_timeframe: action.action_timeframe || "",
+        action_support_needed: action.action_support_needed?.trim() || ""
+      }))
+      .filter(
+        (action) =>
+          action.action_required ||
+          action.action_owner ||
+          action.action_timeframe ||
+          action.action_support_needed
+      );
+
+    const hasInvalidAction = normalizedActions.some(
+      (action) => !action.action_required || !action.action_owner || !action.action_timeframe
+    );
+
+    if (hasInvalidAction) {
+      const errorText = "Each action requires Action Required, Lead Owner, and Proposed Action Time.";
       setSectionNotice("response", "error", errorText);
       notify("error", errorText);
       return;
@@ -449,12 +597,17 @@ export default function App() {
     try {
       const payload = {
         question_id: Number(question.id),
-        score: scoreNum,
-        verbatim: responseForm.verbatim?.trim() || "",
-        action_required: responseForm.action_required?.trim() || null,
-        action_target: responseForm.action_target?.trim() || null,
-        priority_level: responseForm.priority_level?.trim() || null,
-        due_date: responseForm.due_date || null
+        score: question.input_type === "score" ? scoreNum : null,
+        answer_text:
+          question.input_type === "score"
+            ? null
+            : question.input_type === "yes_no"
+            ? responseForm.answer_text || null
+            : question.input_type === "always_sometimes_never"
+            ? responseForm.answer_text || null
+            : responseForm.answer_text?.trim() || null,
+        verbatim: responseForm.verbatim?.trim() || null,
+        actions: normalizedActions
       };
 
       const existingResponse = responsesByQuestion[question.id];
@@ -587,7 +740,7 @@ export default function App() {
         </p>
       </section>
 
-      <section className="panel">
+      <section ref={questionsSectionRef} className="panel">
         <h2>Identity</h2>
         <div className="grid">
           <label>
@@ -659,79 +812,85 @@ export default function App() {
               {plannedToday.length > 0 ? (
                 <div className="planned-group">
                   <span className="group-label">Today</span>
-                  {plannedToday.map((draft) => (
-                    <button
-                      type="button"
-                      key={draft.visit_id}
-                      className="planned-card"
-                      onClick={() => handleSelectPlannedVisit(draft)}
-                    >
-                      <div>
-                        <strong>{resolveBusinessName(draft)}</strong>
-                        <div className="planned-badges">
-                          <span
-                            className={`pill priority-${draft.business_priority || "medium"}`}
-                          >
-                            {draft.business_priority ? `${draft.business_priority} priority` : "standard priority"}
-                          </span>
-                          <span
-                            className={`pill type-${(draft.visit_type || "Planned").toLowerCase()}`}
-                          >
-                            {draft.visit_type || "Planned"}
-                          </span>
-                          <span className="pill outline">
-                            {draft.created_by_role && (draft.created_by_role === "Manager" || draft.created_by_role === "Admin")
-                              ? "Manager Plan"
-                              : "Rep Draft"}
-                          </span>
+                  {plannedToday.map((draft) => {
+                    const progress = getDraftProgressLabel(draft);
+                    return (
+                      <button
+                        type="button"
+                        key={draft.visit_id}
+                        className="planned-card"
+                        onClick={() => handleSelectPlannedVisit(draft)}
+                      >
+                        <div>
+                          <strong>{resolveBusinessName(draft)}</strong>
+                          <div className="planned-badges">
+                            <span className={`pill priority-${draft.business_priority || "medium"}`}>
+                              {draft.business_priority
+                                ? `${draft.business_priority} priority`
+                                : "standard priority"}
+                            </span>
+                            <span className={`pill type-${(draft.visit_type || "Planned").toLowerCase()}`}>
+                              {draft.visit_type || "Planned"}
+                            </span>
+                            <span className="pill outline">
+                              {draft.created_by_role &&
+                              (draft.created_by_role === "Manager" || draft.created_by_role === "Admin")
+                                ? "Manager Plan"
+                                : "Rep Draft"}
+                            </span>
+                            <span className={`pill ${progress.className}`}>{progress.text}</span>
+                          </div>
+                          <p>Visit ID: {draft.visit_id.slice(0, 8)}</p>
                         </div>
-                        <p>Visit ID: {draft.visit_id.slice(0, 8)}</p>
-                      </div>
-                      <div className="planned-meta">
-                        <span>{draft.visit_date}</span>
-                        <span>Representative #{draft.representative_id}</span>
-                      </div>
-                    </button>
-                  ))}
+                        <div className="planned-meta">
+                          <span>{draft.visit_date}</span>
+                          <span>Representative #{draft.representative_id}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               ) : null}
               {plannedUpcoming.length > 0 ? (
                 <div className="planned-group">
                   <span className="group-label">Upcoming</span>
-                  {plannedUpcoming.map((draft) => (
-                    <button
-                      type="button"
-                      key={draft.visit_id}
-                      className="planned-card"
-                      onClick={() => handleSelectPlannedVisit(draft)}
-                    >
-                      <div>
-                        <strong>{resolveBusinessName(draft)}</strong>
-                        <div className="planned-badges">
-                          <span
-                            className={`pill priority-${draft.business_priority || "medium"}`}
-                          >
-                            {draft.business_priority ? `${draft.business_priority} priority` : "standard priority"}
-                          </span>
-                          <span
-                            className={`pill type-${(draft.visit_type || "Planned").toLowerCase()}`}
-                          >
-                            {draft.visit_type || "Planned"}
-                          </span>
-                          <span className="pill outline">
-                            {draft.created_by_role && (draft.created_by_role === "Manager" || draft.created_by_role === "Admin")
-                              ? "Manager Plan"
-                              : "Rep Draft"}
-                          </span>
+                  {plannedUpcoming.map((draft) => {
+                    const progress = getDraftProgressLabel(draft);
+                    return (
+                      <button
+                        type="button"
+                        key={draft.visit_id}
+                        className="planned-card"
+                        onClick={() => handleSelectPlannedVisit(draft)}
+                      >
+                        <div>
+                          <strong>{resolveBusinessName(draft)}</strong>
+                          <div className="planned-badges">
+                            <span className={`pill priority-${draft.business_priority || "medium"}`}>
+                              {draft.business_priority
+                                ? `${draft.business_priority} priority`
+                                : "standard priority"}
+                            </span>
+                            <span className={`pill type-${(draft.visit_type || "Planned").toLowerCase()}`}>
+                              {draft.visit_type || "Planned"}
+                            </span>
+                            <span className="pill outline">
+                              {draft.created_by_role &&
+                              (draft.created_by_role === "Manager" || draft.created_by_role === "Admin")
+                                ? "Manager Plan"
+                                : "Rep Draft"}
+                            </span>
+                            <span className={`pill ${progress.className}`}>{progress.text}</span>
+                          </div>
+                          <p>Visit ID: {draft.visit_id.slice(0, 8)}</p>
                         </div>
-                        <p>Visit ID: {draft.visit_id.slice(0, 8)}</p>
-                      </div>
-                      <div className="planned-meta">
-                        <span>{draft.visit_date}</span>
-                        <span>Representative #{draft.representative_id}</span>
-                      </div>
-                    </button>
-                  ))}
+                        <div className="planned-meta">
+                          <span>{draft.visit_date}</span>
+                          <span>Representative #{draft.representative_id}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
@@ -775,11 +934,14 @@ export default function App() {
                   }}
                 >
                   <option value="">Select a planned visit</option>
-                  {draftVisits.map((draft) => (
-                    <option key={draft.visit_id} value={draft.visit_id}>
-                      {draft.business_name} ({draft.business_priority || "medium"}) · {draft.visit_date}
-                    </option>
-                  ))}
+                  {draftVisits.map((draft) => {
+                    const progress = getDraftProgressLabel(draft);
+                    return (
+                      <option key={draft.visit_id} value={draft.visit_id}>
+                        {draft.business_name} ({draft.business_priority || "medium"}) · {draft.visit_date} · {progress.text}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
             ) : (
@@ -896,7 +1058,13 @@ export default function App() {
           <div className="question-groups">
             {orderedCategories.map((category) => (
               <section key={category} className="question-group">
-                <h3>{category}</h3>
+                <div className="question-group-header">
+                  <h3>{category}</h3>
+                  <span className="category-chip">
+                    {groupedQuestions[category].length} question
+                    {groupedQuestions[category].length === 1 ? "" : "s"}
+                  </span>
+                </div>
                 <div className="question-list">
                   {groupedQuestions[category].map((question) => {
                     const draft = responseDrafts[question.id] || {};
@@ -905,72 +1073,210 @@ export default function App() {
                     return (
                       <article key={question.id} className="question-card">
                         <div className="question-head">
-                          <strong>{question.question_text}</strong>
+                          <strong>
+                            Q{question.order_index}. {question.question_text}
+                          </strong>
                           <div className="question-tags">
                             {question.is_mandatory ? <span className="pill">Required</span> : null}
                             {question.is_nps ? <span className="pill type-planned">NPS</span> : null}
                             {existingResponse ? <span className="pill priority-low">Saved</span> : null}
                           </div>
                         </div>
+                        {question.helper_text ? <p className="caption">{question.helper_text}</p> : null}
                         <div className="grid">
-                          <label>
-                            Score (0-10)
-                            <input
-                              type="number"
-                              min="0"
-                              max="10"
-                              value={draft.score || ""}
-                              onChange={(event) =>
-                                updateQuestionDraft(question.id, "score", event.target.value)
-                              }
-                            />
-                          </label>
-                          <label className="full">
-                            Verbatim
-                            <textarea
-                              value={draft.verbatim || ""}
-                              onChange={(event) =>
-                                updateQuestionDraft(question.id, "verbatim", event.target.value)
-                              }
-                            />
-                          </label>
-                          <label>
-                            Action Required
-                            <input
-                              value={draft.action_required || ""}
-                              onChange={(event) =>
-                                updateQuestionDraft(question.id, "action_required", event.target.value)
-                              }
-                            />
-                          </label>
-                          <label>
-                            Action Target
-                            <input
-                              value={draft.action_target || ""}
-                              onChange={(event) =>
-                                updateQuestionDraft(question.id, "action_target", event.target.value)
-                              }
-                            />
-                          </label>
-                          <label>
-                            Priority Level
-                            <input
-                              value={draft.priority_level || ""}
-                              onChange={(event) =>
-                                updateQuestionDraft(question.id, "priority_level", event.target.value)
-                              }
-                            />
-                          </label>
-                          <label>
-                            Due Date
-                            <input
-                              type="date"
-                              value={draft.due_date || ""}
-                              onChange={(event) =>
-                                updateQuestionDraft(question.id, "due_date", event.target.value)
-                              }
-                            />
-                          </label>
+                          {question.input_type === "score" ? (
+                            <>
+                              <label>
+                                Score ({question.score_min ?? 0}-{question.score_max ?? 10})
+                                <input
+                                  type="number"
+                                  min={question.score_min ?? 0}
+                                  max={question.score_max ?? 10}
+                                  value={draft.score || ""}
+                                  onChange={(event) =>
+                                    updateQuestionDraft(question.id, "score", event.target.value)
+                                  }
+                                />
+                              </label>
+                              <label className="full">
+                                Verbatim / Evidence (Optional)
+                                <textarea
+                                  value={draft.verbatim || ""}
+                                  onChange={(event) =>
+                                    updateQuestionDraft(question.id, "verbatim", event.target.value)
+                                  }
+                                />
+                              </label>
+                              <div className="full action-list-head">
+                                <strong>Actions (optional)</strong>
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  onClick={() => addActionItem(question.id)}
+                                >
+                                  Add Action
+                                </button>
+                              </div>
+                              {(draft.actions || []).map((action, actionIndex) => (
+                                <div key={`${question.id}-${actionIndex}`} className="full action-card">
+                                  <div className="grid">
+                                    <label className="full">
+                                      Action Required
+                                      <input
+                                        value={action.action_required || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_required",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      Lead Owner
+                                      <input
+                                        value={action.action_owner || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_owner",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      Proposed Action Time
+                                      <select
+                                        value={action.action_timeframe || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_timeframe",
+                                            event.target.value
+                                          )
+                                        }
+                                      >
+                                        <option value="">Select timeframe</option>
+                                        <option value="lt_1_month">&lt; 1 month</option>
+                                        <option value="lt_3_months">&lt; 3 months</option>
+                                        <option value="gt_3_months">&gt; 3 months</option>
+                                      </select>
+                                    </label>
+                                    <label className="full">
+                                      Support Needed (department or person)
+                                      <input
+                                        value={action.action_support_needed || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_support_needed",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="danger action-remove"
+                                    onClick={() => removeActionItem(question.id, actionIndex)}
+                                  >
+                                    Remove Action
+                                  </button>
+                                </div>
+                              ))}
+                            </>
+                          ) : question.input_type === "yes_no" ? (
+                            <label className="full">
+                              Answer
+                              <div className="yes-no-group">
+                                <label className="yes-no-option">
+                                  <input
+                                    type="radio"
+                                    name={`q-${question.id}-yesno`}
+                                    checked={draft.answer_text === "Y"}
+                                    onChange={() => updateQuestionDraft(question.id, "answer_text", "Y")}
+                                  />
+                                  Yes
+                                </label>
+                                <label className="yes-no-option">
+                                  <input
+                                    type="radio"
+                                    name={`q-${question.id}-yesno`}
+                                    checked={draft.answer_text === "N"}
+                                    onChange={() => updateQuestionDraft(question.id, "answer_text", "N")}
+                                  />
+                                  No
+                                </label>
+                              </div>
+                            </label>
+                          ) : question.input_type === "always_sometimes_never" ? (
+                            <>
+                              <label className="full">
+                                Answer
+                                <div className="yes-no-group">
+                                  <label className="yes-no-option">
+                                    <input
+                                      type="radio"
+                                      name={`q-${question.id}-asn`}
+                                      checked={draft.answer_text === "Always"}
+                                      onChange={() =>
+                                        updateQuestionDraft(question.id, "answer_text", "Always")
+                                      }
+                                    />
+                                    Always
+                                  </label>
+                                  <label className="yes-no-option">
+                                    <input
+                                      type="radio"
+                                      name={`q-${question.id}-asn`}
+                                      checked={draft.answer_text === "Sometimes"}
+                                      onChange={() =>
+                                        updateQuestionDraft(question.id, "answer_text", "Sometimes")
+                                      }
+                                    />
+                                    Sometimes
+                                  </label>
+                                  <label className="yes-no-option">
+                                    <input
+                                      type="radio"
+                                      name={`q-${question.id}-asn`}
+                                      checked={draft.answer_text === "Never"}
+                                      onChange={() =>
+                                        updateQuestionDraft(question.id, "answer_text", "Never")
+                                      }
+                                    />
+                                    Never
+                                  </label>
+                                </div>
+                              </label>
+                              <label className="full">
+                                Verbatim / Evidence (Optional)
+                                <textarea
+                                  value={draft.verbatim || ""}
+                                  onChange={(event) =>
+                                    updateQuestionDraft(question.id, "verbatim", event.target.value)
+                                  }
+                                />
+                              </label>
+                            </>
+                          ) : (
+                            <label className="full">
+                              Answer
+                              <textarea
+                                value={draft.answer_text || ""}
+                                onChange={(event) =>
+                                  updateQuestionDraft(question.id, "answer_text", event.target.value)
+                                }
+                              />
+                            </label>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -1036,6 +1342,12 @@ export default function App() {
       ) : null}
 
       {message ? <p className="message">{message}</p> : null}
+
+      {showQuestionsTopFab ? (
+        <button type="button" className="scroll-top-fab" onClick={scrollToQuestionsTop}>
+          Questions Top
+        </button>
+      ) : null}
     </main>
   );
 }

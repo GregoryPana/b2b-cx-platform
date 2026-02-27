@@ -11,6 +11,15 @@ from app.schemas.question import QuestionCreate, QuestionOut, QuestionUpdate
 router = APIRouter(prefix="/questions", tags=["questions"])
 
 
+def _normalize_score_bounds(question: Question) -> None:
+    if question.input_type == "score":
+        question.score_min = 0
+        question.score_max = 10
+    else:
+        question.score_min = None
+        question.score_max = None
+
+
 @router.get("", response_model=list[QuestionOut])
 def list_questions(
     db: Session = Depends(get_db),
@@ -28,6 +37,7 @@ def create_question(
     _user: CurrentUser = Depends(require_roles([ROLE_ADMIN])),
 ):
     question = Question(**payload.model_dump())
+    _normalize_score_bounds(question)
     db.add(question)
     db.commit()
     db.refresh(question)
@@ -47,6 +57,8 @@ def update_question(
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(question, field, value)
+
+    _normalize_score_bounds(question)
 
     db.commit()
     db.refresh(question)

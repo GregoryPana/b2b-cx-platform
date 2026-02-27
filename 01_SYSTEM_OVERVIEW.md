@@ -11,6 +11,7 @@ The B2B Customer Experience Governance Platform is an internal enterprise system
 - Log action items per question
 - Route submissions through approval workflow (Needs Changes, Approved, Rejected)
 - Provide role-based dashboards and analytics
+- Support planned visit drafts assigned to representatives
 - Support segmented production deployment (DMZ + Internal LAN)
 
 This system is web-based, API-driven, and production-ready by design.

@@ -77,3 +77,5 @@ Potential failures: auth misconfig (Entra JWT), DB connectivity, migration error
 - 2026-02-19: Added CRUD endpoints, dashboard metrics, seed script, and wired frontends to API.
 - 2026-02-19: Added visit detail endpoint and reviewer workflow UI in dashboard.
 - 2026-02-19: Added dashboard toggle between metrics and review queue.
+- 2026-02-19: Added business names in review queue and survey business selection with priority labels.
+- 2026-02-26: Added planned visit drafts, business priority levels, and dashboard/survey tab navigation.

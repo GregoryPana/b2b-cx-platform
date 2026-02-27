@@ -15,6 +15,8 @@ class VisitCreate(BaseModel):
     representative_id: int
     visit_date: date
     visit_type: str
+    escalation_occurred: bool = False
+    issue_experienced: bool = False
     meeting_attendees: List[MeetingAttendeeCreate] = Field(default_factory=list)
 
 
@@ -26,6 +28,8 @@ class VisitDraftUpdate(BaseModel):
     representative_id: int | None = None
     visit_date: date | None = None
     visit_type: str | None = None
+    escalation_occurred: bool | None = None
+    issue_experienced: bool | None = None
 
 
 class VisitNeedsChanges(BaseModel):
@@ -46,14 +50,23 @@ class VisitResponse(BaseModel):
     business_id: int | None = None
     business_name: str | None = None
     business_priority: str | None = None
+    created_by: int | None = None
+    created_by_role: str | None = None
+    created_by_name: str | None = None
     representative_id: int | None = None
     visit_date: date | None = None
     visit_type: str | None = None
+    escalation_occurred: bool | None = None
+    issue_experienced: bool | None = None
     reviewer_id: int | None = None
     review_timestamp: datetime | None = None
     change_notes: str | None = None
     approval_timestamp: datetime | None = None
     approval_notes: str | None = None
     rejection_notes: str | None = None
+    mandatory_answered_count: int | None = None
+    mandatory_total_count: int | None = None
+    is_started: bool | None = None
+    is_completed: bool | None = None
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -17,6 +18,12 @@ from app.routers.visits import router as visits_router
 def create_app() -> FastAPI:
     repo_root = Path(__file__).resolve().parents[2]
     load_dotenv(repo_root / ".env")
+
+    cors_origin_regex = os.getenv(
+        "CORS_ALLOW_ORIGIN_REGEX",
+        r"^https?://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+):(5173|5174)$",
+    )
+
     app = FastAPI(title="B2B CX Governance Platform")
     app.add_middleware(
         CORSMiddleware,
@@ -26,6 +33,7 @@ def create_app() -> FastAPI:
             "http://localhost:5174",
             "http://127.0.0.1:5174",
         ],
+        allow_origin_regex=cors_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

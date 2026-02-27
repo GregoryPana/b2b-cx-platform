@@ -11,6 +11,6 @@ if (-not (Test-Path "node_modules")) {
     npm install
 }
 
-npm run dev -- --port $Port
+npm run dev -- --host 0.0.0.0 --port $Port --strictPort
 
 Pop-Location

@@ -5,13 +5,13 @@
 - GET /auth/me
 
 ## Users
-- GET /users (Admin)
+- GET /users (Admin or Manager)
 - POST /users (Admin)
 - PUT /users/{id} (Admin)
 
 ## Businesses
 - GET /businesses
-- POST /businesses (Admin or Manager)
+- POST /businesses (Admin, Manager, or Representative)
 - PUT /businesses/{id} (Admin or Manager)
 
 ## Account Executives
@@ -33,8 +33,8 @@
 
 ### POST /visits
 Request:
-- business_id (uuid, required)
-- representative_id (uuid, required)
+- business_id (int, required)
+- representative_id (int, required)
 - visit_date (date, required)
 - visit_type (string, required)
 - meeting_attendees (array, optional)
@@ -92,7 +92,7 @@ Response:
 
 ### POST /visits/{id}/responses
 Request:
-- question_id (uuid, required)
+- question_id (int, required)
 - score (integer 0-10, required)
 - verbatim (string, required)
 - action_required (string, optional)
@@ -140,3 +140,34 @@ Response:
 - GET /questions
 - POST /questions (Admin)
 - PUT /questions/{id}
+### GET /visits/drafts
+Returns draft visits for all roles.
+
+Response:
+- visit_id
+- status
+- business_id
+- business_name
+- business_priority
+- created_by
+- created_by_role
+- created_by_name
+- representative_id
+- visit_date
+- visit_type
+
+### PUT /visits/{id}/draft
+Update draft visit details (business is immutable).
+
+Request:
+- representative_id (int, optional)
+- visit_date (date, optional)
+- visit_type (string, optional)
+
+Response:
+- visit_id
+- status
+- business_id
+- representative_id
+- visit_date
+- visit_type

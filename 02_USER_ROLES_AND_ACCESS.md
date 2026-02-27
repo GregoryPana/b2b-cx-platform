@@ -5,6 +5,7 @@
 ### Representative
 - Create visits
 - Edit draft visits
+- Update planned draft visit date/type (business locked)
 - Edit visits marked Needs Changes
 - Submit visits
 - View own submissions
@@ -20,6 +21,8 @@
 
 ### Manager
 - View dashboards
+- Create planned draft visits for representatives
+- Manage businesses (priority, active status, account executive assignment)
 - Filter by:
   - Date
   - Account Executive

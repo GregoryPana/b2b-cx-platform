@@ -5,18 +5,18 @@
 :root {
   color-scheme: light;
   font-family: "Source Sans 3", "Segoe UI", "Trebuchet MS", sans-serif;
-  background: linear-gradient(180deg, #f4f7fb 0%, #e8eef7 55%, #dfe7f2 100%);
-  color: #1a2433;
-  --ink: #1a2433;
-  --muted: #4a6b8a;
-  --panel: rgba(255, 255, 255, 0.88);
-  --panel-strong: rgba(255, 255, 255, 0.94);
-  --border: #c7d3e0;
-  --accent: #1a2433;
-  --accent-soft: #e7eef6;
+  background: linear-gradient(160deg, #d9e7fb 0%, #b9d1f6 40%, #9fc1ef 100%);
+  color: #0f2238;
+  --ink: #0f2238;
+  --muted: #294f78;
+  --panel: rgba(245, 251, 255, 0.62);
+  --panel-strong: rgba(245, 251, 255, 0.72);
+  --border: rgba(108, 152, 208, 0.45);
+  --accent: #0f2e52;
+  --accent-soft: rgba(205, 226, 249, 0.68);
   --danger: #7a1f1f;
   --success: #245737;
-  --card: #f9fbff;
+  --card: rgba(255, 255, 255, 0.78);
   --radius-lg: 20px;
   --radius-md: 14px;
   --space-1: 8px;
@@ -32,15 +32,15 @@ body {
   min-height: 100vh;
   line-height: 1.5;
   font-family: inherit;
-  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 55%),
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.8), transparent 60%),
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.92), transparent 50%),
+    radial-gradient(circle at top right, rgba(220, 236, 255, 0.9), transparent 55%),
     var(--background, transparent);
 }
 
 .page {
-  max-width: 1100px;
+  width: min(100%, 1560px);
   margin: 0 auto;
-  padding: 88px 28px 104px;
+  padding: 46px 34px 70px;
 }
 
 .header {
@@ -50,7 +50,7 @@ body {
   gap: var(--space-5);
   flex-wrap: wrap;
   padding-bottom: var(--space-5);
-  border-bottom: 1px solid rgba(26, 36, 51, 0.08);
+  border-bottom: 1px solid rgba(44, 88, 136, 0.22);
 }
 
 .eyebrow {
@@ -69,13 +69,13 @@ h1 {
 
 .cta {
   background: var(--accent);
-  color: #f4f7fb;
+  color: #eaf4ff;
   border: none;
   padding: 12px 22px;
   border-radius: 999px;
   font-size: 14px;
   cursor: pointer;
-  box-shadow: 0 10px 22px rgba(26, 36, 51, 0.18);
+  box-shadow: 0 10px 22px rgba(17, 52, 89, 0.28);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -89,17 +89,20 @@ h1 {
 }
 
 .grid {
-  margin-top: 30px;
+  margin-top: 22px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--space-4);
 }
 
 .grid article {
   background: var(--panel);
   border-radius: var(--radius-lg);
-  padding: 28px;
-  box-shadow: 0 18px 36px rgba(24, 45, 72, 0.12);
+  padding: 22px;
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 14px 28px rgba(20, 66, 112, 0.18);
 }
 
 .notice {
@@ -116,15 +119,18 @@ h1 {
 }
 
 .panel {
-  margin-top: var(--space-6);
-  padding: 28px;
+  margin-top: 22px;
+  padding: 22px;
   border-radius: var(--radius-lg);
   background: var(--panel-strong);
-  box-shadow: 0 16px 32px rgba(24, 45, 72, 0.1);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 16px 30px rgba(20, 66, 112, 0.18);
 }
 
 .top-nav {
-  margin-top: var(--space-4);
+  margin-top: 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -137,8 +143,8 @@ h1 {
   gap: 6px;
   padding: 6px;
   border-radius: 999px;
-  background: #eff4fa;
-  border: 1px solid rgba(26, 36, 51, 0.08);
+  background: rgba(232, 243, 255, 0.8);
+  border: 1px solid rgba(57, 106, 161, 0.24);
 }
 
 .nav-tabs button {
@@ -154,7 +160,7 @@ h1 {
 
 .nav-tabs button.active {
   background: var(--accent);
-  color: #f4f7fb;
+  color: #eaf4ff;
 }
 
 .nav-tabs button:disabled {
@@ -169,7 +175,7 @@ h1 {
   padding: 10px 14px;
   border-radius: 16px;
   background: var(--panel);
-  border: 1px solid rgba(26, 36, 51, 0.08);
+  border: 1px solid rgba(57, 106, 161, 0.24);
 }
 
 .nav-account .caption {
@@ -191,7 +197,7 @@ h1 {
 }
 
 .subhead {
-  margin-top: var(--space-5);
+  margin-top: 18px;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -299,7 +305,7 @@ textarea {
 
 .queue-item.active {
   border-color: var(--accent);
-  background: #dde8f4;
+  background: rgba(203, 224, 248, 0.85);
 }
 
 .queue-detail h3 {
@@ -386,11 +392,14 @@ textarea {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  margin-top: 32px;
+  margin-top: 22px;
   background: var(--panel);
   border-radius: var(--radius-lg);
-  padding: 24px;
-  box-shadow: 0 16px 36px rgba(24, 45, 72, 0.1);
+  padding: 22px;
+  border: 1px solid var(--border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 14px 30px rgba(20, 66, 112, 0.18);
 }
 
 .business-directory {
@@ -452,11 +461,11 @@ textarea {
   text-transform: uppercase;
   font-size: 12px;
   letter-spacing: 0.2em;
-  color: var(--muted);
+  color: #2e5b88;
 }
 
 .metric {
-  font-size: 34px;
+  font-size: 32px;
   margin: 12px 0 4px;
 }
 
@@ -466,6 +475,35 @@ textarea {
 }
 
 @media (max-width: 900px) {
+  .page {
+    padding: 64px 20px 84px;
+  }
+
+  .panel,
+  .table,
+  .business-directory {
+    padding: 22px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .nav-account {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .account-select {
+    width: 100%;
+  }
+
+  .account-select label {
+    flex: 1;
+    min-width: 180px;
+  }
+
   .queue {
     grid-template-columns: 1fr;
   }
@@ -481,19 +519,79 @@ textarea {
 
 @media (max-width: 640px) {
   .page {
-    padding: 52px 18px 76px;
+    padding: 46px 14px 68px;
   }
 
   h1 {
-    font-size: 30px;
+    font-size: 27px;
   }
 
+  .header {
+    gap: 14px;
+    padding-bottom: 16px;
+  }
+
+  .panel,
+  .table,
   .business-directory {
-    padding: 20px;
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .grid {
+    margin-top: 18px;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .form-cta {
+    margin-top: 14px;
+  }
+
+  .form-cta button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .nav-tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .nav-account {
+    padding: 10px;
+    border-radius: 14px;
+  }
+
+  .account-select {
+    gap: 10px;
+  }
+
+  .account-select label {
+    width: 100%;
+    min-width: 0;
   }
 
   .business-directory-row {
     grid-template-columns: 1fr;
     row-gap: 10px;
+  }
+
+  .row-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .row-actions button {
+    width: 100%;
   }
 }

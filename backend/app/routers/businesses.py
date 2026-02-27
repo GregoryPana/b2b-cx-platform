@@ -31,7 +31,7 @@ def list_businesses(
 def create_business(
     payload: BusinessCreate,
     db: Session = Depends(get_db),
-    _user: CurrentUser = Depends(require_roles([ROLE_ADMIN, ROLE_MANAGER])),
+    _user: CurrentUser = Depends(require_roles([ROLE_ADMIN, ROLE_MANAGER, ROLE_REPRESENTATIVE])),
 ):
     business = Business(**payload.model_dump())
     db.add(business)

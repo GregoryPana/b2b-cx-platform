@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,8 +22,11 @@ class Visit(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     business_id: Mapped[int] = mapped_column(ForeignKey("businesses.id"), nullable=False)
     representative_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     visit_date: Mapped[Date] = mapped_column(Date, nullable=False)
     visit_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    escalation_occurred: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    issue_experienced: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     status: Mapped[VisitStatus] = mapped_column(
         Enum(
             VisitStatus,

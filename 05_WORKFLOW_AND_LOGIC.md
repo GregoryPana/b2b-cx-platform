@@ -4,6 +4,11 @@
 
 Draft → Pending Review → Needs Changes / Approved / Rejected
 
+Planned Drafts:
+- Managers/Admins can create draft visits assigned to a representative
+- Representatives can update date/type and claim the draft; business is locked
+- Drafts track created_by for source attribution
+
 Only Approved:
 - Counts toward coverage
 - Feeds dashboards

@@ -2,13 +2,22 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, distinct, func, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser, require_roles
 from app.core.db import get_db
 from app.core.roles import ROLE_ADMIN, ROLE_MANAGER, ROLE_REPRESENTATIVE, ROLE_REVIEWER
-from app.models import Business, MeetingAttendee, Response, Visit, VisitStatus
+from app.models import (
+    Business,
+    MeetingAttendee,
+    Question,
+    Response,
+    ResponseAction,
+    User,
+    Visit,
+    VisitStatus,
+)
 from app.schemas.visit import (
     VisitApprove,
     VisitCreate,
@@ -18,7 +27,7 @@ from app.schemas.visit import (
     VisitResponse,
     VisitSubmit,
 )
-from app.schemas.visit_detail import ResponseItem, VisitDetail
+from app.schemas.visit_detail import ResponseActionItem, ResponseItem, VisitDetail
 
 router = APIRouter(prefix="/visits", tags=["visits"])
 
@@ -37,6 +46,9 @@ def create_visit(
         representative_id=payload.representative_id,
         visit_date=payload.visit_date,
         visit_type=payload.visit_type,
+        escalation_occurred=payload.escalation_occurred,
+        issue_experienced=payload.issue_experienced,
+        created_by=user.id,
         status=VisitStatus.DRAFT,
     )
     db.add(visit)
@@ -64,15 +76,30 @@ def get_draft_visits(
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(require_roles([ROLE_REPRESENTATIVE, ROLE_MANAGER, ROLE_ADMIN])),
 ):
+    mandatory_total = db.scalar(select(func.count(Question.id)).where(Question.is_mandatory.is_(True))) or 0
+
     stmt = (
-        select(Visit, Business)
+        select(
+            Visit,
+            Business,
+            User,
+            func.count(distinct(Response.question_id)).label("answered_mandatory"),
+        )
         .join(Business, Visit.business_id == Business.id)
+        .join(User, Visit.created_by == User.id)
+        .outerjoin(
+            Response,
+            and_(
+                Response.visit_id == Visit.id,
+                Response.question_id.in_(
+                    select(Question.id).where(Question.is_mandatory.is_(True))
+                ),
+            ),
+        )
         .where(Visit.status == VisitStatus.DRAFT)
+        .group_by(Visit.id, Business.id, User.id)
         .order_by(Visit.visit_date.desc())
     )
-    if user.role == ROLE_REPRESENTATIVE:
-        stmt = stmt.where(Visit.representative_id == user.id)
-
     rows = db.execute(stmt).all()
     return [
         VisitResponse(
@@ -81,11 +108,20 @@ def get_draft_visits(
             business_id=visit.business_id,
             business_name=business.name,
             business_priority=business.priority_level,
+            created_by=visit.created_by,
+            created_by_role=creator.role,
+            created_by_name=creator.name,
             representative_id=visit.representative_id,
             visit_date=visit.visit_date,
             visit_type=visit.visit_type,
+            escalation_occurred=visit.escalation_occurred,
+            issue_experienced=visit.issue_experienced,
+            mandatory_answered_count=int(answered_mandatory or 0),
+            mandatory_total_count=int(mandatory_total),
+            is_started=bool((answered_mandatory or 0) > 0),
+            is_completed=bool(mandatory_total > 0 and (answered_mandatory or 0) >= mandatory_total),
         )
-        for visit, business in rows
+        for visit, business, creator, answered_mandatory in rows
     ]
 
 
@@ -110,6 +146,8 @@ def get_my_visits(
             representative_id=visit.representative_id,
             visit_date=visit.visit_date,
             visit_type=visit.visit_type,
+            escalation_occurred=visit.escalation_occurred,
+            issue_experienced=visit.issue_experienced,
             reviewer_id=visit.reviewer_id,
             review_timestamp=visit.review_timestamp,
             change_notes=visit.change_notes,
@@ -142,6 +180,8 @@ def get_pending_visits(
             representative_id=visit.representative_id,
             visit_date=visit.visit_date,
             visit_type=visit.visit_type,
+            escalation_occurred=visit.escalation_occurred,
+            issue_experienced=visit.issue_experienced,
             reviewer_id=visit.reviewer_id,
             review_timestamp=visit.review_timestamp,
             change_notes=visit.change_notes,
@@ -174,6 +214,17 @@ def get_visit_detail(
     ).all()
     responses = db.scalars(select(Response).where(Response.visit_id == visit_id)).all()
 
+    response_ids = [response.id for response in responses]
+    actions_by_response_id: dict[int, list[ResponseAction]] = {}
+    if response_ids:
+        response_actions = db.scalars(
+            select(ResponseAction)
+            .where(ResponseAction.response_id.in_(response_ids))
+            .order_by(ResponseAction.id)
+        ).all()
+        for action in response_actions:
+            actions_by_response_id.setdefault(action.response_id, []).append(action)
+
     return VisitDetail(
         visit_id=visit.id,
         business_id=visit.business_id,
@@ -182,6 +233,8 @@ def get_visit_detail(
         representative_id=visit.representative_id,
         visit_date=visit.visit_date,
         visit_type=visit.visit_type,
+        escalation_occurred=visit.escalation_occurred,
+        issue_experienced=visit.issue_experienced,
         status=visit.status.value,
         reviewer_id=visit.reviewer_id,
         review_timestamp=visit.review_timestamp,
@@ -195,8 +248,18 @@ def get_visit_detail(
                 response_id=response.id,
                 question_id=response.question_id,
                 score=response.score,
+                answer_text=response.answer_text,
                 verbatim=response.verbatim,
-                action_required=response.action_required,
+                actions=[
+                    ResponseActionItem(
+                        id=action.id,
+                        action_required=action.action_required,
+                        action_owner=action.action_owner,
+                        action_timeframe=action.action_timeframe,
+                        action_support_needed=action.action_support_needed,
+                    )
+                    for action in actions_by_response_id.get(response.id, [])
+                ],
                 action_target=response.action_target,
                 priority_level=response.priority_level,
                 due_date=response.due_date,
@@ -255,6 +318,10 @@ def update_draft_visit(
         visit.visit_date = payload.visit_date
     if payload.visit_type is not None:
         visit.visit_type = payload.visit_type
+    if payload.escalation_occurred is not None:
+        visit.escalation_occurred = payload.escalation_occurred
+    if payload.issue_experienced is not None:
+        visit.issue_experienced = payload.issue_experienced
 
     db.commit()
     db.refresh(visit)
@@ -265,6 +332,8 @@ def update_draft_visit(
         representative_id=visit.representative_id,
         visit_date=visit.visit_date,
         visit_type=visit.visit_type,
+        escalation_occurred=visit.escalation_occurred,
+        issue_experienced=visit.issue_experienced,
     )
 
 

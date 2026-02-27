@@ -1,7 +1,221 @@
 import sys
 
 from app.core.db import get_session_local
-from app.models import AccountExecutive, Business, Question, User
+from app.models import AccountExecutive, Business, Question, Response, User
+
+
+QUESTION_BLUEPRINT = [
+    {
+        "question_key": "q01_relationship_strength",
+        "category": "Category 1: Relationship Strength",
+        "question_text": "Rate your relationship with C&W.",
+        "input_type": "score",
+        "score_min": 0,
+        "score_max": 10,
+        "is_mandatory": True,
+        "order_index": 1,
+    },
+    {
+        "question_key": "q02_ae_information_updates",
+        "category": "Category 1: Relationship Strength",
+        "question_text": "Do you get enough information from your Account Executive on New Products and Services?.",
+        "input_type": "score",
+        "score_min": 0,
+        "score_max": 10,
+        "is_mandatory": True,
+        "order_index": 2,
+    },
+    {
+        "question_key": "q03_ae_professionalism",
+        "category": "Category 1: Relationship Strength",
+        "question_text": "How would you rate the level of professionalism when dealing with your C&W Account Executive?.",
+        "input_type": "score",
+        "score_min": 0,
+        "score_max": 10,
+        "is_mandatory": True,
+        "order_index": 3,
+    },
+    {
+        "question_key": "q04_ae_business_understanding",
+        "category": "Category 1: Relationship Strength",
+        "question_text": "Does the C&W Account Executive understand your business?.",
+        "input_type": "yes_no",
+        "helper_text": "Select Yes or No",
+        "is_mandatory": True,
+        "order_index": 4,
+    },
+    {
+        "question_key": "q05_contacts_visit_satisfaction",
+        "category": "Category 1: Relationship Strength",
+        "question_text": "How satisfied are you with your C&W contacts and number of visits?.",
+        "input_type": "score",
+        "score_min": 0,
+        "score_max": 10,
+        "is_mandatory": True,
+        "order_index": 5,
+    },
+    {
+        "question_key": "q06_regular_updates",
+        "category": "Category 1: Relationship Strength",
+        "question_text": "Are you receiving regular updates on your account? (Y or N).",
+        "input_type": "yes_no",
+        "helper_text": "Select Yes or No",
+        "is_mandatory": True,
+        "order_index": 6,
+    },
+    {
+        "question_key": "q07_top_3_satisfied_services",
+        "category": "Category 2: Service & Operational Performance",
+        "question_text": "List Top 3 C&W services most satisfied with in the past 6 months.",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 7,
+    },
+    {
+        "question_key": "q08_top_3_unsatisfied_instances",
+        "category": "Category 2: Service & Operational Performance",
+        "question_text": "List 3 instances you have not been satisfied with C&W if any (Network Quality, Fault resolution, Visits, billing etc.); if Network, be specific.",
+        "input_type": "text",
+        "is_mandatory": False,
+        "order_index": 8,
+    },
+    {
+        "question_key": "q09_issues_resolved_on_time",
+        "category": "Category 2: Service & Operational Performance",
+        "question_text": "Are issues resolved on time?.",
+        "input_type": "always_sometimes_never",
+        "helper_text": "Choose: Always, Sometimes, or Never",
+        "is_mandatory": True,
+        "order_index": 9,
+    },
+    {
+        "question_key": "q10_call_frequency",
+        "question_text": "How often do you need to call C&W to install new products or resolve issues?.",
+        "input_type": "always_sometimes_never",
+        "helper_text": "Choose: Always, Sometimes, or Never",
+        "category": "Category 2: Service & Operational Performance",
+        "is_mandatory": True,
+        "order_index": 10,
+    },
+    {
+        "question_key": "q11_recent_unresolved_issue",
+        "category": "Category 2: Service & Operational Performance",
+        "question_text": "What is your most recent unresolved issue with C&W?.",
+        "input_type": "text",
+        "is_mandatory": False,
+        "order_index": 11,
+    },
+    {
+        "question_key": "q12_overall_satisfaction",
+        "category": "Category 2: Service & Operational Performance",
+        "question_text": "Rate overall C&W Satisfaction.",
+        "input_type": "score",
+        "score_min": 0,
+        "score_max": 10,
+        "is_mandatory": True,
+        "order_index": 12,
+    },
+    {
+        "question_key": "q13_top_3_important_factors",
+        "category": "Category 3: Commercial & Billing",
+        "question_text": "What are the top 3 most important factors of our services? (Quality, Price, Credit, Information, Faults resolution?).",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 13,
+    },
+    {
+        "question_key": "q14_statement_accuracy",
+        "category": "Category 3: Commercial & Billing",
+        "question_text": "Is your statement of accounts accurate and up to date?.",
+        "input_type": "yes_no",
+        "helper_text": "Select Yes or No",
+        "is_mandatory": True,
+        "order_index": 14,
+    },
+    {
+        "question_key": "q15_current_products_services",
+        "category": "Category 4: Competitive & Portfolio Intelligence",
+        "question_text": "What Products and Services do you currently have with C&W?.",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 15,
+    },
+    {
+        "question_key": "q16_other_provider_products",
+        "category": "Category 4: Competitive & Portfolio Intelligence",
+        "question_text": "Do you have other products and services from other service providers? (If yes, specify).",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 16,
+    },
+    {
+        "question_key": "q17_competitor_products_services",
+        "category": "Category 4: Competitive & Portfolio Intelligence",
+        "question_text": "List Products and services from competitors.",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 17,
+    },
+    {
+        "question_key": "q18_product_review_needed",
+        "category": "Category 4: Competitive & Portfolio Intelligence",
+        "question_text": "Which product would you want us to review to bring you to CWS?.",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 18,
+    },
+    {
+        "question_key": "q19_new_requirements",
+        "category": "Category 5: Growth & Expansion",
+        "question_text": "New Telecommunications or Digital Transformation requirements over the next 6 to 12 months.",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 19,
+    },
+    {
+        "question_key": "q20_expansion_services_required",
+        "category": "Category 5: Growth & Expansion",
+        "question_text": "Types of products and services required for any expansion in 6 to 12 months.",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 20,
+    },
+    {
+        "question_key": "q21_expansion_types",
+        "category": "Category 5: Growth & Expansion",
+        "question_text": "What kinds of expansions in the next 6–12 months?.",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 21,
+    },
+    {
+        "question_key": "q22_more_from_us",
+        "category": "Category 5: Growth & Expansion",
+        "question_text": "What do you want to see more of from us?.",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 22,
+    },
+    {
+        "question_key": "q23_nps",
+        "category": "Category 6: Advocacy",
+        "question_text": "NPS on a scale of 0 to 10, how much would you recommend us? (10 being very highly, 0 not at all).",
+        "input_type": "score",
+        "score_min": 0,
+        "score_max": 10,
+        "is_nps": True,
+        "is_mandatory": True,
+        "order_index": 23,
+    },
+    {
+        "question_key": "q24_comments",
+        "category": "Category 6: Advocacy",
+        "question_text": "Any further comments from Customer.",
+        "input_type": "text",
+        "is_mandatory": False,
+        "order_index": 24,
+    },
+]
 
 
 def seed_data() -> None:
@@ -59,32 +273,41 @@ def seed_data() -> None:
                 ]
             )
 
-        if session.query(Question).count() == 0:
-            session.add_all(
-                [
-                    Question(
-                        category="Classic NPS",
-                        question_text="How likely is your organisation to recommend CWS?",
-                        is_nps=True,
-                        is_mandatory=True,
-                        order_index=1,
-                    ),
-                    Question(
-                        category="Relationship Management",
-                        question_text="Rate relationship management.",
-                        is_nps=False,
-                        is_mandatory=True,
-                        order_index=2,
-                    ),
-                    Question(
-                        category="Service Performance",
-                        question_text="Rate service performance.",
-                        is_nps=False,
-                        is_mandatory=True,
-                        order_index=3,
-                    ),
-                ]
-            )
+        desired_keys = {config["question_key"] for config in QUESTION_BLUEPRINT}
+
+        existing_questions = session.query(Question).all()
+        for question in existing_questions:
+            if question.question_key.startswith("q_legacy_") or question.question_key not in desired_keys:
+                session.query(Response).filter(Response.question_id == question.id).delete(
+                    synchronize_session=False
+                )
+                session.delete(question)
+
+        session.flush()
+
+        existing_by_key = {
+            question.question_key: question for question in session.query(Question).all()
+        }
+
+        for config in QUESTION_BLUEPRINT:
+            question = existing_by_key.get(config["question_key"])
+            if question is None:
+                question = Question(**config)
+                if question.input_type == "score":
+                    question.score_min = 0
+                    question.score_max = 10
+                session.add(question)
+                continue
+
+            for field, value in config.items():
+                setattr(question, field, value)
+
+            if question.input_type == "score":
+                question.score_min = 0
+                question.score_max = 10
+            else:
+                question.score_min = None
+                question.score_max = None
 
         session.commit()
         print("Seed complete")

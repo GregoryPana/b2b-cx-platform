@@ -28,6 +28,7 @@
 - id (UUID)
 - business_id
 - representative_id
+- created_by
 - visit_date
 - visit_type
 - status (Draft, Pending, Approved, Rejected)

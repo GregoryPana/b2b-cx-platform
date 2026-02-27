@@ -27,12 +27,18 @@ def get_nps(
             func.coalesce(func.sum(promoter_case), 0),
             func.coalesce(func.sum(detractor_case), 0),
             func.coalesce(func.sum(passive_case), 0),
-            func.coalesce(func.count(Response.id), 0),
+            func.coalesce(func.count(Response.score), 0),
         )
         .select_from(Response)
         .join(Visit, Response.visit_id == Visit.id)
         .join(Question, Response.question_id == Question.id)
-        .where(and_(Visit.status == VisitStatus.APPROVED, Question.is_nps.is_(True)))
+        .where(
+            and_(
+                Visit.status == VisitStatus.APPROVED,
+                Question.is_nps.is_(True),
+                Response.score.is_not(None),
+            )
+        )
     )
 
     promoters, detractors, passives, total = db.execute(stmt).one()
@@ -99,7 +105,7 @@ def get_category_breakdown(
         select(
             Question.category,
             func.avg(Response.score),
-            func.count(Response.id),
+            func.count(Response.score),
         )
         .select_from(Response)
         .join(Visit, Response.visit_id == Visit.id)
@@ -108,6 +114,8 @@ def get_category_breakdown(
             and_(
                 Visit.status == VisitStatus.APPROVED,
                 Question.is_nps.is_(False),
+                Question.input_type == "score",
+                Response.score.is_not(None),
             )
         )
         .group_by(Question.category)
