@@ -1,18 +1,19 @@
 # Deployment Topology
 
-## Segmented Production
-Internet
--> Firewall
--> Reverse Proxy (DMZ)
--> Survey Frontend (DMZ VM)
--> Internal API (Internal VM)
--> PostgreSQL (Internal DB VM)
+## Internal Network Only
 
-Dashboard is accessible only from internal LAN.
+Internal LAN
+-> Survey Frontend (Internal Server)
+-> Dashboard Frontend (Internal Server)
+-> FastAPI Backend (Internal Server)
+-> PostgreSQL (Internal Database Server)
+-> Microsoft Entra ID SSO (Cloud Auth)
 
-## Reverse Proxy
-- TLS termination
-- Survey domain exposed
-- Dashboard blocked externally
-- API not directly internet-exposed
+All components accessible only within the internal network environment.
+
+## Network Access
+- No internet-facing components
+- Internal DNS resolution only
+- Internal load balancing (if needed)
 - Health checks enabled
+- TLS certificates for internal services

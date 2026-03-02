@@ -1,15 +1,15 @@
 # Security Model
 
-## Production Segmentation
+## Internal Network Deployment
 
-Internet
-→ Firewall
-→ Reverse Proxy (DMZ)
-→ Survey Frontend (DMZ)
-→ Internal API
-→ Database
+Internal LAN
+→ Survey Frontend (Internal Server)
+→ Dashboard Frontend (Internal Server)
+→ FastAPI Backend (Internal Server)
+→ PostgreSQL (Internal Database Server)
+→ Microsoft Entra ID SSO (Cloud Auth)
 
-Dashboard accessible only from internal LAN.
+All components accessible only within the internal network environment.
 
 ---
 
@@ -19,5 +19,5 @@ Dashboard accessible only from internal LAN.
 - Entra JWT validation
 - Role-based authorization at backend
 - No direct DB access from frontend
-- Strict firewall rules
+- Internal network segmentation
 - Audit logging enabled
