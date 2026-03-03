@@ -127,8 +127,8 @@ QUESTION_BLUEPRINT = [
         "question_key": "q14_statement_accuracy",
         "category": "Category 3: Commercial & Billing",
         "question_text": "Is your statement of accounts accurate and up to date?.",
-        "input_type": "yes_no",
-        "helper_text": "Select Yes or No",
+        "input_type": "always_sometimes_never",
+        "helper_text": "Choose: Always, Sometimes, or Never",
         "is_mandatory": True,
         "order_index": 14,
     },
@@ -144,7 +144,8 @@ QUESTION_BLUEPRINT = [
         "question_key": "q16_other_provider_products",
         "category": "Category 4: Competitive & Portfolio Intelligence",
         "question_text": "Do you have other products and services from other service providers? (If yes, specify).",
-        "input_type": "text",
+        "input_type": "yes_no",
+        "helper_text": "Select Yes or No",
         "is_mandatory": True,
         "order_index": 16,
     },
@@ -178,7 +179,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "Types of products and services required for any expansion in 6 to 12 months.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 20,
+        "order_index": 21,
     },
     {
         "question_key": "q21_expansion_types",
@@ -186,7 +187,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "What kinds of expansions in the next 6–12 months?.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 21,
+        "order_index": 20,
     },
     {
         "question_key": "q22_more_from_us",
@@ -232,9 +233,7 @@ def seed_data() -> None:
             )
 
         if session.query(AccountExecutive).count() == 0:
-            session.add(
-                AccountExecutive(name="Alex Executive", email="alex.executive@local")
-            )
+            session.add(AccountExecutive(name="Alex Executive", email="alex.executive@local"))
 
         session.flush()
 

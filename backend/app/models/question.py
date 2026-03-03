@@ -11,7 +11,7 @@ class Question(Base):
     category: Mapped[str] = mapped_column(String(200), nullable=False)
     question_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     question_text: Mapped[str] = mapped_column(String(2000), nullable=False)
-    input_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="score")
+    input_type: Mapped[str] = mapped_column(String(40), nullable=False, server_default="score")
     score_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     score_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
     requires_issue: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")

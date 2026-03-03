@@ -11,6 +11,8 @@ const QUESTION_CATEGORY_ORDER = [
   "Category 5: Growth & Expansion",
   "Category 6: Advocacy"
 ];
+const Q16_KEY = "q16_other_provider_products";
+const Q17_KEY = "q17_competitor_products_services";
 const NOTICE_STYLE = {
   success: "border-emerald-300 bg-emerald-50 text-emerald-800",
   error: "border-red-300 bg-red-50 text-red-800",
@@ -646,6 +648,18 @@ export default function App() {
     }
   };
 
+  const getVisibleQuestions = () => {
+    const q16Question = questions.find((question) => question.question_key === Q16_KEY);
+    const q16Answer = q16Question
+      ? responseDrafts[q16Question.id]?.answer_text ||
+        responsesByQuestion[q16Question.id]?.answer_text ||
+        ""
+      : "";
+    const q16IsYes = q16Answer === "Y";
+
+    return questions.filter((question) => question.question_key !== Q17_KEY || q16IsYes);
+  };
+
   const handleSubmitVisit = async () => {
     if (!visitId) {
       const errorText = "Create a visit first.";
@@ -655,7 +669,7 @@ export default function App() {
       return;
     }
 
-    const mandatoryQuestions = questions.filter((question) => question.is_mandatory);
+    const mandatoryQuestions = getVisibleQuestions().filter((question) => question.is_mandatory);
     const unansweredMandatory = mandatoryQuestions.filter(
       (question) => !responsesByQuestion[question.id]
     );
@@ -697,7 +711,9 @@ export default function App() {
     }
   };
 
-  const groupedQuestions = questions.reduce((acc, question) => {
+  const visibleQuestions = getVisibleQuestions();
+
+  const groupedQuestions = visibleQuestions.reduce((acc, question) => {
     if (!acc[question.category]) {
       acc[question.category] = [];
     }
@@ -714,7 +730,7 @@ export default function App() {
     return leftIndex - rightIndex;
   });
 
-  const mandatoryQuestions = questions.filter((question) => question.is_mandatory);
+  const mandatoryQuestions = visibleQuestions.filter((question) => question.is_mandatory);
   const completedMandatoryCount = mandatoryQuestions.filter(
     (question) => responsesByQuestion[question.id]
   ).length;
@@ -1193,29 +1209,126 @@ export default function App() {
                               ))}
                             </>
                           ) : question.input_type === "yes_no" ? (
-                            <label className="full">
-                              Answer
-                              <div className="yes-no-group">
-                                <label className="yes-no-option">
-                                  <input
-                                    type="radio"
-                                    name={`q-${question.id}-yesno`}
-                                    checked={draft.answer_text === "Y"}
-                                    onChange={() => updateQuestionDraft(question.id, "answer_text", "Y")}
+                            <>
+                              <label className="full">
+                                Answer
+                                <div className="yes-no-group">
+                                  <label className="yes-no-option">
+                                    <input
+                                      type="radio"
+                                      name={`q-${question.id}-yesno`}
+                                      checked={draft.answer_text === "Y"}
+                                      onChange={() => updateQuestionDraft(question.id, "answer_text", "Y")}
+                                    />
+                                    Yes
+                                  </label>
+                                  <label className="yes-no-option">
+                                    <input
+                                      type="radio"
+                                      name={`q-${question.id}-yesno`}
+                                      checked={draft.answer_text === "N"}
+                                      onChange={() => updateQuestionDraft(question.id, "answer_text", "N")}
+                                    />
+                                    No
+                                  </label>
+                                </div>
+                              </label>
+                              {question.question_key === Q16_KEY && draft.answer_text === "Y" ? (
+                                <label className="full">
+                                  If Yes, specify providers (optional)
+                                  <textarea
+                                    value={draft.verbatim || ""}
+                                    onChange={(event) =>
+                                      updateQuestionDraft(question.id, "verbatim", event.target.value)
+                                    }
                                   />
-                                  Yes
                                 </label>
-                                <label className="yes-no-option">
-                                  <input
-                                    type="radio"
-                                    name={`q-${question.id}-yesno`}
-                                    checked={draft.answer_text === "N"}
-                                    onChange={() => updateQuestionDraft(question.id, "answer_text", "N")}
-                                  />
-                                  No
-                                </label>
+                              ) : null}
+                              <div className="full action-list-head">
+                                <strong>Actions (optional)</strong>
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  onClick={() => addActionItem(question.id)}
+                                >
+                                  Add Action
+                                </button>
                               </div>
-                            </label>
+                              {(draft.actions || []).map((action, actionIndex) => (
+                                <div key={`${question.id}-${actionIndex}`} className="full action-card">
+                                  <div className="grid">
+                                    <label className="full">
+                                      Action Required
+                                      <input
+                                        value={action.action_required || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_required",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      Lead Owner
+                                      <input
+                                        value={action.action_owner || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_owner",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      Proposed Action Time
+                                      <select
+                                        value={action.action_timeframe || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_timeframe",
+                                            event.target.value
+                                          )
+                                        }
+                                      >
+                                        <option value="">Select timeframe</option>
+                                        <option value="lt_1_month">&lt; 1 month</option>
+                                        <option value="lt_3_months">&lt; 3 months</option>
+                                        <option value="gt_3_months">&gt; 3 months</option>
+                                      </select>
+                                    </label>
+                                    <label className="full">
+                                      Support Needed (department or person)
+                                      <input
+                                        value={action.action_support_needed || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_support_needed",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="danger action-remove"
+                                    onClick={() => removeActionItem(question.id, actionIndex)}
+                                  >
+                                    Remove Action
+                                  </button>
+                                </div>
+                              ))}
+                            </>
                           ) : question.input_type === "always_sometimes_never" ? (
                             <>
                               <label className="full">
@@ -1265,17 +1378,187 @@ export default function App() {
                                   }
                                 />
                               </label>
+                              <div className="full action-list-head">
+                                <strong>Actions (optional)</strong>
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  onClick={() => addActionItem(question.id)}
+                                >
+                                  Add Action
+                                </button>
+                              </div>
+                              {(draft.actions || []).map((action, actionIndex) => (
+                                <div key={`${question.id}-${actionIndex}`} className="full action-card">
+                                  <div className="grid">
+                                    <label className="full">
+                                      Action Required
+                                      <input
+                                        value={action.action_required || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_required",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      Lead Owner
+                                      <input
+                                        value={action.action_owner || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_owner",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      Proposed Action Time
+                                      <select
+                                        value={action.action_timeframe || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_timeframe",
+                                            event.target.value
+                                          )
+                                        }
+                                      >
+                                        <option value="">Select timeframe</option>
+                                        <option value="lt_1_month">&lt; 1 month</option>
+                                        <option value="lt_3_months">&lt; 3 months</option>
+                                        <option value="gt_3_months">&gt; 3 months</option>
+                                      </select>
+                                    </label>
+                                    <label className="full">
+                                      Support Needed (department or person)
+                                      <input
+                                        value={action.action_support_needed || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_support_needed",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="danger action-remove"
+                                    onClick={() => removeActionItem(question.id, actionIndex)}
+                                  >
+                                    Remove Action
+                                  </button>
+                                </div>
+                              ))}
                             </>
                           ) : (
-                            <label className="full">
-                              Answer
-                              <textarea
-                                value={draft.answer_text || ""}
-                                onChange={(event) =>
-                                  updateQuestionDraft(question.id, "answer_text", event.target.value)
-                                }
-                              />
-                            </label>
+                            <>
+                              <label className="full">
+                                Answer
+                                <textarea
+                                  value={draft.answer_text || ""}
+                                  onChange={(event) =>
+                                    updateQuestionDraft(question.id, "answer_text", event.target.value)
+                                  }
+                                />
+                              </label>
+                              <div className="full action-list-head">
+                                <strong>Actions (optional)</strong>
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  onClick={() => addActionItem(question.id)}
+                                >
+                                  Add Action
+                                </button>
+                              </div>
+                              {(draft.actions || []).map((action, actionIndex) => (
+                                <div key={`${question.id}-${actionIndex}`} className="full action-card">
+                                  <div className="grid">
+                                    <label className="full">
+                                      Action Required
+                                      <input
+                                        value={action.action_required || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_required",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      Lead Owner
+                                      <input
+                                        value={action.action_owner || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_owner",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      Proposed Action Time
+                                      <select
+                                        value={action.action_timeframe || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_timeframe",
+                                            event.target.value
+                                          )
+                                        }
+                                      >
+                                        <option value="">Select timeframe</option>
+                                        <option value="lt_1_month">&lt; 1 month</option>
+                                        <option value="lt_3_months">&lt; 3 months</option>
+                                        <option value="gt_3_months">&gt; 3 months</option>
+                                      </select>
+                                    </label>
+                                    <label className="full">
+                                      Support Needed (department or person)
+                                      <input
+                                        value={action.action_support_needed || ""}
+                                        onChange={(event) =>
+                                          updateActionItem(
+                                            question.id,
+                                            actionIndex,
+                                            "action_support_needed",
+                                            event.target.value
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="danger action-remove"
+                                    onClick={() => removeActionItem(question.id, actionIndex)}
+                                  >
+                                    Remove Action
+                                  </button>
+                                </div>
+                              ))}
+                            </>
                           )}
                         </div>
                         <button
