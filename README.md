@@ -13,10 +13,16 @@ This is a customer experience platform with multiple survey applications and a g
 
 ### 🚀 Quick Start
 
+For a full beginner-friendly setup (including Git, Docker, PostgreSQL, migrations, and troubleshooting), use:
+
+- [`SETUP_GUIDE_NON_TECHNICAL.md`](./SETUP_GUIDE_NON_TECHNICAL.md)
+
+If you already have your machine prepared, you can use the short quick start below.
+
 1. **Setup Database**:
    ```bash
-   # Execute response tables schema
-   psql -h localhost -U postgres -d cx_b2b_platform < CREATE_RESPONSE_TABLES.sql
+    # Execute response tables schema
+    psql -h localhost -U b2b -d b2b < CREATE_RESPONSE_TABLES.sql
    ```
 
 2. **Start Services**:
