@@ -1,0 +1,422 @@
+{
+  "info": {
+    "name": "CX Platform",
+    "_postman_id": "9c7d4a6a-7e57-4c0c-bb90-2f59e6c4d0f1",
+    "description": "Postman collection for testing CX B2B Platform endpoints (survey, dashboard, analytics, admin cleanup).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8001"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "surveyType",
+      "value": "B2B"
+    },
+    {
+      "key": "visitId",
+      "value": ""
+    },
+    {
+      "key": "responseId",
+      "value": ""
+    },
+    {
+      "key": "businessId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Survey",
+      "item": [
+        {
+          "name": "List Survey Types",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/survey-types"
+          }
+        },
+        {
+          "name": "Get Questions (by survey_type)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/questions?survey_type={{surveyType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "questions"
+              ],
+              "query": [
+                {
+                  "key": "survey_type",
+                  "value": "{{surveyType}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Survey Businesses (active only)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/survey-businesses"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users (Dashboard Compat)",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/users"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard Visits (Survey + Results)",
+      "item": [
+        {
+          "name": "List Draft Visits",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dashboard-visits/drafts"
+          }
+        },
+        {
+          "name": "List All Visits (filters)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard-visits/all?survey_type={{surveyType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard-visits",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "survey_type",
+                  "value": "{{surveyType}}"
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "business_name",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "date_from",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "date_to",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Visit Detail (also loads saved responses)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dashboard-visits/{{visitId}}"
+          }
+        },
+        {
+          "name": "Create Planned/Draft Visit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"business_id\": 1,\n  \"representative_id\": 1,\n  \"visit_date\": \"2026-03-09\",\n  \"visit_type\": \"Planned\",\n  \"survey_type\": \"B2B\"\n}"
+            },
+            "url": "{{baseUrl}}/dashboard-visits"
+          }
+        },
+        {
+          "name": "Update Draft Visit (visit_date, visit_type)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"representative_id\": 1,\n  \"visit_date\": \"2026-03-09\",\n  \"visit_type\": \"Planned\"\n}"
+            },
+            "url": "{{baseUrl}}/dashboard-visits/{{visitId}}/draft"
+          }
+        },
+        {
+          "name": "Delete Draft Visit (Draft only)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/dashboard-visits/{{visitId}}"
+          }
+        },
+        {
+          "name": "Create Response (for visit)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question_id\": 1,\n  \"score\": 8,\n  \"answer_text\": null,\n  \"verbatim\": \"Example comment\",\n  \"actions\": []\n}"
+            },
+            "url": "{{baseUrl}}/dashboard-visits/{{visitId}}/responses"
+          }
+        },
+        {
+          "name": "Update Response",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question_id\": 1,\n  \"score\": 9,\n  \"answer_text\": null,\n  \"verbatim\": \"Updated comment\",\n  \"actions\": []\n}"
+            },
+            "url": "{{baseUrl}}/dashboard-visits/{{visitId}}/responses/{{responseId}}"
+          }
+        },
+        {
+          "name": "Submit Visit for Review (Pending)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"submit_notes\": null\n}"
+            },
+            "url": "{{baseUrl}}/dashboard-visits/{{visitId}}/submit"
+          }
+        },
+        {
+          "name": "List Pending Visits (Manager)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dashboard-visits/pending"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics (Dashboard Compat)",
+      "item": [
+        {
+          "name": "NPS",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/nps?survey_type={{surveyType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "nps"
+              ],
+              "query": [
+                {
+                  "key": "survey_type",
+                  "value": "{{surveyType}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Coverage",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/coverage?survey_type={{surveyType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "coverage"
+              ],
+              "query": [
+                {
+                  "key": "survey_type",
+                  "value": "{{surveyType}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Category Breakdown",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/category-breakdown?survey_type={{surveyType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "category-breakdown"
+              ],
+              "query": [
+                {
+                  "key": "survey_type",
+                  "value": "{{surveyType}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Cleanup (Admin only)",
+      "item": [
+        {
+          "name": "Purge Old Visits (Dry Run)",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/admin-dashboard/visits/purge?before_date=2026-03-09&dry_run=true&survey_type={{surveyType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin-dashboard",
+                "visits",
+                "purge"
+              ],
+              "query": [
+                {
+                  "key": "before_date",
+                  "value": "2026-03-09"
+                },
+                {
+                  "key": "dry_run",
+                  "value": "true"
+                },
+                {
+                  "key": "survey_type",
+                  "value": "{{surveyType}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Purge Old Visits (Execute)",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/admin-dashboard/visits/purge?before_date=2026-03-09&dry_run=false&survey_type={{surveyType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin-dashboard",
+                "visits",
+                "purge"
+              ],
+              "query": [
+                {
+                  "key": "before_date",
+                  "value": "2026-03-09"
+                },
+                {
+                  "key": "dry_run",
+                  "value": "false"
+                },
+                {
+                  "key": "survey_type",
+                  "value": "{{surveyType}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Any Visit (by ID)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/admin-dashboard/visits/{{visitId}}"
+          }
+        },
+        {
+          "name": "Delete a B2B Response (by response_id)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/admin-dashboard/responses/{{responseId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

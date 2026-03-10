@@ -1,0 +1,35 @@
+Category 1: Relationship Strength
+1. Rate your relationship with C&W. (0-10)
+2. Do you get enough information from your Account Executive on New Products and Services?. (0-10)
+3. How would you rate the level of professionalism when dealing with your C&W Account Executive?. (0-10)
+4. Does the C&W Account Executive understands your business?. (Yes or No)
+5. How satisfied are you with your C&W contacts and number of visits?. (0-10)
+6. Are you receiving regular updates on your account? Y or N. (Yes or No)
+
+Category 2: Service & Operational Performance
+7. List your top 3 C&W services most satisfied with in the past 6 months.
+8. List 3 instances you have not been satisfied with C&W if any (Network Quality, Fault resolution, Visits, billing etc) if any be specific..
+9. Are Issues resolved on time? (Always, Sometimes, Never)
+10. How often do you need to call C&W to install new products or resolve issues? (Always, Sometimes, Never)
+11. What is your most recent unresolved issue with C&W?.
+12. Rate your overall C&W Satisfaction. (Very Satisfied). (0-10)
+
+Category 3: Commercial & Billing
+13. What are the top 3 most important factors of our services? (e.g.Quality Price, Credit, Information, Faults resolution?)
+14. Is your statement of accounts accurate and up to date?. (Always, Sometimes, Never)
+
+Category 4: Competitive & Portfolio Intelligence
+15. What Products and Services do you currently have with C&W.
+16. Do you have other products and services from other service providers? (Yes or No)
+17. If so, list Products and services from competitor. (Conditional on previous)
+18. Which product would you want us to review to bring you to CWS?.
+
+Category 5: Growth & Expansion
+19. Do you have any new Telecommunications, or Digital Transformation requirements over next 6 to 12 months.
+21. What kinds of expansions are you plannning for in the next 6-12 months.
+20. Types of products and services are required for any expansion in 6 to 12 months.
+22. What do you want to see more of from us?.
+
+Category 6: Advocacy
+23. NPS on a scale of 0 to 10, how much would you recommend us? 10 be very highly. 0 not at all. (0-10)
+24. Any further comments from Customer.

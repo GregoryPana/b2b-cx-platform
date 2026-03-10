@@ -18,35 +18,29 @@ def get_nps(
     db: Session = Depends(get_db),
     _user: CurrentUser = Depends(require_roles([ROLE_MANAGER, ROLE_ADMIN])),
 ):
-    promoter_case = case((Response.score >= 9, 1), else_=0)
-    detractor_case = case((Response.score <= 6, 1), else_=0)
-    passive_case = case((Response.score.in_([7, 8]), 1), else_=0)
-
-    stmt = (
-        select(
-            func.coalesce(func.sum(promoter_case), 0),
-            func.coalesce(func.sum(detractor_case), 0),
-            func.coalesce(func.sum(passive_case), 0),
-            func.coalesce(func.count(Response.score), 0),
-        )
-        .select_from(Response)
-        .join(Visit, Response.visit_id == Visit.id)
-        .join(Question, Response.question_id == Question.id)
-        .where(
-            and_(
-                Visit.status == VisitStatus.APPROVED,
-                Question.is_nps.is_(True),
-                Response.score.is_not(None),
-            )
-        )
-    )
-
-    promoters, detractors, passives, total = db.execute(stmt).one()
-
+    # Use raw SQL for more reliable NPS calculation
+    result = db.execute(text("""
+        SELECT 
+            COUNT(CASE WHEN r.score >= 9 THEN 1 ELSE 0 END) as promoters,
+            COUNT(CASE WHEN r.score <= 6 THEN 1 ELSE 0 END) as detractors,
+            COUNT(CASE WHEN r.score >= 7 AND r.score <= 8 THEN 1 ELSE 0 END) as passives,
+            COUNT(r.score) as total
+        FROM b2b_visit_responses r
+        JOIN questions q ON r.question_id = q.id
+        JOIN visits v ON r.visit_id = v.id
+        WHERE q.is_nps = true 
+        AND v.status = 'Approved'
+        AND r.score IS NOT NULL
+    """)).fetchone()
+    
+    promoters, detractors, passives, total = result
+    
+    print(f"DEBUG NPS: promoters={promoters}, detractors={detractors}, passives={passives}, total={total}")
+    
     nps = None
     if total:
         nps = round(((promoters / total) * 100) - ((detractors / total) * 100), 2)
-
+    
     return NpsSummary(
         nps=nps,
         promoters=int(promoters),

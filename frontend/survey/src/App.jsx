@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from "react";
 
 const API_BASE =
   import.meta.env.VITE_API_URL ||
-  `http://${window.location.hostname === "localhost" ? "localhost" : window.location.hostname}:8000`;
+  `http://${window.location.hostname}:8001`;
+const CACHE_BUST = `?_cb=${Date.now()}`;
+
+console.log("🔍 Survey App Loaded - Using updated endpoints with /dashboard-visits prefix");
+console.log(`🌐 API Base: ${import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8001`}`);
+console.log(`🚀 Build Timestamp: ${new Date().toISOString()}`);
+console.log("📋 If you see this, new code is loaded. Try updating a visit now!");
 const QUESTION_CATEGORY_ORDER = [
   "Category 1: Relationship Strength",
   "Category 2: Service & Operational Performance",
@@ -39,6 +45,7 @@ export default function App() {
   const [responsesByQuestion, setResponsesByQuestion] = useState({});
   const [responseDrafts, setResponseDrafts] = useState({});
   const [savingQuestionId, setSavingQuestionId] = useState(null);
+  const [currentCategory, setCurrentCategory] = useState("Category 1: Relationship Strength");
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isCreatingVisit, setIsCreatingVisit] = useState(false);
   const [isSubmittingVisit, setIsSubmittingVisit] = useState(false);
@@ -50,6 +57,10 @@ export default function App() {
   });
   const [toast, setToast] = useState(null);
   const [showQuestionsTopFab, setShowQuestionsTopFab] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1440);
+  const [showMobileNav, setShowMobileNav] = useState(false);
   const questionsSectionRef = useRef(null);
 
   const [visitForm, setVisitForm] = useState({
@@ -121,6 +132,78 @@ export default function App() {
     };
   }, [questions.length]);
 
+  // Mobile and tablet detection and nav handling
+  useEffect(() => {
+    const checkViewport = () => {
+      const width = window.innerWidth;
+      setViewportWidth(width);
+      setIsMobile(width <= 768);
+      setIsTablet(width > 768 && width <= 1024);
+    };
+    
+    checkViewport();
+    window.addEventListener('resize', checkViewport);
+    
+    return () => window.removeEventListener('resize', checkViewport);
+  }, []);
+
+  // Close mobile nav when clicking outside or when starting to answer questions
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showMobileNav && !event.target.closest('nav') && !event.target.closest('.mobile-nav-toggle')) {
+        setShowMobileNav(false);
+      }
+    };
+
+    if (isMobile) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [showMobileNav, isMobile]);
+
+  // Auto-close mobile nav when user starts interacting with questions
+  useEffect(() => {
+    if (isMobile && showMobileNav) {
+      // Close nav after 3 seconds of inactivity or when user starts answering
+      const inactivityTimer = setTimeout(() => {
+        setShowMobileNav(false);
+      }, 3000);
+      
+      const handleUserInteraction = () => {
+        clearTimeout(inactivityTimer);
+        if (showMobileNav) {
+          setShowMobileNav(false);
+        }
+      };
+      
+      // Close nav when user clicks on any input or button
+      const interactiveElements = document.querySelectorAll('input, button, select, textarea, .question-card');
+      interactiveElements.forEach(element => {
+        element.addEventListener('focus', handleUserInteraction);
+        element.addEventListener('click', handleUserInteraction);
+      });
+      
+      return () => {
+        clearTimeout(inactivityTimer);
+        interactiveElements.forEach(element => {
+          element.removeEventListener('focus', handleUserInteraction);
+          element.removeEventListener('click', handleUserInteraction);
+        });
+      };
+    };
+  }, [showMobileNav, isMobile]);
+
+  // Prevent body scroll when mobile nav is open
+  useEffect(() => {
+    if (isMobile) {
+      if (showMobileNav) {
+        document.body.classList.add('mobile-nav-open');
+      } else {
+        document.body.classList.remove('mobile-nav-open');
+      }
+    }
+  }, [showMobileNav, isMobile]);
+
   const scrollToQuestionsTop = () => {
     questionsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -129,7 +212,7 @@ export default function App() {
     const loadBusinesses = async () => {
       setBusinessError("");
       try {
-        const res = await fetch(`${API_BASE}/businesses`, { headers });
+        const res = await fetch(`${API_BASE}/survey-businesses`, { headers });
         const data = await res.json();
         if (!res.ok) {
           setBusinessError(data.detail || "Failed to load businesses");
@@ -193,7 +276,7 @@ export default function App() {
     setIsLoadingDrafts(true);
     setBusinessError("");
     try {
-      const res = await fetch(`${API_BASE}/visits/drafts`, { headers });
+      const res = await fetch(`${API_BASE}/dashboard-visits/drafts${CACHE_BUST}`, { headers });
       const data = await res.json();
       if (!res.ok) {
         const errorText = data.detail || "Failed to load draft visits";
@@ -204,10 +287,14 @@ export default function App() {
         }
         return;
       }
-      setDraftVisits(data);
+      const normalizedDrafts = (Array.isArray(data) ? data : []).map((draft) => ({
+        ...draft,
+        visit_id: draft.visit_id ?? draft.id
+      }));
+      setDraftVisits(normalizedDrafts);
       if (!silent) {
-        const infoText = data.length
-          ? `Loaded ${data.length} draft visit${data.length === 1 ? "" : "s"}.`
+        const infoText = normalizedDrafts.length
+          ? `Loaded ${normalizedDrafts.length} draft visit${normalizedDrafts.length === 1 ? "" : "s"}.`
           : "No draft visits available.";
         setSectionNotice("planned", "info", infoText);
       }
@@ -223,18 +310,11 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    loadDrafts({ silent: true });
-  }, [userId, role]);
-
   const loadVisitResponses = async (targetVisitId) => {
-    if (!targetVisitId) {
-      setResponsesByQuestion({});
-      return;
-    }
+    if (!targetVisitId) return;
 
     try {
-      const res = await fetch(`${API_BASE}/visits/${targetVisitId}`, { headers });
+      const res = await fetch(`${API_BASE}/dashboard-visits/${targetVisitId}${CACHE_BUST}`, { headers });
       const data = await res.json();
       if (!res.ok) {
         return;
@@ -262,6 +342,8 @@ export default function App() {
         ...prev,
         ...nextDrafts
       }));
+      // Ensure UI reflects saved state immediately after load
+      setResponseDrafts((prev) => ({ ...prev }));
     } catch {
       // no-op: non-blocking convenience load
     }
@@ -323,7 +405,8 @@ export default function App() {
   };
 
   const handleSelectPlannedVisit = (draft) => {
-    setSelectedDraftId(draft.visit_id);
+    const selectedVisitId = draft.visit_id ?? draft.id;
+    setSelectedDraftId(selectedVisitId);
     setSelectedDraftName(resolveBusinessName(draft));
     setVisitSource("planned");
     setVisitForm((prev) => ({
@@ -332,7 +415,7 @@ export default function App() {
       visit_date: draft.visit_date || "",
       visit_type: "Planned"
     }));
-    setVisitId(draft.visit_id);
+    setVisitId(selectedVisitId);
     setStatus(draft.status || "Draft");
     setActiveTab("survey");
     setSectionNotice("planned", "success", "Planned visit selected. Continue in Survey tab.");
@@ -416,12 +499,20 @@ export default function App() {
       return null;
     }
 
-    const res = await fetch(`${API_BASE}/businesses`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ name, priority_level: "medium", active: true })
-    });
-    const data = await res.json();
+    let res;
+    let data;
+    try {
+      res = await fetch(`${API_BASE}/api/b2b/businesses`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name, priority_level: "medium", active: true })
+      });
+      data = await res.json();
+    } catch {
+      setMessage("Failed to create business. Check backend connection and CORS settings.");
+      return null;
+    }
+
     if (!res.ok) {
       setMessage(data.detail || "Failed to create business");
       return null;
@@ -449,7 +540,7 @@ export default function App() {
           return;
         }
 
-        const res = await fetch(`${API_BASE}/visits/${selectedDraftId}/draft`, {
+        const res = await fetch(`${API_BASE}/dashboard-visits/${selectedDraftId}/draft${CACHE_BUST}`, {
           method: "PUT",
           headers,
           body: JSON.stringify({
@@ -490,7 +581,7 @@ export default function App() {
         meeting_attendees: []
       };
 
-      const res = await fetch(`${API_BASE}/visits`, {
+      const res = await fetch(`${API_BASE}/dashboard-visits${CACHE_BUST}`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload)
@@ -614,8 +705,8 @@ export default function App() {
 
       const existingResponse = responsesByQuestion[question.id];
       const endpoint = existingResponse
-        ? `${API_BASE}/visits/${visitId}/responses/${existingResponse.response_id}`
-        : `${API_BASE}/visits/${visitId}/responses`;
+        ? `${API_BASE}/dashboard-visits/${visitId}/responses/${existingResponse.response_id}${CACHE_BUST}`
+        : `${API_BASE}/dashboard-visits/${visitId}/responses${CACHE_BUST}`;
       const method = existingResponse ? "PUT" : "POST";
 
       const res = await fetch(endpoint, {
@@ -683,7 +774,7 @@ export default function App() {
 
     setIsSubmittingVisit(true);
     try {
-      const res = await fetch(`${API_BASE}/visits/${visitId}/submit`, {
+      const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}/submit${CACHE_BUST}`, {
         method: "PUT",
         headers,
         body: JSON.stringify({ submit_notes: null })
@@ -735,6 +826,9 @@ export default function App() {
     (question) => responsesByQuestion[question.id]
   ).length;
 
+  const categoryToId = (category) => `category-${String(category).replace(/[^a-zA-Z0-9]/g, "-")}`;
+  const isCompactDesktop = !isMobile && !isTablet && viewportWidth < 1280;
+
   return (
     <main className="page">
       {toast ? (
@@ -756,7 +850,177 @@ export default function App() {
         </p>
       </section>
 
-      <section ref={questionsSectionRef} className="panel">
+      {/* Dynamic Navigation */}
+      {isMobile ? (
+        /* Mobile: Bottom Tab Navigation */
+        <>
+          <nav className={`fixed ${showMobileNav ? 'mobile-nav-open show' : 'mobile-nav-closed'}`}>
+            <button
+              type="button"
+              className="mobile-nav-close"
+              onClick={() => setShowMobileNav(false)}
+            >
+              ✕
+            </button>
+            <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
+            <div className="space-y-2">
+              {orderedCategories.map((category, index) => (
+                <button
+                  key={category}
+                  onClick={() => {
+                    setCurrentCategory(category);
+                    setShowMobileNav(false);
+                    setTimeout(() => {
+                      const categoryId = categoryToId(category);
+                      const categoryElement = document.getElementById(categoryId);
+
+                      if (categoryElement) {
+                        const elementRect = categoryElement.getBoundingClientRect();
+                        const viewportHeight = window.innerHeight;
+                        const minOffset = 120;
+                        const maxOffset = Math.round(viewportHeight * 0.35);
+                        const desiredOffset = 140;
+                        const offset = Math.max(minOffset, Math.min(maxOffset, desiredOffset));
+
+                        window.scrollTo({
+                          top: elementRect.top + window.scrollY - offset,
+                          behavior: "smooth"
+                        });
+                      }
+                    }, 50);
+                  }}
+                  className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
+                    currentCategory === category
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
+                  }`}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          </nav>
+          
+          {/* Mobile Navigation Toggle - Bottom Tab */}
+          {orderedCategories.length > 0 && (
+            <button
+              type="button"
+              className={`mobile-nav-toggle ${showMobileNav ? 'active' : ''}`}
+              onClick={() => setShowMobileNav(!showMobileNav)}
+            >
+              {showMobileNav ? 'Close Categories' : 'Jump to Category'}
+            </button>
+          )}
+        </>
+      ) : isTablet ? (
+        /* Tablet: Collapsible Sidebar */
+        <nav className={`fixed left-0 top-20 w-56 bg-white shadow-lg rounded-r-lg p-4 z-20 transform transition-transform duration-300 ${showMobileNav ? 'translate-x-0' : '-translate-x-full'}`}>
+          <button
+            type="button"
+            className="absolute right-2 top-2 p-2 rounded hover:bg-gray-100"
+            onClick={() => setShowMobileNav(!showMobileNav)}
+          >
+            {showMobileNav ? '✕' : '☰'}
+          </button>
+          <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
+          <div className="space-y-2">
+            {orderedCategories.map((category, index) => (
+              <button
+                key={category}
+                onClick={() => {
+                  setCurrentCategory(category);
+                  setTimeout(() => {
+                    const categoryId = categoryToId(category);
+                    const categoryElement = document.getElementById(categoryId);
+
+                    if (categoryElement) {
+                      const elementRect = categoryElement.getBoundingClientRect();
+                      const viewportHeight = window.innerHeight;
+                      const minOffset = 120;
+                      const maxOffset = Math.round(viewportHeight * 0.35);
+                      const desiredOffset = 160;
+                      const offset = Math.max(minOffset, Math.min(maxOffset, desiredOffset));
+
+                      window.scrollTo({
+                        top: elementRect.top + window.scrollY - offset,
+                        behavior: "smooth"
+                      });
+                    }
+                  }, 50);
+                }}
+                className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
+                  currentCategory === category
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
+                }`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+        </nav>
+      ) : (
+        /* Desktop: Always Visible Sidebar */
+        <>
+          {/* Desktop Navigation Toggle - Optional for compact desktop */}
+          {isCompactDesktop && (
+            <button
+              type="button"
+              className="fixed left-4 top-4 p-2 bg-white shadow-lg rounded-lg z-30 hover:bg-gray-100"
+              onClick={() => setShowMobileNav(!showMobileNav)}
+            >
+              {showMobileNav ? '☰' : '☰'}
+            </button>
+          )}
+          
+          <nav className={`desktop-jump-nav fixed left-4 top-[60%] w-64 bg-white shadow-lg rounded-lg p-4 z-20 transform -translate-x-0 -translate-y-1/2 max-h-[60vh] overflow-auto transition-transform duration-300 ${isCompactDesktop && !showMobileNav ? '-translate-x-full' : ''}`}>
+            <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
+            <div className="space-y-2">
+              {orderedCategories.map((category, index) => (
+                <button
+                  key={category}
+                  onClick={() => {
+                    setCurrentCategory(category);
+                    setTimeout(() => {
+                      const categoryId = categoryToId(category);
+                      const categoryElement = document.getElementById(categoryId);
+
+                      if (categoryElement) {
+                        const elementRect = categoryElement.getBoundingClientRect();
+                        const viewportHeight = window.innerHeight;
+                        const minOffset = 120;
+                        const maxOffset = Math.round(viewportHeight * 0.35);
+                        const desiredOffset = 180;
+                        const offset = Math.max(minOffset, Math.min(maxOffset, desiredOffset));
+
+                        window.scrollTo({
+                          top: elementRect.top + window.scrollY - offset,
+                          behavior: "smooth"
+                        });
+                      }
+                    }, 50);
+                  }}
+                  className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
+                    currentCategory === category
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
+                  }`}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          </nav>
+        </>
+      )}
+
+      {/* Main Content Wrapper - Responsive based on viewport */}
+      <div
+        className={`ml-72 ${isTablet && showMobileNav ? 'tablet-nav-open' : ''} ${
+          isCompactDesktop && !showMobileNav ? 'desktop-nav-collapsed' : ''
+        }`}
+      >
+        <section ref={questionsSectionRef} className="panel">
         <h2>Identity</h2>
         <div className="grid">
           <label>
@@ -1073,7 +1337,7 @@ export default function App() {
         ) : (
           <div className="question-groups">
             {orderedCategories.map((category) => (
-              <section key={category} className="question-group">
+              <section key={category} id={categoryToId(category)} className="question-group">
                 <div className="question-group-header">
                   <h3>{category}</h3>
                   <span className="category-chip">
@@ -1631,6 +1895,7 @@ export default function App() {
           Questions Top
         </button>
       ) : null}
+      </div>
     </main>
   );
 }

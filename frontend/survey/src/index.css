@@ -488,99 +488,492 @@ button:disabled {
   margin-bottom: 8px;
 }
 
-@media (max-width: 600px) {
-  .page {
-    padding: 48px 14px 112px;
+/* Tablet navigation styles */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .ml-72 {
+    margin-left: 0;
+    transition: margin-left 0.3s ease;
   }
-
-  h1 {
-    font-size: 30px;
-  }
-
-  .hero,
-  .panel {
-    padding: 18px;
-    border-radius: 18px;
-  }
-
-  .panel {
-    padding: 20px;
-    border-radius: 18px;
-  }
-
-  .panel-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .panel-header > .flex {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    width: 100%;
-    gap: 10px;
-  }
-
-  .ghost {
-    width: 100%;
-    text-align: center;
-    padding: 9px 12px;
-    font-size: 13px;
-  }
-
-  .question-head {
-    flex-direction: column;
-  }
-
-  .question-group {
-    padding: 14px;
-  }
-
-  .question-group-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .action-list-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .action-list-head .ghost {
-    width: auto;
-    min-width: 140px;
-  }
-
-  .planned-card {
-    gap: 10px;
-    padding: 14px;
-  }
-
-  .planned-meta {
-    align-items: flex-start;
-  }
-
-  .scroll-top-fab {
-    right: 14px;
-    bottom: calc(68px + env(safe-area-inset-bottom));
-    padding: 10px 14px;
-    font-size: 13px;
-    max-width: calc(100vw - 28px);
+  
+  .ml-72.tablet-nav-open {
+    margin-left: 224px; /* 14rem for tablet sidebar */
   }
 }
 
-@media (max-width: 420px) {
-  .tabs {
+/* Desktop navigation styles */
+@media (min-width: 1025px) {
+  .ml-72 {
+    margin-left: 332px;
+    transition: margin-left 0.25s ease;
+  }
+
+  .ml-72.desktop-nav-collapsed {
+    margin-left: 24px;
+  }
+
+  nav.desktop-jump-nav {
+    display: block !important;
+    left: 16px !important;
+    top: 120px !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 18rem;
+    max-height: calc(100vh - 140px);
+    overflow: auto;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(108, 152, 208, 0.45);
+    box-shadow: 0 12px 28px rgba(20, 66, 112, 0.18);
+  }
+}
+
+/* Mobile viewport improvements */
+@media (max-width: 768px) {
+    html {
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+    }
+    
+    body {
+      font-size: 16px; /* Prevent zoom on iOS */
+      -webkit-text-size-adjust: 100%;
+      overscroll-behavior: contain;
+    }
+    
+    /* Ensure proper mobile layout */
+    .page {
+      padding-bottom: 80px; /* Space for mobile nav toggle */
+    }
+    
+    /* Question cards mobile optimization */
+    .question-card {
+      margin-bottom: 16px;
+      break-inside: avoid;
+    }
+    
+    /* Input focus improvements */
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .tabs {
+      width: 100%;
+      justify-content: space-between;
+      padding: 4px;
+    }
+
+    .tabs button {
+      flex: 1;
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+
+    .grid {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .question-head {
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    .question-tags {
+      order: 2;
+      margin-top: 8px;
+    }
+
+    .question-group {
+      padding: 16px;
+      border-radius: 12px;
+    }
+
+    .question-group-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 0 12px;
+    }
+
+    .question-group h3 {
+      font-size: 18px;
+    }
+
+    .category-chip {
+      font-size: 10px;
+      padding: 4px 8px;
+    }
+
+    .question-card {
+      padding: 16px;
+      border-radius: 12px;
+    }
+
+    .action-list-head {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    .action-list-head .ghost {
+      align-self: flex-start;
+      min-width: 120px;
+    }
+
+    .action-card {
+      padding: 12px;
+      border-radius: 8px;
+    }
+
+    .yes-no-group {
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .yes-no-option {
+      width: 100%;
+      justify-content: center;
+      padding: 12px;
+    }
+
+    .planned-card {
+      flex-direction: column;
+      padding: 16px;
+      gap: 12px;
+    }
+
+    .planned-meta {
+      align-items: flex-start;
+      gap: 4px;
+    }
+
+    .planned-badges {
+      margin-top: 12px;
+    }
+
+    .pill {
+      font-size: 10px;
+      padding: 3px 8px;
+    }
+
+    .ghost {
+      width: 100%;
+      text-align: center;
+      padding: 10px 12px;
+    }
+
+    .status {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .scroll-top-fab {
+      right: 16px;
+      bottom: calc(80px + env(safe-area-inset-bottom));
+      padding: 12px 16px;
+      font-size: 12px;
+      border-radius: 20px;
+    }
+
+    /* Navigation rail improvements */
+    nav.fixed {
+      position: fixed;
+      left: 0 !important;
+      top: auto;
+    bottom: 0;
     width: 100%;
-    justify-content: space-between;
+    height: auto;
+    max-height: 60vh;
+    border-radius: 20px 20px 0 0;
+    transform: none !important;
+    z-index: 40;
+    background: rgba(244, 251, 255, 0.98);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    padding: 20px 16px 16px;
+    box-shadow: 0 -4px 20px rgba(20, 66, 112, 0.15);
+    display: none; /* Hidden by default */
+    transition: transform 0.3s ease, opacity 0.3s ease;
+  }
+
+    nav.fixed.show {
+      display: block;
+      transform: translateY(0);
+    }
+
+    nav.fixed::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 4px;
+    background: #cbd5e1;
+    border-radius: 2px;
+    }
+
+    nav.fixed h3 {
+    font-size: 16px;
+    margin-bottom: 16px;
+    text-align: center;
+    }
+
+    nav.fixed .space-y-2 > * + * {
+    margin-top: 8px;
+    }
+
+    nav.fixed button {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 16px;
+    font-size: 14px;
+    border-radius: 12px;
+    min-height: 48px;
+    transition: all 0.2s ease;
+    }
+
+    nav.fixed button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(20, 66, 112, 0.2);
+    }
+
+  /* Main content wrapper adjustment */
+    .ml-72 {
+      margin-left: 0 !important;
+    }
+
+  /* Mobile navigation styles */
+    .mobile-nav-closed {
+      display: none !important;
+    }
+
+    .mobile-nav-open {
+      display: block !important;
+    }
+
+  /* Overlay backdrop when mobile nav is open */
+    .mobile-nav-open::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: -1;
+    }
+
+  /* Ensure content doesn't jump when nav opens */
+    body.mobile-nav-open {
+    overflow: hidden;
+    position: fixed; /* Prevent content shift */
+    width: 100%;
+    }
+
+    .mobile-nav-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: #f3f4f6;
+    border: 1px solid #d1d5db;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    color: #374151;
+    z-index: 45; /* Above nav */
+    }
+
+    .mobile-nav-close:hover {
+    background: #e5e7eb;
+    }
+
+    .mobile-nav-toggle {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 35;
+    background: linear-gradient(to right, var(--accent), #0f2e52);
+    color: #eaf4ff;
+    border: none;
+    padding: 16px 20px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    box-shadow: 0 -2px 10px rgba(20, 66, 112, 0.2);
+    transition: all 0.3s ease;
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 20px 20px 0 0;
+    backdrop-filter: blur(10px);
+    }
+
+    .mobile-nav-toggle:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 -4px 16px rgba(20, 66, 112, 0.3);
+    }
+
+    .mobile-nav-toggle:active {
+    transform: translateY(0);
+    }
+
+    .mobile-nav-toggle::before {
+    content: '📂';
+    font-size: 18px;
+    }
+
+    .mobile-nav-toggle.active::before {
+    content: '✕';
+    }
+
+  /* Add safe area padding for mobile devices */
+    .mobile-nav-toggle {
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+
+    nav.fixed {
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+
+  /* Form improvements */
+    input, select, textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+    padding: 12px 14px;
+    border-radius: 8px;
+    }
+
+    textarea {
+    min-height: 100px;
+    }
+
+  /* Button improvements */
+    button {
+    padding: 12px 16px;
+    font-size: 14px;
+    border-radius: 8px;
+    min-height: 44px; /* Touch target size */
+    }
+
+    .danger {
+      background: #dc2626;
+    }
+
+    .danger:hover {
+      background: #b91c1c;
+    }
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding: 16px 12px 80px;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+
+  .hero {
+    padding: 16px;
+  }
+
+  .panel {
+    padding: 12px;
+    margin-top: 12px;
+  }
+
+  .question-group {
+    padding: 12px;
+  }
+
+  .question-card {
+    padding: 12px;
+  }
+
+  .panel-header h2 {
+    font-size: 16px;
   }
 
   .tabs button {
-    width: 100%;
+    font-size: 11px;
+    padding: 6px 8px;
   }
 
-  .planned-card {
-    flex-direction: column;
+  .pill {
+    font-size: 9px;
+    padding: 2px 6px;
+  }
+
+  .scroll-top-fab {
+    right: 12px;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    padding: 10px 12px;
+    font-size: 11px;
+  }
+}
+
+/* Small viewport optimizations */
+@media (max-height: 600px) and (orientation: landscape) {
+  .page {
+    padding-top: 12px;
+    padding-bottom: 60px;
+  }
+
+  .hero {
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+
+  .hero h1 {
+    font-size: 20px;
+  }
+
+  .hero .lead {
+    font-size: 14px;
+  }
+
+  .panel {
+    padding: 12px;
+    margin-top: 8px;
+  }
+
+  nav.fixed {
+    max-height: 40vh;
+  }
+}
+
+/* Touch device improvements */
+@media (hover: none) and (pointer: coarse) {
+  .planned-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+  button:hover {
+    transform: none;
+    box-shadow: 0 10px 18px rgba(17, 52, 89, 0.26);
+  }
+
+  .question-card {
+    transition: none;
+  }
+}
+
+/* High DPI displays */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .question-card,
+  .panel,
+  .hero {
+    border-width: 0.5px;
   }
 }

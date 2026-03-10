@@ -66,7 +66,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q07_top_3_satisfied_services",
         "category": "Category 2: Service & Operational Performance",
-        "question_text": "List Top 3 C&W services most satisfied with in the past 6 months.",
+        "question_text": "List your top 3 C&W services most satisfied with in the past 6 months.",
         "input_type": "text",
         "is_mandatory": True,
         "order_index": 7,
@@ -74,7 +74,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q08_top_3_unsatisfied_instances",
         "category": "Category 2: Service & Operational Performance",
-        "question_text": "List 3 instances you have not been satisfied with C&W if any (Network Quality, Fault resolution, Visits, billing etc.); if Network, be specific.",
+        "question_text": "List 3 instances you have not been satisfied with C&W if any (Network Quality, Fault resolution, Visits, billing etc) if any be specific..",
         "input_type": "text",
         "is_mandatory": False,
         "order_index": 8,
@@ -82,7 +82,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q09_issues_resolved_on_time",
         "category": "Category 2: Service & Operational Performance",
-        "question_text": "Are issues resolved on time?.",
+        "question_text": "Are Issues resolved on time?",
         "input_type": "always_sometimes_never",
         "helper_text": "Choose: Always, Sometimes, or Never",
         "is_mandatory": True,
@@ -90,7 +90,7 @@ QUESTION_BLUEPRINT = [
     },
     {
         "question_key": "q10_call_frequency",
-        "question_text": "How often do you need to call C&W to install new products or resolve issues?.",
+        "question_text": "How often do you need to call C&W to install new products or resolve issues?",
         "input_type": "always_sometimes_never",
         "helper_text": "Choose: Always, Sometimes, or Never",
         "category": "Category 2: Service & Operational Performance",
@@ -108,7 +108,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q12_overall_satisfaction",
         "category": "Category 2: Service & Operational Performance",
-        "question_text": "Rate overall C&W Satisfaction.",
+        "question_text": "Rate your overall C&W Satisfaction. (Very Satisfied).",
         "input_type": "score",
         "score_min": 0,
         "score_max": 10,
@@ -118,7 +118,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q13_top_3_important_factors",
         "category": "Category 3: Commercial & Billing",
-        "question_text": "What are the top 3 most important factors of our services? (Quality, Price, Credit, Information, Faults resolution?).",
+        "question_text": "What are the top 3 most important factors of our services? (e.g.Quality Price, Credit, Information, Faults resolution?)",
         "input_type": "text",
         "is_mandatory": True,
         "order_index": 13,
@@ -135,7 +135,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q15_current_products_services",
         "category": "Category 4: Competitive & Portfolio Intelligence",
-        "question_text": "What Products and Services do you currently have with C&W?.",
+        "question_text": "What Products and Services do you currently have with C&W.",
         "input_type": "text",
         "is_mandatory": True,
         "order_index": 15,
@@ -143,7 +143,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q16_other_provider_products",
         "category": "Category 4: Competitive & Portfolio Intelligence",
-        "question_text": "Do you have other products and services from other service providers? (If yes, specify).",
+        "question_text": "Do you have other products and services from other service providers? (Yes or No)",
         "input_type": "yes_no",
         "helper_text": "Select Yes or No",
         "is_mandatory": True,
@@ -152,7 +152,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q17_competitor_products_services",
         "category": "Category 4: Competitive & Portfolio Intelligence",
-        "question_text": "List Products and services from competitors.",
+        "question_text": "If so, list Products and services from competitor. (Conditional on previous)",
         "input_type": "text",
         "is_mandatory": True,
         "order_index": 17,
@@ -168,7 +168,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q19_new_requirements",
         "category": "Category 5: Growth & Expansion",
-        "question_text": "New Telecommunications or Digital Transformation requirements over the next 6 to 12 months.",
+        "question_text": "Do you have any new Telecommunications, or Digital Transformation requirements over next 6 to 12 months.",
         "input_type": "text",
         "is_mandatory": True,
         "order_index": 19,
@@ -176,7 +176,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q20_expansion_services_required",
         "category": "Category 5: Growth & Expansion",
-        "question_text": "Types of products and services required for any expansion in 6 to 12 months.",
+        "question_text": "Types of products and services are required for any expansion in 6 to 12 months.",
         "input_type": "text",
         "is_mandatory": True,
         "order_index": 21,
@@ -184,7 +184,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q21_expansion_types",
         "category": "Category 5: Growth & Expansion",
-        "question_text": "What kinds of expansions in the next 6–12 months?.",
+        "question_text": "What kinds of expansions are you plannning for in the next 6-12 months.",
         "input_type": "text",
         "is_mandatory": True,
         "order_index": 20,
@@ -200,7 +200,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q23_nps",
         "category": "Category 6: Advocacy",
-        "question_text": "NPS on a scale of 0 to 10, how much would you recommend us? (10 being very highly, 0 not at all).",
+        "question_text": "NPS on a scale of 0 to 10, how much would you recommend us? 10 be very highly. 0 not at all.",
         "input_type": "score",
         "score_min": 0,
         "score_max": 10,

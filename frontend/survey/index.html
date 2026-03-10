@@ -4,9 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>B2B CX Survey</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <!-- Cache busting meta tags -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <script>
+      // Force cache clear V2
+      console.log("🔥🔥 INDEX.HTML V2 LOADED - FORCE CACHE CLEAR");
+      console.log(`🚀 Random V2: ${Math.random()}`);
+      // Clear any existing cache
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          names.forEach(function(name) {
+            caches.delete(name);
+          });
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="/src/main.jsx?v2=20260304"></script>
   </body>
 </html>

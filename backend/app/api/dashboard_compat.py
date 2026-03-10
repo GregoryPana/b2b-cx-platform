@@ -1,0 +1,160 @@
+"""
+Dashboard compatibility endpoints for B2B data
+Provides /dashboard/* endpoints that the frontend expects
+"""
+
+from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+from typing import List, Dict, Any
+from ..core.database import get_db
+
+router = APIRouter(prefix="/dashboard", tags=["dashboard-compat"])
+
+
+def resolve_survey_type_id(db: Session, survey_type: str | None) -> int | None:
+    if not survey_type or survey_type.lower() == "all":
+        return None
+
+    return db.execute(
+        text("SELECT id FROM survey_types WHERE name = :survey_type"),
+        {"survey_type": survey_type},
+    ).scalar()
+
+
+@router.get("/nps")
+async def get_nps(survey_type: str | None = None, db: Session = Depends(get_db)):
+    """Get NPS summary from B2B data."""
+    try:
+        survey_type_id = resolve_survey_type_id(db, survey_type)
+        # Calculate NPS from b2b_visit_responses where question is NPS
+        where_extra = ""
+        params: Dict[str, Any] = {}
+        if survey_type_id is not None:
+            where_extra = " AND v.survey_type_id = :survey_type_id"
+            params["survey_type_id"] = survey_type_id
+
+        query = f"""
+                SELECT
+                    COUNT(CASE WHEN r.score >= 9 THEN 1 END) as promoters,
+                    COUNT(CASE WHEN r.score <= 6 THEN 1 END) as detractors,
+                    COUNT(CASE WHEN r.score IN (7, 8) THEN 1 END) as passives,
+                    COUNT(r.score) as total_responses
+                FROM b2b_visit_responses r
+                JOIN visits v ON r.visit_id = v.id
+                JOIN businesses b ON v.business_id = b.id
+                JOIN questions q ON r.question_id = q.id
+                WHERE v.status = 'Approved'
+                  AND b.active = true
+                  AND q.is_nps = true
+                  AND r.score IS NOT NULL
+                  {where_extra}
+        """
+        rows = db.execute(text(query), params).all()
+        
+        if rows and rows[0][3] > 0:  # total_responses > 0
+            promoters, detractors, passives, total = rows[0]
+            nps = round(((promoters / total) * 100) - ((detractors / total) * 100), 2)
+        else:
+            nps = None
+            promoters = detractors = passives = total = 0
+            
+        return {
+            "nps": nps,
+            "promoters": int(promoters),
+            "detractors": int(detractors), 
+            "passives": int(passives),
+            "total_responses": int(total)
+        }
+    except Exception as e:
+        print(f"Error calculating NPS: {e}")
+        return {"nps": None, "promoters": 0, "detractors": 0, "passives": 0, "total_responses": 0}
+
+
+@router.get("/coverage")
+async def get_coverage(survey_type: str | None = None, db: Session = Depends(get_db)):
+    """Get coverage summary from B2B data."""
+    try:
+        survey_type_id = resolve_survey_type_id(db, survey_type)
+        join_extra = ""
+        params: Dict[str, Any] = {}
+        if survey_type_id is not None:
+            join_extra = " AND v.survey_type_id = :survey_type_id"
+            params["survey_type_id"] = survey_type_id
+
+        # Get total active businesses and visited businesses
+        query = f"""
+                SELECT
+                    COUNT(CASE WHEN b.active = true THEN 1 END) as total_active,
+                    COUNT(DISTINCT CASE WHEN b.active = true THEN v.business_id END) as businesses_visited
+                FROM businesses b
+                LEFT JOIN visits v ON b.id = v.business_id AND v.status = 'Approved' {join_extra}
+        """
+        rows = db.execute(text(query), params).all()
+        
+        if rows:
+            total_active, businesses_visited = rows[0]
+            coverage_percent = round((businesses_visited / total_active * 100), 2) if total_active > 0 else 0
+        else:
+            total_active = businesses_visited = coverage_percent = 0
+            
+        return {
+            "total_active_businesses": int(total_active),
+            "businesses_visited_ytd": int(businesses_visited),
+            "coverage_percent": coverage_percent,
+            "businesses_not_visited": int(total_active - businesses_visited),
+            "repeat_visits": 0  # TODO: calculate repeat visits
+        }
+    except Exception as e:
+        print(f"Error calculating coverage: {e}")
+        return {
+            "total_active_businesses": 0,
+            "businesses_visited_ytd": 0, 
+            "coverage_percent": 0,
+            "businesses_not_visited": 0,
+            "repeat_visits": 0
+        }
+
+
+@router.get("/category-breakdown")
+async def get_category_breakdown(survey_type: str | None = None, db: Session = Depends(get_db)):
+    """Get category breakdown from B2B data."""
+    try:
+        survey_type_id = resolve_survey_type_id(db, survey_type)
+        where_extra = ""
+        params: Dict[str, Any] = {}
+        if survey_type_id is not None:
+            where_extra = " AND v.survey_type_id = :survey_type_id"
+            params["survey_type_id"] = survey_type_id
+
+        # Get average scores by category
+        query = f"""
+                SELECT
+                    q.category,
+                    AVG(r.score) as average_score,
+                    COUNT(r.score) as response_count
+                FROM b2b_visit_responses r
+                JOIN visits v ON r.visit_id = v.id
+                JOIN businesses b ON v.business_id = b.id
+                JOIN questions q ON r.question_id = q.id
+                WHERE v.status = 'Approved'
+                  AND b.active = true
+                  AND q.input_type = 'score'
+                  AND r.score IS NOT NULL
+                  {where_extra}
+                GROUP BY q.category
+                ORDER BY q.category
+        """
+        rows = db.execute(text(query), params).all()
+        
+        return [
+            {
+                "category": row[0],
+                "average_score": round(float(row[1]), 2),
+                "response_count": int(row[2])
+            }
+            for row in rows
+        ]
+    except Exception as e:
+        print(f"Error getting category breakdown: {e}")
+        return []
