@@ -10,10 +10,13 @@ export default function App() {
   const [role, setRole] = useState("Manager");
   const [surveyTypes, setSurveyTypes] = useState([]);
   const [activePlatform, setActivePlatform] = useState(null);
+  const [previewPlatform, setPreviewPlatform] = useState("B2B");
   const [nps, setNps] = useState(null);
   const [coverage, setCoverage] = useState(null);
   const [categories, setCategories] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [analyticsDateFrom, setAnalyticsDateFrom] = useState("");
+  const [analyticsDateTo, setAnalyticsDateTo] = useState("");
   const [targetedAnalytics, setTargetedAnalytics] = useState(null);
   const [selectedAnalyticsBusinessIds, setSelectedAnalyticsBusinessIds] = useState([]);
   const [analyticsBusinessSearch, setAnalyticsBusinessSearch] = useState("");
@@ -105,6 +108,42 @@ export default function App() {
   const canManageBusinesses = role === "Manager" || role === "Admin";
   const isB2BPlatform = activePlatform === "B2B";
 
+  const platformGuide = useMemo(
+    () => ({
+      B2B: {
+        status: "Live",
+        summary: "Account-level CX governance with review workflow, response analytics, and action tracking.",
+        sections: ["Analytics", "Review Queue", "Businesses", "Planned Visits", "Survey Results"]
+      },
+      "Installation Assessment": {
+        status: "Planned",
+        summary: "Field installation quality scoring with category-level scoring, historical evidence, and contractor insights.",
+        sections: ["Assessment Results", "Category Scoring", "Team vs Contractor", "Customer Type Analytics"]
+      },
+      B2C: {
+        status: "Planned",
+        summary: "Consumer experience tracking for mystery-shopper and service quality programs.",
+        sections: ["Journey Metrics", "Service Quality", "NPS and CSAT", "Trend Tracking"]
+      }
+    }),
+    []
+  );
+
+  const availablePlatforms = surveyTypes.length ? surveyTypes : [{ name: "B2B" }];
+  const previewMeta = platformGuide[previewPlatform] || {
+    status: "Planned",
+    summary: "Platform dashboard modules and analytics will be configured after the survey model is finalized.",
+    sections: ["Survey Results", "Analytics", "Quality Review", "Operational Metrics"]
+  };
+
+  useEffect(() => {
+    if (!availablePlatforms.length) return;
+    const exists = availablePlatforms.some((type) => type.name === previewPlatform);
+    if (!exists) {
+      setPreviewPlatform(availablePlatforms[0].name);
+    }
+  }, [availablePlatforms, previewPlatform]);
+
   const loadSurveyTypes = async () => {
     try {
       const res = await fetch(`${API_BASE}/survey-types`, { headers });
@@ -125,15 +164,24 @@ export default function App() {
       return;
     }
 
-    const platformQuery = activePlatform ? `?survey_type=${encodeURIComponent(activePlatform)}` : "";
-    const cacheBuster = `&_cb=${Date.now()}`;
+    if (analyticsDateFrom && analyticsDateTo && analyticsDateFrom > analyticsDateTo) {
+      setError("Analytics date range is invalid. 'From Date' must be before or equal to 'To Date'.");
+      return;
+    }
+
+    const metricsParams = new URLSearchParams();
+    if (activePlatform) metricsParams.set("survey_type", activePlatform);
+    if (analyticsDateFrom) metricsParams.set("date_from", analyticsDateFrom);
+    if (analyticsDateTo) metricsParams.set("date_to", analyticsDateTo);
+    metricsParams.set("_cb", Date.now().toString());
+    const queryString = `?${metricsParams.toString()}`;
 
     try {
       const [npsRes, coverageRes, catRes, analyticsRes] = await Promise.all([
-        fetch(`${API_BASE}/dashboard/nps${platformQuery}${cacheBuster}`, { headers }),
-        fetch(`${API_BASE}/dashboard/coverage${platformQuery}${cacheBuster}`, { headers }),
-        fetch(`${API_BASE}/dashboard/category-breakdown${platformQuery}${cacheBuster}`, { headers }),
-        fetch(`${API_BASE}/analytics${platformQuery}${cacheBuster}`, { headers })
+        fetch(`${API_BASE}/dashboard/nps${queryString}`, { headers }),
+        fetch(`${API_BASE}/dashboard/coverage${queryString}`, { headers }),
+        fetch(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }),
+        fetch(`${API_BASE}/analytics${queryString}`, { headers })
       ]);
 
       const npsData = await npsRes.json();
@@ -177,9 +225,15 @@ export default function App() {
     }
 
     setError("");
+    if (analyticsDateFrom && analyticsDateTo && analyticsDateFrom > analyticsDateTo) {
+      setError("Analytics date range is invalid. 'From Date' must be before or equal to 'To Date'.");
+      return;
+    }
     const params = new URLSearchParams();
     params.set("survey_type", activePlatform);
     params.set("business_ids", selectedAnalyticsBusinessIds.join(","));
+    if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+    if (analyticsDateTo) params.set("date_to", analyticsDateTo);
     params.set("_cb", Date.now().toString());
 
     try {
@@ -713,6 +767,29 @@ export default function App() {
     });
   };
 
+  const getToneClass = (type, value) => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+      return "kpi-neutral";
+    }
+    const numeric = Number(value);
+    if (type === "csat" || type === "relationship") {
+      if (numeric >= 75) return "kpi-good";
+      if (numeric >= 50) return "kpi-warn";
+      return "kpi-bad";
+    }
+    if (type === "nps") {
+      if (numeric >= 30) return "kpi-good";
+      if (numeric >= 0) return "kpi-warn";
+      return "kpi-bad";
+    }
+    if (type === "exposure") {
+      if (numeric <= 30) return "kpi-good";
+      if (numeric <= 60) return "kpi-warn";
+      return "kpi-bad";
+    }
+    return "kpi-neutral";
+  };
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -748,7 +825,7 @@ export default function App() {
       loadRepresentatives();
       loadDraftVisits();
     }
-  }, [activeView, surveyFilter, selectedSurveyBusiness, surveyDateFilter, activePlatform]);
+  }, [activeView, surveyFilter, selectedSurveyBusiness, surveyDateFilter, activePlatform, analyticsDateFrom, analyticsDateTo]);
 
   useEffect(() => {
     if (!activePlatform || activeView !== "analytics" || !isB2BPlatform) {
@@ -760,7 +837,14 @@ export default function App() {
       return;
     }
     loadTargetedAnalytics();
-  }, [activePlatform, activeView, isB2BPlatform, selectedAnalyticsBusinessIds.join(",")]);
+  }, [
+    activePlatform,
+    activeView,
+    isB2BPlatform,
+    selectedAnalyticsBusinessIds.join(","),
+    analyticsDateFrom,
+    analyticsDateTo,
+  ]);
 
   const handleSelectPlatform = (platformName) => {
     setActivePlatform(platformName);
@@ -787,18 +871,55 @@ export default function App() {
             </button>
           </div>
 
-          <div className="grid">
-            {(surveyTypes.length ? surveyTypes : [{ name: "B2B" }]).map((type) => (
+          <div className="platform-layout">
+            <div className="platform-list" role="listbox" aria-label="Platform selection">
+              {availablePlatforms.map((type) => {
+                const meta = platformGuide[type.name] || {
+                  status: "Planned",
+                  summary: type.description || "Platform modules and analytics will be configured.",
+                  sections: ["Survey Results", "Analytics", "Quality Review", "Operational Metrics"]
+                };
+                const isPreview = previewPlatform === type.name;
+                return (
+                  <button
+                    key={type.name}
+                    type="button"
+                    className={`platform-option ${isPreview ? "active" : ""}`}
+                    role="option"
+                    aria-selected={isPreview}
+                    onMouseEnter={() => setPreviewPlatform(type.name)}
+                    onFocus={() => setPreviewPlatform(type.name)}
+                    onClick={() => handleSelectPlatform(type.name)}
+                  >
+                    <div className="platform-option-head">
+                      <div className="card-title">{type.name}</div>
+                      <span className={`platform-status ${meta.status === "Live" ? "live" : "planned"}`}>{meta.status}</span>
+                    </div>
+                    <div className="caption">{meta.summary}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <aside className="platform-preview" aria-live="polite">
+              <div className="platform-preview-head">
+                <h3>{previewPlatform}</h3>
+                <span className={`platform-status ${previewMeta.status === "Live" ? "live" : "planned"}`}>{previewMeta.status}</span>
+              </div>
+              <p className="caption">{previewMeta.summary}</p>
+              <div className="platform-chip-row">
+                {previewMeta.sections.map((section) => (
+                  <span key={section} className="platform-chip">{section}</span>
+                ))}
+              </div>
               <button
-                key={type.name}
                 type="button"
-                className="card"
-                onClick={() => handleSelectPlatform(type.name)}
+                className="cta"
+                onClick={() => handleSelectPlatform(previewPlatform)}
               >
-                <div className="card-title">{type.name}</div>
-                <div className="caption">{type.description || ""}</div>
+                Open {previewPlatform}
               </button>
-            ))}
+            </aside>
           </div>
         </section>
       </main>
@@ -1315,8 +1436,68 @@ export default function App() {
       ) : null}
 
       {activeView === "analytics" && canViewMetrics ? (
-        <>
-          <section className="panel">
+        <div className="analytics-view">
+          <section className="analytics-top-grid">
+            <div className="panel analytics-date-panel">
+              <div className="panel-header">
+                <h2>Analytics Date Filter</h2>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setAnalyticsDateFrom("");
+                    setAnalyticsDateTo("");
+                  }}
+                  disabled={!analyticsDateFrom && !analyticsDateTo}
+                >
+                  Clear Dates
+                </button>
+              </div>
+              <div className="analytics-date-grid">
+                <label>
+                  From Date
+                  <input
+                    type="date"
+                    value={analyticsDateFrom}
+                    onChange={(event) => setAnalyticsDateFrom(event.target.value)}
+                  />
+                </label>
+                <label>
+                  To Date
+                  <input
+                    type="date"
+                    value={analyticsDateTo}
+                    onChange={(event) => setAnalyticsDateTo(event.target.value)}
+                  />
+                </label>
+              </div>
+              <p className="caption">Set a single day by choosing the same from/to date, or choose a date range.</p>
+            </div>
+
+            <article className="panel response-overview-card">
+              <h2>Response Overview</h2>
+              <div className="response-overview-grid">
+                <div className="overview-stat-card total">
+                  <h3>Total Visits</h3>
+                  <p className="metric">{analytics?.visits?.total ?? "--"}</p>
+                </div>
+                <div className="overview-stat-card completed">
+                  <h3>Completed Visits</h3>
+                  <p className="metric">{analytics?.visits?.completed ?? "--"}</p>
+                </div>
+                <div className="overview-stat-card pending">
+                  <h3>Pending Visits</h3>
+                  <p className="metric">{analytics?.visits?.pending ?? "--"}</p>
+                </div>
+                <div className="overview-stat-card draft">
+                  <h3>Draft Visits</h3>
+                  <p className="metric">{analytics?.visits?.draft ?? "--"}</p>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section className="panel targeted-panel">
             <div className="panel-header">
               <h2>Targeted Business Analytics</h2>
               <button type="button" className="ghost" onClick={loadTargetedAnalytics} disabled={selectedAnalyticsBusinessIds.length === 0}>
@@ -1374,16 +1555,28 @@ export default function App() {
             </div>
             {targetedAnalytics ? (
               <div className="targeted-kpis">
-                <div><strong>CSAT</strong><span>{targetedAnalytics.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "0.0"}%</span></div>
-                <div><strong>NPS</strong><span>{targetedAnalytics.nps?.nps ?? "--"}</span></div>
-                <div><strong>Relationship</strong><span>{targetedAnalytics.relationship_score?.score?.toFixed?.(1) ?? "0.0"}</span></div>
-                <div><strong>Competitor Exposure</strong><span>{targetedAnalytics.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</span></div>
+                <div className={getToneClass("csat", targetedAnalytics.customer_satisfaction?.csat_score)}>
+                  <strong>CSAT</strong>
+                  <span>{targetedAnalytics.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "0.0"}%</span>
+                </div>
+                <div className={getToneClass("nps", targetedAnalytics.nps?.nps)}>
+                  <strong>NPS</strong>
+                  <span>{targetedAnalytics.nps?.nps ?? "--"}</span>
+                </div>
+                <div className={getToneClass("relationship", targetedAnalytics.relationship_score?.score)}>
+                  <strong>Relationship</strong>
+                  <span>{targetedAnalytics.relationship_score?.score?.toFixed?.(1) ?? "0.0"}</span>
+                </div>
+                <div className={getToneClass("exposure", targetedAnalytics.competitive_exposure?.exposure_rate)}>
+                  <strong>Competitor Exposure</strong>
+                  <span>{targetedAnalytics.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</span>
+                </div>
               </div>
             ) : (
               <p className="caption">Select one or more businesses to see targeted analytics.</p>
             )}
           </section>
-          <section className="grid">
+          <section className="analytics-main-grid">
             <article>
               <h2>Net Promoter Score</h2>
               <p className="metric">{analytics?.nps?.nps ?? "--"}</p>
@@ -1406,17 +1599,17 @@ export default function App() {
                 <span><i style={{ background: "#dc2626" }} />Detractors</span>
               </div>
               <div className="nps-breakdown">
-                <div className="nps-category">
+                <div className="nps-category promoters">
                   <div className="label">Promoters (9-10)</div>
                   <div className="value">{analytics?.nps?.promoters ?? 0}</div>
                   <div className="percentage">{analytics?.nps?.promoter_percentage ?? 0}%</div>
                 </div>
-                <div className="nps-category">
+                <div className="nps-category passives">
                   <div className="label">Passives (7-8)</div>
                   <div className="value">{analytics?.nps?.passives ?? 0}</div>
                   <div className="percentage">{analytics?.nps?.passive_percentage ?? 0}%</div>
                 </div>
-                <div className="nps-category">
+                <div className="nps-category detractors">
                   <div className="label">Detractors (0-6)</div>
                   <div className="value">{analytics?.nps?.detractors ?? 0}</div>
                   <div className="percentage">{analytics?.nps?.detractor_percentage ?? 0}%</div>
@@ -1435,33 +1628,30 @@ export default function App() {
                   <span className="csat-value">{analytics?.customer_satisfaction?.csat_score?.toFixed(1) ?? "0.0"}%</span>
                 </div>
                 <div className="csat-meter" aria-label="CSAT score meter">
-                  <div
-                    className="csat-meter-fill"
-                    style={{ width: `${Math.max(0, Math.min(100, analytics?.customer_satisfaction?.csat_score ?? 0))}%` }}
-                  />
-                </div>
-                <p className="caption">
-                  ({analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0} Satisfied + {analytics?.customer_satisfaction?.score_distribution?.very_satisfied ?? 0} Very Satisfied) / {analytics?.customer_satisfaction?.response_count ?? 0} responses
-                </p>
+                <div
+                  className="csat-meter-fill"
+                  style={{ width: `${Math.max(0, Math.min(100, analytics?.customer_satisfaction?.csat_score ?? 0))}%` }}
+                />
+              </div>
               </div>
               <div className="satisfaction-breakdown">
-                  <div className="satisfaction-category">
+                  <div className="satisfaction-category very-dissatisfied">
                     <span className="label">Very Dissatisfied (0-2)</span>
                     <span className="value">{analytics?.customer_satisfaction?.score_distribution?.very_dissatisfied ?? 0}</span>
                   </div>
-                  <div className="satisfaction-category">
+                  <div className="satisfaction-category dissatisfied">
                     <span className="label">Dissatisfied (3-4)</span>
                     <span className="value">{analytics?.customer_satisfaction?.score_distribution?.dissatisfied ?? 0}</span>
                   </div>
-                  <div className="satisfaction-category">
+                  <div className="satisfaction-category neutral">
                     <span className="label">Neutral (5-6)</span>
                     <span className="value">{analytics?.customer_satisfaction?.score_distribution?.neutral ?? 0}</span>
                   </div>
-                  <div className="satisfaction-category">
+                  <div className="satisfaction-category satisfied">
                     <span className="label">Satisfied (7-8)</span>
                     <span className="value">{analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0}</span>
                   </div>
-                  <div className="satisfaction-category">
+                  <div className="satisfaction-category very-satisfied">
                     <span className="label">Very Satisfied (9-10)</span>
                     <span className="value">{analytics?.customer_satisfaction?.score_distribution?.very_satisfied ?? 0}</span>
                   </div>
@@ -1486,27 +1676,6 @@ export default function App() {
                 <span><i style={{ background: "#b91c1c" }} />Very Dissatisfied</span>
               </div>
               </article>
-            <article>
-              <h2>Response Overview</h2>
-              <div className="grid">
-                <div>
-                  <h3>Total Visits</h3>
-                  <p className="metric">{analytics?.visits?.total ?? "--"}</p>
-                </div>
-                <div>
-                  <h3>Completed Visits</h3>
-                  <p className="metric">{analytics?.visits?.completed ?? "--"}</p>
-                </div>
-                <div>
-                  <h3>Pending Visits</h3>
-                  <p className="metric">{analytics?.visits?.pending ?? "--"}</p>
-                </div>
-                <div>
-                  <h3>Draft Visits</h3>
-                  <p className="metric">{analytics?.visits?.draft ?? "--"}</p>
-                </div>
-              </div>
-            </article>
             <article>
               <h2>Overall Relationship Score</h2>
               <p className="metric">{analytics?.relationship_score?.score?.toFixed?.(1) ?? "--"}</p>
@@ -1538,7 +1707,7 @@ export default function App() {
               </div>
             </article>
           </section>
-        </>
+        </div>
       ) : null}
 
       {activeView === "review" && canReview ? (

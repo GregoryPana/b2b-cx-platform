@@ -23,7 +23,12 @@ def resolve_survey_type_id(db: Session, survey_type: str | None) -> int | None:
 
 
 @router.get("/nps")
-async def get_nps(survey_type: str | None = None, db: Session = Depends(get_db)):
+async def get_nps(
+    survey_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+):
     """Get NPS summary from B2B data."""
     try:
         survey_type_id = resolve_survey_type_id(db, survey_type)
@@ -33,6 +38,12 @@ async def get_nps(survey_type: str | None = None, db: Session = Depends(get_db))
         if survey_type_id is not None:
             where_extra = " AND v.survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
+        if date_from:
+            where_extra += " AND v.visit_date >= :date_from"
+            params["date_from"] = date_from
+        if date_to:
+            where_extra += " AND v.visit_date <= :date_to"
+            params["date_to"] = date_to
 
         query = f"""
                 SELECT
@@ -72,7 +83,12 @@ async def get_nps(survey_type: str | None = None, db: Session = Depends(get_db))
 
 
 @router.get("/coverage")
-async def get_coverage(survey_type: str | None = None, db: Session = Depends(get_db)):
+async def get_coverage(
+    survey_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+):
     """Get coverage summary from B2B data."""
     try:
         survey_type_id = resolve_survey_type_id(db, survey_type)
@@ -81,6 +97,12 @@ async def get_coverage(survey_type: str | None = None, db: Session = Depends(get
         if survey_type_id is not None:
             join_extra = " AND v.survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
+        if date_from:
+            join_extra += " AND v.visit_date >= :date_from"
+            params["date_from"] = date_from
+        if date_to:
+            join_extra += " AND v.visit_date <= :date_to"
+            params["date_to"] = date_to
 
         # Get total active businesses and visited businesses
         query = f"""
@@ -117,7 +139,12 @@ async def get_coverage(survey_type: str | None = None, db: Session = Depends(get
 
 
 @router.get("/category-breakdown")
-async def get_category_breakdown(survey_type: str | None = None, db: Session = Depends(get_db)):
+async def get_category_breakdown(
+    survey_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+):
     """Get category breakdown from B2B data."""
     try:
         survey_type_id = resolve_survey_type_id(db, survey_type)
@@ -126,6 +153,12 @@ async def get_category_breakdown(survey_type: str | None = None, db: Session = D
         if survey_type_id is not None:
             where_extra = " AND v.survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
+        if date_from:
+            where_extra += " AND v.visit_date >= :date_from"
+            params["date_from"] = date_from
+        if date_to:
+            where_extra += " AND v.visit_date <= :date_to"
+            params["date_to"] = date_to
 
         # Get average scores by category
         query = f"""

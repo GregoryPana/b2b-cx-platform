@@ -61,6 +61,8 @@ export default function App() {
   const [isTablet, setIsTablet] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1440);
   const [showMobileNav, setShowMobileNav] = useState(false);
+  const [showDesktopJumpNav, setShowDesktopJumpNav] = useState(false);
+  const heroSectionRef = useRef(null);
   const questionsSectionRef = useRef(null);
 
   const [visitForm, setVisitForm] = useState({
@@ -145,6 +147,27 @@ export default function App() {
     window.addEventListener('resize', checkViewport);
     
     return () => window.removeEventListener('resize', checkViewport);
+  }, []);
+
+  useEffect(() => {
+    const handleDesktopNavVisibility = () => {
+      const hero = heroSectionRef.current;
+      if (!hero) {
+        setShowDesktopJumpNav(false);
+        return;
+      }
+      const heroBottom = hero.getBoundingClientRect().bottom;
+      setShowDesktopJumpNav(heroBottom <= 72);
+    };
+
+    handleDesktopNavVisibility();
+    window.addEventListener("scroll", handleDesktopNavVisibility, { passive: true });
+    window.addEventListener("resize", handleDesktopNavVisibility);
+
+    return () => {
+      window.removeEventListener("scroll", handleDesktopNavVisibility);
+      window.removeEventListener("resize", handleDesktopNavVisibility);
+    };
   }, []);
 
   // Close mobile nav when clicking outside or when starting to answer questions
@@ -842,7 +865,7 @@ export default function App() {
           </div>
         </div>
       ) : null}
-      <section className="hero">
+      <section ref={heroSectionRef} className="hero">
         <p className="eyebrow">Survey Console</p>
         <h1>B2B Customer Experience Visit</h1>
         <p className="lead">
@@ -963,7 +986,7 @@ export default function App() {
         /* Desktop: Always Visible Sidebar */
         <>
           {/* Desktop Navigation Toggle - Optional for compact desktop */}
-          {isCompactDesktop && (
+          {showDesktopJumpNav && isCompactDesktop && (
             <button
               type="button"
               className="fixed left-4 top-4 p-2 bg-white shadow-lg rounded-lg z-30 hover:bg-gray-100"
@@ -973,7 +996,8 @@ export default function App() {
             </button>
           )}
           
-          <nav className={`desktop-jump-nav fixed left-4 top-[60%] w-64 bg-white shadow-lg rounded-lg p-4 z-20 transform -translate-x-0 -translate-y-1/2 max-h-[60vh] overflow-auto transition-transform duration-300 ${isCompactDesktop && !showMobileNav ? '-translate-x-full' : ''}`}>
+          {showDesktopJumpNav ? (
+            <nav className={`desktop-jump-nav fixed left-4 top-[60%] w-64 bg-white shadow-lg rounded-lg p-4 z-20 transform -translate-x-0 -translate-y-1/2 max-h-[60vh] overflow-auto transition-transform duration-300 ${isCompactDesktop && !showMobileNav ? '-translate-x-full' : ''}`}>
             <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
             <div className="space-y-2">
               {orderedCategories.map((category, index) => (
@@ -1010,14 +1034,15 @@ export default function App() {
                 </button>
               ))}
             </div>
-          </nav>
+            </nav>
+          ) : null}
         </>
       )}
 
       {/* Main Content Wrapper - Responsive based on viewport */}
       <div
         className={`ml-72 ${isTablet && showMobileNav ? 'tablet-nav-open' : ''} ${
-          isCompactDesktop && !showMobileNav ? 'desktop-nav-collapsed' : ''
+          (!showDesktopJumpNav || (isCompactDesktop && !showMobileNav)) ? 'desktop-nav-collapsed' : ''
         }`}
       >
         <section ref={questionsSectionRef} className="panel">

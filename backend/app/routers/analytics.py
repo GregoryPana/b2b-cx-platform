@@ -26,6 +26,8 @@ def resolve_survey_type_id(db: Session, survey_type: str | None) -> int | None:
 async def get_comprehensive_analytics(
     survey_type: str | None = None,
     business_ids: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Get comprehensive analytics for dashboard."""
@@ -57,6 +59,15 @@ async def get_comprehensive_analytics(
             business_clause = ",".join(placeholders)
             where_extra += f" AND v.business_id IN ({business_clause})"
             where_visits_extra += f" AND business_id IN ({business_clause})"
+
+        if date_from:
+            where_extra += " AND v.visit_date >= :date_from"
+            where_visits_extra += " AND visit_date >= :date_from"
+            params["date_from"] = date_from
+        if date_to:
+            where_extra += " AND v.visit_date <= :date_to"
+            where_visits_extra += " AND visit_date <= :date_to"
+            params["date_to"] = date_to
 
         has_question_key = db.execute(text("""
             SELECT 1
