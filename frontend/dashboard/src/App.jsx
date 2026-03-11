@@ -1,4 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "./components/ui/table";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Select } from "./components/ui/select";
+import { Badge } from "./components/ui/badge";
+import { Checkbox } from "./components/ui/checkbox";
+import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Textarea } from "./components/ui/textarea";
 import "./review.css";
 
 const API_BASE =
@@ -15,6 +39,13 @@ export default function App() {
   const [coverage, setCoverage] = useState(null);
   const [categories, setCategories] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [questionAverages, setQuestionAverages] = useState([]);
+  const [questionAnalyticsLoading, setQuestionAnalyticsLoading] = useState(false);
+  const [questionSearch, setQuestionSearch] = useState("");
+  const [questionCategoryFilter, setQuestionCategoryFilter] = useState("all");
+  const [selectedQuestionTrend, setSelectedQuestionTrend] = useState(null);
+  const [questionTrendLoading, setQuestionTrendLoading] = useState(false);
+  const [questionTrendInterval, setQuestionTrendInterval] = useState("week");
   const [analyticsDateFrom, setAnalyticsDateFrom] = useState("");
   const [analyticsDateTo, setAnalyticsDateTo] = useState("");
   const [targetedAnalytics, setTargetedAnalytics] = useState(null);
@@ -107,6 +138,25 @@ export default function App() {
   const canReview = role === "Reviewer" || role === "Admin";
   const canManageBusinesses = role === "Manager" || role === "Admin";
   const isB2BPlatform = activePlatform === "B2B";
+
+  const questionCategories = useMemo(() => {
+    const set = new Set(questionAverages.map((item) => item.category).filter(Boolean));
+    return ["all", ...Array.from(set)];
+  }, [questionAverages]);
+
+  const filteredQuestionAverages = useMemo(() => {
+    const q = questionSearch.trim().toLowerCase();
+    return questionAverages.filter((item) => {
+      const categoryOk = questionCategoryFilter === "all" || item.category === questionCategoryFilter;
+      if (!categoryOk) return false;
+      if (!q) return true;
+      return (
+        String(item.question_number).includes(q) ||
+        (item.question_text || "").toLowerCase().includes(q) ||
+        (item.category || "").toLowerCase().includes(q)
+      );
+    });
+  }, [questionAverages, questionSearch, questionCategoryFilter]);
 
   const platformGuide = useMemo(
     () => ({
@@ -248,6 +298,85 @@ export default function App() {
       setError("Failed to load targeted analytics");
     }
   };
+
+  const loadQuestionAverages = async () => {
+    if (!canViewMetrics || !activePlatform) {
+      setQuestionAverages([]);
+      return;
+    }
+
+    setQuestionAnalyticsLoading(true);
+    const params = new URLSearchParams();
+    params.set("survey_type", activePlatform);
+    if (selectedAnalyticsBusinessIds.length) {
+      params.set("business_ids", selectedAnalyticsBusinessIds.join(","));
+    }
+    if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+    if (analyticsDateTo) params.set("date_to", analyticsDateTo);
+    params.set("_cb", Date.now().toString());
+
+    try {
+      const res = await fetch(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to load per-question analytics");
+        setQuestionAverages([]);
+        return;
+      }
+      setQuestionAverages(Array.isArray(data.items) ? data.items : []);
+    } catch {
+      setError("Failed to load per-question analytics");
+      setQuestionAverages([]);
+    } finally {
+      setQuestionAnalyticsLoading(false);
+    }
+  };
+
+  const loadQuestionTrend = async (questionId) => {
+    if (!questionId || !canViewMetrics || !activePlatform) return;
+
+    setQuestionTrendLoading(true);
+    const params = new URLSearchParams();
+    params.set("survey_type", activePlatform);
+    params.set("interval", questionTrendInterval);
+    if (selectedAnalyticsBusinessIds.length) {
+      params.set("business_ids", selectedAnalyticsBusinessIds.join(","));
+    }
+    if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+    if (analyticsDateTo) params.set("date_to", analyticsDateTo);
+    params.set("_cb", Date.now().toString());
+
+    try {
+      const res = await fetch(`${API_BASE}/analytics/questions/${questionId}/trend?${params.toString()}`, { headers });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to load question trend");
+        return;
+      }
+      setSelectedQuestionTrend(data);
+    } catch {
+      setError("Failed to load question trend");
+    } finally {
+      setQuestionTrendLoading(false);
+    }
+  };
+
+  const formatTrendPeriodLabel = (period) => {
+    if (!period) return "-";
+    const date = new Date(period);
+    if (Number.isNaN(date.getTime())) return String(period);
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+
+  const trendChartData = useMemo(() => {
+    if (!selectedQuestionTrend?.points?.length) return [];
+    return selectedQuestionTrend.points.map((point) => ({
+      ...point,
+      periodLabel: formatTrendPeriodLabel(point.period),
+      averageScore: Number(point.average_score || 0),
+      responses: Number(point.response_count || 0),
+    }));
+  }, [selectedQuestionTrend]);
 
   const loadPending = async () => {
     if (!canReview || !isB2BPlatform) {
@@ -846,6 +975,27 @@ export default function App() {
     analyticsDateTo,
   ]);
 
+  useEffect(() => {
+    if (activeView !== "analytics" || !canViewMetrics || !activePlatform) {
+      setQuestionAverages([]);
+      setSelectedQuestionTrend(null);
+      return;
+    }
+    loadQuestionAverages();
+  }, [
+    activeView,
+    canViewMetrics,
+    activePlatform,
+    analyticsDateFrom,
+    analyticsDateTo,
+    selectedAnalyticsBusinessIds.join(","),
+  ]);
+
+  useEffect(() => {
+    if (!selectedQuestionTrend?.question?.id) return;
+    loadQuestionTrend(selectedQuestionTrend.question.id);
+  }, [questionTrendInterval]);
+
   const handleSelectPlatform = (platformName) => {
     setActivePlatform(platformName);
     setActiveView("analytics");
@@ -866,9 +1016,9 @@ export default function App() {
         <section className="panel">
           <div className="panel-header">
             <h2>Platforms</h2>
-            <button type="button" className="ghost" onClick={loadSurveyTypes}>
+            <Button type="button" variant="outline" size="sm" onClick={loadSurveyTypes}>
               Refresh
-            </button>
+            </Button>
           </div>
 
           <div className="platform-layout">
@@ -881,7 +1031,7 @@ export default function App() {
                 };
                 const isPreview = previewPlatform === type.name;
                 return (
-                  <button
+                  <Button
                     key={type.name}
                     type="button"
                     className={`platform-option ${isPreview ? "active" : ""}`}
@@ -890,13 +1040,14 @@ export default function App() {
                     onMouseEnter={() => setPreviewPlatform(type.name)}
                     onFocus={() => setPreviewPlatform(type.name)}
                     onClick={() => handleSelectPlatform(type.name)}
+                    variant="outline"
                   >
                     <div className="platform-option-head">
                       <div className="card-title">{type.name}</div>
-                      <span className={`platform-status ${meta.status === "Live" ? "live" : "planned"}`}>{meta.status}</span>
+                      <Badge variant={meta.status === "Live" ? "success" : "warning"}>{meta.status}</Badge>
                     </div>
                     <div className="caption">{meta.summary}</div>
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -904,7 +1055,7 @@ export default function App() {
             <aside className="platform-preview" aria-live="polite">
               <div className="platform-preview-head">
                 <h3>{previewPlatform}</h3>
-                <span className={`platform-status ${previewMeta.status === "Live" ? "live" : "planned"}`}>{previewMeta.status}</span>
+                <Badge variant={previewMeta.status === "Live" ? "success" : "warning"}>{previewMeta.status}</Badge>
               </div>
               <p className="caption">{previewMeta.summary}</p>
               <div className="platform-chip-row">
@@ -912,13 +1063,9 @@ export default function App() {
                   <span key={section} className="platform-chip">{section}</span>
                 ))}
               </div>
-              <button
-                type="button"
-                className="cta"
-                onClick={() => handleSelectPlatform(previewPlatform)}
-              >
+              <Button type="button" onClick={() => handleSelectPlatform(previewPlatform)}>
                 Open {previewPlatform}
-              </button>
+              </Button>
             </aside>
           </div>
         </section>
@@ -934,10 +1081,10 @@ export default function App() {
           <h1>{activePlatform} Dashboard</h1>
         </div>
         <div className="flex gap-3 items-end">
-          <button type="button" className="ghost" onClick={() => setActivePlatform(null)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setActivePlatform(null)}>
             Change Platform
-          </button>
-          <button className="cta" type="button">Export Snapshot</button>
+          </Button>
+          <Button type="button">Export Snapshot</Button>
         </div>
       </header>
 
@@ -980,72 +1127,29 @@ export default function App() {
       {isB2BPlatform ? (
       <>
       <nav className="top-nav" aria-label="Primary">
-        <div className="nav-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeView === "analytics"}
-            className={activeView === "analytics" ? "active" : ""}
-            onClick={() => setActiveView("analytics")}
-            disabled={!canViewMetrics}
-          >
-            Analytics
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeView === "review"}
-            className={activeView === "review" ? "active" : ""}
-            onClick={() => setActiveView("review")}
-            disabled={!canReview || !isB2BPlatform}
-          >
-            Review Queue
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeView === "businesses"}
-            className={activeView === "businesses" ? "active" : ""}
-            onClick={() => setActiveView("businesses")}
-            disabled={!canManageBusinesses || !isB2BPlatform}
-          >
-            Businesses
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeView === "visits"}
-            className={activeView === "visits" ? "active" : ""}
-            onClick={() => setActiveView("visits")}
-            disabled={!canManageBusinesses || !isB2BPlatform}
-          >
-            Visits
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeView === "survey-results"}
-            className={activeView === "survey-results" ? "active" : ""}
-            onClick={() => setActiveView("survey-results")}
-            disabled={!canViewMetrics}
-          >
-            Survey Results
-          </button>
-        </div>
+        <Tabs value={activeView} onValueChange={setActiveView} className="nav-tabs">
+          <TabsList role="tablist" aria-label="Dashboard sections">
+            <TabsTrigger value="analytics" role="tab" aria-selected={activeView === "analytics"} disabled={!canViewMetrics}>Analytics</TabsTrigger>
+            <TabsTrigger value="review" role="tab" aria-selected={activeView === "review"} disabled={!canReview || !isB2BPlatform}>Review Queue</TabsTrigger>
+            <TabsTrigger value="businesses" role="tab" aria-selected={activeView === "businesses"} disabled={!canManageBusinesses || !isB2BPlatform}>Businesses</TabsTrigger>
+            <TabsTrigger value="visits" role="tab" aria-selected={activeView === "visits"} disabled={!canManageBusinesses || !isB2BPlatform}>Visits</TabsTrigger>
+            <TabsTrigger value="survey-results" role="tab" aria-selected={activeView === "survey-results"} disabled={!canViewMetrics}>Survey Results</TabsTrigger>
+          </TabsList>
+        </Tabs>
         <div className="nav-account">
           <span className="caption">Local account</span>
           <div className="account-select">
             <label>
               User ID
-              <input value={userId} onChange={(event) => setUserId(event.target.value)} />
+              <Input value={userId} onChange={(event) => setUserId(event.target.value)} />
             </label>
             <label>
               Role
-              <select value={role} onChange={(event) => setRole(event.target.value)}>
+              <Select value={role} onChange={(event) => setRole(event.target.value)}>
                 <option>Manager</option>
                 <option>Reviewer</option>
                 <option>Admin</option>
-              </select>
+              </Select>
             </label>
           </div>
         </div>
@@ -1083,9 +1187,8 @@ export default function App() {
           <div className="panel-header">
             <h2>{selectedBusiness ? "Edit Business" : "Create Business"}</h2>
             {selectedBusiness ? (
-              <button
+              <Button
                 type="button"
-                className="ghost"
                 onClick={() => {
                   setSelectedBusiness(null);
                   setBusinessForm({
@@ -1096,15 +1199,17 @@ export default function App() {
                     account_executive_id: ""
                   });
                 }}
+                variant="outline"
+                size="sm"
               >
                 Cancel Edit
-              </button>
+              </Button>
             ) : null}
           </div>
           <div className="grid">
             <label>
               Business Name
-              <input
+              <Input
                 value={businessForm.name}
                 onChange={(event) =>
                   setBusinessForm((prev) => ({ ...prev, name: event.target.value }))
@@ -1113,7 +1218,7 @@ export default function App() {
             </label>
             <label>
               Location
-              <input
+              <Input
                 value={businessForm.location}
                 onChange={(event) =>
                   setBusinessForm((prev) => ({ ...prev, location: event.target.value }))
@@ -1122,7 +1227,7 @@ export default function App() {
             </label>
             <label>
               Priority
-              <select
+              <Select
                 value={businessForm.priority_level}
                 onChange={(event) =>
                   setBusinessForm((prev) => ({ ...prev, priority_level: event.target.value }))
@@ -1131,11 +1236,11 @@ export default function App() {
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
-              </select>
+              </Select>
             </label>
             <label>
               Account Executive
-              <input
+              <Input
                 list="account-executives"
                 value={accountExecutiveQuery}
                 onChange={(event) => {
@@ -1160,7 +1265,7 @@ export default function App() {
             </label>
             <label>
               Status
-              <select
+              <Select
                 value={businessForm.active ? "active" : "inactive"}
                 onChange={(event) =>
                   setBusinessForm((prev) => ({ ...prev, active: event.target.value === "active" }))
@@ -1168,16 +1273,16 @@ export default function App() {
               >
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
-              </select>
+              </Select>
             </label>
           </div>
           <div className="actions form-cta">
-            <button
+            <Button
               type="button"
               onClick={selectedBusiness ? handleUpdateBusiness : handleCreateBusiness}
             >
               {selectedBusiness ? "Update Business" : "Save Business"}
-            </button>
+            </Button>
           </div>
           <p className="caption">Managers and Admins can create businesses and set priority.</p>
         </section>
@@ -1188,23 +1293,23 @@ export default function App() {
           <section className="panel">
             <div className="panel-header">
               <h2>Create Planned Visit</h2>
-              <button type="button" className="ghost" onClick={loadDraftVisits}>
+              <Button type="button" variant="outline" size="sm" onClick={loadDraftVisits}>
                 Refresh
-              </button>
+              </Button>
             </div>
             <div className="grid">
               <label>
                 Survey Type
-                <select
+                <Select
                   value="B2B"
                   disabled
                 >
                   <option value="B2B">B2B</option>
-                </select>
+                </Select>
               </label>
               <label>
                 Business
-                <input
+                <Input
                   list="planned-businesses"
                   value={plannedBusinessQuery}
                   onChange={(event) => {
@@ -1229,7 +1334,7 @@ export default function App() {
               </label>
               <label>
                 Representative
-                <input
+                <Input
                   list="planned-representatives"
                   value={plannedRepresentativeQuery}
                   onChange={(event) => {
@@ -1254,7 +1359,7 @@ export default function App() {
               </label>
               <label>
                 Visit Date
-                <input
+                <Input
                   type="date"
                   value={plannedForm.visit_date}
                   onChange={(event) =>
@@ -1264,9 +1369,9 @@ export default function App() {
               </label>
             </div>
             <div className="actions form-cta">
-              <button type="button" onClick={handleCreatePlannedVisit}>
+              <Button type="button" onClick={handleCreatePlannedVisit}>
                 Create Draft Visit
-              </button>
+              </Button>
             </div>
             <p className="caption">Draft visits appear in the survey app for the assigned rep.</p>
           </section>
@@ -1274,9 +1379,9 @@ export default function App() {
           <section className="table">
             <div className="panel-header">
               <h2>Planned Visits</h2>
-              <button type="button" className="ghost" onClick={loadDraftVisits}>
+              <Button type="button" variant="outline" size="sm" onClick={loadDraftVisits}>
                 Refresh
-              </button>
+              </Button>
             </div>
             <div className="table-row header-row">
               <span>Business</span>
@@ -1287,20 +1392,21 @@ export default function App() {
               <p className="caption">No draft visits yet.</p>
             ) : (
               draftVisits.map((visit) => (
-                <button
+                <Button
                   type="button"
                   key={visit.visit_id ?? visit.id}
                   className={`table-row selectable ${
                     (selectedDraft?.visit_id ?? selectedDraft?.id) === (visit.visit_id ?? visit.id) ? "active" : ""
                   }`}
                   onClick={() => handleSelectDraft(visit)}
+                  variant="ghost"
                 >
                   <span>
                     {visit.business_name} ({visit.business_priority})
                   </span>
                   <span>{visit.representative_name || representativeMap[visit.representative_id] || visit.representative_id}</span>
                   <span>{visit.visit_date}</span>
-                </button>
+                </Button>
               ))
             )}
           </section>
@@ -1309,9 +1415,8 @@ export default function App() {
             <div className="panel-header">
               <h2>Edit Planned Visit</h2>
               {selectedDraft ? (
-                <button
+                <Button
                   type="button"
-                  className="ghost"
                   onClick={() => {
                     setSelectedDraft(null);
                     setPlannedEditForm({
@@ -1321,19 +1426,21 @@ export default function App() {
                       visit_date: ""
                     });
                   }}
+                  variant="outline"
+                  size="sm"
                 >
                   Clear
-                </button>
+                </Button>
               ) : null}
             </div>
             <div className="grid">
               <label>
                 Business
-                <input value={plannedEditForm.business_name} disabled />
+                <Input value={plannedEditForm.business_name} disabled />
               </label>
               <label>
                 Representative
-                <select
+                <Select
                   value={plannedEditForm.representative_id}
                   onChange={(event) =>
                     setPlannedEditForm((prev) => ({
@@ -1348,11 +1455,11 @@ export default function App() {
                       {rep.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label>
                 Visit Date
-                <input
+                <Input
                   type="date"
                   value={plannedEditForm.visit_date}
                   onChange={(event) =>
@@ -1365,12 +1472,12 @@ export default function App() {
               </label>
             </div>
             <div className="actions form-cta">
-              <button type="button" onClick={handleUpdatePlannedVisit}>
+              <Button type="button" onClick={handleUpdatePlannedVisit}>
                 Update Planned Visit
-              </button>
-              <button type="button" className="danger" onClick={handleDeletePlannedVisit}>
+              </Button>
+              <Button type="button" variant="destructive" onClick={handleDeletePlannedVisit}>
                 Delete Planned Visit
-              </button>
+              </Button>
             </div>
             <p className="caption">Business is locked for planned visits.</p>
           </section>
@@ -1381,56 +1488,71 @@ export default function App() {
         <section className="table business-directory">
           <div className="panel-header">
             <h2>Business Directory</h2>
-            <button type="button" className="ghost" onClick={loadBusinesses}>
+            <Button type="button" variant="outline" size="sm" onClick={loadBusinesses}>
               Refresh
-            </button>
-          </div>
-          <div className="table-row header-row business-directory-row">
-            <span>Business</span>
-            <span>Priority</span>
-            <span>Status</span>
+            </Button>
           </div>
           {businesses.length === 0 ? (
             <p className="caption">No businesses found.</p>
           ) : (
-            businesses.map((business) => (
-                <div
-                  className={`table-row business-directory-row ${
-                    !business.location || !business.account_executive_id ? "needs-attention" : ""
-                  }`}
-                key={business.id}
-              >
-                <div>
-                  <strong>{business.name}</strong>
-                  <p className="caption">{business.location || "No location"}</p>
-                  <p className="caption">
-                    Account Executive: {accountExecutiveMap[business.account_executive_id] || "Unassigned"}
-                  </p>
-                  {!business.location || !business.account_executive_id ? (
-                    <span className="badge">Needs details</span>
-                  ) : null}
-                </div>
-                <span>{business.priority_level}</span>
-                <div className="row-actions">
-                  <span>{business.active ? "Active" : "Retired"}</span>
-                  <div className="actions">
-                    <button type="button" onClick={() => handleEditBusiness(business)}>
-                      Edit
-                    </button>
-                    {business.active ? (
-                      <button type="button" className="danger" onClick={() => handleRetireBusiness(business)}>
-                        Retire
-                      </button>
-                    ) : null}
-                    {role === "Admin" ? (
-                      <button type="button" className="danger" onClick={() => handleDeleteBusiness(business)}>
-                        Delete
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            ))
+            <div className="data-table-shell">
+              <Table className="data-table" aria-label="Business directory table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Business</TableHead>
+                    <TableHead>Priority</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {businesses.map((business) => (
+                    <TableRow
+                      key={business.id}
+                      className={!business.location || !business.account_executive_id ? "needs-attention" : ""}
+                    >
+                      <TableCell>
+                        <div className="cell-stack">
+                          <strong>{business.name}</strong>
+                          <span className="caption">{business.location || "No location"}</span>
+                          <span className="caption">
+                            Account Executive: {accountExecutiveMap[business.account_executive_id] || "Unassigned"}
+                          </span>
+                          {!business.location || !business.account_executive_id ? (
+                            <Badge variant="warning">Needs details</Badge>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="priority-tag">{(business.priority_level || "medium").replace(/^\w/, (m) => m.toUpperCase())}</span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`status-chip ${business.active ? "active" : "retired"}`}>
+                          {business.active ? "Active" : "Retired"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="table-actions">
+                          <Button type="button" variant="outline" size="sm" onClick={() => handleEditBusiness(business)}>
+                            Edit
+                          </Button>
+                          {business.active ? (
+                            <Button type="button" variant="destructive" size="sm" onClick={() => handleRetireBusiness(business)}>
+                              Retire
+                            </Button>
+                          ) : null}
+                          {role === "Admin" ? (
+                            <Button type="button" variant="destructive" size="sm" onClick={() => handleDeleteBusiness(business)}>
+                              Delete
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </section>
       ) : null}
@@ -1441,22 +1563,23 @@ export default function App() {
             <div className="panel analytics-date-panel">
               <div className="panel-header">
                 <h2>Analytics Date Filter</h2>
-                <button
+                <Button
                   type="button"
-                  className="ghost"
                   onClick={() => {
                     setAnalyticsDateFrom("");
                     setAnalyticsDateTo("");
                   }}
                   disabled={!analyticsDateFrom && !analyticsDateTo}
+                  variant="outline"
+                  size="sm"
                 >
                   Clear Dates
-                </button>
+                </Button>
               </div>
               <div className="analytics-date-grid">
                 <label>
                   From Date
-                  <input
+                  <Input
                     type="date"
                     value={analyticsDateFrom}
                     onChange={(event) => setAnalyticsDateFrom(event.target.value)}
@@ -1464,7 +1587,7 @@ export default function App() {
                 </label>
                 <label>
                   To Date
-                  <input
+                  <Input
                     type="date"
                     value={analyticsDateTo}
                     onChange={(event) => setAnalyticsDateTo(event.target.value)}
@@ -1500,13 +1623,13 @@ export default function App() {
           <section className="panel targeted-panel">
             <div className="panel-header">
               <h2>Targeted Business Analytics</h2>
-              <button type="button" className="ghost" onClick={loadTargetedAnalytics} disabled={selectedAnalyticsBusinessIds.length === 0}>
+              <Button type="button" variant="outline" size="sm" onClick={loadTargetedAnalytics} disabled={selectedAnalyticsBusinessIds.length === 0}>
                 Recalculate
-              </button>
+              </Button>
             </div>
             <p className="caption">Select businesses to calculate focused KPIs for customer targeting.</p>
             <div className="targeted-controls">
-              <input
+              <Input
                 type="text"
                 placeholder="Search businesses by name or location"
                 value={analyticsBusinessSearch}
@@ -1514,20 +1637,20 @@ export default function App() {
               />
               <div className="targeted-toolbar">
                 <span className="caption">Selected: {selectedAnalyticsBusinessIds.length}</span>
-                <button
+                <Button
                   type="button"
-                  className="ghost"
                   onClick={() => setSelectedAnalyticsBusinessIds([])}
                   disabled={selectedAnalyticsBusinessIds.length === 0}
+                  variant="outline"
+                  size="sm"
                 >
                   Clear Selection
-                </button>
+                </Button>
               </div>
               <div className="targeted-business-list">
                 {filteredAnalyticsBusinesses.slice(0, 40).map((business) => (
                   <label key={business.id} className="targeted-business-item">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={selectedAnalyticsBusinessIds.includes(business.id)}
                       onChange={() => toggleAnalyticsBusiness(business.id)}
                     />
@@ -1541,14 +1664,16 @@ export default function App() {
                   {businesses
                     .filter((business) => selectedAnalyticsBusinessIds.includes(business.id))
                     .map((business) => (
-                      <button
+                      <Button
                         key={business.id}
                         type="button"
                         className="targeted-chip"
                         onClick={() => toggleAnalyticsBusiness(business.id)}
+                        variant="ghost"
+                        size="sm"
                       >
                         {business.name}
-                      </button>
+                      </Button>
                     ))}
                 </div>
               ) : null}
@@ -1575,6 +1700,162 @@ export default function App() {
             ) : (
               <p className="caption">Select one or more businesses to see targeted analytics.</p>
             )}
+          </section>
+          <section className="panel question-drilldown-panel">
+            <div className="panel-header">
+              <h2>Per-Question Drilldown</h2>
+              <Button type="button" variant="outline" size="sm" onClick={loadQuestionAverages}>
+                Refresh
+              </Button>
+            </div>
+            <p className="caption">Average score per question based on current filters (date range and selected businesses).</p>
+            <div className="question-drilldown-controls">
+              <label>
+                Search question
+                <Input
+                  type="text"
+                  placeholder="Search by question number, text, or category"
+                  value={questionSearch}
+                  onChange={(event) => setQuestionSearch(event.target.value)}
+                />
+              </label>
+              <div>
+                <div className="caption">Category</div>
+                <div className="selection-group" role="tablist" aria-label="Question category filter">
+                  {questionCategories.map((category) => {
+                    const isActive = questionCategoryFilter === category;
+                    return (
+                      <Button
+                        key={category}
+                        type="button"
+                        className={`selection-pill ${isActive ? "active" : ""}`}
+                        onClick={() => setQuestionCategoryFilter(category)}
+                        variant={isActive ? "default" : "outline"}
+                        size="sm"
+                      >
+                        {category === "all" ? "All categories" : category}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <div className="question-drilldown-table-wrap">
+              <table className="question-drilldown-table">
+                <thead>
+                  <tr>
+                    <th>Q#</th>
+                    <th>Category</th>
+                    <th>Question</th>
+                    <th>Avg Score</th>
+                    <th>Responses</th>
+                    <th>Trend</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {questionAnalyticsLoading ? (
+                    <tr>
+                      <td colSpan={6}>Loading per-question analytics...</td>
+                    </tr>
+                  ) : filteredQuestionAverages.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>No question analytics match current filters.</td>
+                    </tr>
+                  ) : (
+                    filteredQuestionAverages.map((item) => (
+                      <tr key={item.question_id} className={selectedQuestionTrend?.question?.id === item.question_id ? "active-row" : ""}>
+                        <td>{item.question_number}</td>
+                        <td>{item.category}</td>
+                        <td>{item.question_text}</td>
+                        <td>{item.average_score?.toFixed?.(2) ?? "0.00"}</td>
+                        <td>{item.response_count}</td>
+                        <td>
+                          <Button type="button" variant="outline" size="sm" onClick={() => loadQuestionTrend(item.question_id)}>
+                            View Trend
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {selectedQuestionTrend ? (
+              <div className="question-trend-panel">
+                <div className="panel-header">
+                  <h3>
+                    Trend: Q{selectedQuestionTrend.question?.id} - {selectedQuestionTrend.question?.question_text}
+                  </h3>
+                  <div>
+                    <div className="caption">Interval</div>
+                    <div className="selection-group compact" role="tablist" aria-label="Trend interval">
+                      {[
+                        { key: "day", label: "Day" },
+                        { key: "week", label: "Week" },
+                        { key: "month", label: "Month" },
+                      ].map((intervalOption) => (
+                        <Button
+                          key={intervalOption.key}
+                          type="button"
+                          className={`selection-pill ${questionTrendInterval === intervalOption.key ? "active" : ""}`}
+                          onClick={() => setQuestionTrendInterval(intervalOption.key)}
+                          variant={questionTrendInterval === intervalOption.key ? "default" : "outline"}
+                          size="sm"
+                        >
+                          {intervalOption.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {questionTrendLoading ? (
+                  <p className="caption">Loading trend...</p>
+                ) : trendChartData.length === 0 ? (
+                  <p className="caption">No trend data available for current filters.</p>
+                ) : (
+                  <div className="trend-line-wrap" role="img" aria-label="Question trend line chart">
+                    <ResponsiveContainer width="100%" height={260}>
+                      <LineChart data={trendChartData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(109, 131, 161, 0.28)" />
+                        <XAxis dataKey="periodLabel" tick={{ fill: "#36506b", fontSize: 12 }} />
+                        <YAxis
+                          domain={[0, 10]}
+                          tick={{ fill: "#36506b", fontSize: 12 }}
+                          tickCount={6}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            borderRadius: 8,
+                            border: "1px solid rgba(109, 131, 161, 0.35)",
+                            background: "rgba(255, 255, 255, 0.92)",
+                            backdropFilter: "blur(6px)",
+                          }}
+                          formatter={(value, name, payload) => {
+                            if (name === "averageScore") {
+                              return [`${Number(value).toFixed(2)} / 10`, "Average Score"];
+                            }
+                            return [value, name];
+                          }}
+                          labelFormatter={(label, payload) => {
+                            const rawPeriod = payload?.[0]?.payload?.period;
+                            const responses = payload?.[0]?.payload?.responses;
+                            return `${rawPeriod || label}${responses !== undefined ? ` • ${responses} responses` : ""}`;
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="averageScore"
+                          stroke="#12324f"
+                          strokeWidth={2.5}
+                          dot={{ r: 3, fill: "#12324f", strokeWidth: 0 }}
+                          activeDot={{ r: 5, fill: "#0f2e52" }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </section>
           <section className="analytics-main-grid">
             <article>
@@ -1714,9 +1995,9 @@ export default function App() {
         <section className="panel">
           <div className="panel-header">
             <h2>Review Queue</h2>
-            <button type="button" className="ghost" onClick={loadPending}>
+            <Button type="button" variant="outline" size="sm" onClick={loadPending}>
               Refresh
-            </button>
+            </Button>
           </div>
           <div className="queue">
             <div className="queue-list">
@@ -1724,20 +2005,21 @@ export default function App() {
                 <p className="caption">No pending visits.</p>
               ) : (
                 pendingVisits.map((visit) => (
-                  <button
+                  <Button
                     key={visit.visit_id}
                     type="button"
                     className={`queue-item ${
                       (selectedVisit?.id === visit.visit_id || selectedVisit?.visit_id === visit.visit_id) ? "active" : ""
                     }`}
                     onClick={() => loadVisitDetail(visit.visit_id)}
+                    variant="ghost"
                   >
                     <span>
                       {visit.business_name || "Visit"}
                       {visit.business_priority ? ` · ${visit.business_priority} priority` : ""}
                     </span>
                     <span>{visit.visit_date}</span>
-                  </button>
+                  </Button>
                 ))
               )}
             </div>
@@ -1797,37 +2079,36 @@ export default function App() {
                   </div>
                   <label className="full">
                     Review Notes
-                    <textarea
+                    <Textarea
                       value={reviewNote}
                       onChange={(event) => setReviewNote(event.target.value)}
                       placeholder="Add notes, change requests, or approval context."
                     />
                   </label>
                   <div className="actions">
-                    <button
+                    <Button
                       type="button"
                       onClick={() => submitReviewAction("needs-changes")}
                       disabled={reviewActionState.loading}
-                      className="transition duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                      variant="outline"
                     >
                       Needs Changes
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       onClick={() => submitReviewAction("approve")}
                       disabled={reviewActionState.loading}
-                      className="transition duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Approve
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className="danger transition duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                      variant="destructive"
                       onClick={() => submitReviewAction("reject")}
                       disabled={reviewActionState.loading}
                     >
                       Reject
-                    </button>
+                    </Button>
                   </div>
                   {reviewActionState.text ? (
                     <p
@@ -1853,9 +2134,9 @@ export default function App() {
         <section className="survey-results">
           <div className="panel-header">
             <h2>Survey Results</h2>
-            <button type="button" className="ghost" onClick={loadSurveyResults}>
+            <Button type="button" variant="outline" size="sm" onClick={loadSurveyResults}>
               Refresh
-            </button>
+            </Button>
           </div>
           
           {/* Clean Filter Section */}
@@ -1864,7 +2145,7 @@ export default function App() {
               {/* Status Filter */}
               <div className="filter-item">
                 <label className="filter-label">Status</label>
-                <select 
+                <Select
                   value={surveyFilter} 
                   onChange={(e) => setSurveyFilter(e.target.value)}
                   className="filter-select"
@@ -1875,7 +2156,7 @@ export default function App() {
                   <option value="Approved">Completed</option>
                   <option value="Rejected">Rejected</option>
                   <option value="Needs Changes">Needs Changes</option>
-                </select>
+                </Select>
               </div>
 
               {/* Business Filter with Searchable Dropdown */}
@@ -1883,7 +2164,7 @@ export default function App() {
                 <label className="filter-label">Business</label>
                 <div className="business-dropdown">
                   <div className="dropdown-input-wrapper">
-                    <input
+                    <Input
                       type="text"
                       placeholder="Search and select business..."
                       value={businessSearchQuery}
@@ -1892,14 +2173,16 @@ export default function App() {
                       className="filter-input"
                     />
                     {selectedSurveyBusiness && (
-                      <button 
+                      <Button
                         type="button" 
                         onClick={clearBusinessFilter}
                         className="clear-button"
                         title="Clear business filter"
+                        variant="ghost"
+                        size="sm"
                       >
                         ✕
-                      </button>
+                      </Button>
                     )}
                   </div>
                   
@@ -1936,7 +2219,7 @@ export default function App() {
               {/* Date Filter */}
               <div className="filter-item">
                 <label className="filter-label">Visit Date</label>
-                <input
+                <Input
                   type="date"
                   value={surveyDateFilter}
                   onChange={(e) => setSurveyDateFilter(e.target.value)}
@@ -1952,19 +2235,19 @@ export default function App() {
                 {surveyFilter !== "all" && (
                   <span className="active-filter-tag">
                     Status: {surveyFilter}
-                    <button onClick={() => setSurveyFilter("all")}>✕</button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setSurveyFilter("all")}>✕</Button>
                   </span>
                 )}
                 {selectedSurveyBusiness && (
                   <span className="active-filter-tag">
                     Business: {selectedSurveyBusiness}
-                    <button onClick={clearBusinessFilter}>✕</button>
+                    <Button type="button" variant="ghost" size="sm" onClick={clearBusinessFilter}>✕</Button>
                   </span>
                 )}
                 {surveyDateFilter && (
                   <span className="active-filter-tag">
                     Date: {surveyDateFilter}
-                    <button onClick={() => setSurveyDateFilter("")}>✕</button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setSurveyDateFilter("")}>✕</Button>
                   </span>
                 )}
               </div>
@@ -1973,42 +2256,70 @@ export default function App() {
 
           {/* Survey Results List */}
           <div className="survey-results-list">
-            <div className="table-row header-row">
-              <span>Business</span>
-              <span>Date</span>
-              <span>Status</span>
-              <span>Progress</span>
-              <span>Actions</span>
-            </div>
             {surveyResults.length === 0 ? (
               <p className="caption">No survey results found.</p>
             ) : (
-              surveyResults.map((visit) => (
-                <div key={visit.id} className="table-row">
-                  <div>
-                    <strong>{visit.business_name}</strong>
-                    <p className="caption">Visit ID: {visit.id}</p>
-                  </div>
-                  <span>{visit.visit_date}</span>
-                  <span className={`status-badge ${visit.status.toLowerCase()}`}>
-                    {visit.status}
-                  </span>
-                  <span>
-                    {visit.mandatory_answered_count || 0}/{visit.mandatory_total_count || 24}
-                    {visit.response_count > 0 && visit.mandatory_answered_count === 0 ? (
-                      <span className="progress-hint">(responses exist but progress not calculated)</span>
-                    ) : ""}
-                  </span>
-                  <div className="actions">
-                    <button
-                      type="button"
-                      onClick={() => loadSurveyVisitDetails(visit.id)}
-                    >
-                      View Details
-                    </button>
-                  </div>
-                </div>
-              ))
+              <div className="data-table-shell">
+                <Table className="data-table" aria-label="Survey results table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Business</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Progress</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {surveyResults.map((visit) => (
+                      <TableRow key={visit.id}>
+                        <TableCell>
+                          <div className="cell-stack">
+                            <strong>{visit.business_name}</strong>
+                            <span className="caption">Visit ID: {visit.id}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{visit.visit_date}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              visit.status === "Approved"
+                                ? "success"
+                                : visit.status === "Pending" || visit.status === "Needs Changes"
+                                ? "warning"
+                                : visit.status === "Rejected"
+                                ? "destructive"
+                                : "secondary"
+                            }
+                          >
+                            {visit.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="cell-stack">
+                            <span>{visit.mandatory_answered_count || 0}/{visit.mandatory_total_count || 24}</span>
+                            {visit.response_count > 0 && visit.mandatory_answered_count === 0 ? (
+                              <span className="progress-hint">Responses exist but progress not calculated</span>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="table-actions">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => loadSurveyVisitDetails(visit.id)}
+                            >
+                              View Details
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </div>
 
@@ -2017,13 +2328,14 @@ export default function App() {
             <div className="survey-details">
               <div className="panel-header">
                 <h3>Survey Details - {selectedSurveyVisit.business_name}</h3>
-                <button
+                <Button
                   type="button"
-                  className="ghost"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setSelectedSurveyVisit(null)}
                 >
                   Close
-                </button>
+                </Button>
               </div>
               
               <div className="visit-info">

@@ -1,4 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { RadioGroup, RadioGroupItem } from "./components/ui/radio-group";
+import { Select } from "./components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Textarea } from "./components/ui/textarea";
 
 const API_BASE =
   import.meta.env.VITE_API_URL ||
@@ -878,18 +884,21 @@ export default function App() {
         /* Mobile: Bottom Tab Navigation */
         <>
           <nav className={`fixed ${showMobileNav ? 'mobile-nav-open show' : 'mobile-nav-closed'}`}>
-            <button
+            <Button
               type="button"
               className="mobile-nav-close"
               onClick={() => setShowMobileNav(false)}
+              variant="ghost"
+              size="sm"
             >
               ✕
-            </button>
+            </Button>
             <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
             <div className="space-y-2">
               {orderedCategories.map((category, index) => (
-                <button
+                <Button
                   key={category}
+                  type="button"
                   onClick={() => {
                     setCurrentCategory(category);
                     setShowMobileNav(false);
@@ -912,44 +921,49 @@ export default function App() {
                       }
                     }, 50);
                   }}
-                  className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
+                  className={`w-full justify-start px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
                     currentCategory === category
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
                   }`}
+                  variant="ghost"
                 >
                   {category}
-                </button>
+                </Button>
               ))}
             </div>
           </nav>
           
           {/* Mobile Navigation Toggle - Bottom Tab */}
           {orderedCategories.length > 0 && (
-            <button
+            <Button
               type="button"
               className={`mobile-nav-toggle ${showMobileNav ? 'active' : ''}`}
               onClick={() => setShowMobileNav(!showMobileNav)}
+              variant="ghost"
             >
               {showMobileNav ? 'Close Categories' : 'Jump to Category'}
-            </button>
+            </Button>
           )}
         </>
       ) : isTablet ? (
         /* Tablet: Collapsible Sidebar */
         <nav className={`fixed left-0 top-20 w-56 bg-white shadow-lg rounded-r-lg p-4 z-20 transform transition-transform duration-300 ${showMobileNav ? 'translate-x-0' : '-translate-x-full'}`}>
-          <button
+          <Button
             type="button"
             className="absolute right-2 top-2 p-2 rounded hover:bg-gray-100"
             onClick={() => setShowMobileNav(!showMobileNav)}
+            variant="ghost"
+            size="sm"
           >
             {showMobileNav ? '✕' : '☰'}
-          </button>
+          </Button>
           <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
           <div className="space-y-2">
             {orderedCategories.map((category, index) => (
-              <button
+              <Button
                 key={category}
+                type="button"
                 onClick={() => {
                   setCurrentCategory(category);
                   setTimeout(() => {
@@ -971,14 +985,15 @@ export default function App() {
                     }
                   }, 50);
                 }}
-                className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
+                className={`w-full justify-start px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
                   currentCategory === category
                     ? 'bg-blue-600 text-white border-blue-600'
                     : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
                 }`}
+                variant="ghost"
               >
                 {category}
-              </button>
+              </Button>
             ))}
           </div>
         </nav>
@@ -987,13 +1002,15 @@ export default function App() {
         <>
           {/* Desktop Navigation Toggle - Optional for compact desktop */}
           {showDesktopJumpNav && isCompactDesktop && (
-            <button
+            <Button
               type="button"
               className="fixed left-4 top-4 p-2 bg-white shadow-lg rounded-lg z-30 hover:bg-gray-100"
               onClick={() => setShowMobileNav(!showMobileNav)}
+              variant="ghost"
+              size="sm"
             >
               {showMobileNav ? '☰' : '☰'}
-            </button>
+            </Button>
           )}
           
           {showDesktopJumpNav ? (
@@ -1001,8 +1018,9 @@ export default function App() {
             <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
             <div className="space-y-2">
               {orderedCategories.map((category, index) => (
-                <button
+                <Button
                   key={category}
+                  type="button"
                   onClick={() => {
                     setCurrentCategory(category);
                     setTimeout(() => {
@@ -1024,14 +1042,15 @@ export default function App() {
                       }
                     }, 50);
                   }}
-                  className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
+                  className={`w-full justify-start px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
                     currentCategory === category
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
                   }`}
+                  variant="ghost"
                 >
                   {category}
-                </button>
+                </Button>
               ))}
             </div>
             </nav>
@@ -1050,37 +1069,27 @@ export default function App() {
         <div className="grid">
           <label>
             User ID
-            <input value={userId} onChange={(e) => setUserId(e.target.value)} />
+            <Input value={userId} onChange={(e) => setUserId(e.target.value)} />
           </label>
           <label>
             Role
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
+            <Select value={role} onChange={(e) => setRole(e.target.value)}>
               <option>Representative</option>
               <option>Reviewer</option>
               <option>Manager</option>
               <option>Admin</option>
-            </select>
+            </Select>
           </label>
         </div>
       </section>
 
       <section className="panel">
-        <div className="tabs">
-          <button
-            type="button"
-            className={activeTab === "planned" ? "active" : ""}
-            onClick={() => setActiveTab("planned")}
-          >
-            Planned Visits
-          </button>
-          <button
-            type="button"
-            className={activeTab === "survey" ? "active" : ""}
-            onClick={() => setActiveTab("survey")}
-          >
-            Survey
-          </button>
-        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="tabs">
+          <TabsList role="tablist" aria-label="Survey sections">
+            <TabsTrigger value="planned" role="tab" aria-selected={activeTab === "planned"}>Planned Visits</TabsTrigger>
+            <TabsTrigger value="survey" role="tab" aria-selected={activeTab === "survey"}>Survey</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </section>
 
       {activeTab === "planned" ? (
@@ -1088,17 +1097,19 @@ export default function App() {
           <div className="panel-header">
             <h2>Upcoming & Today</h2>
             <div className="flex gap-2">
-              <button
+              <Button
                 type="button"
                 className="ghost transition duration-200 hover:-translate-y-0.5 disabled:opacity-60"
                 onClick={() => loadDrafts()}
                 disabled={isLoadingDrafts}
+                variant="outline"
+                size="sm"
               >
                 {isLoadingDrafts ? "Refreshing..." : "Refresh"}
-              </button>
-              <button type="button" className="ghost" onClick={() => setActiveTab("survey")}>
+              </Button>
+              <Button type="button" className="ghost" onClick={() => setActiveTab("survey")} variant="outline" size="sm">
                 Start Survey
-              </button>
+              </Button>
             </div>
           </div>
           {noticeBySection.planned ? (
@@ -1120,11 +1131,12 @@ export default function App() {
                   {plannedToday.map((draft) => {
                     const progress = getDraftProgressLabel(draft);
                     return (
-                      <button
+                      <Button
                         type="button"
                         key={draft.visit_id}
                         className="planned-card"
                         onClick={() => handleSelectPlannedVisit(draft)}
+                        variant="ghost"
                       >
                         <div>
                           <strong>{resolveBusinessName(draft)}</strong>
@@ -1151,7 +1163,7 @@ export default function App() {
                           <span>{draft.visit_date}</span>
                           <span>Representative #{draft.representative_id}</span>
                         </div>
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -1162,11 +1174,12 @@ export default function App() {
                   {plannedUpcoming.map((draft) => {
                     const progress = getDraftProgressLabel(draft);
                     return (
-                      <button
+                      <Button
                         type="button"
                         key={draft.visit_id}
                         className="planned-card"
                         onClick={() => handleSelectPlannedVisit(draft)}
+                        variant="ghost"
                       >
                         <div>
                           <strong>{resolveBusinessName(draft)}</strong>
@@ -1193,7 +1206,7 @@ export default function App() {
                           <span>{draft.visit_date}</span>
                           <span>Representative #{draft.representative_id}</span>
                         </div>
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -1209,18 +1222,18 @@ export default function App() {
           <div className="grid">
             <label>
               Visit Source
-              <select
+              <Select
                 value={visitSource}
                 onChange={(e) => setVisitSource(e.target.value)}
               >
                 <option value="new">New visit</option>
                 <option value="planned">Planned visit</option>
-              </select>
+              </Select>
             </label>
             {visitSource === "planned" ? (
               <label>
                 Planned Visits
-                <select
+                <Select
                   value={selectedDraftId}
                   onChange={(e) => {
                     const draft = draftVisits.find((item) => item.visit_id === e.target.value);
@@ -1247,29 +1260,29 @@ export default function App() {
                       </option>
                     );
                   })}
-                </select>
+                </Select>
               </label>
             ) : (
               <label>
                 Business Source
-                <select
+                <Select
                   value={businessMode}
                   onChange={(e) => setBusinessMode(e.target.value)}
                 >
                   <option value="existing">Choose existing</option>
                   <option value="new">Add new business</option>
-                </select>
+                </Select>
               </label>
             )}
             {visitSource === "planned" ? (
               <label>
                 Business
-                <input value={selectedDraftName || "Selected business"} disabled />
+                <Input value={selectedDraftName || "Selected business"} disabled />
               </label>
             ) : businessMode === "existing" ? (
               <label>
                 Business
-                <select
+                <Select
                   value={visitForm.business_id}
                   onChange={(e) => setVisitForm({ ...visitForm, business_id: e.target.value })}
                 >
@@ -1282,12 +1295,12 @@ export default function App() {
                       </option>
                     ))
                   )}
-                </select>
+                </Select>
               </label>
             ) : (
               <label>
                 New Business Name
-                <input
+                <Input
                   value={newBusinessName}
                   onChange={(e) => setNewBusinessName(e.target.value)}
                   placeholder="Enter business name"
@@ -1296,7 +1309,7 @@ export default function App() {
             )}
             <label>
               Representative ID
-              <input
+              <Input
                 value={visitForm.representative_id}
                 onChange={(e) =>
                   setVisitForm({ ...visitForm, representative_id: e.target.value })
@@ -1305,7 +1318,7 @@ export default function App() {
             </label>
             <label>
               Visit Date
-              <input
+              <Input
                 type="date"
                 value={visitForm.visit_date}
                 onChange={(e) => setVisitForm({ ...visitForm, visit_date: e.target.value })}
@@ -1313,7 +1326,7 @@ export default function App() {
             </label>
             <label>
               Visit Type
-              <select
+              <Select
                 value={visitForm.visit_type}
                 onChange={(e) => setVisitForm({ ...visitForm, visit_type: e.target.value })}
                 disabled={visitSource === "planned"}
@@ -1321,10 +1334,10 @@ export default function App() {
                 <option>Planned</option>
                 <option>Priority</option>
                 <option>Substitution</option>
-              </select>
+              </Select>
             </label>
           </div>
-          <button
+          <Button
             type="button"
             onClick={handleCreateVisit}
             disabled={isCreatingVisit}
@@ -1335,7 +1348,7 @@ export default function App() {
               : visitSource === "planned"
               ? "Update Planned Visit"
               : "Create Draft Visit"}
-          </button>
+          </Button>
           {noticeBySection.create ? (
             <p
               className={`mt-3 rounded-xl border px-3 py-2 text-sm ${
@@ -1393,7 +1406,7 @@ export default function App() {
                             <>
                               <label>
                                 Score ({question.score_min ?? 0}-{question.score_max ?? 10})
-                                <input
+                                <Input
                                   type="number"
                                   min={question.score_min ?? 0}
                                   max={question.score_max ?? 10}
@@ -1405,7 +1418,7 @@ export default function App() {
                               </label>
                               <label className="full">
                                 Verbatim / Evidence (Optional)
-                                <textarea
+                                <Textarea
                                   value={draft.verbatim || ""}
                                   onChange={(event) =>
                                     updateQuestionDraft(question.id, "verbatim", event.target.value)
@@ -1414,20 +1427,22 @@ export default function App() {
                               </label>
                               <div className="full action-list-head">
                                 <strong>Actions (optional)</strong>
-                                <button
+                                <Button
                                   type="button"
                                   className="ghost"
                                   onClick={() => addActionItem(question.id)}
+                                  variant="outline"
+                                  size="sm"
                                 >
                                   Add Action
-                                </button>
+                                </Button>
                               </div>
                               {(draft.actions || []).map((action, actionIndex) => (
                                 <div key={`${question.id}-${actionIndex}`} className="full action-card">
                                   <div className="grid">
                                     <label className="full">
                                       Action Required
-                                      <input
+                                      <Input
                                         value={action.action_required || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1441,7 +1456,7 @@ export default function App() {
                                     </label>
                                     <label>
                                       Lead Owner
-                                      <input
+                                      <Input
                                         value={action.action_owner || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1455,7 +1470,7 @@ export default function App() {
                                     </label>
                                     <label>
                                       Proposed Action Time
-                                      <select
+                                      <Select
                                         value={action.action_timeframe || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1470,11 +1485,11 @@ export default function App() {
                                         <option value="lt_1_month">&lt; 1 month</option>
                                         <option value="lt_3_months">&lt; 3 months</option>
                                         <option value="gt_3_months">&gt; 3 months</option>
-                                      </select>
+                                      </Select>
                                     </label>
                                     <label className="full">
                                       Support Needed (department or person)
-                                      <input
+                                      <Input
                                         value={action.action_support_needed || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1487,13 +1502,15 @@ export default function App() {
                                       />
                                     </label>
                                   </div>
-                                  <button
+                                  <Button
                                     type="button"
                                     className="danger action-remove"
                                     onClick={() => removeActionItem(question.id, actionIndex)}
+                                    variant="destructive"
+                                    size="sm"
                                   >
                                     Remove Action
-                                  </button>
+                                  </Button>
                                 </div>
                               ))}
                             </>
@@ -1501,10 +1518,9 @@ export default function App() {
                             <>
                               <label className="full">
                                 Answer
-                                <div className="yes-no-group">
+                                <RadioGroup className="yes-no-group">
                                   <label className="yes-no-option">
-                                    <input
-                                      type="radio"
+                                    <RadioGroupItem
                                       name={`q-${question.id}-yesno`}
                                       checked={draft.answer_text === "Y"}
                                       onChange={() => updateQuestionDraft(question.id, "answer_text", "Y")}
@@ -1512,20 +1528,19 @@ export default function App() {
                                     Yes
                                   </label>
                                   <label className="yes-no-option">
-                                    <input
-                                      type="radio"
+                                    <RadioGroupItem
                                       name={`q-${question.id}-yesno`}
                                       checked={draft.answer_text === "N"}
                                       onChange={() => updateQuestionDraft(question.id, "answer_text", "N")}
                                     />
                                     No
                                   </label>
-                                </div>
+                                </RadioGroup>
                               </label>
                               {question.question_key === Q16_KEY && draft.answer_text === "Y" ? (
                                 <label className="full">
                                   If Yes, specify providers (optional)
-                                  <textarea
+                                  <Textarea
                                     value={draft.verbatim || ""}
                                     onChange={(event) =>
                                       updateQuestionDraft(question.id, "verbatim", event.target.value)
@@ -1535,20 +1550,22 @@ export default function App() {
                               ) : null}
                               <div className="full action-list-head">
                                 <strong>Actions (optional)</strong>
-                                <button
+                                <Button
                                   type="button"
                                   className="ghost"
                                   onClick={() => addActionItem(question.id)}
+                                  variant="outline"
+                                  size="sm"
                                 >
                                   Add Action
-                                </button>
+                                </Button>
                               </div>
                               {(draft.actions || []).map((action, actionIndex) => (
                                 <div key={`${question.id}-${actionIndex}`} className="full action-card">
                                   <div className="grid">
                                     <label className="full">
                                       Action Required
-                                      <input
+                                      <Input
                                         value={action.action_required || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1562,7 +1579,7 @@ export default function App() {
                                     </label>
                                     <label>
                                       Lead Owner
-                                      <input
+                                      <Input
                                         value={action.action_owner || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1576,7 +1593,7 @@ export default function App() {
                                     </label>
                                     <label>
                                       Proposed Action Time
-                                      <select
+                                      <Select
                                         value={action.action_timeframe || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1591,11 +1608,11 @@ export default function App() {
                                         <option value="lt_1_month">&lt; 1 month</option>
                                         <option value="lt_3_months">&lt; 3 months</option>
                                         <option value="gt_3_months">&gt; 3 months</option>
-                                      </select>
+                                      </Select>
                                     </label>
                                     <label className="full">
                                       Support Needed (department or person)
-                                      <input
+                                      <Input
                                         value={action.action_support_needed || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1608,13 +1625,15 @@ export default function App() {
                                       />
                                     </label>
                                   </div>
-                                  <button
+                                  <Button
                                     type="button"
                                     className="danger action-remove"
                                     onClick={() => removeActionItem(question.id, actionIndex)}
+                                    variant="destructive"
+                                    size="sm"
                                   >
                                     Remove Action
-                                  </button>
+                                  </Button>
                                 </div>
                               ))}
                             </>
@@ -1622,10 +1641,9 @@ export default function App() {
                             <>
                               <label className="full">
                                 Answer
-                                <div className="yes-no-group">
+                                <RadioGroup className="yes-no-group">
                                   <label className="yes-no-option">
-                                    <input
-                                      type="radio"
+                                    <RadioGroupItem
                                       name={`q-${question.id}-asn`}
                                       checked={draft.answer_text === "Always"}
                                       onChange={() =>
@@ -1635,8 +1653,7 @@ export default function App() {
                                     Always
                                   </label>
                                   <label className="yes-no-option">
-                                    <input
-                                      type="radio"
+                                    <RadioGroupItem
                                       name={`q-${question.id}-asn`}
                                       checked={draft.answer_text === "Sometimes"}
                                       onChange={() =>
@@ -1646,8 +1663,7 @@ export default function App() {
                                     Sometimes
                                   </label>
                                   <label className="yes-no-option">
-                                    <input
-                                      type="radio"
+                                    <RadioGroupItem
                                       name={`q-${question.id}-asn`}
                                       checked={draft.answer_text === "Never"}
                                       onChange={() =>
@@ -1656,11 +1672,11 @@ export default function App() {
                                     />
                                     Never
                                   </label>
-                                </div>
+                                </RadioGroup>
                               </label>
                               <label className="full">
                                 Verbatim / Evidence (Optional)
-                                <textarea
+                                <Textarea
                                   value={draft.verbatim || ""}
                                   onChange={(event) =>
                                     updateQuestionDraft(question.id, "verbatim", event.target.value)
@@ -1669,20 +1685,22 @@ export default function App() {
                               </label>
                               <div className="full action-list-head">
                                 <strong>Actions (optional)</strong>
-                                <button
+                                <Button
                                   type="button"
                                   className="ghost"
                                   onClick={() => addActionItem(question.id)}
+                                  variant="outline"
+                                  size="sm"
                                 >
                                   Add Action
-                                </button>
+                                </Button>
                               </div>
                               {(draft.actions || []).map((action, actionIndex) => (
                                 <div key={`${question.id}-${actionIndex}`} className="full action-card">
                                   <div className="grid">
                                     <label className="full">
                                       Action Required
-                                      <input
+                                      <Input
                                         value={action.action_required || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1696,7 +1714,7 @@ export default function App() {
                                     </label>
                                     <label>
                                       Lead Owner
-                                      <input
+                                      <Input
                                         value={action.action_owner || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1710,7 +1728,7 @@ export default function App() {
                                     </label>
                                     <label>
                                       Proposed Action Time
-                                      <select
+                                      <Select
                                         value={action.action_timeframe || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1725,11 +1743,11 @@ export default function App() {
                                         <option value="lt_1_month">&lt; 1 month</option>
                                         <option value="lt_3_months">&lt; 3 months</option>
                                         <option value="gt_3_months">&gt; 3 months</option>
-                                      </select>
+                                      </Select>
                                     </label>
                                     <label className="full">
                                       Support Needed (department or person)
-                                      <input
+                                      <Input
                                         value={action.action_support_needed || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1742,13 +1760,15 @@ export default function App() {
                                       />
                                     </label>
                                   </div>
-                                  <button
+                                  <Button
                                     type="button"
                                     className="danger action-remove"
                                     onClick={() => removeActionItem(question.id, actionIndex)}
+                                    variant="destructive"
+                                    size="sm"
                                   >
                                     Remove Action
-                                  </button>
+                                  </Button>
                                 </div>
                               ))}
                             </>
@@ -1756,7 +1776,7 @@ export default function App() {
                             <>
                               <label className="full">
                                 Answer
-                                <textarea
+                                <Textarea
                                   value={draft.answer_text || ""}
                                   onChange={(event) =>
                                     updateQuestionDraft(question.id, "answer_text", event.target.value)
@@ -1765,20 +1785,22 @@ export default function App() {
                               </label>
                               <div className="full action-list-head">
                                 <strong>Actions (optional)</strong>
-                                <button
+                                <Button
                                   type="button"
                                   className="ghost"
                                   onClick={() => addActionItem(question.id)}
+                                  variant="outline"
+                                  size="sm"
                                 >
                                   Add Action
-                                </button>
+                                </Button>
                               </div>
                               {(draft.actions || []).map((action, actionIndex) => (
                                 <div key={`${question.id}-${actionIndex}`} className="full action-card">
                                   <div className="grid">
                                     <label className="full">
                                       Action Required
-                                      <input
+                                      <Input
                                         value={action.action_required || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1792,7 +1814,7 @@ export default function App() {
                                     </label>
                                     <label>
                                       Lead Owner
-                                      <input
+                                      <Input
                                         value={action.action_owner || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1806,7 +1828,7 @@ export default function App() {
                                     </label>
                                     <label>
                                       Proposed Action Time
-                                      <select
+                                      <Select
                                         value={action.action_timeframe || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1821,11 +1843,11 @@ export default function App() {
                                         <option value="lt_1_month">&lt; 1 month</option>
                                         <option value="lt_3_months">&lt; 3 months</option>
                                         <option value="gt_3_months">&gt; 3 months</option>
-                                      </select>
+                                      </Select>
                                     </label>
                                     <label className="full">
                                       Support Needed (department or person)
-                                      <input
+                                      <Input
                                         value={action.action_support_needed || ""}
                                         onChange={(event) =>
                                           updateActionItem(
@@ -1838,19 +1860,21 @@ export default function App() {
                                       />
                                     </label>
                                   </div>
-                                  <button
+                                  <Button
                                     type="button"
                                     className="danger action-remove"
                                     onClick={() => removeActionItem(question.id, actionIndex)}
+                                    variant="destructive"
+                                    size="sm"
                                   >
                                     Remove Action
-                                  </button>
+                                  </Button>
                                 </div>
                               ))}
                             </>
                           )}
                         </div>
-                        <button
+                        <Button
                           type="button"
                           onClick={() => handleSaveQuestionResponse(question)}
                           disabled={isSavingThisQuestion}
@@ -1861,7 +1885,7 @@ export default function App() {
                             : existingResponse
                             ? "Update Response"
                             : "Save Response"}
-                        </button>
+                        </Button>
                       </article>
                     );
                   })}
@@ -1892,14 +1916,14 @@ export default function App() {
         </div>
         <div>
           <span className="label">Action</span>
-          <button
+          <Button
             type="button"
             onClick={handleSubmitVisit}
             disabled={isSubmittingVisit}
             className="transition duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmittingVisit ? "Submitting..." : "Submit for Review"}
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -1916,9 +1940,9 @@ export default function App() {
       {message ? <p className="message">{message}</p> : null}
 
       {showQuestionsTopFab ? (
-        <button type="button" className="scroll-top-fab" onClick={scrollToQuestionsTop}>
+        <Button type="button" className="scroll-top-fab" onClick={scrollToQuestionsTop}>
           Questions Top
-        </button>
+        </Button>
       ) : null}
       </div>
     </main>
