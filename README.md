@@ -27,14 +27,22 @@ If you already have your machine prepared, you can use the short quick start bel
 
 2. **Start Services**:
    ```bash
-   # Start backend
-   cd backend && python -m uvicorn app.main:app --reload
-   
-   # Start dashboard frontend
-   cd frontend/dashboard && npm run dev -- --port 5175
+    # Windows CMD helpers (new)
+    scripts\cmd\run_db.cmd
+    scripts\cmd\run_backend.cmd
+    scripts\cmd\run_dashboard.cmd
+    scripts\cmd\run_survey.cmd
 
-   # Start survey frontend
-   cd frontend/survey && npm run dev
+    # Or launch everything at once:
+    scripts\cmd\run_all.cmd
+
+    # PowerShell equivalents:
+    powershell -ExecutionPolicy Bypass -File scripts\powershell\run_db.ps1
+    powershell -ExecutionPolicy Bypass -File scripts\powershell\run_backend.ps1
+    powershell -ExecutionPolicy Bypass -File scripts\powershell\run_dashboard.ps1
+    powershell -ExecutionPolicy Bypass -File scripts\powershell\run_survey.ps1
+    # all-in-one:
+    powershell -ExecutionPolicy Bypass -File scripts\powershell\run_all.ps1
    ```
 
 3. **Access Applications**:
@@ -48,8 +56,8 @@ To access the platform from other devices on your local network:
 
 1. **Quick Start (Windows)**:
    ```bash
-   # Run the network startup script
-   start_network.bat
+    # Run all services
+    scripts\cmd\run_all.cmd
    ```
 
 2. **Manual Network Setup**:
@@ -286,6 +294,7 @@ This will remove:
 ### 📞 Documentation
 
 - `UPDATED_PLATFORM_ARCHITECTURE.md` - Complete platform architecture
+- `FRONTEND_UI_UX_STANDARDS.md` - Shared frontend design, layout, and analytics UX standards
 - `SURVEY_RESPONSE_FIX_REPORT.md` - Survey response fix details
 - `CREATE_RESPONSE_TABLES.sql` - Database schema for responses
 

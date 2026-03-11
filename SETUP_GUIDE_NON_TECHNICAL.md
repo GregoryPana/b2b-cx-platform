@@ -288,6 +288,24 @@ cd C:\Projects\b2b-cx-platform\frontend\survey
 npm run dev -- --host --port 5176
 ```
 
+### Shortcut scripts (Windows)
+
+If you prefer one-click helpers, use the scripts in this repo:
+
+- CMD:
+  - `scripts\cmd\run_db.cmd`
+  - `scripts\cmd\run_backend.cmd`
+  - `scripts\cmd\run_dashboard.cmd`
+  - `scripts\cmd\run_survey.cmd`
+  - `scripts\cmd\run_all.cmd` (starts all)
+
+- PowerShell:
+  - `scripts\powershell\run_db.ps1`
+  - `scripts\powershell\run_backend.ps1`
+  - `scripts\powershell\run_dashboard.ps1`
+  - `scripts\powershell\run_survey.ps1`
+  - `scripts\powershell\run_all.ps1` (starts all)
+
 ---
 
 ## 9) Verify everything is working
