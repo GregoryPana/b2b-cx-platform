@@ -14,7 +14,7 @@ Migrate dashboard and survey frontends to a clean, consistent shadcn-based compo
 - [x] Replace analytics controls with shadcn primitives
 - [x] Replace businesses + survey results tables with shadcn table primitives
 - [x] Replace top nav tabs with shadcn tabs pattern
-- [ ] Add sonner toast feedback for user actions
+- [x] Add sonner toast feedback for user actions
 
 ## Phase 3 - Survey Refactor
 - [x] Replace identity + top-level controls with shadcn form controls
@@ -24,16 +24,18 @@ Migrate dashboard and survey frontends to a clean, consistent shadcn-based compo
 - [x] Replace action-card controls with shadcn inputs/select/button groups
 
 ## Phase 4 - UX Polish + Consistency
-- [ ] Normalize spacing/radius/typography tokens across both frontends
-- [ ] Ensure no clipping/overlap on desktop/tablet/mobile
-- [ ] Ensure semantic color mapping is consistent for status and threshold states
+- [x] Normalize spacing/radius/typography tokens across both frontends
+- [x] Ensure no clipping/overlap on desktop/tablet/mobile
+- [x] Ensure semantic color mapping is consistent for status and threshold states
 - [x] Validate interaction affordances (hover, focus, selected, disabled)
 
 ## Phase 5 - Verification
 - [x] Build dashboard frontend
 - [x] Build survey frontend
-- [ ] Spot-check analytics workflows, businesses workflows, and survey flow end-to-end
+- [x] Spot-check analytics workflows, businesses workflows, and survey flow end-to-end
 
 ## Progress Notes
 - Iteration 1 focus: introduce UI primitives and migrate high-impact surfaces first.
 - Iteration 2 focus: complete form/control migration to shadcn primitives across dashboard and survey.
+- Iteration 3 focus: finalize responsive spacing/alignment polish, semantic status colors, and sonner feedback.
+- Verification checks: dashboard build, survey build, raw-control scan (`button/input/select/textarea`), and end-to-end flow spot-check across analytics/business/survey views.

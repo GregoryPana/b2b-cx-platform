@@ -14,6 +14,16 @@
   --border: rgba(109, 131, 161, 0.34);
   --accent: #12324f;
   --accent-soft: rgba(216, 226, 238, 0.72);
+  --danger: #7a1f1f;
+  --success: #245737;
+  --warning: #92400e;
+  --card: rgba(255, 255, 255, 0.78);
+  --semantic-good-bg: #dcfce7;
+  --semantic-good-fg: #166534;
+  --semantic-warn-bg: #fef3c7;
+  --semantic-warn-fg: #92400e;
+  --semantic-bad-bg: #fee2e2;
+  --semantic-bad-fg: #991b1b;
   --radius-lg: 10px;
   --radius-md: 8px;
   --space-1: 8px;
@@ -45,7 +55,7 @@ body {
 .page {
   width: min(100%, 1560px);
   margin: 0 auto;
-  padding: var(--space-5) var(--space-4) var(--space-5);
+  padding: clamp(20px, 5vw, var(--space-5)) clamp(12px, 3.5vw, var(--space-4)) clamp(56px, 8vw, var(--space-5));
 }
 
 .hero {
@@ -116,6 +126,10 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+}
+
+.panel-header > * {
+  min-width: 0;
 }
 
 .tabs {
@@ -197,6 +211,12 @@ h1 {
   color: var(--muted);
 }
 
+.planned-card strong,
+.planned-card span,
+.question-head strong {
+  overflow-wrap: anywhere;
+}
+
 .planned-badges {
   display: flex;
   flex-wrap: wrap;
@@ -217,18 +237,18 @@ h1 {
 }
 
 .pill.priority-high {
-  background: #c1121f;
-  color: #fff1f1;
+  background: var(--semantic-bad-bg);
+  color: var(--semantic-bad-fg);
 }
 
 .pill.priority-medium {
-  background: #f5b700;
-  color: #fff7cc;
+  background: var(--semantic-warn-bg);
+  color: var(--semantic-warn-fg);
 }
 
 .pill.priority-low {
-  background: #23a971;
-  color: #e8fff2;
+  background: var(--semantic-good-bg);
+  color: var(--semantic-good-fg);
 }
 
 .pill.muted {
@@ -549,7 +569,19 @@ button:disabled {
     
     /* Ensure proper mobile layout */
     .page {
-      padding-bottom: 80px; /* Space for mobile nav toggle */
+      padding-top: 16px;
+      padding-bottom: 86px; /* Space for mobile nav toggle */
+    }
+
+    .hero,
+    .panel {
+      padding: 16px;
+    }
+
+    .panel-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
     }
     
     /* Question cards mobile optimization */
@@ -565,14 +597,16 @@ button:disabled {
     }
     .tabs {
       width: 100%;
-      justify-content: space-between;
+      justify-content: flex-start;
+      overflow-x: auto;
       padding: 4px;
     }
 
     .tabs button {
-      flex: 1;
+      flex: 0 0 auto;
       padding: 8px 12px;
       font-size: 12px;
+      min-height: 36px;
     }
 
     .grid {
@@ -640,7 +674,7 @@ button:disabled {
 
     .yes-no-option {
       width: 100%;
-      justify-content: center;
+      justify-content: flex-start;
       padding: 12px;
     }
 
@@ -691,7 +725,7 @@ button:disabled {
     bottom: 0;
     width: 100%;
     height: auto;
-    max-height: 60vh;
+    max-height: 70vh;
     border-radius: 20px 20px 0 0;
     transform: none !important;
     z-index: 40;
@@ -734,7 +768,7 @@ button:disabled {
 
     nav.fixed button {
     width: 100%;
-    justify-content: center;
+    justify-content: flex-start;
     padding: 12px 16px;
     font-size: 14px;
     border-radius: 12px;
@@ -813,7 +847,7 @@ button:disabled {
     border: none;
     padding: 16px 20px;
     cursor: pointer;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     box-shadow: 0 -2px 10px rgba(20, 66, 112, 0.2);
     transition: all 0.3s ease;
@@ -914,6 +948,7 @@ button:disabled {
   .tabs button {
     font-size: 11px;
     padding: 6px 8px;
+    min-height: 34px;
   }
 
   .pill {

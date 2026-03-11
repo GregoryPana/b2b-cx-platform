@@ -8,6 +8,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Toaster, toast } from "sonner";
+import "sonner/dist/styles.css";
 import {
   Table,
   TableBody,
@@ -193,6 +195,29 @@ export default function App() {
       setPreviewPlatform(availablePlatforms[0].name);
     }
   }, [availablePlatforms, previewPlatform]);
+
+  useEffect(() => {
+    if (!message) return;
+    toast.success(message);
+  }, [message]);
+
+  useEffect(() => {
+    if (!error) return;
+    toast.error(error);
+  }, [error]);
+
+  useEffect(() => {
+    if (!reviewActionState.text) return;
+    if (reviewActionState.type === "success") {
+      toast.success(reviewActionState.text);
+      return;
+    }
+    if (reviewActionState.type === "error") {
+      toast.error(reviewActionState.text);
+      return;
+    }
+    toast(reviewActionState.text);
+  }, [reviewActionState]);
 
   const loadSurveyTypes = async () => {
     try {
@@ -1005,7 +1030,8 @@ export default function App() {
 
   if (!activePlatform) {
     return (
-      <main className="page">
+      <main className="page platform-page">
+        <Toaster position="top-right" richColors closeButton />
         <header className="header">
           <div>
             <p className="eyebrow">Governance Dashboard</p>
@@ -1041,6 +1067,7 @@ export default function App() {
                     onFocus={() => setPreviewPlatform(type.name)}
                     onClick={() => handleSelectPlatform(type.name)}
                     variant="outline"
+                    size="auto"
                   >
                     <div className="platform-option-head">
                       <div className="card-title">{type.name}</div>
@@ -1075,6 +1102,7 @@ export default function App() {
 
   return (
     <main className="page">
+      <Toaster position="top-right" richColors closeButton />
       <header className="header">
         <div>
           <p className="eyebrow">Governance Dashboard</p>
@@ -1524,7 +1552,9 @@ export default function App() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="priority-tag">{(business.priority_level || "medium").replace(/^\w/, (m) => m.toUpperCase())}</span>
+                        <span className={`priority-tag priority-${business.priority_level || "medium"}`}>
+                          {(business.priority_level || "medium").replace(/^\w/, (m) => m.toUpperCase())}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <span className={`status-chip ${business.active ? "active" : "retired"}`}>
@@ -1537,12 +1567,24 @@ export default function App() {
                             Edit
                           </Button>
                           {business.active ? (
-                            <Button type="button" variant="destructive" size="sm" onClick={() => handleRetireBusiness(business)}>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="retire-action"
+                              onClick={() => handleRetireBusiness(business)}
+                            >
                               Retire
                             </Button>
                           ) : null}
                           {role === "Admin" ? (
-                            <Button type="button" variant="destructive" size="sm" onClick={() => handleDeleteBusiness(business)}>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className="delete-action"
+                              onClick={() => handleDeleteBusiness(business)}
+                            >
                               Delete
                             </Button>
                           ) : null}
