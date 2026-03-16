@@ -1,3 +1,13 @@
+## APPLICATION DETAILS
+
+#### Application (Client) ID:
+7e09a8c1-f113-4e3f-aeb7-21d1305cbd55
+
+#### Directory (tenant) ID:
+97df7dc2-f178-4ce4-b55e-bcafc144485e
+
+
+
 ## GROUP ID
 
 ### CX_SUPER_ADMINS
