@@ -16,6 +16,7 @@ from app.programs.b2b.router import router as b2b_router
 
 # Survey Imports
 from app.api.survey import router as survey_router
+from app.api.mystery_shopper import router as mystery_shopper_router
 
 # Dashboard Compatibility Imports
 from app.api.dashboard_compat import router as dashboard_compat_router
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     
     # Survey Routes (for the survey interface)
     app.include_router(survey_router, tags=["survey"])
+    app.include_router(mystery_shopper_router)
     
     # Dashboard Compatibility Routes (for dashboard metrics)
     app.include_router(dashboard_compat_router)

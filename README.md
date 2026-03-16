@@ -8,7 +8,7 @@ This is a customer experience platform with multiple survey applications and a g
 
 - **Governance Dashboard**: Internal admin interface (VPN access only)
 - **B2B Survey**: Business relationship surveys (current)
-- **Mystery Shopper Survey**: Customer experience surveys (planned)
+- **Mystery Shopper Survey**: Customer experience surveys (current)
 - **Installation Assessment**: Technical installation surveys (planned)
 
 ### 🚀 Quick Start
@@ -32,6 +32,8 @@ If you already have your machine prepared, you can use the short quick start bel
     scripts\cmd\run_backend.cmd
     scripts\cmd\run_dashboard.cmd
     scripts\cmd\run_survey.cmd
+    scripts\cmd\run_mystery_shopper.cmd
+    scripts\cmd\smoke_mystery_shopper.cmd
 
     # Or launch everything at once:
     scripts\cmd\run_all.cmd
@@ -41,6 +43,8 @@ If you already have your machine prepared, you can use the short quick start bel
     powershell -ExecutionPolicy Bypass -File scripts\powershell\run_backend.ps1
     powershell -ExecutionPolicy Bypass -File scripts\powershell\run_dashboard.ps1
     powershell -ExecutionPolicy Bypass -File scripts\powershell\run_survey.ps1
+    powershell -ExecutionPolicy Bypass -File scripts\powershell\run_mystery_shopper.ps1
+    powershell -ExecutionPolicy Bypass -File scripts\powershell\smoke_mystery_shopper.ps1
     # all-in-one:
     powershell -ExecutionPolicy Bypass -File scripts\powershell\run_all.ps1
    ```
@@ -48,7 +52,16 @@ If you already have your machine prepared, you can use the short quick start bel
 3. **Access Applications**:
    - Dashboard: http://localhost:5175
    - Survey: http://localhost:5176
+   - Mystery Shopper: http://localhost:5177
    - Backend API: http://localhost:8001
+
+4. **If Mystery Shopper fails with Rollup optional dependency error**:
+   ```bash
+   cd frontend/mystery-shopper
+   rm -rf node_modules package-lock.json
+   npm install --include=optional
+   npm run dev -- --host --port 5177
+   ```
 
 ### 🌐 Network Access (Mobile/Tablet Support)
 
@@ -66,8 +79,9 @@ To access the platform from other devices on your local network:
    cd backend && python start_network.py
    
    # Start frontends (in separate terminals)
-   cd frontend/survey && npm run dev
-   cd frontend/dashboard && npm run dev
+    cd frontend/survey && npm run dev
+    cd frontend/mystery-shopper && npm run dev
+    cd frontend/dashboard && npm run dev
    ```
 
 3. **Find Your IP Address**:
@@ -77,6 +91,7 @@ To access the platform from other devices on your local network:
 
 4. **Access from Other Devices**:
    - Survey: `http://YOUR_IP:5176`
+   - Mystery Shopper: `http://YOUR_IP:5177`
    - Dashboard: `http://YOUR_IP:5175`
    - API: `http://YOUR_IP:8001`
 
@@ -127,11 +142,21 @@ cx-b2b-platform/
   - `POST /dashboard-visits` accepts `survey_type` in the payload.
   - `GET /dashboard-visits/all` supports `survey_type=...` filtering.
 
+- **Mystery Shopper bootstrap and location management**
+  - `POST /mystery-shopper/bootstrap` ensures Mystery Shopper schema/questions and seeds legacy location/purpose data.
+  - `POST /mystery-shopper/seed-legacy` re-runs historical seeding for locations and purpose options.
+  - `GET /mystery-shopper/locations` lists customer service centre locations.
+  - `POST /mystery-shopper/locations` adds a new location (admin flow).
+  - `DELETE /mystery-shopper/locations/{id}` deactivates a location.
+  - `PUT /mystery-shopper/visits/{visit_id}/submit` auto-sets `report_completed_date` using UTC+4.
+
 ### 🧭 Multi-Platform Dashboard
 
 - When the dashboard loads, users first see a **Platform Selector**.
 - After selecting a platform (for now, use **B2B**), the dashboard shows the tools and pages for that platform.
-- Other platforms (Mystery Shopper / Installation Assessment) are intentionally separated and will be filled out later.
+- **B2B** pages: Analytics, Review Queue, Businesses, Visits, Survey Results.
+- **Mystery Shopper** pages: Analytics, Review Queue, Locations, Survey Results.
+- Mystery Shopper intentionally does not expose B2B Business/Visit admin pages.
 
 ## 🧑‍🏫 B2B Workflow Guide (Non-Technical)
 
@@ -286,10 +311,11 @@ This will remove:
 
 ### 📋 Next Steps
 
-1. **Fix Survey Responses**: Execute CREATE_RESPONSE_TABLES.sql and restart backend
-2. **Develop Governance Dashboard**: Build unified admin interface
-3. **Create New Surveys**: Mystery Shopper and Installation Assessment
-4. **Deploy Production**: Set up proper hosting and access controls
+1. **Run Mystery Shopper bootstrap**: call `POST /mystery-shopper/bootstrap`
+2. **Seed old Mystery data (if upgrading existing DB)**: call `POST /mystery-shopper/seed-legacy` or use Dashboard -> Mystery Shopper -> Locations -> Seed Old Data
+3. **Add/verify Mystery locations and purposes**: use Dashboard -> Mystery Shopper -> Locations
+4. **Validate role-based runtime flows**: Representative, Reviewer, Manager, Admin
+5. **Deploy Production**: Set up proper hosting and access controls
 
 ### 📞 Documentation
 
@@ -297,6 +323,9 @@ This will remove:
 - `FRONTEND_UI_UX_STANDARDS.md` - Shared frontend design, layout, and analytics UX standards
 - `SURVEY_RESPONSE_FIX_REPORT.md` - Survey response fix details
 - `CREATE_RESPONSE_TABLES.sql` - Database schema for responses
+- `MYSTERY_SHOPPER_IMPLEMENTATION_PLAN.md` - Mystery Shopper implementation architecture and phases
+- `MYSTERY_SHOPPER_BUILD_TODO.md` - Build checklist and completion tracker
+- `MYSTERY_SHOPPER_OPERATIONS_GUIDE.md` - Admin/reviewer/representative operational flow
 
 ---
 

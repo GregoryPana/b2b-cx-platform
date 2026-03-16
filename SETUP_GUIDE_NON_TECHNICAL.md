@@ -237,6 +237,35 @@ psql -h localhost -U b2b -d b2b -f "..\CREATE_RESPONSE_TABLES.sql"
 
 Only do this when needed by your branch or setup notes.
 
+### 6.5 Bootstrap Mystery Shopper schema and questions
+
+After backend starts, initialize Mystery Shopper once:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://localhost:8001/mystery-shopper/bootstrap"
+```
+
+Expected result includes:
+- `survey_type_id`
+- `question_count` (core questionnaire items; visit/header fields are stored separately)
+
+This call is idempotent (safe to run again).
+
+Optional automated smoke test (after backend is running):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\powershell\smoke_mystery_shopper.ps1
+```
+
+This verifies bootstrap, location create/deactivate, draft visit creation, draft retrieval, and submit flow.
+
+After bootstrap, add Customer Service Centre locations in the dashboard:
+
+1. Open `http://localhost:5175`
+2. Select platform: `Mystery Shopper`
+3. Go to `Locations`
+4. Add or deactivate centres as needed
+
 ---
 
 ## 7) Install frontend dependencies
@@ -255,13 +284,20 @@ cd C:\Projects\b2b-cx-platform\frontend\survey
 npm install
 ```
 
+### Mystery Shopper frontend
+
+```powershell
+cd C:\Projects\b2b-cx-platform\frontend\mystery-shopper
+npm install
+```
+
 Reason: `npm install` downloads required frontend libraries.
 
 ---
 
 ## 8) Start all services
 
-Open **3 separate terminals**.
+Open **4 separate terminals**.
 
 ## Terminal 1: Backend
 
@@ -288,6 +324,13 @@ cd C:\Projects\b2b-cx-platform\frontend\survey
 npm run dev -- --host --port 5176
 ```
 
+## Terminal 4: Mystery Shopper Survey
+
+```powershell
+cd C:\Projects\b2b-cx-platform\frontend\mystery-shopper
+npm run dev -- --host --port 5177
+```
+
 ### Shortcut scripts (Windows)
 
 If you prefer one-click helpers, use the scripts in this repo:
@@ -297,6 +340,8 @@ If you prefer one-click helpers, use the scripts in this repo:
   - `scripts\cmd\run_backend.cmd`
   - `scripts\cmd\run_dashboard.cmd`
   - `scripts\cmd\run_survey.cmd`
+  - `scripts\cmd\run_mystery_shopper.cmd`
+  - `scripts\cmd\smoke_mystery_shopper.cmd`
   - `scripts\cmd\run_all.cmd` (starts all)
 
 - PowerShell:
@@ -304,6 +349,8 @@ If you prefer one-click helpers, use the scripts in this repo:
   - `scripts\powershell\run_backend.ps1`
   - `scripts\powershell\run_dashboard.ps1`
   - `scripts\powershell\run_survey.ps1`
+  - `scripts\powershell\run_mystery_shopper.ps1`
+  - `scripts\powershell\smoke_mystery_shopper.ps1`
   - `scripts\powershell\run_all.ps1` (starts all)
 
 ---
@@ -317,6 +364,7 @@ Open browser:
 - Backend health: `http://localhost:8001/health`
 - Dashboard: `http://localhost:5175`
 - Survey: `http://localhost:5176`
+- Mystery Shopper: `http://localhost:5177`
 
 Expected:
 
@@ -335,6 +383,7 @@ ipconfig
 
 - `http://YOUR_IP:5175` (dashboard)
 - `http://YOUR_IP:5176` (survey)
+- `http://YOUR_IP:5177` (mystery shopper)
 - `http://YOUR_IP:8001/health` (backend)
 
 ---
@@ -402,7 +451,7 @@ npm -v
 
 ---
 
-## Issue E: Port already in use (8001/5175/5176)
+## Issue E: Port already in use (8001/5175/5176/5177)
 
 Check process using port:
 
@@ -410,6 +459,7 @@ Check process using port:
 netstat -ano | findstr :8001
 netstat -ano | findstr :5175
 netstat -ano | findstr :5176
+netstat -ano | findstr :5177
 ```
 
 Kill process by PID:
@@ -417,6 +467,29 @@ Kill process by PID:
 ```powershell
 taskkill /PID <PID> /F
 ```
+
+---
+
+## Issue F: Vite/Rollup optional dependency error (Mystery Shopper)
+
+Symptoms:
+
+- `Cannot find module @rollup/rollup-win32-x64-msvc`
+- Mystery Shopper frontend fails to start on Windows
+
+Fix (run in `frontend\mystery-shopper`):
+
+```powershell
+Remove-Item -Recurse -Force node_modules
+Remove-Item -Force package-lock.json
+npm install --include=optional
+npm run dev -- --host --port 5177
+```
+
+Reason:
+
+- npm can occasionally skip optional platform binaries (known npm issue)
+- reinstalling with optional deps resolves the missing Rollup binary
 
 ---
 

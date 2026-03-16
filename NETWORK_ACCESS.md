@@ -11,9 +11,10 @@ This guide shows how to access the CX B2B Platform from other devices on your lo
    ```
 
 2. **Access from other devices:**
-   - Survey: `http://YOUR_IP:5176`
-   - Dashboard: `http://YOUR_IP:5175`
-   - Backend API: `http://YOUR_IP:8001`
+    - Survey: `http://YOUR_IP:5176`
+    - Mystery Shopper: `http://YOUR_IP:5177`
+    - Dashboard: `http://YOUR_IP:5175`
+    - Backend API: `http://YOUR_IP:8001`
 
 ## Manual Startup
 
@@ -29,7 +30,11 @@ python start_network.py
 cd frontend/survey
 npm run dev
 
-# Terminal 2: Dashboard  
+# Terminal 2: Mystery Shopper
+cd frontend/mystery-shopper
+npm run dev
+
+# Terminal 3: Dashboard  
 cd frontend/dashboard
 npm run dev
 ```
@@ -53,18 +58,20 @@ Replace `YOUR_IP` with your actual local IP address (e.g., 192.168.1.100, 10.0.0
 
 ### From Other Devices
 - **Survey Interface:** `http://YOUR_IP:5176`
+- **Mystery Shopper Interface:** `http://YOUR_IP:5177`
 - **Dashboard:** `http://YOUR_IP:5175`
 - **API Health Check:** `http://YOUR_IP:8001/health`
 
 ### From This Computer
 - **Survey Interface:** `http://localhost:5176`
+- **Mystery Shopper Interface:** `http://localhost:5177`
 - **Dashboard:** `http://localhost:5175`
 - **API Health Check:** `http://localhost:8001/health`
 
 ## Network Configuration
 
 ### What's Already Configured
-✅ **Frontend Vite Config:** Both survey and dashboard have `host: true` enabled  
+✅ **Frontend Vite Config:** Survey, mystery shopper, and dashboard have `host: true` enabled  
 ✅ **Backend CORS:** Allows all origins and local network ranges  
 ✅ **Backend Host Binding:** Binds to `0.0.0.0` (all interfaces)  
 
@@ -97,6 +104,7 @@ If ports are already in use:
 # Check what's using the ports
 netstat -an | findstr :8001
 netstat -an | findstr :5176
+netstat -an | findstr :5177
 netstat -an | findstr :5175
 
 # Kill processes if needed (Windows)
@@ -139,6 +147,7 @@ $ python start_network.py
 📱 Mobile devices can connect using: http://192.168.1.100:8001
 🏠 Frontend URLs:
    - Survey: http://192.168.1.100:5176
+   - Mystery Shopper: http://192.168.1.100:5177
    - Dashboard: http://192.168.1.100:5175
 🚀 Server starting...
 ```

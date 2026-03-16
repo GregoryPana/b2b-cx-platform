@@ -21,6 +21,55 @@ def resolve_survey_type_id(db: Session, survey_type: str | None) -> int | None:
     ).scalar()
 
 
+def parse_business_ids(business_ids: str | None) -> list[int]:
+    values: list[int] = []
+    if not business_ids:
+        return values
+    for raw in business_ids.split(","):
+        token = raw.strip()
+        if token.isdigit():
+            values.append(int(token))
+    return values
+
+
+def detect_question_columns(db: Session) -> tuple[bool, bool, bool]:
+    has_question_key = db.execute(text("""
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'questions' AND column_name = 'question_key'
+        LIMIT 1
+    """)).scalar() is not None
+    has_order_index = db.execute(text("""
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'questions' AND column_name = 'order_index'
+        LIMIT 1
+    """)).scalar() is not None
+    has_question_number = db.execute(text("""
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'questions' AND column_name = 'question_number'
+        LIMIT 1
+    """)).scalar() is not None
+    return has_question_key, has_order_index, has_question_number
+
+
+def detect_mystery_tables(db: Session) -> tuple[bool, bool]:
+    has_assessments = db.execute(text("""
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_name = 'mystery_shopper_assessments'
+        LIMIT 1
+    """)).scalar() is not None
+    has_locations = db.execute(text("""
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_name = 'mystery_shopper_locations'
+        LIMIT 1
+    """)).scalar() is not None
+    return has_assessments, has_locations
+
+
 @router.get("")
 @router.get("/")
 async def get_comprehensive_analytics(
@@ -43,12 +92,7 @@ async def get_comprehensive_analytics(
             where_visits_extra = " AND survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
 
-        business_id_values: list[int] = []
-        if business_ids:
-            for raw in business_ids.split(","):
-                token = raw.strip()
-                if token.isdigit():
-                    business_id_values.append(int(token))
+        business_id_values = parse_business_ids(business_ids)
 
         if business_id_values:
             placeholders = []
@@ -69,28 +113,14 @@ async def get_comprehensive_analytics(
             where_visits_extra += " AND visit_date <= :date_to"
             params["date_to"] = date_to
 
-        has_question_key = db.execute(text("""
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_name = 'questions' AND column_name = 'question_key'
-            LIMIT 1
-        """)).scalar() is not None
-        has_order_index = db.execute(text("""
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_name = 'questions' AND column_name = 'order_index'
-            LIMIT 1
-        """)).scalar() is not None
-        has_question_number = db.execute(text("""
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_name = 'questions' AND column_name = 'question_number'
-            LIMIT 1
-        """)).scalar() is not None
+        has_question_key, has_order_index, has_question_number = detect_question_columns(db)
 
         if has_question_key:
             q12_filter = "q.question_key = 'q12_overall_satisfaction'"
             q16_filter = "q.question_key = 'q16_other_provider_products'"
+            ms_csat_filter = "q.question_key IN ('ms_staff_interaction_satisfaction','ms_store_environment_satisfaction')"
+            ms_waiting_time_filter = "q.question_key = 'ms_waiting_time'"
+            ms_service_completion_filter = "q.question_key = 'ms_service_completion_time'"
             relationship_filter = (
                 "q.question_key IN ("
                 "'q01_relationship_strength',"
@@ -104,10 +134,16 @@ async def get_comprehensive_analytics(
         elif has_order_index:
             q12_filter = "q.order_index = 12"
             q16_filter = "q.order_index = 16"
+            ms_csat_filter = "q.order_index IN (24,25)"
+            ms_waiting_time_filter = "q.order_index = 22"
+            ms_service_completion_filter = "q.order_index = 23"
             relationship_filter = "q.order_index BETWEEN 1 AND 6"
         elif has_question_number:
             q12_filter = "q.question_number = 12"
             q16_filter = "q.question_number = 16"
+            ms_csat_filter = "q.question_number IN (24,25)"
+            ms_waiting_time_filter = "q.question_number = 22"
+            ms_service_completion_filter = "q.question_number = 23"
             relationship_filter = "q.question_number BETWEEN 1 AND 6"
         else:
             raise Exception("questions table missing question_key/order_index/question_number columns")
@@ -248,6 +284,119 @@ async def get_comprehensive_analytics(
                 ((satisfied_count + very_satisfied_count) / satisfaction_response_count) * 100,
                 2,
             )
+
+        mystery_csat_stats = db.execute(text(f"""
+            SELECT
+                AVG(CASE WHEN {ms_csat_filter} AND r.score IS NOT NULL THEN r.score ELSE NULL END) as avg_score,
+                COUNT(CASE WHEN {ms_csat_filter} AND r.score IS NOT NULL THEN 1 ELSE 0 END) as response_count
+            FROM b2b_visit_responses r
+            JOIN questions q ON r.question_id = q.id
+            JOIN visits v ON r.visit_id = v.id
+            WHERE v.status = 'Approved'
+            {where_extra}
+        """), params).fetchone()
+
+        mystery_waiting_rows = db.execute(text(f"""
+            SELECT COALESCE(r.answer_text, 'Unknown') as label, COUNT(*) as count
+            FROM b2b_visit_responses r
+            JOIN questions q ON r.question_id = q.id
+            JOIN visits v ON r.visit_id = v.id
+            WHERE v.status = 'Approved'
+              AND {ms_waiting_time_filter}
+              AND COALESCE(r.answer_text, '') <> ''
+              {where_extra}
+            GROUP BY COALESCE(r.answer_text, 'Unknown')
+            ORDER BY count DESC
+        """), params).all()
+
+        mystery_service_rows = db.execute(text(f"""
+            SELECT COALESCE(r.answer_text, 'Unknown') as label, COUNT(*) as count
+            FROM b2b_visit_responses r
+            JOIN questions q ON r.question_id = q.id
+            JOIN visits v ON r.visit_id = v.id
+            WHERE v.status = 'Approved'
+              AND {ms_service_completion_filter}
+              AND COALESCE(r.answer_text, '') <> ''
+              {where_extra}
+            GROUP BY COALESCE(r.answer_text, 'Unknown')
+            ORDER BY count DESC
+        """), params).all()
+
+        has_mystery_assessments, has_mystery_locations = detect_mystery_tables(db)
+
+        if has_mystery_assessments and has_mystery_locations:
+            mystery_location_rows = db.execute(text(f"""
+                SELECT
+                    COALESCE(l.name, b.name, 'Unknown Location') as location_name,
+                    COUNT(DISTINCT v.id) as visits,
+                    AVG(CASE WHEN {ms_csat_filter} THEN r.score END)::float as csat_average
+                FROM visits v
+                LEFT JOIN mystery_shopper_assessments msa ON msa.visit_id = v.id
+                LEFT JOIN mystery_shopper_locations l ON l.id = msa.location_id
+                LEFT JOIN businesses b ON b.id = v.business_id
+                LEFT JOIN b2b_visit_responses r ON r.visit_id = v.id
+                LEFT JOIN questions q ON q.id = r.question_id
+                WHERE v.status = 'Approved'
+                {where_extra}
+                GROUP BY COALESCE(l.name, b.name, 'Unknown Location')
+                ORDER BY visits DESC, location_name ASC
+                LIMIT 12
+            """), params).all()
+        else:
+            # Graceful fallback when Mystery Shopper tables are not initialized yet.
+            mystery_location_rows = db.execute(text(f"""
+                SELECT
+                    COALESCE(b.name, 'Unknown Location') as location_name,
+                    COUNT(DISTINCT v.id) as visits,
+                    AVG(CASE WHEN {ms_csat_filter} THEN r.score END)::float as csat_average
+                FROM visits v
+                LEFT JOIN businesses b ON b.id = v.business_id
+                LEFT JOIN b2b_visit_responses r ON r.visit_id = v.id
+                LEFT JOIN questions q ON q.id = r.question_id
+                WHERE v.status = 'Approved'
+                {where_extra}
+                GROUP BY COALESCE(b.name, 'Unknown Location')
+                ORDER BY visits DESC, location_name ASC
+                LIMIT 12
+            """), params).all()
+
+        mystery_visit_trend_rows = db.execute(text(f"""
+            SELECT
+                v.visit_date,
+                COUNT(*) as visit_count
+            FROM visits v
+            WHERE v.status = 'Approved'
+            {where_visits_extra}
+            GROUP BY v.visit_date
+            ORDER BY v.visit_date DESC
+            LIMIT 14
+        """), params).all()
+
+        mystery_shopper = {
+            "csat_average": round(float(mystery_csat_stats.avg_score), 2) if mystery_csat_stats.avg_score is not None else None,
+            "csat_response_count": int(mystery_csat_stats.response_count or 0),
+            "waiting_time_distribution": [
+                {"label": row.label, "count": int(row.count or 0)} for row in mystery_waiting_rows
+            ],
+            "service_completion_distribution": [
+                {"label": row.label, "count": int(row.count or 0)} for row in mystery_service_rows
+            ],
+            "location_breakdown": [
+                {
+                    "location_name": row.location_name,
+                    "visits": int(row.visits or 0),
+                    "csat_average": round(float(row.csat_average), 2) if row.csat_average is not None else None,
+                }
+                for row in mystery_location_rows
+            ],
+            "visit_trend": [
+                {
+                    "visit_date": row.visit_date.isoformat() if row.visit_date else None,
+                    "visit_count": int(row.visit_count or 0),
+                }
+                for row in reversed(mystery_visit_trend_rows)
+            ],
+        }
         
         return {
             "visits": {
@@ -300,7 +449,8 @@ async def get_comprehensive_analytics(
                 "accounts_using_competitors": accounts_using_competitors,
                 "formula": "Accounts Using Competitor Services ÷ Total Accounts Surveyed",
                 "scale": "Percentage"
-            }
+            },
+            "mystery_shopper": mystery_shopper,
         }
     except Exception as e:
         print(f"Error getting analytics: {e}")
@@ -308,3 +458,177 @@ async def get_comprehensive_analytics(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to load analytics: {e}")
+
+
+@router.get("/questions")
+async def get_question_averages(
+    survey_type: str | None = None,
+    business_ids: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Get per-question averages for drill-down analytics."""
+    try:
+        survey_type_id = resolve_survey_type_id(db, survey_type)
+        where_extra = ""
+        params: dict[str, Any] = {}
+
+        if survey_type_id is not None:
+            where_extra += " AND v.survey_type_id = :survey_type_id"
+            params["survey_type_id"] = survey_type_id
+
+        business_id_values = parse_business_ids(business_ids)
+        if business_id_values:
+            placeholders = []
+            for idx, value in enumerate(business_id_values):
+                key = f"business_id_{idx}"
+                placeholders.append(f":{key}")
+                params[key] = value
+            where_extra += f" AND v.business_id IN ({','.join(placeholders)})"
+
+        if date_from:
+            where_extra += " AND v.visit_date >= :date_from"
+            params["date_from"] = date_from
+        if date_to:
+            where_extra += " AND v.visit_date <= :date_to"
+            params["date_to"] = date_to
+
+        has_question_key, has_order_index, has_question_number = detect_question_columns(db)
+        if has_order_index:
+            order_expr = "q.order_index"
+            number_select = "q.order_index AS question_number"
+        elif has_question_number:
+            order_expr = "q.question_number"
+            number_select = "q.question_number AS question_number"
+        else:
+            order_expr = "q.id"
+            number_select = "q.id AS question_number"
+
+        key_select = "q.question_key AS question_key" if has_question_key else "NULL AS question_key"
+
+        rows = db.execute(text(f"""
+            SELECT
+                q.id AS question_id,
+                {number_select},
+                {key_select},
+                q.category,
+                q.question_text,
+                AVG(r.score)::float AS average_score,
+                COUNT(r.score) AS response_count,
+                MIN(r.score) AS min_score,
+                MAX(r.score) AS max_score
+            FROM b2b_visit_responses r
+            JOIN questions q ON r.question_id = q.id
+            JOIN visits v ON r.visit_id = v.id
+            WHERE v.status = 'Approved'
+              AND q.input_type = 'score'
+              AND r.score IS NOT NULL
+              {where_extra}
+            GROUP BY q.id, q.category, q.question_text, {order_expr}{', q.question_key' if has_question_key else ''}
+            ORDER BY {order_expr}, q.id
+        """), params).fetchall()
+
+        return {
+            "items": [
+                {
+                    "question_id": int(row.question_id),
+                    "question_number": int(row.question_number) if row.question_number is not None else int(row.question_id),
+                    "question_key": row.question_key,
+                    "category": row.category,
+                    "question_text": row.question_text,
+                    "average_score": round(float(row.average_score), 2) if row.average_score is not None else 0.0,
+                    "response_count": int(row.response_count or 0),
+                    "min_score": float(row.min_score) if row.min_score is not None else None,
+                    "max_score": float(row.max_score) if row.max_score is not None else None,
+                }
+                for row in rows
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load question averages: {e}")
+
+
+@router.get("/questions/{question_id}/trend")
+async def get_question_trend(
+    question_id: int,
+    survey_type: str | None = None,
+    business_ids: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    interval: str = "week",
+    db: Session = Depends(get_db),
+):
+    """Get trend points over time for one score-based question."""
+    try:
+        interval_value = interval.lower().strip()
+        if interval_value not in {"day", "week", "month"}:
+            interval_value = "week"
+
+        survey_type_id = resolve_survey_type_id(db, survey_type)
+        where_extra = " AND q.id = :question_id"
+        params: dict[str, Any] = {"question_id": question_id}
+
+        if survey_type_id is not None:
+            where_extra += " AND v.survey_type_id = :survey_type_id"
+            params["survey_type_id"] = survey_type_id
+
+        business_id_values = parse_business_ids(business_ids)
+        if business_id_values:
+            placeholders = []
+            for idx, value in enumerate(business_id_values):
+                key = f"business_id_{idx}"
+                placeholders.append(f":{key}")
+                params[key] = value
+            where_extra += f" AND v.business_id IN ({','.join(placeholders)})"
+
+        if date_from:
+            where_extra += " AND v.visit_date >= :date_from"
+            params["date_from"] = date_from
+        if date_to:
+            where_extra += " AND v.visit_date <= :date_to"
+            params["date_to"] = date_to
+
+        question_row = db.execute(
+            text("SELECT id, question_text, category FROM questions WHERE id = :question_id"),
+            {"question_id": question_id},
+        ).fetchone()
+        if not question_row:
+            raise HTTPException(status_code=404, detail="Question not found")
+
+        rows = db.execute(text(f"""
+            SELECT
+                date_trunc('{interval_value}', v.visit_date)::date AS period,
+                AVG(r.score)::float AS average_score,
+                COUNT(r.score) AS response_count
+            FROM b2b_visit_responses r
+            JOIN visits v ON r.visit_id = v.id
+            JOIN questions q ON r.question_id = q.id
+            WHERE v.status = 'Approved'
+              AND q.input_type = 'score'
+              AND r.score IS NOT NULL
+              {where_extra}
+            GROUP BY date_trunc('{interval_value}', v.visit_date)
+            ORDER BY period
+        """), params).fetchall()
+
+        return {
+            "question": {
+                "id": int(question_row.id),
+                "question_text": question_row.question_text,
+                "category": question_row.category,
+            },
+            "interval": interval_value,
+            "points": [
+                {
+                    "period": row.period.isoformat() if row.period else None,
+                    "average_score": round(float(row.average_score), 2) if row.average_score is not None else 0.0,
+                    "response_count": int(row.response_count or 0),
+                }
+                for row in rows
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load question trend: {e}")

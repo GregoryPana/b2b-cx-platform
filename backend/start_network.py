@@ -31,6 +31,7 @@ def main():
     print(f"📱 Mobile devices can connect using: http://{local_ip}:{port}")
     print(f"🏠 Frontend URLs:")
     print(f"   - Survey: http://{local_ip}:5176")
+    print(f"   - Mystery Shopper: http://{local_ip}:5177")
     print(f"   - Dashboard: http://{local_ip}:5175")
     print(f"🚀 Server starting...")
     

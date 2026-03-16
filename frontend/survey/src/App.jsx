@@ -339,6 +339,10 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    loadDrafts({ silent: true });
+  }, [userId, role]);
+
   const loadVisitResponses = async (targetVisitId) => {
     if (!targetVisitId) return;
 
@@ -888,13 +892,14 @@ export default function App() {
               type="button"
               className="mobile-nav-close"
               onClick={() => setShowMobileNav(false)}
+              aria-label="Close category navigation"
               variant="ghost"
-              size="sm"
+              size="auto"
             >
-              ✕
+              <span className="mobile-nav-close-icon" aria-hidden="true">x</span>
             </Button>
-            <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
-            <div className="space-y-2">
+            <h3 className="jump-nav-title">Jump to Category</h3>
+            <div className="jump-nav-list">
               {orderedCategories.map((category, index) => (
                 <Button
                   key={category}
@@ -919,14 +924,15 @@ export default function App() {
                           behavior: "smooth"
                         });
                       }
-                    }, 50);
+                    }, 140);
                   }}
-                  className={`w-full justify-start px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
+                  className={`jump-nav-item ${
                     currentCategory === category
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
                   }`}
                   variant="ghost"
+                  size="auto"
                 >
                   {category}
                 </Button>
@@ -958,8 +964,8 @@ export default function App() {
           >
             {showMobileNav ? '✕' : '☰'}
           </Button>
-          <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
-          <div className="space-y-2">
+          <h3 className="jump-nav-title">Jump to Category</h3>
+          <div className="jump-nav-list">
             {orderedCategories.map((category, index) => (
               <Button
                 key={category}
@@ -985,12 +991,13 @@ export default function App() {
                     }
                   }, 50);
                 }}
-                className={`w-full justify-start px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
+                className={`jump-nav-item ${
                   currentCategory === category
                     ? 'bg-blue-600 text-white border-blue-600'
                     : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
                 }`}
                 variant="ghost"
+                size="auto"
               >
                 {category}
               </Button>
@@ -1015,8 +1022,8 @@ export default function App() {
           
           {showDesktopJumpNav ? (
             <nav className={`desktop-jump-nav fixed left-4 top-[60%] w-64 bg-white shadow-lg rounded-lg p-4 z-20 transform -translate-x-0 -translate-y-1/2 max-h-[60vh] overflow-auto transition-transform duration-300 ${isCompactDesktop && !showMobileNav ? '-translate-x-full' : ''}`}>
-            <h3 className="text-lg font-semibold mb-4 text-gray-800">Jump to Category</h3>
-            <div className="space-y-2">
+            <h3 className="jump-nav-title">Jump to Category</h3>
+            <div className="jump-nav-list">
               {orderedCategories.map((category, index) => (
                 <Button
                   key={category}
@@ -1042,12 +1049,13 @@ export default function App() {
                       }
                     }, 50);
                   }}
-                  className={`w-full justify-start px-4 py-3 rounded-lg border-2 transition-colors duration-200 ${
+                  className={`jump-nav-item ${
                     currentCategory === category
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
                   }`}
                   variant="ghost"
+                  size="auto"
                 >
                   {category}
                 </Button>
@@ -1137,6 +1145,7 @@ export default function App() {
                         className="planned-card"
                         onClick={() => handleSelectPlannedVisit(draft)}
                         variant="ghost"
+                        size="auto"
                       >
                         <div>
                           <strong>{resolveBusinessName(draft)}</strong>
@@ -1180,6 +1189,7 @@ export default function App() {
                         className="planned-card"
                         onClick={() => handleSelectPlannedVisit(draft)}
                         variant="ghost"
+                        size="auto"
                       >
                         <div>
                           <strong>{resolveBusinessName(draft)}</strong>

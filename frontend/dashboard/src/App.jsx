@@ -64,6 +64,13 @@ export default function App() {
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [selectedBusiness, setSelectedBusiness] = useState(null);
   const [surveyResults, setSurveyResults] = useState([]);
+  const [mysteryLocations, setMysteryLocations] = useState([]);
+  const [newMysteryLocation, setNewMysteryLocation] = useState("");
+  const [mysteryLocationsLoading, setMysteryLocationsLoading] = useState(false);
+  const [mysteryPurposes, setMysteryPurposes] = useState([]);
+  const [newMysteryPurpose, setNewMysteryPurpose] = useState("");
+  const [mysteryPurposesLoading, setMysteryPurposesLoading] = useState(false);
+  const [mysteryLegacySeeding, setMysteryLegacySeeding] = useState(false);
   const [selectedSurveyVisit, setSelectedSurveyVisit] = useState(null);
   const [surveyFilter, setSurveyFilter] = useState("all"); // all, in_progress, completed, rejected, needs_change
   const [selectedSurveyBusiness, setSelectedSurveyBusiness] = useState(""); // For dropdown selection
@@ -139,12 +146,54 @@ export default function App() {
   const canViewMetrics = role === "Manager" || role === "Admin";
   const canReview = role === "Reviewer" || role === "Admin";
   const canManageBusinesses = role === "Manager" || role === "Admin";
-  const isB2BPlatform = activePlatform === "B2B";
+  const normalizedPlatform = (activePlatform || "").toLowerCase();
+  const isB2BPlatform = normalizedPlatform.includes("b2b");
+  const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
+  const isOperationalPlatform = isB2BPlatform || isMysteryShopperPlatform;
 
   const questionCategories = useMemo(() => {
     const set = new Set(questionAverages.map((item) => item.category).filter(Boolean));
     return ["all", ...Array.from(set)];
   }, [questionAverages]);
+
+  const mysteryAnalyticsSummary = useMemo(() => {
+    if (!isMysteryShopperPlatform) {
+      return {
+        qualityAvg: null,
+        overallExperienceAvg: null,
+      };
+    }
+
+    const weightedAverage = (items) => {
+      const weighted = items.reduce(
+        (acc, item) => {
+          const score = Number(item.average_score || 0);
+          const count = Number(item.response_count || 0);
+          if (!count || Number.isNaN(score)) return acc;
+          return {
+            scoreSum: acc.scoreSum + score * count,
+            countSum: acc.countSum + count,
+          };
+        },
+        { scoreSum: 0, countSum: 0 }
+      );
+      return weighted.countSum > 0 ? weighted.scoreSum / weighted.countSum : null;
+    };
+
+    const overallExperience = questionAverages.filter((item) =>
+      (item.category || "").toLowerCase().includes("overall experience")
+    );
+    const qualityQuestions = questionAverages.filter((item) => {
+      const category = (item.category || "").toLowerCase();
+      if (category.includes("overall experience")) return false;
+      return Number(item.average_score || 0) <= 5.2;
+    });
+
+    return {
+      qualityAvg: weightedAverage(qualityQuestions),
+      overallExperienceAvg: weightedAverage(overallExperience),
+    };
+  }, [isMysteryShopperPlatform, questionAverages]);
 
   const filteredQuestionAverages = useMemo(() => {
     const q = questionSearch.trim().toLowerCase();
@@ -172,16 +221,28 @@ export default function App() {
         summary: "Field installation quality scoring with category-level scoring, historical evidence, and contractor insights.",
         sections: ["Assessment Results", "Category Scoring", "Team vs Contractor", "Customer Type Analytics"]
       },
-      B2C: {
-        status: "Planned",
-        summary: "Consumer experience tracking for mystery-shopper and service quality programs.",
-        sections: ["Journey Metrics", "Service Quality", "NPS and CSAT", "Trend Tracking"]
+      "Mystery Shopper": {
+        status: "Live",
+        summary: "Retail/service-centre visit audits with location-level quality scoring, CSAT, and NPS.",
+        sections: ["Survey Results", "Quality Analytics", "NPS and CSAT", "Location Trends"]
       }
     }),
     []
   );
 
-  const availablePlatforms = surveyTypes.length ? surveyTypes : [{ name: "B2B" }];
+  const defaultPlatforms = useMemo(
+    () => [{ name: "B2B" }, { name: "Mystery Shopper" }, { name: "Installation Assessment" }],
+    []
+  );
+  const availablePlatforms = useMemo(() => {
+    const map = new Map(defaultPlatforms.map((platform) => [platform.name, platform]));
+    surveyTypes.forEach((type) => {
+      if (!map.has(type.name)) {
+        map.set(type.name, { name: type.name });
+      }
+    });
+    return Array.from(map.values());
+  }, [defaultPlatforms, surveyTypes]);
   const previewMeta = platformGuide[previewPlatform] || {
     status: "Planned",
     summary: "Platform dashboard modules and analytics will be configured after the survey model is finalized.",
@@ -227,6 +288,239 @@ export default function App() {
       setSurveyTypes(Array.isArray(data) ? data : []);
     } catch {
       // non-blocking
+    }
+  };
+
+  const loadMysteryLocations = async () => {
+    if (!isMysteryShopperPlatform) return;
+    setMysteryLocationsLoading(true);
+    try {
+      await fetch(`${API_BASE}/mystery-shopper/bootstrap`, {
+        method: "POST",
+        headers,
+      });
+      const res = await fetch(`${API_BASE}/mystery-shopper/locations`, { headers });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to load mystery shopper locations");
+        return;
+      }
+      setMysteryLocations(Array.isArray(data) ? data : []);
+    } catch {
+      setError("Failed to load mystery shopper locations");
+    } finally {
+      setMysteryLocationsLoading(false);
+    }
+  };
+
+  const createMysteryLocation = async () => {
+    const name = newMysteryLocation.trim();
+    if (!name) {
+      setError("Location name is required");
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/locations`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to create location");
+        return;
+      }
+      setNewMysteryLocation("");
+      setMessage(`Location added: ${data.name}`);
+      await loadMysteryLocations();
+    } catch {
+      setError("Failed to create location");
+    }
+  };
+
+  const loadMysteryPurposes = async () => {
+    if (!isMysteryShopperPlatform) return;
+    setMysteryPurposesLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/purposes`, { headers });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to load visit purposes");
+        return;
+      }
+      setMysteryPurposes(Array.isArray(data) ? data : []);
+    } catch {
+      setError("Failed to load visit purposes");
+    } finally {
+      setMysteryPurposesLoading(false);
+    }
+  };
+
+  const createMysteryPurpose = async () => {
+    const name = newMysteryPurpose.trim();
+    if (!name) {
+      setError("Purpose name is required");
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/purposes`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to create purpose");
+        return;
+      }
+      setNewMysteryPurpose("");
+      setMessage(`Purpose added: ${data.name}`);
+      await loadMysteryPurposes();
+    } catch {
+      setError("Failed to create purpose");
+    }
+  };
+
+  const seedMysteryLegacyData = async () => {
+    setMysteryLegacySeeding(true);
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/seed-legacy`, {
+        method: "POST",
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to seed historical mystery data");
+        return;
+      }
+      setMessage(
+        `Legacy seed completed. Locations added: ${data.seeded_location_count || 0}, purposes added: ${data.seeded_purpose_count || 0}`
+      );
+      await Promise.all([loadMysteryLocations(), loadMysteryPurposes()]);
+    } catch {
+      setError("Failed to seed historical mystery data");
+    } finally {
+      setMysteryLegacySeeding(false);
+    }
+  };
+
+  const deactivateMysteryPurpose = async (purposeId) => {
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/purposes/${purposeId}`, {
+        method: "DELETE",
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to deactivate purpose");
+        return;
+      }
+      setMessage(`Purpose archived: ${data.name}`);
+      await loadMysteryPurposes();
+    } catch {
+      setError("Failed to deactivate purpose");
+    }
+  };
+
+  const reactivateMysteryPurpose = async (purposeId) => {
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/purposes/${purposeId}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ active: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to reactivate purpose");
+        return;
+      }
+      setMessage(`Purpose reactivated: ${data.name}`);
+      await loadMysteryPurposes();
+    } catch {
+      setError("Failed to reactivate purpose");
+    }
+  };
+
+  const deleteMysteryPurpose = async (purpose) => {
+    const confirmed = window.confirm(
+      `Delete purpose \"${purpose.name}\" permanently?\n\nIf this purpose has historical assessments, deletion will be blocked and you should deactivate instead.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/purposes/${purpose.id}/purge`, {
+        method: "DELETE",
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to delete purpose");
+        return;
+      }
+      setMessage(`Purpose deleted: ${data.name}`);
+      await loadMysteryPurposes();
+    } catch {
+      setError("Failed to delete purpose");
+    }
+  };
+
+  const deactivateMysteryLocation = async (locationId) => {
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/locations/${locationId}`, {
+        method: "DELETE",
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to deactivate location");
+        return;
+      }
+      setMessage(`Location archived: ${data.name}`);
+      await loadMysteryLocations();
+    } catch {
+      setError("Failed to deactivate location");
+    }
+  };
+
+  const reactivateMysteryLocation = async (locationId) => {
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/locations/${locationId}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ active: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to reactivate location");
+        return;
+      }
+      setMessage(`Location reactivated: ${data.name}`);
+      await loadMysteryLocations();
+    } catch {
+      setError("Failed to reactivate location");
+    }
+  };
+
+  const deleteMysteryLocation = async (location) => {
+    const confirmed = window.confirm(
+      `Delete location \"${location.name}\" permanently?\n\nIf this location has visits/assessments, deletion will be blocked and you should deactivate instead.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/mystery-shopper/locations/${location.id}/purge`, {
+        method: "DELETE",
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to delete location");
+        return;
+      }
+      setMessage(`Location deleted: ${data.name}`);
+      await loadMysteryLocations();
+    } catch {
+      setError("Failed to delete location");
     }
   };
 
@@ -333,7 +627,7 @@ export default function App() {
     setQuestionAnalyticsLoading(true);
     const params = new URLSearchParams();
     params.set("survey_type", activePlatform);
-    if (selectedAnalyticsBusinessIds.length) {
+    if (isB2BPlatform && selectedAnalyticsBusinessIds.length) {
       params.set("business_ids", selectedAnalyticsBusinessIds.join(","));
     }
     if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
@@ -364,7 +658,7 @@ export default function App() {
     const params = new URLSearchParams();
     params.set("survey_type", activePlatform);
     params.set("interval", questionTrendInterval);
-    if (selectedAnalyticsBusinessIds.length) {
+    if (isB2BPlatform && selectedAnalyticsBusinessIds.length) {
       params.set("business_ids", selectedAnalyticsBusinessIds.join(","));
     }
     if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
@@ -404,19 +698,27 @@ export default function App() {
   }, [selectedQuestionTrend]);
 
   const loadPending = async () => {
-    if (!canReview || !isB2BPlatform) {
+    if (!canReview || !isOperationalPlatform) {
       setPendingVisits([]);
       setSelectedVisit(null);
       return;
     }
 
-    const res = await fetch(`${API_BASE}/dashboard-visits/pending`, { headers });
+    const params = new URLSearchParams();
+    params.set("status", "Pending");
+    if (activePlatform) {
+      params.set("survey_type", activePlatform);
+    }
+    const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
     const data = await res.json();
     if (!res.ok) {
       setError(data.detail || "Failed to load pending visits");
       return;
     }
-    setPendingVisits(data);
+    setPendingVisits((Array.isArray(data) ? data : []).map((visit) => ({
+      ...visit,
+      visit_id: visit.visit_id ?? visit.id,
+    })));
   };
 
   const loadVisitDetail = async (visitId) => {
@@ -979,7 +1281,20 @@ export default function App() {
       loadRepresentatives();
       loadDraftVisits();
     }
-  }, [activeView, surveyFilter, selectedSurveyBusiness, surveyDateFilter, activePlatform, analyticsDateFrom, analyticsDateTo]);
+    if (activePlatform && activeView === "locations" && isMysteryShopperPlatform) {
+      loadMysteryLocations();
+      loadMysteryPurposes();
+    }
+  }, [
+    activeView,
+    surveyFilter,
+    selectedSurveyBusiness,
+    surveyDateFilter,
+    activePlatform,
+    analyticsDateFrom,
+    analyticsDateTo,
+    isMysteryShopperPlatform,
+  ]);
 
   useEffect(() => {
     if (!activePlatform || activeView !== "analytics" || !isB2BPlatform) {
@@ -1024,6 +1339,9 @@ export default function App() {
   const handleSelectPlatform = (platformName) => {
     setActivePlatform(platformName);
     setActiveView("analytics");
+    setSelectedAnalyticsBusinessIds([]);
+    setSelectedSurveyBusiness("");
+    setBusinessSearchQuery("");
     setError("");
     setMessage("");
   };
@@ -1060,7 +1378,7 @@ export default function App() {
                   <Button
                     key={type.name}
                     type="button"
-                    className={`platform-option ${isPreview ? "active" : ""}`}
+                    className={`platform-option !grid !justify-items-start !content-start !text-left ${isPreview ? "active" : ""}`}
                     role="option"
                     aria-selected={isPreview}
                     onMouseEnter={() => setPreviewPlatform(type.name)}
@@ -1116,7 +1434,7 @@ export default function App() {
         </div>
       </header>
 
-      {!isB2BPlatform ? (
+      {!isOperationalPlatform ? (
         <section className="panel">
           <div className="panel-header">
             <h2>{activePlatform}</h2>
@@ -1152,15 +1470,22 @@ export default function App() {
         </section>
       ) : null}
 
-      {isB2BPlatform ? (
+      {isOperationalPlatform ? (
       <>
       <nav className="top-nav" aria-label="Primary">
         <Tabs value={activeView} onValueChange={setActiveView} className="nav-tabs">
           <TabsList role="tablist" aria-label="Dashboard sections">
             <TabsTrigger value="analytics" role="tab" aria-selected={activeView === "analytics"} disabled={!canViewMetrics}>Analytics</TabsTrigger>
-            <TabsTrigger value="review" role="tab" aria-selected={activeView === "review"} disabled={!canReview || !isB2BPlatform}>Review Queue</TabsTrigger>
-            <TabsTrigger value="businesses" role="tab" aria-selected={activeView === "businesses"} disabled={!canManageBusinesses || !isB2BPlatform}>Businesses</TabsTrigger>
-            <TabsTrigger value="visits" role="tab" aria-selected={activeView === "visits"} disabled={!canManageBusinesses || !isB2BPlatform}>Visits</TabsTrigger>
+            <TabsTrigger value="review" role="tab" aria-selected={activeView === "review"} disabled={!canReview}>Review Queue</TabsTrigger>
+            {isB2BPlatform ? (
+              <>
+                <TabsTrigger value="businesses" role="tab" aria-selected={activeView === "businesses"} disabled={!canManageBusinesses}>Businesses</TabsTrigger>
+                <TabsTrigger value="visits" role="tab" aria-selected={activeView === "visits"} disabled={!canManageBusinesses}>Visits</TabsTrigger>
+              </>
+            ) : null}
+            {isMysteryShopperPlatform ? (
+              <TabsTrigger value="locations" role="tab" aria-selected={activeView === "locations"} disabled={!canManageBusinesses}>Locations & Purposes</TabsTrigger>
+            ) : null}
             <TabsTrigger value="survey-results" role="tab" aria-selected={activeView === "survey-results"} disabled={!canViewMetrics}>Survey Results</TabsTrigger>
           </TabsList>
         </Tabs>
@@ -1210,7 +1535,7 @@ export default function App() {
       </>
       ) : null}
 
-      {activeView === "businesses" && canManageBusinesses ? (
+      {activeView === "businesses" && canManageBusinesses && isB2BPlatform ? (
         <section className="panel">
           <div className="panel-header">
             <h2>{selectedBusiness ? "Edit Business" : "Create Business"}</h2>
@@ -1512,7 +1837,7 @@ export default function App() {
         </>
       ) : null}
 
-      {activeView === "businesses" && canManageBusinesses ? (
+      {activeView === "businesses" && canManageBusinesses && isB2BPlatform ? (
         <section className="table business-directory">
           <div className="panel-header">
             <h2>Business Directory</h2>
@@ -1662,6 +1987,7 @@ export default function App() {
             </article>
           </section>
 
+          {isB2BPlatform ? (
           <section className="panel targeted-panel">
             <div className="panel-header">
               <h2>Targeted Business Analytics</h2>
@@ -1743,6 +2069,7 @@ export default function App() {
               <p className="caption">Select one or more businesses to see targeted analytics.</p>
             )}
           </section>
+          ) : null}
           <section className="panel question-drilldown-panel">
             <div className="panel-header">
               <h2>Per-Question Drilldown</h2>
@@ -1750,7 +2077,10 @@ export default function App() {
                 Refresh
               </Button>
             </div>
-            <p className="caption">Average score per question based on current filters (date range and selected businesses).</p>
+            <p className="caption">
+              Average score per question based on current filters
+              {isB2BPlatform ? " (date range and selected businesses)." : " (date range and survey scope)."}
+            </p>
             <div className="question-drilldown-controls">
               <label>
                 Search question
@@ -1940,11 +2270,30 @@ export default function App() {
               </div>
             </article>
             <article>
-              <h2>Customer Satisfaction</h2>
-              <p className="metric">{analytics?.customer_satisfaction?.avg_score?.toFixed(1) ?? "--"}</p>
-              <p className="caption">
-                {analytics?.customer_satisfaction?.response_count ?? 0} responses to question 12
+              <h2>{isMysteryShopperPlatform ? "Overall Experience" : "Customer Satisfaction"}</h2>
+              <p className="metric">
+                {isMysteryShopperPlatform
+                  ? mysteryAnalyticsSummary.overallExperienceAvg?.toFixed?.(2) ?? "--"
+                  : analytics?.customer_satisfaction?.avg_score?.toFixed(1) ?? "--"}
               </p>
+              <p className="caption">
+                {isMysteryShopperPlatform
+                  ? "Weighted average from Mystery Shopper overall experience scoring questions."
+                  : `${analytics?.customer_satisfaction?.response_count ?? 0} responses to question 12`}
+              </p>
+              {isMysteryShopperPlatform ? (
+                <div className="satisfaction-breakdown">
+                  <div className="satisfaction-category">
+                    <span className="label">Service Quality (1-5)</span>
+                    <span className="value">{mysteryAnalyticsSummary.qualityAvg?.toFixed?.(2) ?? "--"}</span>
+                  </div>
+                  <div className="satisfaction-category">
+                    <span className="label">NPS Score</span>
+                    <span className="value">{analytics?.nps?.nps ?? "--"}</span>
+                  </div>
+                </div>
+              ) : (
+              <>
               <div className="csat-score-wrap">
                 <div className="csat-score-row">
                   <span className="csat-label">CSAT Score</span>
@@ -1995,10 +2344,68 @@ export default function App() {
                 <span><i style={{ background: "#15803d" }} />Very Satisfied</span>
                 <span><i style={{ background: "#22c55e" }} />Satisfied</span>
                 <span><i style={{ background: "#f59e0b" }} />Neutral</span>
-                <span><i style={{ background: "#fb7185" }} />Dissatisfied</span>
-                <span><i style={{ background: "#b91c1c" }} />Very Dissatisfied</span>
-              </div>
+                  <span><i style={{ background: "#fb7185" }} />Dissatisfied</span>
+                  <span><i style={{ background: "#b91c1c" }} />Very Dissatisfied</span>
+                </div>
+              </>
+              )}
               </article>
+            {isMysteryShopperPlatform ? (
+            <article>
+              <h2>Operational Efficiency</h2>
+              <p className="caption">Distribution from waiting-time and service-completion Mystery Shopper questions.</p>
+              <div className="satisfaction-breakdown">
+                <div className="satisfaction-category">
+                  <span className="label">CSAT Average (Q24+Q25)</span>
+                  <span className="value">{analytics?.mystery_shopper?.csat_average?.toFixed?.(2) ?? "--"}</span>
+                </div>
+                <div className="satisfaction-category">
+                  <span className="label">CSAT Responses</span>
+                  <span className="value">{analytics?.mystery_shopper?.csat_response_count ?? 0}</span>
+                </div>
+              </div>
+              <div className="satisfaction-breakdown">
+                <div className="satisfaction-category">
+                  <span className="label">Waiting Time</span>
+                  <span className="value">
+                    {(analytics?.mystery_shopper?.waiting_time_distribution || [])
+                      .map((item) => `${item.label}: ${item.count}`)
+                      .join(" | ") || "No data"}
+                  </span>
+                </div>
+                <div className="satisfaction-category">
+                  <span className="label">Service Completion</span>
+                  <span className="value">
+                    {(analytics?.mystery_shopper?.service_completion_distribution || [])
+                      .map((item) => `${item.label}: ${item.count}`)
+                      .join(" | ") || "No data"}
+                  </span>
+                </div>
+              </div>
+              <div className="satisfaction-breakdown">
+                <div className="satisfaction-category">
+                  <span className="label">Location Breakdown</span>
+                  <span className="value">
+                    {(analytics?.mystery_shopper?.location_breakdown || [])
+                      .slice(0, 4)
+                      .map((item) => `${item.location_name}: ${item.visits}`)
+                      .join(" | ") || "No data"}
+                  </span>
+                </div>
+                <div className="satisfaction-category">
+                  <span className="label">Recent Daily Visits</span>
+                  <span className="value">
+                    {(analytics?.mystery_shopper?.visit_trend || [])
+                      .slice(-4)
+                      .map((item) => `${item.visit_date}: ${item.visit_count}`)
+                      .join(" | ") || "No data"}
+                  </span>
+                </div>
+              </div>
+            </article>
+            ) : null}
+            {isB2BPlatform ? (
+            <>
             <article>
               <h2>Overall Relationship Score</h2>
               <p className="metric">{analytics?.relationship_score?.score?.toFixed?.(1) ?? "--"}</p>
@@ -2029,11 +2436,13 @@ export default function App() {
                 </div>
               </div>
             </article>
+            </>
+            ) : null}
           </section>
         </div>
       ) : null}
 
-      {activeView === "review" && canReview ? (
+      {activeView === "review" && canReview && isOperationalPlatform ? (
         <section className="panel">
           <div className="panel-header">
             <h2>Review Queue</h2>
@@ -2172,7 +2581,186 @@ export default function App() {
         </section>
       ) : null}
 
-      {isB2BPlatform && activeView === "survey-results" && canViewMetrics ? (
+      {activeView === "locations" && canManageBusinesses && isMysteryShopperPlatform ? (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Location and Purpose Management</h2>
+            <div className="table-actions">
+              <Button type="button" variant="outline" size="sm" onClick={seedMysteryLegacyData} disabled={mysteryLegacySeeding}>
+                {mysteryLegacySeeding ? "Seeding..." : "Seed Old Data"}
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={loadMysteryLocations}>
+                {mysteryLocationsLoading ? "Refreshing..." : "Refresh"}
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid">
+            <label>
+              Add new location
+              <Input
+                value={newMysteryLocation}
+                onChange={(event) => setNewMysteryLocation(event.target.value)}
+                placeholder="Enter location name"
+              />
+            </label>
+          </div>
+          <div className="actions">
+            <Button type="button" onClick={createMysteryLocation}>Add Location</Button>
+          </div>
+
+          <div className="data-table-shell" style={{ marginTop: 16 }}>
+            <Table className="data-table" aria-label="Mystery shopper locations">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {mysteryLocations.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3}>No locations added yet.</TableCell>
+                  </TableRow>
+                ) : (
+                  mysteryLocations.map((location) => (
+                    <TableRow key={location.id}>
+                      <TableCell>{location.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={location.active ? "success" : "secondary"}>
+                          {location.active ? "Active" : "Inactive"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="table-actions">
+                          {location.active ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => deactivateMysteryLocation(location.id)}
+                            >
+                              Deactivate
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => reactivateMysteryLocation(location.id)}
+                            >
+                              Reactivate
+                            </Button>
+                          )}
+                          {role === "Admin" ? (
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className="delete-action"
+                              onClick={() => deleteMysteryLocation(location)}
+                            >
+                              Delete
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="panel-header" style={{ marginTop: 28 }}>
+            <h2>Visit Purpose Options</h2>
+            <Button type="button" variant="outline" size="sm" onClick={loadMysteryPurposes}>
+              {mysteryPurposesLoading ? "Refreshing..." : "Refresh"}
+            </Button>
+          </div>
+
+          <div className="grid" style={{ marginTop: 12 }}>
+            <label>
+              Add new purpose
+              <Input
+                value={newMysteryPurpose}
+                onChange={(event) => setNewMysteryPurpose(event.target.value)}
+                placeholder="Enter purpose name"
+              />
+            </label>
+          </div>
+          <div className="actions">
+            <Button type="button" onClick={createMysteryPurpose}>Add Purpose</Button>
+          </div>
+
+          <div className="data-table-shell" style={{ marginTop: 16 }}>
+            <Table className="data-table" aria-label="Mystery shopper visit purposes">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Purpose</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {mysteryPurposes.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3}>No purposes configured yet.</TableCell>
+                  </TableRow>
+                ) : (
+                  mysteryPurposes.map((purpose) => (
+                    <TableRow key={purpose.id}>
+                      <TableCell>{purpose.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={purpose.active ? "success" : "secondary"}>
+                          {purpose.active ? "Active" : "Inactive"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="table-actions">
+                          {purpose.active ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => deactivateMysteryPurpose(purpose.id)}
+                            >
+                              Deactivate
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => reactivateMysteryPurpose(purpose.id)}
+                            >
+                              Reactivate
+                            </Button>
+                          )}
+                          {role === "Admin" ? (
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className="delete-action"
+                              onClick={() => deleteMysteryPurpose(purpose)}
+                            >
+                              Delete
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </section>
+      ) : null}
+
+      {isOperationalPlatform && activeView === "survey-results" && canViewMetrics ? (
         <section className="survey-results">
           <div className="panel-header">
             <h2>Survey Results</h2>
@@ -2201,62 +2789,63 @@ export default function App() {
                 </Select>
               </div>
 
-              {/* Business Filter with Searchable Dropdown */}
-              <div className="filter-item business-filter">
-                <label className="filter-label">Business</label>
-                <div className="business-dropdown">
-                  <div className="dropdown-input-wrapper">
-                    <Input
-                      type="text"
-                      placeholder="Search and select business..."
-                      value={businessSearchQuery}
-                      onChange={(e) => handleBusinessSearchChange(e.target.value)}
-                      onFocus={() => setShowBusinessDropdown(true)}
-                      className="filter-input"
-                    />
-                    {selectedSurveyBusiness && (
-                      <Button
-                        type="button" 
-                        onClick={clearBusinessFilter}
-                        className="clear-button"
-                        title="Clear business filter"
-                        variant="ghost"
-                        size="sm"
-                      >
-                        ✕
-                      </Button>
-                    )}
-                  </div>
-                  
-                  {showBusinessDropdown && (
-                    <div className="dropdown-list">
-                      {filteredBusinesses.length === 0 ? (
-                        <div className="dropdown-item no-results">
-                          No businesses found
-                        </div>
-                      ) : (
-                        filteredBusinesses.map((business) => (
-                          <div
-                            key={business.id}
-                            className={`dropdown-item ${!business.active ? 'inactive' : ''}`}
-                            onClick={() => handleBusinessSelect(business)}
-                          >
-                            <div className="business-info">
-                              <span className="business-name">{business.name}</span>
-                              <span className={`business-status ${business.active ? 'active' : 'inactive'}`}>
-                                {business.active ? 'Active' : 'Retired'}
-                              </span>
-                            </div>
-                            {business.location && (
-                              <span className="business-location">{business.location}</span>
-                            )}
-                          </div>
-                        ))
+              {isB2BPlatform ? (
+                <div className="filter-item business-filter">
+                  <label className="filter-label">Business</label>
+                  <div className="business-dropdown">
+                    <div className="dropdown-input-wrapper">
+                      <Input
+                        type="text"
+                        placeholder="Search and select business..."
+                        value={businessSearchQuery}
+                        onChange={(e) => handleBusinessSearchChange(e.target.value)}
+                        onFocus={() => setShowBusinessDropdown(true)}
+                        className="filter-input"
+                      />
+                      {selectedSurveyBusiness && (
+                        <Button
+                          type="button"
+                          onClick={clearBusinessFilter}
+                          className="clear-button"
+                          title="Clear business filter"
+                          variant="ghost"
+                          size="sm"
+                        >
+                          ✕
+                        </Button>
                       )}
                     </div>
-                  )}
+
+                    {showBusinessDropdown && (
+                      <div className="dropdown-list">
+                        {filteredBusinesses.length === 0 ? (
+                          <div className="dropdown-item no-results">
+                            No businesses found
+                          </div>
+                        ) : (
+                          filteredBusinesses.map((business) => (
+                            <div
+                              key={business.id}
+                              className={`dropdown-item ${!business.active ? "inactive" : ""}`}
+                              onClick={() => handleBusinessSelect(business)}
+                            >
+                              <div className="business-info">
+                                <span className="business-name">{business.name}</span>
+                                <span className={`business-status ${business.active ? "active" : "inactive"}`}>
+                                  {business.active ? "Active" : "Retired"}
+                                </span>
+                              </div>
+                              {business.location ? (
+                                <span className="business-location">{business.location}</span>
+                              ) : null}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               {/* Date Filter */}
               <div className="filter-item">
@@ -2271,7 +2860,7 @@ export default function App() {
             </div>
 
             {/* Active Filters Display */}
-            {(surveyFilter !== "all" || selectedSurveyBusiness || surveyDateFilter) && (
+            {(surveyFilter !== "all" || (isB2BPlatform && selectedSurveyBusiness) || surveyDateFilter) && (
               <div className="active-filters">
                 <span className="active-filters-label">Active filters:</span>
                 {surveyFilter !== "all" && (
@@ -2280,7 +2869,7 @@ export default function App() {
                     <Button type="button" variant="ghost" size="sm" onClick={() => setSurveyFilter("all")}>✕</Button>
                   </span>
                 )}
-                {selectedSurveyBusiness && (
+                {isB2BPlatform && selectedSurveyBusiness && (
                   <span className="active-filter-tag">
                     Business: {selectedSurveyBusiness}
                     <Button type="button" variant="ghost" size="sm" onClick={clearBusinessFilter}>✕</Button>
@@ -2305,7 +2894,7 @@ export default function App() {
                 <Table className="data-table" aria-label="Survey results table">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Business</TableHead>
+                      <TableHead>{isMysteryShopperPlatform ? "Location" : "Business"}</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Progress</TableHead>
