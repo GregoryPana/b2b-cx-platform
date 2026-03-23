@@ -1,7 +1,15 @@
 __pycache__/
 .env
 .venv/
+venv/
 *.pyc
 node_modules/
 dist/
 build/
+*.db
+*.sqlite
+*.zip
+*.tar.gz
+backend/logs/
+frontend/**/dist/
+release/

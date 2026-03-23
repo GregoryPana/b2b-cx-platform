@@ -8,15 +8,104 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
-      - name: Deploy via SSH
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect changed components
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'scripts/linux/deploy_backend.sh'
+              - 'scripts/linux/install_release_bundle.sh'
+            dashboard:
+              - 'frontend/dashboard/**'
+            surveys:
+              - 'frontend/survey/**'
+            mystery:
+              - 'frontend/mystery-shopper/**'
+            infra:
+              - 'scripts/linux/**'
+              - '.github/workflows/**'
+              - 'ENTERPRISE_DEPLOYMENT_RUNBOOK.md'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build release bundle
+        shell: pwsh
+        env:
+          BUILD_BACKEND: ${{ steps.changes.outputs.backend == 'true' || steps.changes.outputs.infra == 'true' }}
+          BUILD_DASHBOARD: ${{ steps.changes.outputs.dashboard == 'true' || steps.changes.outputs.infra == 'true' }}
+          BUILD_SURVEYS: ${{ steps.changes.outputs.surveys == 'true' || steps.changes.outputs.infra == 'true' }}
+          BUILD_MYSTERY_SHOPPER: ${{ steps.changes.outputs.mystery == 'true' || steps.changes.outputs.infra == 'true' }}
+        run: |
+          pwsh -ExecutionPolicy Bypass -File .\scripts\windows\build_release_bundle.ps1 -OutputZip $env:RUNNER_TEMP\cwscx-release.zip
+
+      - name: Upload release bundle to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          source: ${{ runner.temp }}/cwscx-release.zip
+          target: /tmp/
+
+      - name: Install and deploy on VM
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
+          envs: BUILD_BACKEND,BUILD_DASHBOARD,BUILD_SURVEYS,BUILD_MYSTERY_SHOPPER
           script: |
-            cd ${{ secrets.PROD_PATH }}
-            docker compose pull
-            docker compose up -d
-            docker compose exec -T backend alembic upgrade head
+            set -euo pipefail
+
+            TARGET_ROOT="${{ secrets.PROD_PATH }}"
+            if [[ -z "${TARGET_ROOT}" ]]; then
+              echo "Missing PROD_PATH secret"
+              exit 1
+            fi
+
+            sudo mkdir -p "${TARGET_ROOT}"
+            sudo chown -R "${USER}:www-data" "${TARGET_ROOT}" || true
+
+            cd "${TARGET_ROOT}"
+
+            TS="$(date +%Y%m%d-%H%M%S)"
+            mkdir -p "${TARGET_ROOT}/releases"
+            cp -f /tmp/cwscx-release.zip "${TARGET_ROOT}/releases/cwscx-release-${TS}.zip"
+
+            bash scripts/linux/install_release_bundle.sh /tmp/cwscx-release.zip
+
+            if [[ -f docker-compose.yml ]]; then
+              docker compose up -d
+            fi
+
+            if [[ "${BUILD_BACKEND:-false}" == "True" || "${BUILD_BACKEND:-false}" == "true" || "${BUILD_BACKEND:-false}" == "1" ]]; then
+              bash scripts/linux/deploy_backend.sh
+            else
+              echo "Skipping backend deploy (no backend changes)."
+            fi
+
+            if [[ "${BUILD_DASHBOARD:-false}" == "True" || "${BUILD_DASHBOARD:-false}" == "true" || "${BUILD_DASHBOARD:-false}" == "1" || \
+                  "${BUILD_SURVEYS:-false}" == "True" || "${BUILD_SURVEYS:-false}" == "true" || "${BUILD_SURVEYS:-false}" == "1" || \
+                  "${BUILD_MYSTERY_SHOPPER:-false}" == "True" || "${BUILD_MYSTERY_SHOPPER:-false}" == "true" || "${BUILD_MYSTERY_SHOPPER:-false}" == "1" ]]; then
+              bash scripts/linux/deploy_frontends.sh
+            else
+              echo "Skipping frontend validation (no frontend changes)."
+            fi
+
+            sudo bash scripts/linux/deploy_nginx.sh
+
+            curl -fsS http://127.0.0.1:8000/health
+            sudo nginx -t

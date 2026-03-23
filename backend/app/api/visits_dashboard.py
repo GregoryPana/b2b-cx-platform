@@ -77,7 +77,11 @@ def check_duplicate_visit(
 
 
 @router.post("")
-async def create_visit(visit_data: dict, db: Session = Depends(get_db)):
+async def create_visit(
+    visit_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Create a new visit."""
     try:
         # Validate required fields
@@ -112,8 +116,8 @@ async def create_visit(visit_data: dict, db: Session = Depends(get_db)):
             """
         ), {
             "business_id": business_id,
-            "rep_id": visit_data.get("representative_id"),
-            "created_by": visit_data.get("created_by", visit_data.get("representative_id")),
+            "rep_id": visit_data.get("representative_id") or current_user.id,
+            "created_by": current_user.id,
             "visit_date": visit_date,
             "visit_type": visit_data.get("visit_type"),
             "survey_type_id": survey_type_id,
@@ -125,7 +129,12 @@ async def create_visit(visit_data: dict, db: Session = Depends(get_db)):
         return {
             "visit_id": "new-visit-created",
             "status": "Draft",
-            "message": "Visit created successfully"
+            "message": "Visit created successfully",
+            "created_by": {
+                "user_id": current_user.id,
+                "name": current_user.name,
+                "email": current_user.email,
+            },
         }
         
     except HTTPException:

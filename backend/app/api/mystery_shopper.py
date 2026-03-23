@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..core.auth.dependencies import get_current_user
+from ..core.auth.entra import AuthUser
 from ..core.database import get_db
 
 router = APIRouter(prefix="/mystery-shopper", tags=["mystery-shopper"])
@@ -1038,7 +1040,11 @@ async def purge_purpose_option(purpose_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/visits")
-async def create_mystery_visit(payload: MysteryVisitCreate, db: Session = Depends(get_db)):
+async def create_mystery_visit(
+    payload: MysteryVisitCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
     survey_type_id = _ensure_mystery_shopper_schema(db)
     valid_purpose = db.execute(
         text(
@@ -1101,8 +1107,8 @@ async def create_mystery_visit(payload: MysteryVisitCreate, db: Session = Depend
         ),
         {
             "business_id": location_row[0],
-            "representative_id": payload.representative_id,
-            "created_by": payload.created_by or payload.representative_id,
+            "representative_id": payload.representative_id or current_user.id,
+            "created_by": current_user.id,
             "visit_date": payload.visit_date,
             "visit_type": payload.visit_type,
             "survey_type_id": survey_type_id,
@@ -1131,7 +1137,15 @@ async def create_mystery_visit(payload: MysteryVisitCreate, db: Session = Depend
     )
 
     db.commit()
-    return {"visit_id": str(visit_id), "status": "Draft"}
+    return {
+        "visit_id": str(visit_id),
+        "status": "Draft",
+        "created_by": {
+            "user_id": current_user.id,
+            "name": current_user.name,
+            "email": current_user.email,
+        },
+    }
 
 
 @router.put("/visits/{visit_id}/header")

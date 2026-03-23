@@ -4,13 +4,14 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.core.db import Base
-from app import models
-
 from pathlib import Path
 import sys
 
+# Add the backend directory to Python path before importing app modules
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.core.db import Base
+from app import models
 
 config = context.config
 

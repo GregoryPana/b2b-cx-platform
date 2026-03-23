@@ -4,7 +4,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 # Database configuration - Use PostgreSQL
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://b2b:b2b@localhost:5432/b2b")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://cwscx:change-me@localhost:5432/cwscx")
 
 # PostgreSQL configuration
 engine = create_engine(DATABASE_URL)

@@ -1,0 +1,469 @@
+Implement authentication and authorization for the CX Platform using Microsoft Entra ID.
+
+The project structure, services, and ports are already defined in the repository and should NOT be modified.
+
+Only implement the authentication and authorization components required for Microsoft Entra integration.
+
+--------------------------------
+ENTRA CONFIGURATION
+--------------------------------
+
+Tenant ID:
+97df7dc2-f178-4ce4-b55e-bcafc144485e
+
+Client ID:
+7e09a8c1-f113-4e3f-aeb7-21d1305cbd55
+
+Authority:
+https://login.microsoftonline.com/97df7dc2-f178-4ce4-b55e-bcafc144485e
+
+Token Audience:
+https://graph.microsoft.com
+
+API Scope:
+access_as_user
+
+Authentication Flow:
+OAuth2 Authorization Code Flow with PKCE
+
+The application is a SPA frontend calling a FastAPI backend.
+
+Frontend uses MSAL.
+Backend validates JWT access tokens issued by Microsoft Entra.
+
+--------------------------------
+ROLE MODEL
+--------------------------------
+
+The Entra application defines these app roles:
+
+CX_SUPER_ADMIN
+
+B2B_ADMIN
+B2B_SURVEYOR
+
+MYSTERY_ADMIN
+MYSTERY_SURVEYOR
+
+INSTALL_ADMIN
+INSTALL_SURVEYOR
+
+Roles are included in the JWT token under the claim:
+
+"roles"
+
+Example:
+
+{
+  "name": "John Smith",
+  "preferred_username": "john@company.com",
+  "roles": ["B2B_ADMIN"]
+}
+
+Authorization decisions must be based on these roles.
+
+CX_SUPER_ADMIN must have access to all protected resources.
+
+--------------------------------
+AUTHENTICATION FLOW
+--------------------------------
+
+1. User opens the React application.
+2. React authenticates the user using Microsoft Entra via MSAL.
+3. User signs in with their organizational account.
+4. Entra returns tokens to the frontend.
+5. React obtains an access token for the backend API.
+6. React includes the token in API requests:
+
+Authorization: Bearer <access_token>
+
+7. FastAPI validates the JWT token.
+8. FastAPI extracts the claims.
+9. FastAPI authorizes access based on roles.
+
+--------------------------------
+FRONTEND REQUIREMENTS
+--------------------------------
+
+Use:
+
+@azure/msal-browser
+@azure/msal-react
+
+Implement:
+
+MSAL configuration
+Authentication provider
+Login button
+Logout button
+Authenticated user context
+
+Acquire API access tokens using:
+
+acquireTokenSilent
+
+Attach tokens to API requests.
+
+Protected routes should require authentication.
+
+If a user is not authenticated, redirect them to login.
+
+--------------------------------
+BACKEND REQUIREMENTS
+--------------------------------
+
+FastAPI must validate Microsoft Entra JWT tokens.
+
+Validation must include:
+
+signature verification
+issuer validation
+audience validation
+expiration validation
+
+Use the Microsoft public JWKS endpoint:
+
+https://login.microsoftonline.com/97df7dc2-f178-4ce4-b55e-bcafc144485e/discovery/v2.0/keys
+
+Extract these claims:
+
+sub
+name
+preferred_username
+roles
+
+--------------------------------
+ROLE AUTHORIZATION
+--------------------------------
+
+Implement dependency helpers for role-based authorization.
+
+Example:
+
+require_role("B2B_ADMIN")
+
+Example behavior:
+
+GET /dashboard
+
+Allowed roles:
+CX_SUPER_ADMIN
+B2B_ADMIN
+MYSTERY_ADMIN
+INSTALL_ADMIN
+
+POST /b2b/surveys
+
+Allowed roles:
+B2B_SURVEYOR
+B2B_ADMIN
+CX_SUPER_ADMIN
+
+If the user does not have the required role, return HTTP 403.
+
+--------------------------------
+SECURITY REQUIREMENTS
+--------------------------------
+
+The backend must always enforce authorization.
+
+Never trust role data from the frontend.
+
+Authorization must only rely on validated JWT claims.
+
+--------------------------------
+OUTPUT EXPECTED
+--------------------------------
+
+Implement:
+
+MSAL authentication configuration for the React frontend.
+
+A reusable API client that attaches access tokens to requests.
+
+FastAPI JWT validation middleware.
+
+FastAPI role-based authorization utilities.
+
+Example protected endpoints demonstrating role checks.
+
+Ensure the implementation follows best practices for Microsoft Entra authentication with SPA + API architecture.
+
+Do not modify unrelated project components.
+
+
+
+
+
+
+--------------------------------
+ROLE → PLATFORM ACCESS MODEL
+--------------------------------
+
+The CX platform consists of multiple modules.
+
+Each module represents a CX program:
+
+1. CX Dashboard (analytics and management)
+2. B2B CX Platform
+3. Mystery Shopper Platform
+4. Installation Assessment Platform
+
+Each module has its own role permissions.
+
+Roles determine which modules and API endpoints a user can access.
+
+--------------------------------
+GLOBAL ROLE
+--------------------------------
+
+CX_SUPER_ADMIN
+
+This role has full access to all CX platforms and APIs.
+
+Permissions:
+
+- Access dashboard
+- Access all analytics
+- Manage all CX platforms
+- Perform any survey if needed
+- Override all platform restrictions
+
+CX_SUPER_ADMIN should always bypass role restrictions.
+
+--------------------------------
+DASHBOARD ACCESS
+--------------------------------
+
+The dashboard is the internal analytics and management interface.
+
+Allowed roles:
+
+CX_SUPER_ADMIN
+B2B_ADMIN
+MYSTERY_ADMIN
+INSTALL_ADMIN
+
+Surveyor roles should NOT have access to the dashboard.
+
+Surveyor roles are operational users only.
+
+--------------------------------
+B2B CX PLATFORM
+--------------------------------
+
+This module handles B2B CX visits and surveys.
+
+Admin role:
+
+B2B_ADMIN
+
+Permissions:
+
+- Access B2B management pages
+- View B2B analytics
+- Manage B2B surveys
+- Create and edit B2B surveys
+- View all B2B survey responses
+
+Survey role:
+
+B2B_SURVEYOR
+
+Permissions:
+
+- Submit B2B survey responses
+- View assigned surveys if applicable
+
+Restrictions:
+
+- Cannot access dashboard
+- Cannot access other CX platforms
+- Cannot modify surveys
+
+Allowed roles for B2B endpoints:
+
+CX_SUPER_ADMIN
+B2B_ADMIN
+B2B_SURVEYOR
+
+--------------------------------
+MYSTERY SHOPPER PLATFORM
+--------------------------------
+
+Admin role:
+
+MYSTERY_ADMIN
+
+Permissions:
+
+- Manage mystery shopper program
+- View mystery shopper analytics
+- View survey results
+- Manage survey templates
+
+Survey role:
+
+MYSTERY_SURVEYOR
+
+Permissions:
+
+- Submit mystery shopper surveys
+
+Restrictions:
+
+- Cannot access dashboard
+- Cannot manage surveys
+
+Allowed roles for Mystery endpoints:
+
+CX_SUPER_ADMIN
+MYSTERY_ADMIN
+MYSTERY_SURVEYOR
+
+--------------------------------
+INSTALLATION ASSESSMENT PLATFORM
+--------------------------------
+
+Admin role:
+
+INSTALL_ADMIN
+
+Permissions:
+
+- Manage installation assessments
+- View installation analytics
+- View results
+
+Survey role:
+
+INSTALL_SURVEYOR
+
+Permissions:
+
+- Perform installation assessments
+- Submit installation surveys
+
+Restrictions:
+
+- Cannot access dashboard
+- Cannot access other platforms
+
+Allowed roles for Installation endpoints:
+
+CX_SUPER_ADMIN
+INSTALL_ADMIN
+INSTALL_SURVEYOR
+
+--------------------------------
+ROLE ACCESS SUMMARY
+--------------------------------
+
+CX_SUPER_ADMIN
+
+Access:
+
+Dashboard
+B2B Platform
+Mystery Platform
+Installation Platform
+
+
+B2B_ADMIN
+
+Access:
+
+Dashboard
+B2B Platform
+
+
+B2B_SURVEYOR
+
+Access:
+
+B2B Platform only
+
+
+MYSTERY_ADMIN
+
+Access:
+
+Dashboard
+Mystery Platform
+
+
+MYSTERY_SURVEYOR
+
+Access:
+
+Mystery Platform only
+
+
+INSTALL_ADMIN
+
+Access:
+
+Dashboard
+Installation Platform
+
+
+INSTALL_SURVEYOR
+
+Access:
+
+Installation Platform only
+
+--------------------------------
+IMPLEMENTATION REQUIREMENT
+--------------------------------
+
+FastAPI must implement role guards that check the JWT "roles" claim.
+
+Example helper:
+
+require_roles("B2B_ADMIN", "CX_SUPER_ADMIN")
+
+Endpoints must enforce platform-specific access.
+
+Example:
+
+GET /dashboard
+
+Allowed roles:
+
+CX_SUPER_ADMIN
+B2B_ADMIN
+MYSTERY_ADMIN
+INSTALL_ADMIN
+
+
+POST /b2b/surveys
+
+Allowed roles:
+
+CX_SUPER_ADMIN
+B2B_ADMIN
+B2B_SURVEYOR
+
+
+POST /mystery/surveys
+
+Allowed roles:
+
+CX_SUPER_ADMIN
+MYSTERY_ADMIN
+MYSTERY_SURVEYOR
+
+
+POST /installation/surveys
+
+Allowed roles:
+
+CX_SUPER_ADMIN
+INSTALL_ADMIN
+INSTALL_SURVEYOR
+
+
+These APIs are not indicative of the current setup but serves as an example.
+Replace/ change the current permissions of roles we had been using as placeholders such as differentiation between admin/manager... now only an admin can access the dashboard and have full functionality as per the platform they need access to.
+This means now the view for the different platforms will be different based on the role of the user. for B2B, Mystery Shoppper, and Installation Assesment

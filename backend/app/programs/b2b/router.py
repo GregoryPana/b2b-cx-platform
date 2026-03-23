@@ -67,7 +67,7 @@ async def create_business(
     business_data: BusinessCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Representative"))  # Requires Representative+ role in B2B
+    _access: bool = Depends(require_role("Admin"))
 ):
     """Create a new business."""
     return BusinessService.create_business(db, business_data)
@@ -79,7 +79,7 @@ async def update_business(
     business_data: BusinessUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Manager"))  # Requires Manager+ role in B2B
+    _access: bool = Depends(require_role("Admin"))
 ):
     """Update an existing business."""
     return BusinessService.update_business(db, business_id, business_data)
@@ -120,7 +120,7 @@ async def retire_business(
     business_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Manager"))  # Requires Manager+ role in B2B
+    _access: bool = Depends(require_role("Admin"))
 ):
     """Retire a business (set active to false) - keeps all records."""
     return BusinessService.retire_business(db, business_id)
@@ -139,9 +139,11 @@ async def list_account_executives(
 
 @router.get("/public/businesses", response_model=List[dict])
 async def list_businesses_public(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _access: bool = Depends(require_program_access("B2B")),
 ):
-    """Get all businesses (public endpoint - no auth required)."""
+    """Get all businesses for B2B-authorized users."""
     print("DEBUG: Public businesses endpoint called")
     try:
         # Use raw SQL to avoid service issues
@@ -189,9 +191,11 @@ async def list_businesses_public(
 
 @router.get("/public/account-executives", response_model=List[dict])
 async def list_account_executives_public(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _access: bool = Depends(require_program_access("B2B")),
 ):
-    """Get all account executives (public endpoint - no auth required)."""
+    """Get all account executives for B2B-authorized users."""
     print("DEBUG: Public account executives endpoint called")
     try:
         # Use raw SQL to avoid service issues
@@ -269,7 +273,7 @@ async def create_account_executive(
     ae_data: AccountExecutiveCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Manager"))  # Requires Manager+ role in B2B
+    _access: bool = Depends(require_role("Admin"))
 ):
     """Create a new account executive."""
     return AccountExecutiveService.create_account_executive(db, ae_data)
@@ -331,7 +335,7 @@ async def create_visit(
     visit_data: B2BVisitCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Representative"))  # Requires Representative+ role in B2B
+    _access: bool = Depends(require_role("Surveyor"))
 ):
     """Create a new B2B visit."""
     # Set the representative_id to current user
@@ -359,7 +363,7 @@ async def delete_visit(
     visit_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Manager"))  # Requires Manager+ role in B2B
+    _access: bool = Depends(require_role("Admin"))
 ):
     """Delete a B2B visit."""
     B2BVisitService.delete_visit(db, visit_id)

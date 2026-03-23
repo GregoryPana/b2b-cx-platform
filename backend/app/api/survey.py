@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from pydantic import BaseModel
 from ..core.database import get_db
+from ..core.auth.dependencies import B2B_ROLES, require_roles
 import sqlite3
 
 router = APIRouter()
@@ -329,7 +330,11 @@ class VisitResponse(BaseModel):
 
 
 @router.post("/businesses")
-async def create_business(business_data: dict, db: Session = Depends(get_db)):
+async def create_business(
+    business_data: dict,
+    db: Session = Depends(get_db),
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN")),
+):
     """Create a new business."""
     try:
         # Insert new business
@@ -362,7 +367,12 @@ async def create_business(business_data: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Failed to create business")
 
 @router.put("/businesses/{business_id}")
-async def update_business(business_id: int, business_data: dict, db: Session = Depends(get_db)):
+async def update_business(
+    business_id: int,
+    business_data: dict,
+    db: Session = Depends(get_db),
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN")),
+):
     """Update a business (for retirement/reactivation)."""
     try:
         # Update business
@@ -414,7 +424,10 @@ async def update_business(business_id: int, business_data: dict, db: Session = D
         raise HTTPException(status_code=500, detail="Failed to update business")
 
 @router.get("/survey-businesses", response_model=List[Dict])
-async def get_survey_businesses(db: Session = Depends(get_db)):
+async def get_survey_businesses(
+    db: Session = Depends(get_db),
+    _access: bool = Depends(require_roles(*B2B_ROLES)),
+):
     """Get businesses formatted for the survey interface."""
 
     # Prefer Postgres
@@ -587,7 +600,10 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
 
 
 @router.get("/visits/drafts", response_model=List[VisitResponse])
-async def get_draft_visits(db: Session = Depends(get_db)):
+async def get_draft_visits(
+    db: Session = Depends(get_db),
+    _access: bool = Depends(require_roles(*B2B_ROLES)),
+):
     """Get all draft visits for the survey."""
     try:
         # Query B2B visits with business information
@@ -631,7 +647,11 @@ async def get_draft_visits(db: Session = Depends(get_db)):
         return []
 
 @router.get("/visits/{visit_id}")
-async def get_visit_details(visit_id: int, db: Session = Depends(get_db)):
+async def get_visit_details(
+    visit_id: int,
+    db: Session = Depends(get_db),
+    _access: bool = Depends(require_roles(*B2B_ROLES)),
+):
     """Get detailed information about a specific visit."""
     try:
         query = """
@@ -676,7 +696,10 @@ async def get_visit_details(visit_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/survey-responses/{visit_id}")
-async def get_survey_responses(visit_id: int):
+async def get_survey_responses(
+    visit_id: int,
+    _access: bool = Depends(require_roles(*B2B_ROLES)),
+):
     """Get all survey responses for a specific visit."""
     try:
         conn = sqlite3.connect('../dev_cx_platform.db')
@@ -738,7 +761,10 @@ async def get_survey_responses(visit_id: int):
         return []
 
 @router.get("/survey-actions/{visit_id}")
-async def get_survey_actions(visit_id: int):
+async def get_survey_actions(
+    visit_id: int,
+    _access: bool = Depends(require_roles(*B2B_ROLES)),
+):
     """Get all action items for a specific visit."""
     try:
         conn = sqlite3.connect('../dev_cx_platform.db')
@@ -783,7 +809,9 @@ async def get_survey_actions(visit_id: int):
         return []
 
 @router.get("/historical-surveys")
-async def get_historical_surveys():
+async def get_historical_surveys(
+    _access: bool = Depends(require_roles(*B2B_ROLES)),
+):
     """Get all completed surveys with their responses."""
     try:
         conn = sqlite3.connect('../dev_cx_platform.db')
@@ -840,7 +868,12 @@ async def save_visit_responses(visit_id: int, responses: Dict[str, Any], db: Ses
         raise HTTPException(status_code=500, detail="Failed to save responses")
 
 @router.put("/visits/{visit_id}")
-async def update_visit(visit_id: int, visit_data: Dict[str, Any], db: Session = Depends(get_db)):
+async def update_visit(
+    visit_id: int,
+    visit_data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    _access: bool = Depends(require_roles(*B2B_ROLES)),
+):
     """Update visit information."""
     try:
         # For now, just return success

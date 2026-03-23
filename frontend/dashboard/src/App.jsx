@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { InteractionRequiredAuthError } from "@azure/msal-browser";
+import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import {
   CartesianGrid,
   Line,
@@ -10,6 +12,17 @@ import {
 } from "recharts";
 import { Toaster, toast } from "sonner";
 import "sonner/dist/styles.css";
+import { AnimatePresence, motion } from "framer-motion";
+import { gsap } from "gsap";
+import {
+  BarChart3,
+  Building2,
+  CalendarDays,
+  ClipboardCheck,
+  FileText,
+  LogOut,
+  MapPin,
+} from "lucide-react";
 import {
   Table,
   TableBody,
@@ -25,15 +38,21 @@ import { Badge } from "./components/ui/badge";
 import { Checkbox } from "./components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
+import { ensureMsalInitialized, loginRequest } from "./auth";
 import "./review.css";
 
-const API_BASE =
-  import.meta.env.VITE_API_URL ||
-  `http://${window.location.hostname}:8001`;
+const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 
 export default function App() {
+  const { instance, accounts, inProgress } = useMsal();
+  const isAuthenticated = useIsAuthenticated();
+  const [msalReady, setMsalReady] = useState(false);
   const [userId, setUserId] = useState("3");
   const [role, setRole] = useState("Manager");
+  const [userName, setUserName] = useState("");
+  const [userEmail, setUserEmail] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [entraRoles, setEntraRoles] = useState([]);
   const [surveyTypes, setSurveyTypes] = useState([]);
   const [activePlatform, setActivePlatform] = useState(null);
   const [previewPlatform, setPreviewPlatform] = useState("B2B");
@@ -106,14 +125,100 @@ export default function App() {
     text: ""
   });
 
-  const headers = useMemo(
-    () => ({
+  useEffect(() => {
+    let active = true;
+    const init = async () => {
+      try {
+        await ensureMsalInitialized();
+        if (active) setMsalReady(true);
+      } catch {
+        if (active) setError("Authentication initialization failed.");
+      }
+    };
+    init();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!msalReady) return;
+    if (!isAuthenticated && inProgress === "none") {
+      instance.loginRedirect(loginRequest);
+    }
+  }, [instance, inProgress, isAuthenticated, msalReady]);
+
+  useEffect(() => {
+    if (!msalReady) return;
+    const account = accounts[0];
+    if (!account) return;
+
+    const claims = account.idTokenClaims || {};
+    const roles = Array.isArray(claims.roles) ? claims.roles : [];
+    setEntraRoles(roles);
+    setRole(roles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
+    setUserId(String(claims.sub || claims.oid || claims.preferred_username || ""));
+    setUserName(claims.name || account.name || "");
+    setUserEmail(claims.preferred_username || account.username || "");
+
+    const loadToken = async () => {
+      try {
+        const result = await instance.acquireTokenSilent({
+          ...loginRequest,
+          account,
+        });
+        setAccessToken(result.accessToken || "");
+      } catch (error) {
+        if (error instanceof InteractionRequiredAuthError) {
+          instance.acquireTokenRedirect(loginRequest);
+          return;
+        }
+        setError("Authentication failed. Redirecting to sign in...");
+        instance.acquireTokenRedirect(loginRequest);
+      }
+    };
+
+    loadToken();
+  }, [accounts, instance, msalReady]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const run = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await res.json();
+        if (!res.ok) return;
+
+        const roles = Array.isArray(data.roles) ? data.roles : [];
+        setEntraRoles(roles);
+        setUserId(String(data.sub || ""));
+        setUserName(data.name || "");
+        setUserEmail(data.preferred_username || "");
+        setRole(roles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
+      } catch {
+        // keep fallback claims
+      }
+    };
+
+    run();
+  }, [accessToken]);
+
+  const headers = useMemo(() => {
+    const next = {
       "Content-Type": "application/json",
       "X-User-Id": userId,
-      "X-User-Role": role
-    }),
-    [userId, role]
-  );
+      "X-User-Role": role,
+    };
+    if (accessToken) {
+      next.Authorization = `Bearer ${accessToken}`;
+    }
+    return next;
+  }, [accessToken, userId, role]);
 
   const representativeMap = useMemo(
     () =>
@@ -143,13 +248,33 @@ export default function App() {
     });
   }, [businesses, analyticsBusinessSearch]);
 
-  const canViewMetrics = role === "Manager" || role === "Admin";
-  const canReview = role === "Reviewer" || role === "Admin";
-  const canManageBusinesses = role === "Manager" || role === "Admin";
+  const isSuperAdmin = entraRoles.includes("CX_SUPER_ADMIN");
+  const hasDashboardAccess =
+    isSuperAdmin ||
+    entraRoles.includes("B2B_ADMIN") ||
+    entraRoles.includes("MYSTERY_ADMIN") ||
+    entraRoles.includes("INSTALL_ADMIN");
+  const canViewMetrics = hasDashboardAccess;
+  const canReview = hasDashboardAccess;
+  const canManageBusinesses = hasDashboardAccess;
   const normalizedPlatform = (activePlatform || "").toLowerCase();
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
   const isOperationalPlatform = isB2BPlatform || isMysteryShopperPlatform;
+
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      const targets = gsap.utils.toArray(".panel, .table, .hero, .top-nav, .subhead, .data-table-shell");
+      if (!targets.length) return;
+      gsap.fromTo(
+        targets,
+        { autoAlpha: 0, y: 10 },
+        { autoAlpha: 1, y: 0, duration: 0.45, stagger: 0.04, ease: "power2.out" }
+      );
+    });
+
+    return () => ctx.revert();
+  }, [activeView, activePlatform]);
 
   const questionCategories = useMemo(() => {
     const set = new Set(questionAverages.map((item) => item.category).filter(Boolean));
@@ -234,6 +359,16 @@ export default function App() {
     () => [{ name: "B2B" }, { name: "Mystery Shopper" }, { name: "Installation Assessment" }],
     []
   );
+
+  const canAccessPlatform = (platformName) => {
+    const normalized = String(platformName || "").toLowerCase();
+    if (entraRoles.includes("CX_SUPER_ADMIN")) return true;
+    if (normalized.includes("b2b")) return entraRoles.includes("B2B_ADMIN");
+    if (normalized.includes("mystery")) return entraRoles.includes("MYSTERY_ADMIN");
+    if (normalized.includes("installation")) return entraRoles.includes("INSTALL_ADMIN");
+    return false;
+  };
+
   const availablePlatforms = useMemo(() => {
     const map = new Map(defaultPlatforms.map((platform) => [platform.name, platform]));
     surveyTypes.forEach((type) => {
@@ -241,8 +376,8 @@ export default function App() {
         map.set(type.name, { name: type.name });
       }
     });
-    return Array.from(map.values());
-  }, [defaultPlatforms, surveyTypes]);
+    return Array.from(map.values()).filter((item) => canAccessPlatform(item.name));
+  }, [defaultPlatforms, surveyTypes, entraRoles]);
   const previewMeta = platformGuide[previewPlatform] || {
     status: "Planned",
     summary: "Platform dashboard modules and analytics will be configured after the survey model is finalized.",
@@ -1261,6 +1396,7 @@ export default function App() {
   }, [showBusinessDropdown]);
 
   useEffect(() => {
+    if (!accessToken) return;
     loadSurveyTypes();
     if (activePlatform && activeView === "analytics") {
       loadMetrics();
@@ -1286,6 +1422,7 @@ export default function App() {
       loadMysteryPurposes();
     }
   }, [
+    accessToken,
     activeView,
     surveyFilter,
     selectedSurveyBusiness,
@@ -1346,9 +1483,36 @@ export default function App() {
     setMessage("");
   };
 
+  const handleLogout = () => {
+    instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+  };
+
+  if (!msalReady || !isAuthenticated || !accessToken) {
+    return (
+      <div className="dashboard-shell">
+        <div className="empty-state-card" role="status" aria-live="polite" aria-atomic="true">
+          <h2>Signing you in...</h2>
+          <p>Please wait while Microsoft Entra authentication completes.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasDashboardAccess) {
+    return (
+      <div className="dashboard-shell">
+        <div className="empty-state-card">
+          <h2>Access denied</h2>
+          <p>Your Entra role does not grant dashboard access.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!activePlatform) {
     return (
-      <main className="page platform-page">
+      <motion.main id="main-content" className="page platform-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+        <a href="#main-content" className="skip-link">Skip to main content</a>
         <Toaster position="top-right" richColors closeButton />
         <header className="header">
           <div>
@@ -1391,7 +1555,12 @@ export default function App() {
                       <div className="card-title">{type.name}</div>
                       <Badge variant={meta.status === "Live" ? "success" : "warning"}>{meta.status}</Badge>
                     </div>
-                    <div className="caption">{meta.summary}</div>
+                    <div className="platform-summary">{meta.summary}</div>
+                    <ul className="platform-detail-list" aria-hidden="true">
+                      {meta.sections.slice(0, 2).map((section) => (
+                        <li key={section} className="platform-detail-item">{section}</li>
+                      ))}
+                    </ul>
                   </Button>
                 );
               })}
@@ -1402,24 +1571,25 @@ export default function App() {
                 <h3>{previewPlatform}</h3>
                 <Badge variant={previewMeta.status === "Live" ? "success" : "warning"}>{previewMeta.status}</Badge>
               </div>
-              <p className="caption">{previewMeta.summary}</p>
-              <div className="platform-chip-row">
+              <p className="platform-summary">{previewMeta.summary}</p>
+              <ul className="platform-detail-list">
                 {previewMeta.sections.map((section) => (
-                  <span key={section} className="platform-chip">{section}</span>
+                  <li key={section} className="platform-detail-item">{section}</li>
                 ))}
-              </div>
-              <Button type="button" onClick={() => handleSelectPlatform(previewPlatform)}>
+              </ul>
+              <Button type="button" className="platform-open-btn" onClick={() => handleSelectPlatform(previewPlatform)}>
                 Open {previewPlatform}
               </Button>
             </aside>
           </div>
         </section>
-      </main>
+      </motion.main>
     );
   }
 
   return (
-    <main className="page">
+    <motion.main id="main-content" className={`page ${isOperationalPlatform ? "operational-layout" : ""}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <Toaster position="top-right" richColors closeButton />
       <header className="header">
         <div>
@@ -1475,35 +1645,32 @@ export default function App() {
       <nav className="top-nav" aria-label="Primary">
         <Tabs value={activeView} onValueChange={setActiveView} className="nav-tabs">
           <TabsList role="tablist" aria-label="Dashboard sections">
-            <TabsTrigger value="analytics" role="tab" aria-selected={activeView === "analytics"} disabled={!canViewMetrics}>Analytics</TabsTrigger>
-            <TabsTrigger value="review" role="tab" aria-selected={activeView === "review"} disabled={!canReview}>Review Queue</TabsTrigger>
+            <TabsTrigger value="analytics" role="tab" aria-selected={activeView === "analytics"} disabled={!canViewMetrics}><span className="nav-tab-inner"><BarChart3 className="icon icon--sm" aria-hidden="true" /><span className="nav-label">Analytics</span></span></TabsTrigger>
+            <TabsTrigger value="review" role="tab" aria-selected={activeView === "review"} disabled={!canReview}><span className="nav-tab-inner"><ClipboardCheck className="icon icon--sm" aria-hidden="true" /><span className="nav-label">Review Queue</span></span></TabsTrigger>
             {isB2BPlatform ? (
               <>
-                <TabsTrigger value="businesses" role="tab" aria-selected={activeView === "businesses"} disabled={!canManageBusinesses}>Businesses</TabsTrigger>
-                <TabsTrigger value="visits" role="tab" aria-selected={activeView === "visits"} disabled={!canManageBusinesses}>Visits</TabsTrigger>
+                <TabsTrigger value="businesses" role="tab" aria-selected={activeView === "businesses"} disabled={!canManageBusinesses}><span className="nav-tab-inner"><Building2 className="icon icon--sm" aria-hidden="true" /><span className="nav-label">Businesses</span></span></TabsTrigger>
+                <TabsTrigger value="visits" role="tab" aria-selected={activeView === "visits"} disabled={!canManageBusinesses}><span className="nav-tab-inner"><CalendarDays className="icon icon--sm" aria-hidden="true" /><span className="nav-label">Visits</span></span></TabsTrigger>
               </>
             ) : null}
             {isMysteryShopperPlatform ? (
-              <TabsTrigger value="locations" role="tab" aria-selected={activeView === "locations"} disabled={!canManageBusinesses}>Locations & Purposes</TabsTrigger>
+              <TabsTrigger value="locations" role="tab" aria-selected={activeView === "locations"} disabled={!canManageBusinesses}><span className="nav-tab-inner"><MapPin className="icon icon--sm" aria-hidden="true" /><span className="nav-label">Locations & Purposes</span></span></TabsTrigger>
             ) : null}
-            <TabsTrigger value="survey-results" role="tab" aria-selected={activeView === "survey-results"} disabled={!canViewMetrics}>Survey Results</TabsTrigger>
+            <TabsTrigger value="survey-results" role="tab" aria-selected={activeView === "survey-results"} disabled={!canViewMetrics}><span className="nav-tab-inner"><FileText className="icon icon--sm" aria-hidden="true" /><span className="nav-label">Survey Results</span></span></TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="nav-account">
-          <span className="caption">Local account</span>
+          <span className="caption">Signed in user</span>
           <div className="account-select">
             <label>
-              User ID
-              <Input value={userId} onChange={(event) => setUserId(event.target.value)} />
+              Name
+              <Input value={userName || "-"} disabled />
             </label>
             <label>
-              Role
-              <Select value={role} onChange={(event) => setRole(event.target.value)}>
-                <option>Manager</option>
-                <option>Reviewer</option>
-                <option>Admin</option>
-              </Select>
+              Email
+              <Input value={userEmail || "-"} disabled />
             </label>
+            <Button type="button" variant="outline" size="sm" onClick={handleLogout} aria-label="Log out"><span className="nav-tab-inner"><LogOut className="icon icon--sm" aria-hidden="true" />Logout</span></Button>
           </div>
         </div>
       </nav>
@@ -1529,8 +1696,20 @@ export default function App() {
         </p>
       </section>
 
-      {error ? <p className="notice">{error}</p> : null}
-      {message ? <p className="notice success">{message}</p> : null}
+      <AnimatePresence>
+        {error ? (
+          <motion.p className="notice" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+            {error}
+          </motion.p>
+        ) : null}
+      </AnimatePresence>
+      <AnimatePresence>
+        {message ? (
+          <motion.p className="notice success" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+            {message}
+          </motion.p>
+        ) : null}
+      </AnimatePresence>
 
       </>
       ) : null}
@@ -1637,7 +1816,7 @@ export default function App() {
               {selectedBusiness ? "Update Business" : "Save Business"}
             </Button>
           </div>
-          <p className="caption">Managers and Admins can create businesses and set priority.</p>
+          <p className="caption">Platform admins can create businesses and set priority.</p>
         </section>
       ) : null}
 
@@ -1839,7 +2018,7 @@ export default function App() {
 
       {activeView === "businesses" && canManageBusinesses && isB2BPlatform ? (
         <section className="table business-directory">
-          <div className="panel-header">
+          <div className="panel-header section-toolbar">
             <h2>Business Directory</h2>
             <Button type="button" variant="outline" size="sm" onClick={loadBusinesses}>
               Refresh
@@ -1887,8 +2066,8 @@ export default function App() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <div className="table-actions">
-                          <Button type="button" variant="outline" size="sm" onClick={() => handleEditBusiness(business)}>
+                        <div className="table-actions action-toolbar">
+                          <Button type="button" variant="outline" size="sm" className="table-action-btn" onClick={() => handleEditBusiness(business)}>
                             Edit
                           </Button>
                           {business.active ? (
@@ -1896,7 +2075,7 @@ export default function App() {
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="retire-action"
+                              className="table-action-btn retire-action"
                               onClick={() => handleRetireBusiness(business)}
                             >
                               Retire
@@ -1907,7 +2086,7 @@ export default function App() {
                               type="button"
                               variant="destructive"
                               size="sm"
-                              className="delete-action"
+                              className="table-action-btn delete-action"
                               onClick={() => handleDeleteBusiness(business)}
                             >
                               Delete
@@ -2188,20 +2367,22 @@ export default function App() {
                   <div className="trend-line-wrap" role="img" aria-label="Question trend line chart">
                     <ResponsiveContainer width="100%" height={260}>
                       <LineChart data={trendChartData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(109, 131, 161, 0.28)" />
-                        <XAxis dataKey="periodLabel" tick={{ fill: "#36506b", fontSize: 12 }} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 183, 232, 0.24)" />
+                        <XAxis dataKey="periodLabel" tick={{ fill: "#bfd0ea", fontSize: 12 }} />
                         <YAxis
                           domain={[0, 10]}
-                          tick={{ fill: "#36506b", fontSize: 12 }}
+                          tick={{ fill: "#bfd0ea", fontSize: 12 }}
                           tickCount={6}
                         />
                         <Tooltip
                           contentStyle={{
                             borderRadius: 8,
-                            border: "1px solid rgba(109, 131, 161, 0.35)",
-                            background: "rgba(255, 255, 255, 0.92)",
+                            border: "1px solid rgba(148, 183, 232, 0.3)",
+                            background: "rgba(15, 34, 66, 0.9)",
                             backdropFilter: "blur(6px)",
+                            color: "#eaf2ff",
                           }}
+                          labelStyle={{ color: "#eaf2ff" }}
                           formatter={(value, name, payload) => {
                             if (name === "averageScore") {
                               return [`${Number(value).toFixed(2)} / 10`, "Average Score"];
@@ -2217,10 +2398,10 @@ export default function App() {
                         <Line
                           type="monotone"
                           dataKey="averageScore"
-                          stroke="#12324f"
+                          stroke="#66b0ff"
                           strokeWidth={2.5}
-                          dot={{ r: 3, fill: "#12324f", strokeWidth: 0 }}
-                          activeDot={{ r: 5, fill: "#0f2e52" }}
+                          dot={{ r: 3, fill: "#99cbff", strokeWidth: 0 }}
+                          activeDot={{ r: 5, fill: "#e6f2ff" }}
                         />
                       </LineChart>
                     </ResponsiveContainer>
@@ -2231,7 +2412,22 @@ export default function App() {
           </section>
           <section className="analytics-main-grid">
             <article>
-              <h2>Net Promoter Score</h2>
+              <h2 className="heading-with-tip">
+                Net Promoter Score
+                <span className="info-tip-wrap">
+                  <button
+                    type="button"
+                    className="info-tip"
+                    aria-label="NPS info"
+                    aria-describedby="tip-nps"
+                  >
+                    i
+                  </button>
+                  <span id="tip-nps" role="tooltip" className="info-tip-popover">
+                    NPS equals percentage of Promoters (9-10) minus percentage of Detractors (0-6). Passives (7-8) are neutral.
+                  </span>
+                </span>
+              </h2>
               <p className="metric">{analytics?.nps?.nps ?? "--"}</p>
               <p className="caption">
                 {analytics?.nps?.total_responses ?? 0} approved responses
@@ -2240,16 +2436,16 @@ export default function App() {
                 <div
                   className="pie-chart"
                   style={buildPieStyle([
-                    { value: analytics?.nps?.promoters ?? 0, color: "#16a34a" },
+                    { value: analytics?.nps?.promoters ?? 0, color: "#10b981" },
                     { value: analytics?.nps?.passives ?? 0, color: "#f59e0b" },
-                    { value: analytics?.nps?.detractors ?? 0, color: "#dc2626" }
+                    { value: analytics?.nps?.detractors ?? 0, color: "#ef4444" }
                   ])}
                 />
               </div>
               <div className="pie-legend">
-                <span><i style={{ background: "#16a34a" }} />Promoters</span>
+                <span><i style={{ background: "#10b981" }} />Promoters</span>
                 <span><i style={{ background: "#f59e0b" }} />Passives</span>
-                <span><i style={{ background: "#dc2626" }} />Detractors</span>
+                <span><i style={{ background: "#ef4444" }} />Detractors</span>
               </div>
               <div className="nps-breakdown">
                 <div className="nps-category promoters">
@@ -2270,7 +2466,22 @@ export default function App() {
               </div>
             </article>
             <article>
-              <h2>{isMysteryShopperPlatform ? "Overall Experience" : "Customer Satisfaction"}</h2>
+              <h2 className="heading-with-tip">
+                {isMysteryShopperPlatform ? "Overall Experience" : "Customer Satisfaction"}
+                <span className="info-tip-wrap">
+                  <button
+                    type="button"
+                    className="info-tip"
+                    aria-label="CSAT info"
+                    aria-describedby="tip-csat"
+                  >
+                    i
+                  </button>
+                  <span id="tip-csat" role="tooltip" className="info-tip-popover">
+                    CSAT is the percentage of satisfied responses. The progress bar shows CSAT from 0% to 100% with high-contrast fill.
+                  </span>
+                </span>
+              </h2>
               <p className="metric">
                 {isMysteryShopperPlatform
                   ? mysteryAnalyticsSummary.overallExperienceAvg?.toFixed?.(2) ?? "--"
@@ -2332,20 +2543,20 @@ export default function App() {
                 <div
                   className="pie-chart"
                   style={buildPieStyle([
-                    { value: analytics?.customer_satisfaction?.score_distribution?.very_satisfied ?? 0, color: "#15803d" },
-                    { value: analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0, color: "#22c55e" },
+                    { value: analytics?.customer_satisfaction?.score_distribution?.very_satisfied ?? 0, color: "#10b981" },
+                    { value: analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0, color: "#34d399" },
                     { value: analytics?.customer_satisfaction?.score_distribution?.neutral ?? 0, color: "#f59e0b" },
                     { value: analytics?.customer_satisfaction?.score_distribution?.dissatisfied ?? 0, color: "#fb7185" },
-                    { value: analytics?.customer_satisfaction?.score_distribution?.very_dissatisfied ?? 0, color: "#b91c1c" }
+                    { value: analytics?.customer_satisfaction?.score_distribution?.very_dissatisfied ?? 0, color: "#ef4444" }
                   ])}
                 />
               </div>
               <div className="pie-legend">
-                <span><i style={{ background: "#15803d" }} />Very Satisfied</span>
-                <span><i style={{ background: "#22c55e" }} />Satisfied</span>
+                <span><i style={{ background: "#10b981" }} />Very Satisfied</span>
+                <span><i style={{ background: "#34d399" }} />Satisfied</span>
                 <span><i style={{ background: "#f59e0b" }} />Neutral</span>
                   <span><i style={{ background: "#fb7185" }} />Dissatisfied</span>
-                  <span><i style={{ background: "#b91c1c" }} />Very Dissatisfied</span>
+                  <span><i style={{ background: "#ef4444" }} />Very Dissatisfied</span>
                 </div>
               </>
               )}
@@ -2583,13 +2794,13 @@ export default function App() {
 
       {activeView === "locations" && canManageBusinesses && isMysteryShopperPlatform ? (
         <section className="panel">
-          <div className="panel-header">
+          <div className="panel-header section-toolbar">
             <h2>Location and Purpose Management</h2>
-            <div className="table-actions">
-              <Button type="button" variant="outline" size="sm" onClick={seedMysteryLegacyData} disabled={mysteryLegacySeeding}>
+            <div className="table-actions action-toolbar">
+              <Button type="button" variant="outline" size="sm" className="table-action-btn" onClick={seedMysteryLegacyData} disabled={mysteryLegacySeeding}>
                 {mysteryLegacySeeding ? "Seeding..." : "Seed Old Data"}
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={loadMysteryLocations}>
+              <Button type="button" variant="outline" size="sm" className="table-action-btn" onClick={loadMysteryLocations}>
                 {mysteryLocationsLoading ? "Refreshing..." : "Refresh"}
               </Button>
             </div>
@@ -2633,12 +2844,13 @@ export default function App() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="table-actions">
+                        <div className="table-actions action-toolbar">
                           {location.active ? (
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="table-action-btn"
                               onClick={() => deactivateMysteryLocation(location.id)}
                             >
                               Deactivate
@@ -2648,6 +2860,7 @@ export default function App() {
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="table-action-btn"
                               onClick={() => reactivateMysteryLocation(location.id)}
                             >
                               Reactivate
@@ -2658,7 +2871,7 @@ export default function App() {
                               type="button"
                               variant="destructive"
                               size="sm"
-                              className="delete-action"
+                              className="table-action-btn delete-action"
                               onClick={() => deleteMysteryLocation(location)}
                             >
                               Delete
@@ -2673,9 +2886,9 @@ export default function App() {
             </Table>
           </div>
 
-          <div className="panel-header" style={{ marginTop: 28 }}>
+          <div className="panel-header section-toolbar" style={{ marginTop: 28 }}>
             <h2>Visit Purpose Options</h2>
-            <Button type="button" variant="outline" size="sm" onClick={loadMysteryPurposes}>
+            <Button type="button" variant="outline" size="sm" className="table-action-btn" onClick={loadMysteryPurposes}>
               {mysteryPurposesLoading ? "Refreshing..." : "Refresh"}
             </Button>
           </div>
@@ -2718,12 +2931,13 @@ export default function App() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="table-actions">
+                        <div className="table-actions action-toolbar">
                           {purpose.active ? (
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="table-action-btn"
                               onClick={() => deactivateMysteryPurpose(purpose.id)}
                             >
                               Deactivate
@@ -2733,6 +2947,7 @@ export default function App() {
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="table-action-btn"
                               onClick={() => reactivateMysteryPurpose(purpose.id)}
                             >
                               Reactivate
@@ -2743,7 +2958,7 @@ export default function App() {
                               type="button"
                               variant="destructive"
                               size="sm"
-                              className="delete-action"
+                              className="table-action-btn delete-action"
                               onClick={() => deleteMysteryPurpose(purpose)}
                             >
                               Delete
@@ -2762,7 +2977,7 @@ export default function App() {
 
       {isOperationalPlatform && activeView === "survey-results" && canViewMetrics ? (
         <section className="survey-results">
-          <div className="panel-header">
+          <div className="panel-header section-toolbar">
             <h2>Survey Results</h2>
             <Button type="button" variant="outline" size="sm" onClick={loadSurveyResults}>
               Refresh
@@ -2807,11 +3022,12 @@ export default function App() {
                           type="button"
                           onClick={clearBusinessFilter}
                           className="clear-button"
+                          aria-label="Clear business filter"
                           title="Clear business filter"
                           variant="ghost"
                           size="sm"
                         >
-                          ✕
+                          Clear
                         </Button>
                       )}
                     </div>
@@ -2866,19 +3082,19 @@ export default function App() {
                 {surveyFilter !== "all" && (
                   <span className="active-filter-tag">
                     Status: {surveyFilter}
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setSurveyFilter("all")}>✕</Button>
+                    <Button type="button" variant="ghost" size="sm" className="filter-chip-clear" onClick={() => setSurveyFilter("all")}>Clear</Button>
                   </span>
                 )}
                 {isB2BPlatform && selectedSurveyBusiness && (
                   <span className="active-filter-tag">
                     Business: {selectedSurveyBusiness}
-                    <Button type="button" variant="ghost" size="sm" onClick={clearBusinessFilter}>✕</Button>
+                    <Button type="button" variant="ghost" size="sm" className="filter-chip-clear" onClick={clearBusinessFilter}>Clear</Button>
                   </span>
                 )}
                 {surveyDateFilter && (
                   <span className="active-filter-tag">
                     Date: {surveyDateFilter}
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setSurveyDateFilter("")}>✕</Button>
+                    <Button type="button" variant="ghost" size="sm" className="filter-chip-clear" onClick={() => setSurveyDateFilter("")}>Clear</Button>
                   </span>
                 )}
               </div>
@@ -2935,11 +3151,12 @@ export default function App() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="table-actions">
+                          <div className="table-actions action-toolbar">
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="table-action-btn"
                               onClick={() => loadSurveyVisitDetails(visit.id)}
                             >
                               View Details
@@ -3013,6 +3230,6 @@ export default function App() {
           )}
         </section>
       ) : null}
-    </main>
+    </motion.main>
   );
 }

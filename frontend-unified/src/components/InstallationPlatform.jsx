@@ -146,17 +146,13 @@ const InstallationPlatform = () => {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
+      <div>
+        <nav className="ui-tablist" aria-label="Installation sections">
           {['overview', 'service-calls', 'technicians', 'quality'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm capitalize ${
-                activeTab === tab
-                  ? 'border-orange-500 text-orange-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              className={`ui-tab ${activeTab === tab ? 'active' : ''}`}
             >
               {tab.replace('-', ' ')}
             </button>
@@ -168,7 +164,7 @@ const InstallationPlatform = () => {
       <div className="mt-6">
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <div className="surface-card">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Service Calls</h3>
               <div className="space-y-3">
                 {data.serviceCalls.slice(0, 5).map((call) => (
@@ -195,7 +191,7 @@ const InstallationPlatform = () => {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <div className="surface-card">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Technician Performance</h3>
               <div className="space-y-3">
                 {data.technicians.slice(0, 5).map((tech) => (
@@ -218,15 +214,15 @@ const InstallationPlatform = () => {
         )}
 
         {activeTab === 'service-calls' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="surface-card">
+            <div className="section-toolbar px-1 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Service Calls</h3>
               <div className="flex space-x-2">
-                <button className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
+                <button className="ui-btn flex items-center space-x-2">
                   <Filter className="h-4 w-4" />
                   <span>Filter</span>
                 </button>
-                <button className="flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">
+                <button className="ui-btn primary flex items-center space-x-2">
                   <Plus className="h-4 w-4" />
                   <span>Schedule Call</span>
                 </button>
@@ -299,15 +295,15 @@ const InstallationPlatform = () => {
         )}
 
         {activeTab === 'technicians' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="surface-card">
+            <div className="section-toolbar px-1 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Technicians</h3>
               <div className="flex space-x-2">
-                <button className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
+                <button className="ui-btn flex items-center space-x-2">
                   <Filter className="h-4 w-4" />
                   <span>Filter</span>
                 </button>
-                <button className="flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">
+                <button className="ui-btn primary flex items-center space-x-2">
                   <Plus className="h-4 w-4" />
                   <span>Add Technician</span>
                 </button>
@@ -370,7 +366,7 @@ const InstallationPlatform = () => {
 
         {activeTab === 'quality' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <div className="surface-card">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Quality Trends</h3>
               <div className="space-y-4">
                 {data.qualityScores.map((score, index) => (
@@ -392,7 +388,7 @@ const InstallationPlatform = () => {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <div className="surface-card">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Quality Metrics</h3>
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-gray-50 rounded">

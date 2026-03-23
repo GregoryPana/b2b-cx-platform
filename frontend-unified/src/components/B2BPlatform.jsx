@@ -128,17 +128,13 @@ const B2BPlatform = () => {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
+      <div>
+        <nav className="ui-tablist" aria-label="B2B sections">
           {['overview', 'businesses', 'account-executives', 'visits'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm capitalize ${
-                activeTab === tab
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              className={`ui-tab ${activeTab === tab ? 'active' : ''}`}
             >
               {tab.replace('-', ' ')}
             </button>
@@ -150,7 +146,7 @@ const B2BPlatform = () => {
       <div className="mt-6">
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <div className="surface-card">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Businesses</h3>
               <div className="space-y-3">
                 {data.businesses.slice(0, 5).map((business) => (
@@ -167,7 +163,7 @@ const B2BPlatform = () => {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <div className="surface-card">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Visits</h3>
               <div className="space-y-3">
                 {data.visits.slice(0, 5).map((visit) => (
@@ -187,10 +183,10 @@ const B2BPlatform = () => {
         )}
 
         {activeTab === 'businesses' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="surface-card">
+            <div className="section-toolbar px-1 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Businesses</h3>
-              <button className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              <button className="ui-btn primary flex items-center space-x-2">
                 <Plus className="h-4 w-4" />
                 <span>Add Business</span>
               </button>
@@ -237,13 +233,13 @@ const B2BPlatform = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
-                          <button className="text-blue-600 hover:text-blue-900">
+                          <button className="icon-button" title="View business">
                             <Eye className="h-4 w-4" />
                           </button>
-                          <button className="text-green-600 hover:text-green-900">
+                          <button className="icon-button" title="Edit business">
                             <Edit className="h-4 w-4" />
                           </button>
-                          <button className="text-red-600 hover:text-red-900">
+                          <button className="icon-button danger" title="Delete business">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
@@ -257,10 +253,10 @@ const B2BPlatform = () => {
         )}
 
         {activeTab === 'account-executives' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="surface-card">
+            <div className="section-toolbar px-1 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Account Executives</h3>
-              <button className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              <button className="ui-btn primary flex items-center space-x-2">
                 <Plus className="h-4 w-4" />
                 <span>Add AE</span>
               </button>
@@ -305,13 +301,13 @@ const B2BPlatform = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
-                          <button className="text-blue-600 hover:text-blue-900">
+                          <button className="icon-button" title="View account executive">
                             <Eye className="h-4 w-4" />
                           </button>
-                          <button className="text-green-600 hover:text-green-900">
+                          <button className="icon-button" title="Edit account executive">
                             <Edit className="h-4 w-4" />
                           </button>
-                          <button className="text-red-600 hover:text-red-900">
+                          <button className="icon-button danger" title="Delete account executive">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
@@ -325,10 +321,10 @@ const B2BPlatform = () => {
         )}
 
         {activeTab === 'visits' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="surface-card">
+            <div className="section-toolbar px-1 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Visits</h3>
-              <button className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              <button className="ui-btn primary flex items-center space-x-2">
                 <Plus className="h-4 w-4" />
                 <span>Schedule Visit</span>
               </button>
@@ -375,13 +371,13 @@ const B2BPlatform = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
-                          <button className="text-blue-600 hover:text-blue-900">
+                          <button className="icon-button" title="View visit">
                             <Eye className="h-4 w-4" />
                           </button>
-                          <button className="text-green-600 hover:text-green-900">
+                          <button className="icon-button" title="Edit visit">
                             <Edit className="h-4 w-4" />
                           </button>
-                          <button className="text-red-600 hover:text-red-900">
+                          <button className="icon-button danger" title="Delete visit">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>

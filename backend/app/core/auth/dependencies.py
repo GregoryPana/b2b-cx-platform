@@ -1,107 +1,113 @@
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
-from typing import Optional
-from ..database import get_db
-from ..models import User, UserProgramRole, Program
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-# Make security optional for development
-security = HTTPBearer(auto_error=False)
+from .entra import AuthUser, get_entra_validator
+
+security = HTTPBearer(auto_error=True)
 
 
-def get_current_user_dev():
-    """Mock user for development without Entra ID."""
-    return User(
-        id=1,
-        email="dev.user@company.com",
-        name="Development User",
-        department="IT",
-        is_active=True
-    )
+DASHBOARD_ROLES = (
+    "CX_SUPER_ADMIN",
+    "B2B_ADMIN",
+    "MYSTERY_ADMIN",
+    "INSTALL_ADMIN",
+)
+
+B2B_ROLES = (
+    "CX_SUPER_ADMIN",
+    "B2B_ADMIN",
+    "B2B_SURVEYOR",
+)
+
+MYSTERY_ROLES = (
+    "CX_SUPER_ADMIN",
+    "MYSTERY_ADMIN",
+    "MYSTERY_SURVEYOR",
+)
+
+INSTALL_ROLES = (
+    "CX_SUPER_ADMIN",
+    "INSTALL_ADMIN",
+    "INSTALL_SURVEYOR",
+)
+
+ALL_PLATFORM_ROLES = tuple(dict.fromkeys((*B2B_ROLES, *MYSTERY_ROLES, *INSTALL_ROLES)))
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: Session = Depends(get_db)
-) -> User:
-    """Get current user - mock for development."""
-    # TODO: Implement proper JWT validation
-    # For now, mock user for development
-    user = get_current_user_dev()
-    if not user:
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> AuthUser:
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+
+    token = credentials.credentials.strip()
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+
+    validator = get_entra_validator()
+    return validator.validate(token)
+
+
+def require_roles(*allowed_roles: str):
+    role_set = tuple(dict.fromkeys(allowed_roles))
+
+    async def role_checker(current_user: AuthUser = Depends(get_current_user)) -> bool:
+        if current_user.has_any_role(role_set):
+            return True
+
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient role permissions for this resource",
         )
-    return user
+
+    return role_checker
 
 
 def require_program_access(program_code: str):
-    """Factory function to create program access requirement dependency."""
-    
-    async def program_access_checker(
-        current_user: User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-    ) -> bool:
-        # For development, grant access to all programs for mock user
-        if current_user.email == "dev.user@company.com":
-            return True
-            
-        program = db.query(Program).filter(Program.code == program_code).first()
-        if not program:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Program {program_code} not found"
-            )
-        
-        user_role = db.query(UserProgramRole).filter(
-            UserProgramRole.user_id == current_user.id,
-            UserProgramRole.program_id == program.id
-        ).first()
-        
-        if not user_role:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied to program {program_code}"
-            )
-        
-        return True
-    
-    return program_access_checker
+    normalized = (program_code or "").strip().upper()
+    if normalized == "B2B":
+        return require_roles(*B2B_ROLES)
+    if normalized in {"MYSTERY", "MYSTERY_SHOPPER"}:
+        return require_roles(*MYSTERY_ROLES)
+    if normalized in {"INSTALL", "INSTALLATION", "INSTALLATION_ASSESSMENT"}:
+        return require_roles(*INSTALL_ROLES)
+    return require_roles(*ALL_PLATFORM_ROLES)
 
 
 def require_role(required_role: str):
-    """Factory function to create role requirement dependency."""
-    
+    normalized = (required_role or "").strip().lower()
+
     async def role_checker(
-        current_user: User = Depends(get_current_user),
-        db: Session = Depends(get_db),
-        program_code: str = "B2B"  # Default to B2B for now
+        current_user: AuthUser = Depends(get_current_user),
+        program_code: str = "B2B",
     ) -> bool:
-        # For development, grant all roles to mock user
-        if current_user.email == "dev.user@company.com":
+        program = (program_code or "B2B").strip().upper()
+        if program == "B2B":
+            admin_roles = ("CX_SUPER_ADMIN", "B2B_ADMIN")
+            survey_roles = ("CX_SUPER_ADMIN", "B2B_ADMIN", "B2B_SURVEYOR")
+        elif program in {"MYSTERY", "MYSTERY_SHOPPER"}:
+            admin_roles = ("CX_SUPER_ADMIN", "MYSTERY_ADMIN")
+            survey_roles = ("CX_SUPER_ADMIN", "MYSTERY_ADMIN", "MYSTERY_SURVEYOR")
+        elif program in {"INSTALL", "INSTALLATION", "INSTALLATION_ASSESSMENT"}:
+            admin_roles = ("CX_SUPER_ADMIN", "INSTALL_ADMIN")
+            survey_roles = ("CX_SUPER_ADMIN", "INSTALL_ADMIN", "INSTALL_SURVEYOR")
+        else:
+            admin_roles = DASHBOARD_ROLES
+            survey_roles = ALL_PLATFORM_ROLES
+
+        if normalized in {"admin"}:
+            allowed = admin_roles
+        elif normalized in {"representative", "surveyor"}:
+            allowed = survey_roles
+        else:
+            allowed = survey_roles
+
+        if current_user.has_any_role(allowed):
             return True
-            
-        program = db.query(Program).filter(Program.code == program_code).first()
-        
-        if not program:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Program {program_code} not found"
-            )
-        
-        user_role = db.query(UserProgramRole).filter(
-            UserProgramRole.user_id == current_user.id,
-            UserProgramRole.program_id == program.id,
-            UserProgramRole.role == required_role
-        ).first()
-        
-        if not user_role:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires {required_role} role for program {program_code}"
-            )
-        
-        return True
-    
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Requires {required_role} permissions for program {program}",
+        )
+
     return role_checker

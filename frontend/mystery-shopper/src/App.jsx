@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { InteractionRequiredAuthError } from "@azure/msal-browser";
+import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
@@ -7,8 +9,12 @@ import { Select } from "./components/ui/select";
 import { Separator } from "./components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
+import { ensureMsalInitialized, loginRequest } from "./auth";
+import { AnimatePresence, motion } from "framer-motion";
+import { gsap } from "gsap";
+import { CalendarDays, ClipboardCheck, LogOut } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8001`;
+const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 
 const DEFAULT_PURPOSE_OPTIONS = ["General Enquiry", "Billing", "Device", "Broadband", "Complaint", "Other"];
 
@@ -102,8 +108,13 @@ function QuestionField({ question, draft, onUpdate }) {
 }
 
 export default function App() {
+  const { instance, accounts, inProgress } = useMsal();
+  const isAuthenticated = useIsAuthenticated();
   const [userId, setUserId] = useState("3");
   const [role, setRole] = useState("Representative");
+  const [userName, setUserName] = useState("");
+  const [userEmail, setUserEmail] = useState("");
+  const [accessToken, setAccessToken] = useState("");
   const [activeTab, setActiveTab] = useState("planned");
   const [showMobileCategoryNav, setShowMobileCategoryNav] = useState(false);
   const [currentCategory, setCurrentCategory] = useState("");
@@ -133,14 +144,94 @@ export default function App() {
 
   const [responseDrafts, setResponseDrafts] = useState({});
   const [responsesByQuestion, setResponsesByQuestion] = useState({});
+  const [msalReady, setMsalReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const init = async () => {
+      try {
+        await ensureMsalInitialized();
+        if (active) setMsalReady(true);
+      } catch {
+        if (active) raiseMessage("Authentication initialization failed.", "error");
+      }
+    };
+    init();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!msalReady) return;
+    if (!isAuthenticated && inProgress === "none") {
+      instance.loginRedirect(loginRequest);
+    }
+  }, [instance, inProgress, isAuthenticated, msalReady]);
+
+  useEffect(() => {
+    if (!msalReady) return;
+    const account = accounts[0];
+    if (!account) return;
+
+    const claims = account.idTokenClaims || {};
+    const roles = Array.isArray(claims.roles) ? claims.roles : [];
+    setRole(roles.includes("MYSTERY_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
+    setUserId(String(claims.sub || claims.oid || claims.preferred_username || ""));
+    setUserName(claims.name || account.name || "");
+    setUserEmail(claims.preferred_username || account.username || "");
+
+    const loadToken = async () => {
+      try {
+        const result = await instance.acquireTokenSilent({
+          ...loginRequest,
+          account,
+        });
+        setAccessToken(result.accessToken || "");
+      } catch (error) {
+        if (error instanceof InteractionRequiredAuthError) {
+          instance.acquireTokenRedirect(loginRequest);
+        }
+      }
+    };
+
+    loadToken();
+  }, [accounts, instance, msalReady]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const run = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await res.json();
+        if (!res.ok) return;
+
+        const roles = Array.isArray(data.roles) ? data.roles : [];
+        setUserId(String(data.sub || ""));
+        setUserName(data.name || "");
+        setUserEmail(data.preferred_username || "");
+        setRole(roles.includes("MYSTERY_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
+      } catch {
+        // keep fallback claims
+      }
+    };
+
+    run();
+  }, [accessToken]);
 
   const headers = useMemo(
     () => ({
       "Content-Type": "application/json",
+      Authorization: accessToken ? `Bearer ${accessToken}` : "",
       "X-User-Id": userId,
       "X-Role": role,
     }),
-    [userId, role]
+    [accessToken, userId, role]
   );
 
   const groupedQuestions = useMemo(() => {
@@ -191,6 +282,41 @@ export default function App() {
   const todayString = new Date().toISOString().split("T")[0];
   const plannedToday = draftVisits.filter((visit) => visit.visit_date === todayString);
   const plannedUpcoming = draftVisits.filter((visit) => visit.visit_date > todayString);
+  const sidebarPages = [
+    { key: "planned", label: "Draft Visits", icon: CalendarDays },
+    { key: "survey", label: "Survey", icon: ClipboardCheck },
+  ];
+
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      const targets = gsap.utils.toArray(".panel, .hero, .planned-card, .question-card, .category-panel");
+      if (!targets.length) return;
+      gsap.fromTo(
+        targets,
+        { autoAlpha: 0, y: 10 },
+        { autoAlpha: 1, y: 0, duration: 0.4, stagger: 0.03, ease: "power2.out" }
+      );
+    });
+
+    return () => ctx.revert();
+  }, [activeTab, currentCategory, showMobileCategoryNav]);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    if ("scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
+    }
+
+    const resetScroll = () => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+
+    resetScroll();
+    const frame = window.requestAnimationFrame(resetScroll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab]);
 
   const initialize = async () => {
     await fetch(`${API_BASE}/mystery-shopper/bootstrap`, { method: "POST", headers });
@@ -267,6 +393,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!accessToken) return;
     const run = async () => {
       try {
         await initialize();
@@ -276,7 +403,7 @@ export default function App() {
       }
     };
     run();
-  }, [userId, role]);
+  }, [accessToken, userId, role]);
 
   useEffect(() => {
     if (!currentCategory && groupedQuestions[0]) {
@@ -451,6 +578,26 @@ export default function App() {
     window.scrollTo({ top, behavior: "smooth" });
   };
 
+  const handleLogout = () => {
+    instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+  };
+
+  if (!msalReady || !isAuthenticated || !accessToken) {
+    return (
+      <div className="app-shell">
+        <motion.main id="main-content" className="page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+          <a href="#main-content" className="skip-link">Skip to main content</a>
+          <Card className="hero" role="status" aria-live="polite" aria-atomic="true">
+            <CardContent className="p-0 pt-2">
+              <CardTitle className="text-[clamp(1.85rem,2.6vw,2.4rem)]">Signing you in...</CardTitle>
+              <p className="lead">Please wait while Microsoft Entra authentication completes.</p>
+            </CardContent>
+          </Card>
+        </motion.main>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="workspace-nav">
@@ -458,19 +605,50 @@ export default function App() {
           <CardContent className="workspace-content">
             <div className="workspace-brand">Mystery Shopper</div>
             <div className="workspace-menu">
-              <Button type="button" variant={activeTab === "planned" ? "default" : "ghost"} size="sm" onClick={() => setActiveTab("planned")}>Draft Visits</Button>
-              <Button type="button" variant={activeTab === "survey" ? "default" : "ghost"} size="sm" onClick={() => setActiveTab("survey")}>Survey</Button>
+              {sidebarPages.map((page) => (
+                <Button
+                  key={page.key}
+                  type="button"
+                  variant={activeTab === page.key ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setActiveTab(page.key)}
+                >
+                  <span className="nav-tab-inner"><page.icon className="icon icon--sm" aria-hidden="true" />{page.label}</span>
+                </Button>
+              ))}
             </div>
-            <Separator />
+            {activeTab === "survey" && groupedQuestions.length > 0 ? (
+              <div className="workspace-jump">
+                <h3 className="jump-nav-title">Jump to Category</h3>
+                <div className="jump-nav-list category-list">
+                  {groupedQuestions.map(([category], index) => (
+                    <Button
+                      key={category}
+                      type="button"
+                      variant={currentCategory === category ? "default" : "outline"}
+                      size="sm"
+                      className="category-item"
+                      onClick={() => scrollToCategory(category)}
+                    >
+                      <span className="category-index">{index + 1}</span>
+                      {category}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="workspace-meta">
-              <Badge variant="secondary">User {userId}</Badge>
-              <Badge variant="secondary">{role}</Badge>
+              <span className="workspace-meta-label">Signed in</span>
+              <strong>{userName || "Unknown user"}</strong>
+              <span className="workspace-meta-email">{userEmail || "No email"}</span>
+              <Button type="button" variant="outline" size="sm" onClick={handleLogout} aria-label="Log out"><span className="nav-tab-inner"><LogOut className="icon icon--sm" aria-hidden="true" />Logout</span></Button>
             </div>
           </CardContent>
         </Card>
       </aside>
 
-      <main className="page">
+      <motion.main id="main-content" className="page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+        <a href="#main-content" className="skip-link">Skip to main content</a>
         <Card className="hero">
           <CardHeader className="p-0">
             <CardTitle className="text-[clamp(1.85rem,2.6vw,2.4rem)]">Customer Service Centre Assessment</CardTitle>
@@ -502,17 +680,12 @@ export default function App() {
           <CardContent className="p-0">
             <div className="grid identity-grid">
               <label>
-                User ID
-                <Input value={userId} onChange={(event) => setUserId(event.target.value)} />
+                Name
+                <Input value={userName || "-"} disabled />
               </label>
               <label>
-                Role
-                <Select value={role} onChange={(event) => setRole(event.target.value)}>
-                  <option>Representative</option>
-                  <option>Reviewer</option>
-                  <option>Manager</option>
-                  <option>Admin</option>
-                </Select>
+                Email
+                <Input value={userEmail || "-"} disabled />
               </label>
             </div>
           </CardContent>
@@ -522,8 +695,8 @@ export default function App() {
           <CardContent className="p-0">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="tabs">
               <TabsList>
-                <TabsTrigger value="planned">Today & Upcoming</TabsTrigger>
-                <TabsTrigger value="survey">Survey</TabsTrigger>
+                <TabsTrigger value="planned"><span className="nav-tab-inner"><CalendarDays className="icon icon--sm" aria-hidden="true" />Today & Upcoming</span></TabsTrigger>
+                <TabsTrigger value="survey"><span className="nav-tab-inner"><ClipboardCheck className="icon icon--sm" aria-hidden="true" />Survey</span></TabsTrigger>
               </TabsList>
             </Tabs>
           </CardContent>
@@ -532,7 +705,7 @@ export default function App() {
         {activeTab === "planned" ? (
           <Card className="panel">
             <CardContent className="p-0">
-              <div className="panel-header">
+              <div className="panel-header section-toolbar">
                 <h2>Draft Visits</h2>
                 <Button type="button" variant="outline" size="sm" onClick={loadDrafts}>
                   {loadingDrafts ? "Refreshing..." : "Refresh"}
@@ -621,49 +794,14 @@ export default function App() {
                     <Input value={headerForm.shopper_name} onChange={(event) => setHeaderForm((prev) => ({ ...prev, shopper_name: event.target.value }))} />
                   </label>
                 </div>
-                <div className="actions">
+                <div className="actions action-toolbar">
                   <Button type="button" onClick={createVisit} disabled={creatingVisit}>{creatingVisit ? "Creating..." : "Create / Load Visit"}</Button>
                   <Badge variant="secondary">Current Visit: {visitId || "Not selected"}</Badge>
                 </div>
               </CardContent>
             </Card>
 
-            <Button type="button" variant="outline" className="mobile-category-toggle" onClick={() => setShowMobileCategoryNav((prev) => !prev)}>
-              {showMobileCategoryNav ? "Close Categories" : "Jump to Category"}
-            </Button>
-
-            <div className="survey-layout">
-              <aside className={`category-nav ${showMobileCategoryNav ? "open" : ""}`}>
-                <Card className="panel category-panel">
-                  <CardContent className="p-0">
-                    <div className="panel-header category-header">
-                      <h3>Jump to Category</h3>
-                      <Button type="button" variant="ghost" size="sm" className="mobile-close" onClick={() => setShowMobileCategoryNav(false)}>x</Button>
-                    </div>
-                    <Separator className="my-2" />
-                    <div className="category-list">
-                      {groupedQuestions.map(([category], index) => (
-                        <Button
-                          key={category}
-                          type="button"
-                          variant={currentCategory === category ? "default" : "outline"}
-                          size="sm"
-                          className="category-item"
-                          onClick={() => {
-                            setShowMobileCategoryNav(false);
-                            scrollToCategory(category);
-                          }}
-                        >
-                          <span className="category-index">{index + 1}</span>
-                          {category}
-                        </Button>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </aside>
-
-              <div className="survey-content">
+            <div className="survey-content">
                 {groupedQuestions.map(([category, items]) => (
                   <Card key={category} className="panel" id={categoryToId(category)}>
                     <CardHeader className="p-0 pb-2"><CardTitle>{category}</CardTitle></CardHeader>
@@ -697,25 +835,28 @@ export default function App() {
 
                 <Card className="panel submit-panel">
                   <CardContent className="p-0">
-                    <div className="actions">
+                    <div className="actions action-toolbar">
                       <Button type="button" onClick={submitVisit} disabled={submitting || !visitId}>{submitting ? "Submitting..." : "Submit for Review"}</Button>
                       <Badge variant="secondary">Mandatory completion: {completedMandatory}/{totalMandatory || 0}</Badge>
                     </div>
                   </CardContent>
                 </Card>
-              </div>
             </div>
           </>
         ) : null}
 
-        {message ? (
-          <Card className="message panel">
-            <CardContent className="p-0">
-              <Badge variant="warning">{message}</Badge>
-            </CardContent>
-          </Card>
-        ) : null}
-      </main>
+        <AnimatePresence>
+          {message ? (
+            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+              <Card className="message panel">
+                <CardContent className="p-0">
+                  <Badge variant="warning">{message}</Badge>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </motion.main>
     </div>
   );
 }

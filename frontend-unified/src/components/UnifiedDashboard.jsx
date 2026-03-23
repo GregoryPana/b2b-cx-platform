@@ -143,7 +143,7 @@ const UnifiedDashboard = () => {
 
       {/* Program Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+        <div className="surface-card">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Program Performance</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={data.crossProgramMetrics}>
@@ -157,7 +157,7 @@ const UnifiedDashboard = () => {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+        <div className="surface-card">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
@@ -182,7 +182,7 @@ const UnifiedDashboard = () => {
       </div>
 
       {/* NPS Trends */}
-      <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+      <div className="surface-card">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">NPS Trends Over Time</h3>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={data.npsTrends}>
@@ -198,7 +198,7 @@ const UnifiedDashboard = () => {
       </div>
 
       {/* Performance Metrics */}
-      <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+      <div className="surface-card">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Performance vs Targets</h3>
         <div className="space-y-4">
           {data.performanceMetrics.map((metric, index) => (

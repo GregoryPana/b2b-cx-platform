@@ -138,17 +138,13 @@ const B2CPlatform = () => {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
+      <div>
+        <nav className="ui-tablist" aria-label="B2C sections">
           {['overview', 'customers', 'surveys', 'feedback'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm capitalize ${
-                activeTab === tab
-                  ? 'border-green-500 text-green-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              className={`ui-tab ${activeTab === tab ? 'active' : ''}`}
             >
               {tab}
             </button>
@@ -160,7 +156,7 @@ const B2CPlatform = () => {
       <div className="mt-6">
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <div className="surface-card">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Customers</h3>
               <div className="space-y-3">
                 {data.customers.slice(0, 5).map((customer) => (
@@ -180,7 +176,7 @@ const B2CPlatform = () => {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <div className="surface-card">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Active Surveys</h3>
               <div className="space-y-3">
                 {data.surveys.filter(s => s.status === 'active').map((survey) => (
@@ -200,15 +196,15 @@ const B2CPlatform = () => {
         )}
 
         {activeTab === 'customers' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="surface-card">
+            <div className="section-toolbar px-1 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Customers</h3>
               <div className="flex space-x-2">
-                <button className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
+                <button className="ui-btn flex items-center space-x-2">
                   <Filter className="h-4 w-4" />
                   <span>Filter</span>
                 </button>
-                <button className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                <button className="ui-btn primary flex items-center space-x-2">
                   <Plus className="h-4 w-4" />
                   <span>Add Customer</span>
                 </button>
@@ -270,15 +266,15 @@ const B2CPlatform = () => {
         )}
 
         {activeTab === 'surveys' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="surface-card">
+            <div className="section-toolbar px-1 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Surveys</h3>
               <div className="flex space-x-2">
-                <button className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
+                <button className="ui-btn flex items-center space-x-2">
                   <Download className="h-4 w-4" />
                   <span>Export</span>
                 </button>
-                <button className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                <button className="ui-btn primary flex items-center space-x-2">
                   <Plus className="h-4 w-4" />
                   <span>Create Survey</span>
                 </button>
@@ -336,15 +332,15 @@ const B2CPlatform = () => {
         )}
 
         {activeTab === 'feedback' && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="surface-card">
+            <div className="section-toolbar px-1 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Customer Feedback</h3>
               <div className="flex space-x-2">
-                <button className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
+                <button className="ui-btn flex items-center space-x-2">
                   <Filter className="h-4 w-4" />
                   <span>Filter</span>
                 </button>
-                <button className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                <button className="ui-btn primary flex items-center space-x-2">
                   <Send className="h-4 w-4" />
                   <span>Request Feedback</span>
                 </button>
