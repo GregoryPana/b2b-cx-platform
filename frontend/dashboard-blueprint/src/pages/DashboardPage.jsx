@@ -285,6 +285,123 @@ export default function DashboardPage({ headers, activePlatform, setActivePlatfo
               </CardContent>
             </Card>
           </div>
+
+          {/* Detailed NPS and CSAT Section */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 mt-6">
+            {/* NPS Card */}
+            <Card className="lg:col-span-6">
+              <CardHeader>
+                <CardTitle>Net Promoter Score</CardTitle>
+                <CardDescription>
+                  {analytics?.nps?.total_responses ?? 0} approved responses
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col items-center">
+                  <div className="text-6xl font-bold mb-4" style={{ color: "hsl(var(--primary))" }}>
+                    {analytics?.nps?.nps ?? "--"}
+                  </div>
+                  
+                  <div className="w-full h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={npsPieData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={2}
+                          dataKey="value"
+                        >
+                          {npsPieData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => [value, "Count"]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="flex justify-center gap-6 mt-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.promoters }}></div>
+                      <span className="text-sm">Promoters: {analytics?.nps?.promoters ?? 0} ({analytics?.nps?.promoter_percentage ?? 0}%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.passives }}></div>
+                      <span className="text-sm">Passives: {analytics?.nps?.passives ?? 0} ({analytics?.nps?.passive_percentage ?? 0}%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.detractors }}></div>
+                      <span className="text-sm">Detractors: {analytics?.nps?.detractors ?? 0} ({analytics?.nps?.detractor_percentage ?? 0}%)</span>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* CSAT Card */}
+            <Card className="lg:col-span-6">
+              <CardHeader>
+                <CardTitle>Customer Satisfaction</CardTitle>
+                <CardDescription>
+                  {analytics?.customer_satisfaction?.response_count ?? 0} responses to satisfaction question
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col items-center">
+                  <div className="text-6xl font-bold mb-4" style={{ color: "hsl(var(--primary))" }}>
+                    {analytics?.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "--"}%
+                  </div>
+                  
+                  <div className="w-full h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={csatPieData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={2}
+                          dataKey="value"
+                        >
+                          {csatPieData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => [value, "Count"]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mt-4 w-full">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.very_satisfied }}></div>
+                      <span className="text-xs">Very Sat: {analytics?.customer_satisfaction?.score_distribution?.very_satisfied ?? 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.satisfied }}></div>
+                      <span className="text-xs">Sat: {analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.neutral }}></div>
+                      <span className="text-xs">Neutral: {analytics?.customer_satisfaction?.score_distribution?.neutral ?? 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.dissatisfied }}></div>
+                      <span className="text-xs">Dissat: {analytics?.customer_satisfaction?.score_distribution?.dissatisfied ?? 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2 col-span-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.very_dissatisfied }}></div>
+                      <span className="text-xs">Very Dissat: {analytics?.customer_satisfaction?.score_distribution?.very_dissatisfied ?? 0}</span>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </>
       ) : null}
 

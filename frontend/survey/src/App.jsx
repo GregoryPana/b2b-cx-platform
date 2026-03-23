@@ -8,6 +8,7 @@ import { Select } from "./components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { ensureMsalInitialized, loginRequest } from "./auth";
+import { isTokenExpired } from "./utils/tokenExpiry";
 import { AnimatePresence, motion } from "framer-motion";
 import { gsap } from "gsap";
 import { CalendarDays, ClipboardCheck, LogOut } from "lucide-react";
@@ -16,6 +17,8 @@ import { CalendarDays, ClipboardCheck, LogOut } from "lucide-react";
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 
 const CACHE_BUST = `?_cb=${Date.now()}`;
+
+// Will be used inside component; import at top
 
 const QUESTION_CATEGORY_ORDER = [
 
@@ -52,6 +55,17 @@ const NOTICE_STYLE = {
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
   const isAuthenticated = useIsAuthenticated();
+
+  // Enforce token expiry (force re-login when token near expiry)
+  useEffect(() => {
+    if (isAuthenticated && accounts.length > 0) {
+      const account = accounts[0];
+      if (isTokenExpired(account)) {
+        instance.logout();
+      }
+    }
+  }, [isAuthenticated, accounts, instance]);
+
   const [userId, setUserId] = useState("4");
   const [role, setRole] = useState("Representative");
   const [userName, setUserName] = useState("");

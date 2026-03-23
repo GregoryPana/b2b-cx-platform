@@ -39,6 +39,7 @@ import { Checkbox } from "./components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { ensureMsalInitialized, loginRequest } from "./auth";
+import { isTokenExpired } from "./utils/tokenExpiry";
 import "./review.css";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
@@ -46,7 +47,18 @@ const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
   const isAuthenticated = useIsAuthenticated();
-  const [msalReady, setMsalReady] = useState(false);
+
+  // Enforce token expiry (force re-login when token near expiry)
+  useEffect(() => {
+    if (isAuthenticated && accounts.length > 0) {
+      const account = accounts[0];
+      if (isTokenExpired(account)) {
+        instance.logout();
+      }
+    }
+   }, [isAuthenticated, accounts, instance]);
+
+   const [msalReady, setMsalReady] = useState(false);
   const [userId, setUserId] = useState("3");
   const [role, setRole] = useState("Manager");
   const [userName, setUserName] = useState("");
