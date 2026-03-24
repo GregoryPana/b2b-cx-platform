@@ -59,15 +59,21 @@ mkdir -p "${TARGET_ROOT}/frontends-src/internal-surveys/b2b"
 mkdir -p "${TARGET_ROOT}/frontends-src/internal-surveys/installation"
 mkdir -p "${TARGET_ROOT}/shared"
 
-if [[ -d "${BUNDLE_ROOT}/backend" ]]; then
-  rsync -a --delete \
-    --exclude 'venv' \
-    --exclude 'logs' \
-    "${BUNDLE_ROOT}/backend/" \
-    "${TARGET_ROOT}/backend/"
-else
-  echo "Backend not present in bundle (skipping backend sync)."
+if [[ ! -d "${BUNDLE_ROOT}/backend" ]]; then
+  echo "Backend directory missing in bundle. This is required."
+  exit 1
 fi
+
+if [[ ! -f "${BUNDLE_ROOT}/backend/requirements.txt" ]]; then
+  echo "Backend requirements.txt missing in bundle. Cannot install dependencies."
+  exit 1
+fi
+
+rsync -a --delete \
+  --exclude 'venv' \
+  --exclude 'logs' \
+  "${BUNDLE_ROOT}/backend/" \
+  "${TARGET_ROOT}/backend/"
 
 if optional_frontend_dist "${BUNDLE_ROOT}/frontends/public/mystery-shopper/dist" "public/mystery-shopper"; then
   rsync -a --delete "${BUNDLE_ROOT}/frontends/public/mystery-shopper/dist/" "${TARGET_ROOT}/frontends-src/public/mystery-shopper/dist/"

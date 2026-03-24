@@ -59,11 +59,29 @@ def create_app() -> FastAPI:
     cors_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX", "").strip() or None
     environment = os.getenv("ENVIRONMENT", "dev")
 
+    # Validate critical configuration
+    missing = []
+    if not os.getenv("DATABASE_URL"):
+        missing.append("DATABASE_URL")
+    if not os.getenv("ENTRA_TENANT_ID"):
+        missing.append("ENTRA_TENANT_ID")
+    if not os.getenv("ENTRA_CLIENT_ID"):
+        missing.append("ENTRA_CLIENT_ID")
+    if not os.getenv("ENTRA_AUTHORITY"):
+        missing.append("ENTRA_AUTHORITY")
+    if not os.getenv("ENTRA_ISSUER"):
+        missing.append("ENTRA_ISSUER")
+    if not os.getenv("ENTRA_AUDIENCE"):
+        missing.append("ENTRA_AUDIENCE")
+    if missing:
+        print(f"[STARTUP] Missing required environment variables: {', '.join(missing)}")
+        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+
     # Startup configuration summary (no secrets)
     print("[STARTUP] Environment:", environment)
-    print("[STARTUP] DATABASE_URL:", "set" if os.getenv("DATABASE_URL") else "NOT SET")
+    print("[STARTUP] DATABASE_URL: set")
     print("[STARTUP] CORS_ALLOW_ORIGINS:", cors_allow_origins or "(any via regex)")
-    print("[STARTUP] ENTRA_TENANT_ID:", "set" if os.getenv("ENTRA_TENANT_ID") else "NOT SET")
+    print("[STARTUP] ENTRA_TENANT_ID: set")
 
     app = FastAPI(
         title="CX Assessment Platform",
