@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, PieChart, Pie, Cell } from "recharts";
 import PageContainer from "../components/layout/PageContainer";
@@ -24,6 +24,7 @@ const COLORS = {
 
 export default function DashboardPage({ headers, activePlatform, setActivePlatform }) {
   const location = useLocation();
+  const businessFormRef = useRef(null);
   const [surveyTypes, setSurveyTypes] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [questionAverages, setQuestionAverages] = useState([]);
@@ -31,10 +32,23 @@ export default function DashboardPage({ headers, activePlatform, setActivePlatfo
   const [trendData, setTrendData] = useState([]);
   const [pendingVisits, setPendingVisits] = useState([]);
   const [businesses, setBusinesses] = useState([]);
+  const [representatives, setRepresentatives] = useState([]);
+  const [selectedBusiness, setSelectedBusiness] = useState(null);
+  const [businessForm, setBusinessForm] = useState({
+    name: "",
+    location: "",
+    priority_level: "medium",
+    active: true,
+    account_executive_id: ""
+  });
+  const [accountExecutiveQuery, setAccountExecutiveQuery] = useState("");
+  const [message, setMessage] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [selectedAnalyticsBusinessIds, setSelectedAnalyticsBusinessIds] = useState([]);
+  const [analyticsBusinessSearch, setAnalyticsBusinessSearch] = useState("");
 
   // Reset selected question when platform changes
   useEffect(() => {
@@ -205,9 +219,178 @@ export default function DashboardPage({ headers, activePlatform, setActivePlatfo
        { name: "Dissatisfied", value: csat.dissatisfied || 0, color: COLORS.dissatisfied },
        { name: "Very Dissatisfied", value: csat.very_dissatisfied || 0, color: COLORS.very_dissatisfied },
      ];
-   }, [analytics]);
+    }, [analytics]);
 
-   return (
+  const representativeMap = useMemo(() => {
+    return representatives.reduce((acc, rep) => {
+      acc[rep.id] = rep.name;
+      return acc;
+    }, {});
+  }, [representatives]);
+
+  const filteredAnalyticsBusinesses = useMemo(() => {
+    const query = analyticsBusinessSearch.trim().toLowerCase();
+    if (!query) return businesses;
+    return businesses.filter((b) => {
+      const name = (b.name || "").toLowerCase();
+      const location = (b.location || "").toLowerCase();
+      return name.includes(query) || location.includes(query);
+    });
+  }, [businesses, analyticsBusinessSearch]);
+
+  // Load representatives (account executives)
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/representatives`, { headers });
+        const data = await res.json();
+        if (!res.ok) return;
+        setRepresentatives(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to load representatives", err);
+      }
+    };
+    load();
+  }, [headers]);
+
+  // Business CRUD handlers
+  const handleEditBusiness = (business) => {
+    setSelectedBusiness(business);
+    setBusinessForm({
+      name: business.name,
+      location: business.location || "",
+      priority_level: business.priority_level || "medium",
+      active: business.active,
+      account_executive_id: business.account_executive_id ? String(business.account_executive_id) : ""
+    });
+    setAccountExecutiveQuery(
+      business.account_executive_id ? representativeMap[business.account_executive_id] || "" : ""
+    );
+    // Scroll to top of page smoothly, then focus on first input
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // Focus first input after scroll completes
+      setTimeout(() => {
+        const firstInput = businessFormRef.current?.querySelector('input');
+        firstInput?.focus();
+      }, 500);
+    }, 100);
+  };
+
+  const handleCreateBusiness = async () => {
+    setError("");
+    setMessage("");
+    if (!businessForm.name.trim()) {
+      setError("Business name is required.");
+      return;
+    }
+    const payload = {
+      name: businessForm.name.trim(),
+      location: businessForm.location.trim() || null,
+      priority_level: businessForm.priority_level,
+      active: businessForm.active,
+      account_executive_id: businessForm.account_executive_id ? Number(businessForm.account_executive_id) : null
+    };
+    const res = await fetch(`${API_BASE}/api/b2b/businesses`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to create business");
+      return;
+    }
+    setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" });
+    setAccountExecutiveQuery("");
+    setMessage(`Business created: ${data.name}`);
+    await loadBusinesses();
+  };
+
+  const handleUpdateBusiness = async () => {
+    if (!selectedBusiness) return;
+    setError("");
+    setMessage("");
+    const payload = {
+      name: businessForm.name.trim(),
+      location: businessForm.location.trim() || null,
+      priority_level: businessForm.priority_level,
+      active: businessForm.active,
+      account_executive_id: businessForm.account_executive_id ? Number(businessForm.account_executive_id) : null
+    };
+    const res = await fetch(`${API_BASE}/api/b2b/businesses/${selectedBusiness.id}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to update business");
+      return;
+    }
+    setMessage(`Business updated: ${data.name}`);
+    setSelectedBusiness(null);
+    setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" });
+    setAccountExecutiveQuery("");
+    await loadBusinesses();
+  };
+
+  const handleRetireBusiness = async (business) => {
+    setError("");
+    setMessage("");
+    const res = await fetch(`${API_BASE}/api/b2b/businesses/${business.id}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ active: false })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to retire business");
+      return;
+    }
+    setMessage(`Business retired: ${data.name}`);
+    await loadBusinesses();
+  };
+
+  const handleDeleteBusiness = async (business) => {
+    setError("");
+    setMessage("");
+    const confirmMessage = business.active
+      ? `Are you sure you want to delete "${business.name}"? This action cannot be undone.`
+      : `Are you sure you want to permanently delete "${business.name}"? This action cannot be undone.`;
+    if (!window.confirm(confirmMessage)) return;
+    const res = await fetch(`${API_BASE}/api/b2b/businesses/${business.id}`, {
+      method: "DELETE",
+      headers
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.detail || "Failed to delete business");
+      return;
+    }
+    setMessage(`Business deleted: ${business.name}`);
+    await loadBusinesses();
+  };
+
+  const loadBusinesses = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/b2b/public/businesses`, { headers });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to load businesses");
+        return;
+      }
+      setBusinesses(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message || "Failed to load businesses");
+    }
+  };
+
+  useEffect(() => {
+    loadBusinesses();
+  }, [headers]);
+
+  return (
     <PageContainer>
       {/* Error display */}
       {error && (
@@ -463,38 +646,138 @@ export default function DashboardPage({ headers, activePlatform, setActivePlatfo
         </Card>
       ) : null}
 
-      {location.pathname === "/businesses" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Businesses</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex gap-2">
-              <Input placeholder="Filter by name" value={status} onChange={(event) => setStatus(event.target.value)} />
-            </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Priority</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {businesses
-                  .filter((business) => business.name?.toLowerCase().includes(status.toLowerCase()))
-                  .map((business) => (
-                    <TableRow key={business.id}>
-                      <TableCell>{business.name}</TableCell>
-                      <TableCell>{business.location || "--"}</TableCell>
-                      <TableCell><Badge variant="secondary">{business.priority_level || "medium"}</Badge></TableCell>
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      ) : null}
+       {location.pathname === "/businesses" ? (
+         <>
+           {/* Business Form */}
+           <Card ref={businessFormRef} className="mb-6">
+             <CardHeader>
+               <CardTitle>{selectedBusiness ? "Edit Business" : "Create Business"}</CardTitle>
+               {selectedBusiness && (
+                 <Button type="button" variant="outline" size="sm" onClick={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}>
+                   Cancel Edit
+                 </Button>
+               )}
+             </CardHeader>
+             <CardContent className="space-y-4">
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div>
+                   <label className="block text-sm font-medium mb-1">Business Name</label>
+                   <Input value={businessForm.name} onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Business name" />
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium mb-1">Location</label>
+                   <Input value={businessForm.location} onChange={(e) => setBusinessForm((prev) => ({ ...prev, location: e.target.value }))} placeholder="Location" />
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium mb-1">Priority</label>
+                   <Select value={businessForm.priority_level} onChange={(e) => setBusinessForm((prev) => ({ ...prev, priority_level: e.target.value }))}>
+                     <option value="high">High</option>
+                     <option value="medium">Medium</option>
+                     <option value="low">Low</option>
+                   </Select>
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium mb-1">Status</label>
+                   <Select value={businessForm.active ? "active" : "inactive"} onChange={(e) => setBusinessForm((prev) => ({ ...prev, active: e.target.value === "active" }))}>
+                     <option value="active">Active</option>
+                     <option value="inactive">Inactive</option>
+                   </Select>
+                 </div>
+                 <div className="md:col-span-2">
+                   <label className="block text-sm font-medium mb-1">Account Executive</label>
+                   <Input
+                     list="account-executives"
+                     value={accountExecutiveQuery}
+                     onChange={(e) => {
+                       const value = e.target.value;
+                       setAccountExecutiveQuery(value);
+                       const match = representatives.find((exec) => exec.name.toLowerCase() === value.toLowerCase());
+                       setBusinessForm((prev) => ({ ...prev, account_executive_id: match ? String(match.id) : "" }));
+                     }}
+                     placeholder="Start typing an executive"
+                   />
+                   <datalist id="account-executives">
+                     {representatives.map((exec) => (
+                       <option key={exec.id} value={exec.name} />
+                     ))}
+                   </datalist>
+                   <p className="text-xs text-muted-foreground mt-1">Select an executive from the list.</p>
+                 </div>
+               </div>
+               <div className="flex gap-2">
+                 <Button type="button" onClick={selectedBusiness ? handleUpdateBusiness : handleCreateBusiness}>
+                   {selectedBusiness ? "Update Business" : "Save Business"}
+                 </Button>
+                 {selectedBusiness && (
+                   <Button type="button" variant="outline" onClick={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}>
+                     Cancel
+                   </Button>
+                 )}
+               </div>
+               <p className="text-xs text-muted-foreground">Platform admins can create businesses and set priority.</p>
+             </CardContent>
+           </Card>
+
+           {/* Business Directory */}
+           <Card>
+             <CardHeader>
+               <CardTitle>Business Directory</CardTitle>
+               <Button type="button" variant="outline" size="sm" onClick={loadBusinesses}>Refresh</Button>
+             </CardHeader>
+             <CardContent>
+               <div className="flex gap-2 mb-4">
+                 <Input placeholder="Filter by name or location" value={status} onChange={(e) => setStatus(e.target.value)} />
+               </div>
+               <Table>
+                 <TableHeader>
+                   <TableRow>
+                     <TableHead>Name</TableHead>
+                     <TableHead>Location</TableHead>
+                     <TableHead>Priority</TableHead>
+                     <TableHead>Account Executive</TableHead>
+                     <TableHead>Status</TableHead>
+                     <TableHead>Actions</TableHead>
+                   </TableRow>
+                 </TableHeader>
+                 <TableBody>
+                   {businesses
+                     .filter((business) => {
+                       if (!status) return true;
+                       const query = status.toLowerCase();
+                       return (business.name?.toLowerCase().includes(query) || business.location?.toLowerCase().includes(query));
+                     })
+                     .map((business) => (
+                       <TableRow key={business.id} className={!business.location || !business.account_executive_id ? "bg-warning/10" : ""}>
+                         <TableCell>{business.name}</TableCell>
+                         <TableCell>{business.location || "--"}</TableCell>
+                         <TableCell>
+                           <Badge variant={business.priority_level === "high" ? "destructive" : business.priority_level === "low" ? "secondary" : "default"}>
+                             {business.priority_level || "medium"}
+                           </Badge>
+                         </TableCell>
+                         <TableCell>{representativeMap[business.account_executive_id] || "Unassigned"}</TableCell>
+                         <TableCell>
+                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${business.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
+                             {business.active ? "Active" : "Retired"}
+                           </span>
+                         </TableCell>
+                         <TableCell>
+                           <div className="flex gap-2">
+                             <Button type="button" variant="outline" size="sm" onClick={() => handleEditBusiness(business)}>Edit</Button>
+                             {business.active && (
+                               <Button type="button" variant="outline" size="sm" onClick={() => handleRetireBusiness(business)}>Retire</Button>
+                             )}
+                             <Button type="button" variant="destructive" size="sm" onClick={() => handleDeleteBusiness(business)}>Delete</Button>
+                           </div>
+                         </TableCell>
+                       </TableRow>
+                     ))}
+                 </TableBody>
+               </Table>
+             </CardContent>
+           </Card>
+         </>
+       ) : null}
     </PageContainer>
   );
 }

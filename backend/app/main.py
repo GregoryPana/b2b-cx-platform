@@ -59,6 +59,12 @@ def create_app() -> FastAPI:
     cors_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX", "").strip() or None
     environment = os.getenv("ENVIRONMENT", "dev")
 
+    # Startup configuration summary (no secrets)
+    print("[STARTUP] Environment:", environment)
+    print("[STARTUP] DATABASE_URL:", "set" if os.getenv("DATABASE_URL") else "NOT SET")
+    print("[STARTUP] CORS_ALLOW_ORIGINS:", cors_allow_origins or "(any via regex)")
+    print("[STARTUP] ENTRA_TENANT_ID:", "set" if os.getenv("ENTRA_TENANT_ID") else "NOT SET")
+
     app = FastAPI(
         title="CX Assessment Platform",
         description="Multi-platform CX Assessment Platform",

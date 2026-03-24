@@ -95,3 +95,11 @@ if [[ ! -f "${TARGET_ROOT}/.env" && -f "${BUNDLE_ROOT}/.env.example" ]]; then
 fi
 
 echo "Release bundle installed under ${TARGET_ROOT}."
+
+echo "Installed components summary:"
+echo " - backend: $([ -d "${TARGET_ROOT}/backend" ] && echo 'yes' || echo 'no')"
+echo " - mystery-shopper: $([ -f "${TARGET_ROOT}/frontends-src/public/mystery-shopper/dist/index.html" ] && echo 'yes' || echo 'no')"
+echo " - dashboard: $([ -f "${TARGET_ROOT}/frontends-src/dashboard/dist/index.html" ] && echo 'yes' || echo 'no')"
+echo " - b2b survey: $([ -f "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist/index.html" ] && echo 'yes' || echo 'no')"
+echo " - installation survey: $([ -f "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist/index.html" ] && echo 'yes' || echo 'no')"
+echo " - scripts/linux: $([ -f "${TARGET_ROOT}/scripts/linux/deploy_backend.sh" ] && echo 'yes' || echo 'no')"
