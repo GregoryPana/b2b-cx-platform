@@ -27,6 +27,7 @@ build_frontend() {
 
 mkdir -p "${RELEASE_ROOT}"
 mkdir -p "${RELEASE_ROOT}/backend"
+mkdir -p "${RELEASE_ROOT}/scripts"
 mkdir -p "${RELEASE_ROOT}/frontends/internal-surveys/b2b"
 mkdir -p "${RELEASE_ROOT}/frontends/internal-surveys/installation"
 mkdir -p "${RELEASE_ROOT}/frontends/dashboard"
