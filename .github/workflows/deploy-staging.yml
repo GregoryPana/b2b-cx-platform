@@ -156,12 +156,14 @@ jobs:
           pwsh -ExecutionPolicy Bypass -File .\scripts\windows\build_release_bundle.ps1
 
       - name: Validate staging deploy secrets
+        id: validate_staging
         shell: bash
         env:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
           STAGING_USER: ${{ secrets.STAGING_USER }}
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           STAGING_PATH: ${{ secrets.STAGING_PATH }}
+          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
         run: |
           missing=()
           [[ -z "${STAGING_HOST}" ]] && missing+=("STAGING_HOST")
@@ -174,10 +176,28 @@ jobs:
             exit 1
           fi
 
+          RAW_HOST="${STAGING_HOST}"
+          RAW_HOST="${RAW_HOST#http://}"
+          RAW_HOST="${RAW_HOST#https://}"
+          RAW_HOST="${RAW_HOST%%/*}"
+
+          if [[ -z "${RAW_HOST}" ]]; then
+            echo "::error::Invalid STAGING_HOST after normalization. Provide only hostname (no scheme/path)."
+            exit 1
+          fi
+
+          if ! getent hosts "${RAW_HOST}" >/dev/null 2>&1; then
+            echo "::error::STAGING_HOST does not resolve via DNS: ${RAW_HOST}"
+            echo "::notice::Use a resolvable DNS name/IP in STAGING_HOST (example: cwscx-tst01.cwsey.com)."
+            exit 1
+          fi
+
+          echo "staging_host=${RAW_HOST}" >> "$GITHUB_OUTPUT"
+
       - name: Upload release bundle to VM
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.STAGING_HOST }}
+          host: ${{ steps.validate_staging.outputs.staging_host }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           source: ${{ runner.temp }}/cwscx-release.zip
@@ -193,7 +213,7 @@ jobs:
           BUILD_MYSTERY_SHOPPER: ${{ needs.changes.outputs.mystery == 'true' || needs.changes.outputs.infra == 'true' }}
           RELEASE_ID: ${{ env.RELEASE_ID }}
         with:
-          host: ${{ secrets.STAGING_HOST }}
+          host: ${{ steps.validate_staging.outputs.staging_host }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           envs: BUILD_BACKEND,BUILD_DASHBOARD,BUILD_SURVEYS,BUILD_MYSTERY_SHOPPER
