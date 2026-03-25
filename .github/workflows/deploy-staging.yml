@@ -221,8 +221,13 @@ jobs:
             exit 1
           fi
 
-          if ! sudo -n true 2>/dev/null; then
-            echo "::error::Passwordless sudo is required for nginx/systemctl steps. Configure NOPASSWD for the runner user."
+          if ! sudo -n /usr/bin/systemctl --version >/dev/null 2>&1 && ! sudo -n /bin/systemctl --version >/dev/null 2>&1; then
+            echo "::error::Passwordless sudo for systemctl is required for deploy."
+            exit 1
+          fi
+
+          if ! sudo -n /usr/bin/bash -lc 'exit 0' >/dev/null 2>&1 && ! sudo -n /bin/bash -lc 'exit 0' >/dev/null 2>&1; then
+            echo "::error::Passwordless sudo for bash is required to run deploy scripts as root."
             exit 1
           fi
 
