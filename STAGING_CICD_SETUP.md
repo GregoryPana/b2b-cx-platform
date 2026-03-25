@@ -5,7 +5,8 @@ This checklist is for fully automated staging deploys from GitHub Actions.
 ## Deployment mode
 
 - `deploy-staging` is the primary workflow.
-- It requires a self-hosted runner on the staging VM/network with labels: `self-hosted`, `linux`, `staging`.
+- It requires a self-hosted runner on the staging VM/network with labels: `self-hosted`, `linux`.
+- Optional: add `staging` custom label for runner organization, but deployment workflow does not require it.
 - Deployment is executed locally on that runner (no SSH copy from GitHub-hosted runners).
 
 ## 1) GitHub Environment

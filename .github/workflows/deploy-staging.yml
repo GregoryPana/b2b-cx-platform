@@ -125,7 +125,7 @@ jobs:
         working-directory: frontend/survey
 
   deploy:
-    runs-on: [self-hosted, linux, staging]
+    runs-on: [self-hosted, linux]
     environment: staging
     needs: [changes, backend_ci, dashboard_ci, survey_ci]
     if: ${{ needs.changes.outputs.should_deploy == 'true' && needs.backend_ci.result != 'failure' && needs.dashboard_ci.result != 'failure' && needs.survey_ci.result != 'failure' }}
