@@ -4,6 +4,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -122,7 +125,7 @@ jobs:
         working-directory: frontend/survey
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, staging]
     environment: staging
     needs: [changes, backend_ci, dashboard_ci, survey_ci]
     if: ${{ needs.changes.outputs.should_deploy == 'true' && needs.backend_ci.result != 'failure' && needs.dashboard_ci.result != 'failure' && needs.survey_ci.result != 'failure' }}
@@ -143,151 +146,56 @@ jobs:
           python-version: "3.11"
 
       - name: Build release bundle
-        shell: pwsh
-        env:
-          BUILD_BACKEND: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.infra == 'true' }}
-          BUILD_DASHBOARD: ${{ needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.infra == 'true' }}
-          BUILD_SURVEYS: ${{ needs.changes.outputs.surveys == 'true' || needs.changes.outputs.infra == 'true' }}
-          BUILD_MYSTERY_SHOPPER: ${{ needs.changes.outputs.mystery == 'true' || needs.changes.outputs.infra == 'true' }}
+        shell: bash
         run: |
-          pwsh -ExecutionPolicy Bypass -File .\scripts\windows\build_release_bundle.ps1
+          bash scripts/linux/build_release_bundle.sh "${RUNNER_TEMP}/cwscx-release.zip"
 
-      - name: Validate staging deploy secrets
-        id: validate_staging
+      - name: Install and deploy on staging VM (local runner)
         shell: bash
         env:
-          STAGING_HOST: ${{ secrets.STAGING_HOST }}
-          STAGING_USER: ${{ secrets.STAGING_USER }}
-          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
-          STAGING_PATH: ${{ secrets.STAGING_PATH }}
+          RELEASE_ID: ${{ env.RELEASE_ID }}
           STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
         run: |
-          missing=()
-          [[ -z "${STAGING_HOST}" ]] && missing+=("STAGING_HOST")
-          [[ -z "${STAGING_USER}" ]] && missing+=("STAGING_USER")
-          [[ -z "${STAGING_SSH_KEY}" ]] && missing+=("STAGING_SSH_KEY")
-          [[ -z "${STAGING_PATH}" ]] && missing+=("STAGING_PATH")
+          set -euo pipefail
 
-          if (( ${#missing[@]} > 0 )); then
-            echo "::error::Missing required staging secrets: ${missing[*]}"
-            exit 1
-          fi
+          TARGET_ROOT="/opt/cwscx"
+          TS="$(date +%Y%m%d-%H%M%S)"
+          SAFE_RELEASE_ID="${RELEASE_ID:-staging-${TS}}"
+          mkdir -p "${TARGET_ROOT}/releases"
+          NEW_BUNDLE="${TARGET_ROOT}/releases/cwscx-release-${SAFE_RELEASE_ID}.zip"
+          cp -f "${RUNNER_TEMP}/cwscx-release.zip" "${NEW_BUNDLE}"
 
-          RAW_HOST="${STAGING_HOST}"
-          RAW_HOST="${RAW_HOST#http://}"
-          RAW_HOST="${RAW_HOST#https://}"
-          RAW_HOST="${RAW_HOST%%/*}"
+          PREV_BUNDLE="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip 2>/dev/null | grep -v "${SAFE_RELEASE_ID}" | head -n1 || true)"
 
-          if [[ -z "${RAW_HOST}" ]]; then
-            echo "::error::Invalid STAGING_HOST after normalization. Provide only hostname (no scheme/path)."
-            exit 1
-          fi
+          deploy_release() {
+            bash scripts/linux/install_release_bundle.sh "${NEW_BUNDLE}"
+            bash /opt/cwscx/scripts/linux/deploy_backend.sh
+            bash /opt/cwscx/scripts/linux/deploy_frontends.sh
+            sudo bash /opt/cwscx/scripts/linux/deploy_nginx.sh
+            STAGING_BASE_URL="${STAGING_BASE_URL:-https://cwscx-tst01.cwsey.com}" bash /opt/cwscx/scripts/linux/verify_staging.sh
+          }
 
-          if ! getent hosts "${RAW_HOST}" >/dev/null 2>&1; then
-            echo "::error::STAGING_HOST does not resolve via DNS: ${RAW_HOST}"
-            echo "::notice::Use a resolvable DNS name/IP in STAGING_HOST (example: cwscx-tst01.cwsey.com)."
-            exit 1
-          fi
-
-          echo "staging_host=${RAW_HOST}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload release bundle to VM
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ steps.validate_staging.outputs.staging_host }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          source: ${{ runner.temp }}/cwscx-release.zip
-          target: /tmp/
-
-      - name: Install and deploy on VM (with rollback)
-        id: deploy_vm
-        uses: appleboy/ssh-action@v1.0.3
-        env:
-          BUILD_BACKEND: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.infra == 'true' }}
-          BUILD_DASHBOARD: ${{ needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.infra == 'true' }}
-          BUILD_SURVEYS: ${{ needs.changes.outputs.surveys == 'true' || needs.changes.outputs.infra == 'true' }}
-          BUILD_MYSTERY_SHOPPER: ${{ needs.changes.outputs.mystery == 'true' || needs.changes.outputs.infra == 'true' }}
-          RELEASE_ID: ${{ env.RELEASE_ID }}
-        with:
-          host: ${{ steps.validate_staging.outputs.staging_host }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          envs: BUILD_BACKEND,BUILD_DASHBOARD,BUILD_SURVEYS,BUILD_MYSTERY_SHOPPER
-          script: |
-            set -euo pipefail
-
-            TARGET_ROOT="${{ secrets.STAGING_PATH }}"
-            STAGING_BASE_URL="${{ secrets.STAGING_BASE_URL }}"
-
-            if [[ -z "${TARGET_ROOT}" ]]; then
-              echo "Missing STAGING_PATH secret"
-              exit 1
+          rollback_release() {
+            if [[ -z "${PREV_BUNDLE}" || ! -f "${PREV_BUNDLE}" ]]; then
+              echo "No previous release bundle available for rollback."
+              return
             fi
 
-            if [[ -z "${STAGING_BASE_URL}" ]]; then
-              STAGING_BASE_URL="https://cwscx-tst01.cwsey.com"
-            fi
+            echo "Rolling back using ${PREV_BUNDLE}"
+            bash scripts/linux/install_release_bundle.sh "${PREV_BUNDLE}"
+            bash /opt/cwscx/scripts/linux/deploy_backend.sh || true
+            bash /opt/cwscx/scripts/linux/deploy_frontends.sh || true
+            sudo bash /opt/cwscx/scripts/linux/deploy_nginx.sh || true
+            STAGING_BASE_URL="${STAGING_BASE_URL:-https://cwscx-tst01.cwsey.com}" bash /opt/cwscx/scripts/linux/verify_staging.sh || true
+          }
 
-            sudo mkdir -p "${TARGET_ROOT}"
-            sudo chown -R "${USER}:www-data" "${TARGET_ROOT}" || true
-            cd "${TARGET_ROOT}"
-
-            TS="$(date +%Y%m%d-%H%M%S)"
-            SHA="${{ github.sha }}"
-            SAFE_RELEASE_ID="${RELEASE_ID:-staging-${TS}-${SHA:0:8}}"
-            mkdir -p "${TARGET_ROOT}/releases"
-            NEW_BUNDLE="${TARGET_ROOT}/releases/cwscx-release-${SAFE_RELEASE_ID}.zip"
-            cp -f /tmp/cwscx-release.zip "${NEW_BUNDLE}"
-
-            PREV_BUNDLE="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip 2>/dev/null | grep -v "${SAFE_RELEASE_ID}" | head -n1 || true)"
-
-            deploy_release() {
-              bash scripts/linux/install_release_bundle.sh "${NEW_BUNDLE}"
-
-              if [[ -f docker-compose.yml ]]; then
-                docker compose up -d
-              fi
-
-              if [[ "${BUILD_BACKEND:-false}" == "True" || "${BUILD_BACKEND:-false}" == "true" || "${BUILD_BACKEND:-false}" == "1" ]]; then
-                bash scripts/linux/deploy_backend.sh
-              else
-                echo "Skipping backend deploy (no backend changes)."
-              fi
-
-              if [[ "${BUILD_DASHBOARD:-false}" == "True" || "${BUILD_DASHBOARD:-false}" == "true" || "${BUILD_DASHBOARD:-false}" == "1" || \
-                    "${BUILD_SURVEYS:-false}" == "True" || "${BUILD_SURVEYS:-false}" == "true" || "${BUILD_SURVEYS:-false}" == "1" || \
-                    "${BUILD_MYSTERY_SHOPPER:-false}" == "True" || "${BUILD_MYSTERY_SHOPPER:-false}" == "true" || "${BUILD_MYSTERY_SHOPPER:-false}" == "1" ]]; then
-                bash scripts/linux/deploy_frontends.sh
-              else
-                echo "Skipping frontend validation (no frontend changes)."
-              fi
-
-              sudo bash scripts/linux/deploy_nginx.sh
-              STAGING_BASE_URL="${STAGING_BASE_URL}" bash scripts/linux/verify_staging.sh
-            }
-
-            rollback_release() {
-              if [[ -z "${PREV_BUNDLE}" || ! -f "${PREV_BUNDLE}" ]]; then
-                echo "No previous release bundle available for rollback."
-                return
-              fi
-
-              echo "Rolling back using ${PREV_BUNDLE}"
-              bash scripts/linux/install_release_bundle.sh "${PREV_BUNDLE}"
-              bash scripts/linux/deploy_backend.sh || true
-              bash scripts/linux/deploy_frontends.sh || true
-              sudo bash scripts/linux/deploy_nginx.sh || true
-              STAGING_BASE_URL="${STAGING_BASE_URL}" bash scripts/linux/verify_staging.sh || true
-            }
-
-            if deploy_release; then
-              echo "Staging deploy succeeded."
-            else
-              echo "Staging deploy failed. Initiating rollback."
-              rollback_release
-              exit 1
-            fi
+          if deploy_release; then
+            echo "Staging deploy succeeded."
+          else
+            echo "Staging deploy failed. Initiating rollback."
+            rollback_release
+            exit 1
+          fi
 
       - name: Publish Deploy Summary
         if: always()
