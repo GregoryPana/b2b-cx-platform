@@ -7,6 +7,7 @@ import { isMsalSupported, msalInstance } from "./auth";
 import "./styles/globals.css";
 
 const devAuthBypass = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
+const routerBase = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 
 function InsecureContextNotice() {
   return (
@@ -27,12 +28,12 @@ function InsecureContextNotice() {
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     {devAuthBypass ? (
-      <BrowserRouter>
+      <BrowserRouter basename={routerBase}>
         <App />
       </BrowserRouter>
     ) : isMsalSupported && msalInstance ? (
       <MsalProvider instance={msalInstance}>
-        <BrowserRouter>
+        <BrowserRouter basename={routerBase}>
           <App />
         </BrowserRouter>
       </MsalProvider>

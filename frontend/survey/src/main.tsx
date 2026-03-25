@@ -7,12 +7,13 @@ import { ensureMsalInitialized, msalInstance } from "./auth";
 import "./styles/globals.css";
 
 const root = createRoot(document.getElementById("root") as HTMLElement);
+const routerBase = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 
 const renderApp = () => {
   root.render(
     <React.StrictMode>
       <MsalProvider instance={msalInstance}>
-        <BrowserRouter>
+        <BrowserRouter basename={routerBase}>
           <App />
         </BrowserRouter>
       </MsalProvider>
