@@ -1,5 +1,8 @@
 name: frontend-survey-ci
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 on:
   push:
     paths:
@@ -21,7 +24,7 @@ jobs:
         with:
           node-version: "20"
       - name: Install dependencies
-        run: npm install
+        run: npm ci --no-audit --no-fund
         working-directory: frontend/survey
       - name: Build
         env:
