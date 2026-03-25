@@ -29,9 +29,6 @@ jobs:
         with:
           fetch-depth: 0
           clean: true
-        with:
-          fetch-depth: 0
-          clean: true
 
       - name: Validate workspace sources for local build
         shell: bash
@@ -162,6 +159,38 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Sync workspace to triggering commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --all --tags --prune
+          git checkout --force "${GITHUB_SHA}"
+          git clean -ffdx
+          echo "Deploying commit: $(git rev-parse --short HEAD)"
+
+      - name: Validate workspace sources for build
+        shell: bash
+        run: |
+          set -euo pipefail
+          REQUIRED_PATHS=(
+            "backend/app/main.py"
+            "backend/requirements.txt"
+            "frontend/dashboard-blueprint/package.json"
+            "frontend/survey/package.json"
+            "scripts/linux/build_release_bundle.sh"
+            "scripts/linux/install_release_bundle.sh"
+          )
+
+          for path in "${REQUIRED_PATHS[@]}"; do
+            if [[ ! -e "${path}" ]]; then
+              echo "::error::Missing required source path in runner workspace: ${path}"
+              exit 1
+            fi
+          done
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
