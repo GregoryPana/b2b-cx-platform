@@ -15,7 +15,6 @@ on:
 
 jobs:
   build:
-    if: ${{ hashFiles('frontend/dashboard-blueprint/package.json') != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
