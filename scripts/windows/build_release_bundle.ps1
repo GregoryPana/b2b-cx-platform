@@ -1,5 +1,5 @@
 Param(
-    [string]$OutputZip = "$env:TEMP\cwscx-release.zip"
+    [string]$OutputZip = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,7 +87,18 @@ function Copy-BackendRelease {
 }
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\.." )).Path
-$StageRoot = Join-Path $env:TEMP "cwscx-release-stage"
+$TempRoot = $env:RUNNER_TEMP
+if ([string]::IsNullOrWhiteSpace($TempRoot)) {
+    $TempRoot = $env:TEMP
+}
+if ([string]::IsNullOrWhiteSpace($TempRoot)) {
+    $TempRoot = [System.IO.Path]::GetTempPath()
+}
+if ([string]::IsNullOrWhiteSpace($OutputZip)) {
+    $OutputZip = Join-Path $TempRoot "cwscx-release.zip"
+}
+
+$StageRoot = Join-Path $TempRoot "cwscx-release-stage"
 $ReleaseRoot = Join-Path $StageRoot "release"
 
 if (Test-Path $StageRoot) { Remove-Item $StageRoot -Recurse -Force }
