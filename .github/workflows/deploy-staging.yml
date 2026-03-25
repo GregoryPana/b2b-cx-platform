@@ -26,6 +26,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Validate workspace sources for local build
+        shell: bash
+        run: |
+          set -euo pipefail
+          REQUIRED_PATHS=(
+            "backend/app/main.py"
+            "backend/requirements.txt"
+            "frontend/dashboard-blueprint/package.json"
+            "frontend/survey/package.json"
+            "scripts/linux/build_release_bundle.sh"
+            "scripts/linux/install_release_bundle.sh"
+          )
+
+          for path in "${REQUIRED_PATHS[@]}"; do
+            if [[ ! -e "${path}" ]]; then
+              echo "::error::Missing required source path in runner workspace: ${path}"
+              exit 1
+            fi
+          done
+
+          echo "Workspace source validation passed for commit $(git rev-parse --short HEAD)"
 
       - name: Detect changed components
         id: changes
