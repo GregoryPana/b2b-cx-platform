@@ -161,7 +161,7 @@ jobs:
           BUILD_SURVEYS: ${{ needs.changes.outputs.surveys == 'true' || needs.changes.outputs.infra == 'true' }}
           BUILD_MYSTERY_SHOPPER: ${{ needs.changes.outputs.mystery == 'true' || needs.changes.outputs.infra == 'true' }}
         run: |
-          pwsh -ExecutionPolicy Bypass -File .\scripts\windows\build_release_bundle.ps1 -OutputZip $env:RUNNER_TEMP\cwscx-release.zip
+          pwsh -ExecutionPolicy Bypass -File .\scripts\windows\build_release_bundle.ps1
 
       - name: Upload release bundle to VM
         uses: appleboy/scp-action@v0.1.7
