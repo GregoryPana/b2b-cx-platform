@@ -35,39 +35,29 @@ export default function PlatformSelectionPage({ userName, userEmail, availablePl
             </CardContent>
           </Card>
         ) : (
-          <>
-            <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {availablePlatforms.map((platform) => (
-                <Button key={`${platform.name}-quick`} type="button" className="w-full" onClick={() => onSelectPlatform(platform.name)}>
-                  Open {platform.name}
-                </Button>
-              ))}
-            </section>
-
-            <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {availablePlatforms.map((platform) => (
-                <Card key={platform.name} className="h-full min-w-0 overflow-visible">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <LayoutGrid className="h-4 w-4" />
-                      {platform.name}
-                    </CardTitle>
-                    <CardDescription>Open the dashboard for this platform.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex min-h-[13rem] flex-col gap-4">
-                    <ul className="grow space-y-1 text-sm text-muted-foreground break-words">
-                      {platform.keyPoints.map((point) => (
-                        <li key={point}>{point}</li>
-                      ))}
-                    </ul>
-                    <Button type="button" className="mt-auto w-full shrink-0" onClick={() => onSelectPlatform(platform.name)}>
-                      Open {platform.name}
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </section>
-          </>
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {availablePlatforms.map((platform) => (
+              <Card key={platform.name} className="h-full min-w-0 overflow-visible">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <LayoutGrid className="h-4 w-4" />
+                    {platform.name}
+                  </CardTitle>
+                  <CardDescription>Open the dashboard for this platform.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex min-h-[13rem] flex-col gap-4">
+                  <ul className="grow space-y-1 text-sm text-muted-foreground break-words">
+                    {platform.keyPoints.map((point) => (
+                      <li key={point}>{point}</li>
+                    ))}
+                  </ul>
+                  <Button type="button" className="mt-auto w-full shrink-0" onClick={() => onSelectPlatform(platform.name)}>
+                    Open {platform.name}
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </section>
         )}
       </div>
     </main>

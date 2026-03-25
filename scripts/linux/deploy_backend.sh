@@ -31,6 +31,11 @@ if [[ ! -d "${BACKEND_DIR}" ]]; then
   exit 1
 fi
 
+if [[ "${RESET_DATABASE:-false}" == "true" || "${DB_RESET:-false}" == "true" ]]; then
+  echo "Refusing deploy: database reset flags are not allowed in staging deploy flow."
+  exit 1
+fi
+
 cd "${BACKEND_DIR}"
 
 python3 -m venv "${VENV_DIR}"
@@ -48,7 +53,7 @@ set -a
 source "${ENV_FILE}"
 set +a
 
-# Use virtual environment's alembic
+# Use upgrade-only migrations; never clear/reset data
 ALEMBIC_LOG="$(mktemp /tmp/cwscx-alembic.XXXXXX.log)"
 if ! "${VENV_DIR}/bin/alembic" upgrade head 2>&1 | tee "${ALEMBIC_LOG}"; then
   if grep -q 'relation "programs" already exists' "${ALEMBIC_LOG}"; then
