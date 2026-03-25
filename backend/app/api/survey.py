@@ -158,17 +158,17 @@ MOCK_QUESTIONS = [
         "min_score": 0,
         "max_score": 0,
         "order": 9,
-        "choices": ["Always", "Sometimes", "Never"]
+        "choices": ["Y", "N"]
     },
     {
         "id": 10,
         "category": "Category 2: Service & Operational Performance",
-        "question_text": "How often do you need to call C&W to install new products or resolve issues?",
+        "question_text": "How often do you call CWS to fix issues?",
         "question_type": "choice",
         "min_score": 0,
         "max_score": 0,
         "order": 10,
-        "choices": ["Always", "Sometimes", "Never"]
+        "choices": ["3 months", "6 months", "9 months", "Rarely"]
     },
     {
         "id": 11,

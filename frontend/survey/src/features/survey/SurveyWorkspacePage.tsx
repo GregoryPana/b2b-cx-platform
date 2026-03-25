@@ -328,7 +328,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       setError("Enter a business name.");
       return null;
     }
-    const res = await fetch(`${API_BASE}/api/b2b/businesses`, {
+    const res = await fetch(`${API_BASE}/b2b/businesses`, {
       method: "POST",
       headers,
       body: JSON.stringify({ name, priority_level: "medium", active: true }),
@@ -376,11 +376,17 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       const createdBusinessId = await createBusinessIfNeeded();
       if (businessMode === "new" && !createdBusinessId) return;
 
+      if (businessMode === "existing" && !visitForm.business_id) {
+        setError("Select a business before creating a visit.");
+        return;
+      }
+
       const payload = {
         business_id: Number(createdBusinessId || visitForm.business_id),
-        representative_id: Number(visitForm.representative_id),
+        representative_id: Number(visitForm.representative_id || userId),
         visit_date: visitForm.visit_date,
         visit_type: visitForm.visit_type,
+        survey_type: "B2B",
         meeting_attendees: [],
       };
       const res = await fetch(`${API_BASE}/dashboard-visits?_cb=${Date.now()}`, { method: "POST", headers, body: JSON.stringify(payload) });

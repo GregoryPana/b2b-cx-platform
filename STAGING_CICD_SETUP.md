@@ -1,59 +1,163 @@
-# Staging CI/CD Setup Checklist
+# Staging CI/CD Setup Guide (Self-Hosted Runner)
 
-This checklist is for fully automated staging deploys from GitHub Actions.
+This guide explains how to set up and operate staging deployment automation.
 
-## Deployment mode
+Use this document when:
 
-- `deploy-staging` is the primary workflow.
-- It requires a self-hosted runner on the staging VM/network with labels: `self-hosted`, `linux`.
-- Optional: add `staging` custom label for runner organization, but deployment workflow does not require it.
-- Deployment is executed locally on that runner (no SSH copy from GitHub-hosted runners).
+- provisioning a new staging VM
+- onboarding a new DevOps owner
+- troubleshooting deployment pipeline issues
 
-## 1) GitHub Environment
+## 1) Deployment model summary
 
-Create GitHub environment: `staging`.
+- workflow: `.github/workflows/deploy-staging.yml`
+- trigger: push to `main` or manual run
+- CI jobs run on GitHub-hosted runners
+- deploy job runs on self-hosted Linux runner in staging network
+- deployment is local on VM (no SCP from developer machine)
 
-Add required secrets:
+## 2) Minimum requirements
 
-- `STAGING_BASE_URL` (example: `https://cwscx-tst01.cwsey.com`)
+### GitHub
 
-## 2) VM prerequisites
+- environment: `staging`
+- secret: `STAGING_BASE_URL` (for verification and summary links)
 
-On the staging VM:
+### Staging VM
 
-- `/opt/cwscx` exists and writable by deploy user
-- runner user has passwordless sudo for nginx/systemctl deployment steps
-- Nginx installed and enabled
-- Python 3.11+ available
-- Docker available (if running DB locally via compose)
-- SSL cert/key present for Nginx deploy script defaults:
+- Ubuntu/Linux host with internet access to GitHub
+- `/opt/cwscx` present
+- runner user can write `/opt/cwscx`
+- Python 3.11+, Node 20+, rsync, unzip, zip installed
+- Nginx installed
+- SSL certificate files available for nginx script defaults:
   - `/etc/ssl/cwscx/cwscx.crt`
   - `/etc/ssl/cwscx/cwscx.key`
 
-## 3) Backend runtime prerequisites
+### Permissions
 
-- `/opt/cwscx/.env` exists with valid values for staging
-- Entra values are set (`ENTRA_*`)
-- DB connectivity works from VM (`DATABASE_URL`)
+Runner user must have passwordless sudo for deployment commands.
 
-## 4) First validation run
+## 3) Self-hosted runner setup
 
-Trigger `deploy-staging` manually using workflow dispatch.
+1. install GitHub runner on staging VM
+2. register runner to repository
+3. run as systemd service
+4. ensure runner labels include at least:
+   - `self-hosted`
+   - `linux`
 
-Expected:
+Recommended:
 
-- Bundle uploaded to `/tmp/cwscx-release.zip`
-- Bundle archived in `/opt/cwscx/releases/`
-- Backend deploy runs when backend changed
-- Frontend validation runs when frontend changed
-- Nginx deploy runs
-- `scripts/linux/verify_staging.sh` passes
+- keep runner online 24/7 via systemd service
+- set restart policy to always
 
-## 5) Rollback behavior
+## 4) Folder baseline on staging VM
 
-If deploy verification fails:
+Expected baseline:
 
-- Pipeline attempts rollback using previous bundle in `/opt/cwscx/releases/`
-- Re-runs backend/frontend/nginx deploy steps on rollback target
+```text
+/opt/cwscx/
+  backend/
+  frontends-src/
+  scripts/linux/
+  releases/
+  shared/
+  .env
+```
 
-If no previous bundle exists, rollback cannot run. Keep at least one known-good release bundle in `/opt/cwscx/releases/`.
+If folders are missing, install script creates required paths.
+
+## 5) One-time sudo setup
+
+Example sudoers entry (adjust user as needed):
+
+```text
+Defaults:cxadmin !requiretty
+cxadmin ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /bin/systemctl, /usr/bin/bash, /bin/bash, /usr/sbin/nginx, /usr/bin/nginx
+```
+
+Validate with:
+
+```bash
+sudo visudo -cf /etc/sudoers.d/<file>
+```
+
+## 6) Backend runtime prerequisites
+
+Create `/opt/cwscx/.env` using `.env.example` as baseline and set real values.
+
+Required startup variables include:
+
+- `DATABASE_URL`
+- `ENTRA_TENANT_ID`
+- `ENTRA_CLIENT_ID`
+- `ENTRA_AUTHORITY`
+- `ENTRA_ISSUER`
+- `ENTRA_AUDIENCE`
+
+## 7) First deployment validation
+
+Run `deploy-staging` manually once after setup.
+
+Success criteria:
+
+- all CI jobs pass
+- deploy job runs on self-hosted runner
+- release zip is archived under `/opt/cwscx/releases`
+- backend service healthy
+- nginx config test passes
+- key routes respond:
+  - `/dashboard/`
+  - `/surveys/b2b/`
+  - `/surveys/installation/`
+  - `/api/health`
+
+## 8) Data preservation policy
+
+Staging deploy is designed to preserve data:
+
+- migration upgrades only (`alembic upgrade head`)
+- database reset flags are blocked in deploy script
+- no drop/reset step in normal pipeline
+
+## 9) Rollback behavior
+
+If verification fails:
+
+1. workflow selects previous bundle in `/opt/cwscx/releases`
+2. reinstalls previous bundle
+3. reruns backend/frontend/nginx deploy steps
+4. reruns verification
+
+Recommendation:
+
+- always keep several known-good bundles in `/opt/cwscx/releases`
+
+## 10) Operations checklist (weekly)
+
+- confirm runner is online
+- check disk usage for `/opt/cwscx/releases`
+- verify backend service uptime
+- confirm cert validity for nginx SSL paths
+- verify route health checks
+
+## 11) Common issues and fixes
+
+- Deploy job queued forever
+  - check runner online state and required labels
+- Permission denied under `/opt/cwscx`
+  - fix ownership/permissions for runner user
+- Sudo password prompt in workflow
+  - fix NOPASSWD sudoers configuration
+- Missing frontend dist artifact
+  - inspect build step logs and bundle layout
+- Route returns 500
+  - inspect backend logs and nginx route mapping
+
+## 12) References
+
+- end-to-end flow: `docs/DEPLOYMENT_END_TO_END_GUIDE.md`
+- canonical runbook: `ENTERPRISE_DEPLOYMENT_RUNBOOK.md`
+- handover guide: `docs/HANDOVER_GUIDE.md`
+- AI structuring source: `docs/AI_SKILL_DEPLOYMENT_SOURCE.md`

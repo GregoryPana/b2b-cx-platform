@@ -1,169 +1,145 @@
 # CWSCX Platform
 
-Enterprise deployment-ready CX platform with FastAPI backend and multiple Vite frontends.
+Enterprise Customer Experience platform for Cable and Wireless Seychelles.
 
-## Canonical Deployment Guide
+This repository contains:
 
-Use `ENTERPRISE_DEPLOYMENT_RUNBOOK.md` as the single source of truth for deployment.
-For staging automation prerequisites, use `STAGING_CICD_SETUP.md`.
+- a FastAPI backend
+- multiple React/Vite frontends
+- staging CI/CD automation
+- deployment scripts and runbooks
 
-## Runtime Architecture
+## Start here (documentation map)
 
-### Staging / Testing (single VM)
+If you are new, read in this order:
 
-- Backend: FastAPI + Uvicorn on `127.0.0.1:8000`
-- Reverse proxy: Nginx
+1. `README.md` (this file)
+2. `docs/HANDOVER_GUIDE.md` (full project onboarding for new team members)
+3. `docs/DEPLOYMENT_END_TO_END_GUIDE.md` (how deployment works end to end)
+4. `STAGING_CICD_SETUP.md` (self-hosted runner setup and operations)
+5. `ENTERPRISE_DEPLOYMENT_RUNBOOK.md` (script-level deployment reference)
+6. `docs/AI_SKILL_DEPLOYMENT_SOURCE.md` (structured source for future agent skills)
+
+## What the platform does
+
+The platform supports multiple CX programs:
+
+- B2B customer surveys and relationship tracking
+- installation assessment surveys
+- mystery shopper journeys (public-facing entry path)
+
+Main capabilities include:
+
+- planned visit lifecycle and field execution
+- response capture with action tracking
+- analytics (NPS, CSAT, relationship, competitor exposure)
+- role-based access with Microsoft Entra
+- audit signature capture on visit submission
+
+## Runtime architecture
+
+### Staging / testing (single VM)
+
+- backend service: FastAPI + Uvicorn on `127.0.0.1:8000`
+- reverse proxy: Nginx
 - API route: `/api/*` -> backend
-- Frontends:
-  - `/` -> Mystery Shopper
-  - `/dashboard/` -> Dashboard
-  - `/surveys/b2b/` -> B2B Survey
-  - `/surveys/installation/` -> Installation Survey
+- frontends:
+  - `/` -> mystery shopper
+  - `/dashboard/` -> dashboard blueprint frontend
+  - `/surveys/b2b/` -> B2B survey frontend
+  - `/surveys/installation/` -> installation survey frontend
 
-### Production (multi-VM)
+### Production (target multi-VM pattern)
 
-- **cwscx-app01.cwsey.com (172.17.1.211)**
+- `cwscx-app01`: backend + internal frontends
+- `cwscx-sql01`: PostgreSQL
+- `cwscx-web01`: public entry and SSL termination
 
-  - Backend FastAPI + internal-only frontends
-  - Nginx reverse proxy (internal only)
-  - API: `/api/*` -> local FastAPI
-  - Frontends served:
-    - `/dashboard/`
-    - `/surveys/b2b/`
-    - `/surveys/installation/`
-  - No public SSL (internal cert only)
-- **cwscx-sql01.cwsey.com (172.17.1.212)**
+## Server layout (staging VM)
 
-  - PostgreSQL (Docker, :5432)
-  - No public exposure
-- **cwscx-web01.cwsey.com (172.17.0.200)**
-
-  - Public-facing frontends only
-  - Nginx with public SSL
-  - Proxies `/api/*` to backend on `cwscx-app01`
-  - Optional: future mystery shopper SPA
-
-#### Network diagram
-
-```
-Internet → NAT → cwscx-web01 (public frontends)
-              |
-              +--- internal network → cwscx-app01 (backend + internal frontends)
-                                      |
-                                      +--- cwscx-sql01 (PostgreSQL)
-```
-
-## Server Layout
-
-### Staging (single VM)
-
-```
+```text
 /opt/cwscx/
   backend/
-    backend/          # FastAPI app code
-    backend/alembic/
-    backend/app/
-    backend/logs/
-    backend/venv/
-    alembic.ini
+    app/
+    alembic/
     requirements.txt
+    alembic.ini
     venv/
   frontends-src/
     dashboard/
+      dist/
     internal-surveys/
       b2b/
+        dist/
       installation/
+        dist/
     public/
+      mystery-shopper/
+        dist/
+  frontends-archive/
   scripts/linux/
+  releases/
   shared/
   .env
 ```
 
-Note: The `install_release_bundle.sh` script creates the `frontends-src` directories and copies the `dist/` subdirectories into each frontend path. The backend is nested under `backend/backend`.
+## Deployment model (current)
 
-### Production (multi-VM)
+Staging deployment is self-hosted and local to the VM network.
 
-```
-cwscx-app01: (backend + internal frontends)
-  /opt/cwscx/
-    backend/
-    frontends-src/
-      dashboard/
-      internal-surveys/b2b/
-      internal-surveys/installation/
-    scripts/linux/
-    .env
+- trigger: push to `main` or manual dispatch
+- workflow: `.github/workflows/deploy-staging.yml`
+- CI checks run on GitHub-hosted runners
+- deploy job runs on self-hosted Linux runner
+- deploy job checks out exact commit, builds bundle locally, installs to `/opt/cwscx`, deploys backend + nginx, verifies health/routes
+- on failure, workflow attempts rollback using previous bundle in `/opt/cwscx/releases`
 
-cwscx-web01: (public frontends only)
-  /opt/cwscx/
-    frontends-src/
-      public/mystery-shopper/
-      dashboard/
-      internal-surveys/b2b/
-      internal-surveys/installation/
-    scripts/linux/
-    .env
+Important: deploy does not copy files from a local developer laptop.
 
-cwscx-sql01: (PostgreSQL only)
-  /opt/cwscx/docker-compose.yml
-  Data volume: cwscx_data
-```
+## Data safety policy
 
-## Artifact-Based Deployment
+Deploy flow is migration-upgrade-only.
 
-This repository uses artifact-based deployment for enterprise consistency.
+- database is not dropped/reset as part of normal deploy
+- backend deploy runs Alembic upgrade path only
+- deploy script explicitly blocks reset flags (`RESET_DATABASE`, `DB_RESET`)
 
-### Build (Windows)
+This preserves live staging data across releases.
 
-1. Build release bundle on Windows with `scripts/windows/build_release_bundle.ps1`
-2. Upload bundle with `scripts/windows/upload_release_bundle.ps1`
+## Frontend source of truth
 
-Current bundle frontend sources:
+Current build targets:
 
-- Dashboard: `frontend/dashboard-blueprint`
-- B2B + Installation surveys: `frontend/survey`
+- dashboard: `frontend/dashboard-blueprint`
+- B2B survey: `frontend/survey`
+- installation survey: `frontend/survey` (different base path)
 
-### Install (VM)
+## Environment essentials
 
-3. Install bundle on VM with `scripts/linux/install_release_bundle.sh`
-4. Deploy backend with `scripts/linux/deploy_backend.sh`
-5. Validate frontend artifacts with `scripts/linux/deploy_frontends.sh`
-6. Deploy Nginx config with `scripts/linux/deploy_nginx.sh`
+Create `/opt/cwscx/.env` from `.env.example` and set real values.
 
-### CI/CD
+Minimum required for backend startup:
 
-- GitHub Actions builds bundles and deploys to `cwscx-tst01.cwsey.com` (staging).
-- Production will be multi-VM with role-based deployment.
+- `DATABASE_URL`
+- `ENTRA_TENANT_ID`
+- `ENTRA_CLIENT_ID`
+- `ENTRA_AUTHORITY`
+- `ENTRA_ISSUER`
+- `ENTRA_AUDIENCE`
 
-## Environment
+## Operations quick links
 
-Start from `.env.example` and set real values in `/opt/cwscx/.env` on server:
+- health endpoint: `/api/health`
+- backend service: `cwscx-backend.service`
+- deployment scripts: `scripts/linux/*.sh`
 
-### Staging
+For full troubleshooting and incident playbooks, use:
 
-- `DATABASE_URL=postgresql://<user>:<password>@localhost:5432/cwscx`
-- `CORS_ALLOW_ORIGINS=https://cwscx-tst01.cwsey.com`
-- `ENTRA_*` values for token validation and frontend auth
+- `docs/DEPLOYMENT_END_TO_END_GUIDE.md`
+- `docs/HANDOVER_GUIDE.md`
 
-### Production
+## Repository hygiene notes
 
-- **Backend VM (cwscx-app01)**
-
-  - Connects to remote PostgreSQL on `cwscx-sql01`
-  - `DATABASE_URL=postgresql://cxadmin:cxadmin123@cwscx-sql01:5432/cwscx-prod`
-  - Internal-only frontends; no public SSL
-  - `CORS_ALLOW_ORIGINS=https://cwscx-app01.cwsey.com,https://cwscx-web01.cwsey.com`
-- **Public VM (cwscx-web01)**
-
-  - Serves static frontends only
-  - Public SSL
-  - Proxies `/api/*` to backend on `cwscx-app01`
-  - `VITE_API_URL=https://cwscx-app01.cwsey.com/api` (frontend build-time)
-  - `CORS_ALLOW_ORIGINS=https://cwscx-app01.cwsey.com,https://cwscx-web01.cwsey.com`
-
-## Notes
-
-- Frontend API calls must use `/api` (relative path), not localhost URLs.
-- Frontend `dist` artifacts are served directly by Nginx.
-- Do not commit runtime secrets, virtualenvs, or local DB files.
-- Entra auth uses bearer tokens; configure redirect URIs per environment (see Entra section).
+- do not commit secrets, local DB files, or virtualenvs
+- frontend API calls must use `/api` (relative path), not localhost URLs
+- keep deployment behavior script-driven and reproducible

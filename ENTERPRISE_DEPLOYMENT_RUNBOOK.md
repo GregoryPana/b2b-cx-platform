@@ -4,6 +4,15 @@ This is the canonical deployment guide for staging/prod-style rollout.
 
 It replaces ad-hoc source-copy instructions and enforces artifact-based deployment.
 
+Current staging default is self-hosted CI/CD (`deploy-staging`) running locally on the staging VM network.
+Use this runbook for script-level reference and manual recovery operations.
+
+Companion docs:
+
+- `docs/DEPLOYMENT_END_TO_END_GUIDE.md`
+- `STAGING_CICD_SETUP.md`
+- `docs/HANDOVER_GUIDE.md`
+
 ## Scope and target layout
 
 Server root:

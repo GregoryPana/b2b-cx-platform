@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { ChevronDown, ChevronUp, CircleHelp } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PageContainer from "../components/layout/PageContainer";
@@ -69,6 +70,7 @@ export default function DashboardPage({ headers, activePlatform }) {
   const [mysteryLegacySeeding, setMysteryLegacySeeding] = useState(false);
   const [selectedAnalyticsLocationIds, setSelectedAnalyticsLocationIds] = useState([]);
   const [analyticsLocationSearch, setAnalyticsLocationSearch] = useState("");
+  const [expandedCategory, setExpandedCategory] = useState("");
   const [toasts, setToasts] = useState([]);
 
   const dismissToast = useCallback((id) => {
@@ -80,6 +82,17 @@ export default function DashboardPage({ headers, activePlatform }) {
     setToasts((prev) => [...prev, { id, kind, title }]);
     window.setTimeout(() => dismissToast(id), duration);
   }, [dismissToast]);
+
+  const InfoHint = ({ text }) => (
+    <details className="group relative inline-flex">
+      <summary className="list-none cursor-pointer rounded-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+        <CircleHelp className="h-4 w-4" />
+      </summary>
+      <div className="pointer-events-none absolute left-0 top-6 z-30 w-72 rounded-md border bg-popover p-2 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-100 group-hover:opacity-100 group-open:opacity-100">
+        {text}
+      </div>
+    </details>
+  );
 
   const mysteryLocationMap = useMemo(() => {
     return mysteryLocations.reduce((acc, item) => {
@@ -587,6 +600,50 @@ export default function DashboardPage({ headers, activePlatform }) {
       .sort((a, b) => a.category.localeCompare(b.category));
   }, [analytics, questionAverages, selectedAnalyticsEntityIds]);
 
+  const categoryQuestions = useMemo(() => {
+    const grouped = {};
+    questionAverages.forEach((question) => {
+      const category = question.category || "Uncategorized";
+      if (!grouped[category]) grouped[category] = [];
+      grouped[category].push({
+        id: question.question_id,
+        question_number: question.question_number,
+        question_text: question.question_text,
+      });
+    });
+    Object.keys(grouped).forEach((category) => {
+      grouped[category].sort((a, b) => Number(a.question_number || 0) - Number(b.question_number || 0));
+    });
+    return grouped;
+  }, [questionAverages]);
+
+  const npsBreakdown = useMemo(() => {
+    const nps = analytics?.nps || {};
+    const promoters = Number(nps.promoters || 0);
+    const passives = Number(nps.passives || 0);
+    const detractors = Number(nps.detractors || 0);
+    const total = Number(nps.total_responses || 0);
+    const toPct = (value) => (total > 0 ? ((value / total) * 100).toFixed(1) : "0.0");
+    return {
+      promoters,
+      passives,
+      detractors,
+      promotersPct: toPct(promoters),
+      passivesPct: toPct(passives),
+      detractorsPct: toPct(detractors),
+    };
+  }, [analytics?.nps]);
+
+  const surveyResponsesByCategory = useMemo(() => {
+    const responses = Array.isArray(selectedSurveyVisit?.responses) ? selectedSurveyVisit.responses : [];
+    return responses.reduce((acc, response) => {
+      const category = response.category || "Uncategorized";
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(response);
+      return acc;
+    }, {});
+  }, [selectedSurveyVisit]);
+
   const relationshipGraphData = useMemo(() => {
     const score = Number(analytics?.relationship_score?.score || 0);
     return [{ label: "Relationship", score: Number.isFinite(score) ? score : 0 }];
@@ -1073,13 +1130,40 @@ export default function DashboardPage({ headers, activePlatform }) {
 
             <Card className="lg:col-span-4">
               <CardHeader>
-                <CardTitle>Category Breakdown</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  Category Breakdown
+                  <InfoHint text="Click a category to see which score questions are used to calculate its average." />
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {categoryBreakdownData.map((item) => (
-                  <div key={item.category} className="flex items-center justify-between rounded-md bg-muted p-2">
-                    <span className="text-sm">{item.category}</span>
-                    <Badge>{Number(item.average_score || 0).toFixed(2)}</Badge>
+                  <div key={item.category} className="rounded-md bg-muted/60 p-2">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 text-left"
+                      onClick={() => setExpandedCategory((prev) => (prev === item.category ? "" : item.category))}
+                    >
+                      <span className="text-sm font-medium">{item.category}</span>
+                      <span className="inline-flex items-center gap-2">
+                        <Badge>{Number(item.average_score || 0).toFixed(2)}</Badge>
+                        {expandedCategory === item.category ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                      </span>
+                    </button>
+                    {expandedCategory === item.category ? (
+                      <div className="mt-2 rounded-md border bg-background p-2 text-sm">
+                        {(categoryQuestions[item.category] || []).length === 0 ? (
+                          <p className="text-muted-foreground">No score questions found for this category.</p>
+                        ) : (
+                          <ul className="space-y-1">
+                            {(categoryQuestions[item.category] || []).map((question) => (
+                              <li key={`${item.category}-${question.id}`} className="text-muted-foreground">
+                                Q{question.question_number || question.id}: {question.question_text}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </CardContent>
@@ -1091,7 +1175,10 @@ export default function DashboardPage({ headers, activePlatform }) {
             {/* NPS Card */}
             <Card className="lg:col-span-6">
               <CardHeader>
-                <CardTitle>Net Promoter Score</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  NPS Survey
+                  <InfoHint text="We count answers in three groups: Promoters (9-10), Passives (7-8), and Detractors (0-6). NPS is then calculated as Promoters percent minus Detractors percent." />
+                </CardTitle>
                 <CardDescription>
                   {analytics?.nps?.total_responses ?? 0} approved responses
                 </CardDescription>
@@ -1126,15 +1213,15 @@ export default function DashboardPage({ headers, activePlatform }) {
                   <div className="mt-4 grid w-full grid-cols-1 gap-2 sm:grid-cols-3">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.promoters }}></div>
-                      <span className="text-sm">Promoters: {analytics?.nps?.promoters ?? 0} ({analytics?.nps?.promoter_percentage ?? 0}%)</span>
+                      <span className="text-sm">Promoters: {npsBreakdown.promoters} ({npsBreakdown.promotersPct}%)</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.passives }}></div>
-                      <span className="text-sm">Passives: {analytics?.nps?.passives ?? 0} ({analytics?.nps?.passive_percentage ?? 0}%)</span>
+                      <span className="text-sm">Passives: {npsBreakdown.passives} ({npsBreakdown.passivesPct}%)</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.detractors }}></div>
-                      <span className="text-sm">Detractors: {analytics?.nps?.detractors ?? 0} ({analytics?.nps?.detractor_percentage ?? 0}%)</span>
+                      <span className="text-sm">Detractors: {npsBreakdown.detractors} ({npsBreakdown.detractorsPct}%)</span>
                     </div>
                   </div>
                 </div>
@@ -1144,7 +1231,10 @@ export default function DashboardPage({ headers, activePlatform }) {
             {/* CSAT Card */}
             <Card className="lg:col-span-6">
               <CardHeader>
-                <CardTitle>Customer Satisfaction</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  Customer Satisfaction
+                  <InfoHint text="Customer Satisfaction is the share of positive ratings. We add Satisfied (7-8) and Very Satisfied (9-10), then divide by all responses and convert to a percentage." />
+                </CardTitle>
                 <CardDescription>
                   {analytics?.customer_satisfaction?.response_count ?? 0} responses to satisfaction question
                 </CardDescription>
@@ -1179,23 +1269,23 @@ export default function DashboardPage({ headers, activePlatform }) {
                   <div className="mt-4 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.very_satisfied }}></div>
-                      <span className="text-xs">Very Sat: {analytics?.customer_satisfaction?.score_distribution?.very_satisfied ?? 0}</span>
+                      <span className="text-xs">Very Satisfied (9-10): {analytics?.customer_satisfaction?.score_distribution?.very_satisfied ?? 0}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.satisfied }}></div>
-                      <span className="text-xs">Sat: {analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0}</span>
+                      <span className="text-xs">Satisfied (7-8): {analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.neutral }}></div>
-                      <span className="text-xs">Neutral: {analytics?.customer_satisfaction?.score_distribution?.neutral ?? 0}</span>
+                      <span className="text-xs">Neutral (5-6): {analytics?.customer_satisfaction?.score_distribution?.neutral ?? 0}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.dissatisfied }}></div>
-                      <span className="text-xs">Dissat: {analytics?.customer_satisfaction?.score_distribution?.dissatisfied ?? 0}</span>
+                      <span className="text-xs">Dissatisfied (3-4): {analytics?.customer_satisfaction?.score_distribution?.dissatisfied ?? 0}</span>
                     </div>
                     <div className="flex items-center gap-2 col-span-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.very_dissatisfied }}></div>
-                      <span className="text-xs">Very Dissat: {analytics?.customer_satisfaction?.score_distribution?.very_dissatisfied ?? 0}</span>
+                      <span className="text-xs">Very Dissatisfied (0-2): {analytics?.customer_satisfaction?.score_distribution?.very_dissatisfied ?? 0}</span>
                     </div>
                   </div>
                 </div>
@@ -1618,20 +1708,25 @@ export default function DashboardPage({ headers, activePlatform }) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {Array.isArray(selectedSurveyVisit.responses) && selectedSurveyVisit.responses.length > 0 ? (
-                  selectedSurveyVisit.responses.map((response) => {
-                    const display = formatSurveyResponseValue(response);
-                    return (
-                      <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-lg border p-3">
-                        <div className="mb-1 flex items-center justify-between">
-                          <p className="text-sm font-medium">Question {response.question_number || response.question_id}</p>
-                        </div>
-                        <p className="text-sm">{response.question_text || "--"}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
-                        {response.verbatim ? <p className="mt-1 text-sm text-muted-foreground">Verbatim: {response.verbatim}</p> : null}
-                      </div>
-                    );
-                  })
+                {Object.keys(surveyResponsesByCategory).length > 0 ? (
+                  Object.entries(surveyResponsesByCategory).map(([category, responses]) => (
+                    <div key={category} className="space-y-2 rounded-lg border p-3">
+                      <p className="text-sm font-semibold">{category}</p>
+                      {responses.map((response) => {
+                        const display = formatSurveyResponseValue(response);
+                        return (
+                          <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
+                            <div className="mb-1 flex items-center justify-between">
+                              <p className="text-sm font-medium">Question {response.question_number || response.question_id}</p>
+                            </div>
+                            <p className="text-sm">{response.question_text || "--"}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
+                            {response.verbatim ? <p className="mt-1 text-sm text-muted-foreground">Verbatim: {response.verbatim}</p> : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))
                 ) : (
                   <p className="text-sm text-muted-foreground">No responses found for this visit.</p>
                 )}
