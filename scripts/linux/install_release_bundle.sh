@@ -79,7 +79,10 @@ cleanup_legacy_frontends() {
   local archive_root="${archive_base}/${ts}"
   local archived_any="false"
 
-  mkdir -p "${archive_root}"
+  if ! mkdir -p "${archive_root}" 2>/dev/null; then
+    echo "Warning: cannot create legacy archive directory (${archive_root}); skipping legacy frontend cleanup."
+    return 0
+  fi
 
   for item in "${frontends_root}"/*; do
     [[ -e "${item}" ]] || continue
@@ -131,14 +134,18 @@ cleanup_legacy_frontends() {
 
 mkdir -p "${TARGET_ROOT}/backend"
 mkdir -p "${TARGET_ROOT}/frontends-src"
-mkdir -p "${TARGET_ROOT}/frontends-archive"
+if ! mkdir -p "${TARGET_ROOT}/frontends-archive" 2>/dev/null; then
+  echo "Warning: cannot create ${TARGET_ROOT}/frontends-archive; legacy frontend cleanup will be skipped."
+fi
 mkdir -p "${TARGET_ROOT}/frontends-src/public/mystery-shopper"
 mkdir -p "${TARGET_ROOT}/frontends-src/dashboard"
 mkdir -p "${TARGET_ROOT}/frontends-src/internal-surveys/b2b"
 mkdir -p "${TARGET_ROOT}/frontends-src/internal-surveys/installation"
 mkdir -p "${TARGET_ROOT}/shared"
 
-cleanup_legacy_frontends "${TARGET_ROOT}/frontends-src" "${TARGET_ROOT}/frontends-archive"
+if [[ -d "${TARGET_ROOT}/frontends-archive" ]]; then
+  cleanup_legacy_frontends "${TARGET_ROOT}/frontends-src" "${TARGET_ROOT}/frontends-archive"
+fi
 
 if [[ ! -d "${BUNDLE_ROOT}/backend" ]]; then
   echo "Backend directory missing in bundle. This is required."

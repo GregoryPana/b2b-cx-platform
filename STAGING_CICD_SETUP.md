@@ -22,6 +22,7 @@ Add required secrets:
 On the staging VM:
 
 - `/opt/cwscx` exists and writable by deploy user
+- runner user has passwordless sudo for nginx/systemctl deployment steps
 - Nginx installed and enabled
 - Python 3.11+ available
 - Docker available (if running DB locally via compose)

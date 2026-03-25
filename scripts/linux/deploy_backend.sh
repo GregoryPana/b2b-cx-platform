@@ -10,6 +10,22 @@ VENV_DIR="${BACKEND_DIR}/venv"
 ENV_FILE="${BACKEND_DIR}/.env"
 SERVICE_FILE="/etc/systemd/system/cwscx-backend.service"
 
+run_as_root() {
+  if [[ "${EUID}" -eq 0 ]]; then
+    "$@"
+    return
+  fi
+
+  if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo "$@"
+    return
+  fi
+
+  echo "This step requires root privileges: $*"
+  echo "Configure passwordless sudo for the runner user or run the script as root."
+  exit 1
+}
+
 if [[ ! -d "${BACKEND_DIR}" ]]; then
   echo "Backend directory not found: ${BACKEND_DIR}"
   exit 1
@@ -33,9 +49,20 @@ source "${ENV_FILE}"
 set +a
 
 # Use virtual environment's alembic
-"${VENV_DIR}/bin/alembic" upgrade head
+ALEMBIC_LOG="$(mktemp /tmp/cwscx-alembic.XXXXXX.log)"
+if ! "${VENV_DIR}/bin/alembic" upgrade head 2>&1 | tee "${ALEMBIC_LOG}"; then
+  if grep -q 'relation "programs" already exists' "${ALEMBIC_LOG}"; then
+    echo "Detected pre-existing schema without matching Alembic revision; stamping baseline and retrying migrations."
+    "${VENV_DIR}/bin/alembic" stamp d01c3a366199
+    "${VENV_DIR}/bin/alembic" upgrade head
+  else
+    exit 1
+  fi
+fi
+rm -f "${ALEMBIC_LOG}"
 
-sudo tee "${SERVICE_FILE}" >/dev/null <<EOF
+TMP_SERVICE_FILE="$(mktemp /tmp/cwscx-backend-service.XXXXXX)"
+cat >"${TMP_SERVICE_FILE}" <<EOF
 [Unit]
 Description=CWSCX FastAPI Backend
 After=network.target
@@ -53,10 +80,13 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable cwscx-backend
-sudo systemctl restart cwscx-backend
-sudo systemctl --no-pager --full status cwscx-backend
+run_as_root cp "${TMP_SERVICE_FILE}" "${SERVICE_FILE}"
+rm -f "${TMP_SERVICE_FILE}"
+
+run_as_root systemctl daemon-reload
+run_as_root systemctl enable cwscx-backend
+run_as_root systemctl restart cwscx-backend
+run_as_root systemctl --no-pager --full status cwscx-backend
 
 curl -fsS http://127.0.0.1:8000/health || true
 
