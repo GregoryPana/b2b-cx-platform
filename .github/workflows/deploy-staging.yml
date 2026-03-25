@@ -163,6 +163,25 @@ jobs:
         run: |
           pwsh -ExecutionPolicy Bypass -File .\scripts\windows\build_release_bundle.ps1
 
+      - name: Validate staging deploy secrets
+        shell: bash
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_PATH: ${{ secrets.STAGING_PATH }}
+        run: |
+          missing=()
+          [[ -z "${STAGING_HOST}" ]] && missing+=("STAGING_HOST")
+          [[ -z "${STAGING_USER}" ]] && missing+=("STAGING_USER")
+          [[ -z "${STAGING_SSH_KEY}" ]] && missing+=("STAGING_SSH_KEY")
+          [[ -z "${STAGING_PATH}" ]] && missing+=("STAGING_PATH")
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required staging secrets: ${missing[*]}"
+            exit 1
+          fi
+
       - name: Upload release bundle to VM
         uses: appleboy/scp-action@v0.1.7
         with:
