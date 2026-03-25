@@ -1123,7 +1123,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                     </ResponsiveContainer>
                   </div>
 
-                  <div className="flex justify-center gap-6 mt-4">
+                  <div className="mt-4 grid w-full grid-cols-1 gap-2 sm:grid-cols-3">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.promoters }}></div>
                       <span className="text-sm">Promoters: {analytics?.nps?.promoters ?? 0} ({analytics?.nps?.promoter_percentage ?? 0}%)</span>
@@ -1176,7 +1176,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                     </ResponsiveContainer>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 mt-4 w-full">
+                  <div className="mt-4 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.very_satisfied }}></div>
                       <span className="text-xs">Very Sat: {analytics?.customer_satisfaction?.score_distribution?.very_satisfied ?? 0}</span>
@@ -1223,7 +1223,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                     <div className="rounded bg-muted p-3">
                       <p className="text-muted-foreground">Average Score</p>
                       <p className="font-medium">{analytics?.relationship_score?.avg_score?.toFixed?.(2) ?? "0.00"}</p>
@@ -1256,7 +1256,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                     <div className="rounded bg-muted p-3">
                       <p className="text-muted-foreground">Using Competitors</p>
                       <p className="font-medium">{analytics?.competitive_exposure?.accounts_using_competitors ?? 0}</p>
@@ -1280,7 +1280,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="text-4xl font-semibold">{mysteryAnalyticsSummary.overallExperienceAvg?.toFixed?.(2) ?? "--"}</div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                     <div className="rounded bg-muted p-3">
                       <p className="text-muted-foreground">Service Quality Avg</p>
                       <p className="font-medium">{mysteryAnalyticsSummary.qualityAvg?.toFixed?.(2) ?? "--"}</p>
@@ -1298,7 +1298,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                   <CardDescription>CSAT, waiting time, and service completion distribution by selected location scope.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="rounded bg-muted p-3">
                       <p className="text-muted-foreground">CSAT Average</p>
                       <p className="font-medium">{analytics?.mystery_shopper?.csat_average?.toFixed?.(2) ?? "--"}</p>
@@ -1358,7 +1358,7 @@ export default function DashboardPage({ headers, activePlatform }) {
             <CardDescription>Pending visits waiting for review.</CardDescription>
           </CardHeader>
           <CardContent>
-                <Table>
+                <Table className="min-w-[560px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Visit ID</TableHead>
@@ -1418,7 +1418,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                 <div>
                   <Button type="button" variant="outline" onClick={loadPlannedVisits}>{plannedLoading ? "Refreshing..." : "Refresh"}</Button>
                 </div>
-                <Table>
+                <Table className="min-w-[760px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Business</TableHead>
@@ -1548,7 +1548,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                 <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${surveyResults.length} results`}</span>
               </div>
 
-              <Table>
+              <Table className="min-w-[720px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>{isMysteryShopperPlatform ? "Location" : "Business"}</TableHead>
@@ -1661,7 +1661,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                 </div>
               </div>
 
-              <Table>
+              <Table className="min-w-[560px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Location</TableHead>
@@ -1722,7 +1722,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                 <Button type="button" variant="outline" onClick={loadMysteryPurposes}>{mysteryPurposesLoading ? "Refreshing..." : "Refresh"}</Button>
               </div>
 
-              <Table>
+              <Table className="min-w-[560px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Purpose</TableHead>
@@ -1855,7 +1855,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                <div className="flex gap-2 mb-4">
                  <Input placeholder="Filter by name or location" value={status} onChange={(e) => setStatus(e.target.value)} />
                </div>
-               <Table>
+                <Table className="min-w-[860px]">
                  <TableHeader>
                    <TableRow>
                      <TableHead>Name</TableHead>

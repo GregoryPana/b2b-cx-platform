@@ -14,12 +14,20 @@ interface MainLayoutProps {
 
 export default function MainLayout({ children, onLogout, userName, userEmail, statusText }: MainLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <div className="relative flex min-h-screen bg-background">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((prev) => !prev)} onLogout={onLogout} userEmail={userEmail} />
+      <Sidebar
+        collapsed={collapsed}
+        mobileOpen={mobileOpen}
+        onToggle={() => setCollapsed((prev) => !prev)}
+        onCloseMobile={() => setMobileOpen(false)}
+        onLogout={onLogout}
+        userEmail={userEmail}
+      />
       <div className={cn("flex flex-1 flex-col transition-all duration-300", collapsed ? "lg:pl-20" : "lg:pl-72")}>
-        <Header userName={userName} statusText={statusText} />
+        <Header userName={userName} statusText={statusText} onOpenMobileNav={() => setMobileOpen(true)} />
         <main className="flex-1 overflow-y-auto custom-scrollbar">{children}</main>
       </div>
     </div>

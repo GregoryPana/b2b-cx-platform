@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar";
 
 export default function MainLayout({ children, onLogout, onSwitchPlatform, userName, userEmail, activePlatform }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [theme, setTheme] = useState("light");
 
   const toggleTheme = () => {
@@ -18,6 +19,8 @@ export default function MainLayout({ children, onLogout, onSwitchPlatform, userN
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed((prev) => !prev)}
+        mobileOpen={mobileOpen}
+        onCloseMobile={() => setMobileOpen(false)}
         onLogout={onLogout}
         onSwitchPlatform={onSwitchPlatform}
         userName={userName}
@@ -25,7 +28,7 @@ export default function MainLayout({ children, onLogout, onSwitchPlatform, userN
         activePlatform={activePlatform}
       />
       <div className={cn("flex min-w-0 flex-1 flex-col transition-all duration-300", collapsed ? "lg:pl-20" : "lg:pl-72")}>
-        <Header theme={theme} toggleTheme={toggleTheme} />
+        <Header theme={theme} toggleTheme={toggleTheme} onOpenMobileNav={() => setMobileOpen(true)} />
         <main className="custom-scrollbar flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>

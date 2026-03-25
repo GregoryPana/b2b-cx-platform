@@ -1,9 +1,9 @@
-import { ArrowLeftRight, BarChart3, Building2, CalendarDays, ClipboardCheck, FileBarChart2, LogOut, Menu } from "lucide-react";
+import { ArrowLeftRight, BarChart3, Building2, CalendarDays, ClipboardCheck, FileBarChart2, LogOut, Menu, X } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 
-export default function Sidebar({ collapsed, onToggle, onLogout, onSwitchPlatform, userName, userEmail, activePlatform }) {
+export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, onLogout, onSwitchPlatform, userName, userEmail, activePlatform }) {
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
@@ -23,18 +23,31 @@ export default function Sidebar({ collapsed, onToggle, onLogout, onSwitchPlatfor
   ];
 
   return (
-    <aside className={cn("fixed left-0 top-0 z-40 h-screen border-r bg-card transition-all duration-300", collapsed ? "w-20" : "w-72")}>
+    <>
+      {mobileOpen ? <button type="button" className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={onCloseMobile} aria-label="Close navigation" /> : null}
+      <aside
+        className={cn(
+          "fixed left-0 top-0 z-40 h-screen border-r bg-card transition-all duration-300",
+          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+          collapsed ? "w-72 lg:w-20" : "w-72",
+        )}
+      >
       <div className="flex h-16 items-center justify-between border-b px-4">
         {!collapsed ? <span className="text-lg font-semibold">CX Dashboard</span> : null}
-        <Button variant="ghost" size="icon" onClick={onToggle} aria-label="Toggle sidebar">
-          <Menu className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="lg:hidden" onClick={onCloseMobile} aria-label="Close navigation">
+            <X className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="hidden lg:inline-flex" onClick={onToggle} aria-label="Toggle sidebar">
+            <Menu className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       <nav className="space-y-1 p-3">
         {items.map((item) => {
           const Icon = item.icon;
           return (
-            <NavLink key={item.to} to={item.to}>
+            <NavLink key={item.to} to={item.to} onClick={() => onCloseMobile()}>
               {({ isActive }) => (
                 <Button
                   variant={isActive ? "secondary" : "ghost"}
@@ -61,6 +74,7 @@ export default function Sidebar({ collapsed, onToggle, onLogout, onSwitchPlatfor
           </Button>
         </div>
       ) : null}
-    </aside>
+      </aside>
+    </>
   );
 }

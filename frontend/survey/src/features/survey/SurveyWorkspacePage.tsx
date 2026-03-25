@@ -649,75 +649,148 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                 <div className="space-y-4">
                   <div>
                     <p className="mb-2 text-xs font-semibold text-muted-foreground">TODAY</p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Business</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Progress</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {plannedToday.length === 0 ? (
+                    <div className="space-y-3 lg:hidden">
+                      {plannedToday.length === 0 ? (
+                        <Card>
+                          <CardContent className="p-4 text-sm text-muted-foreground">No visits planned for today.</CardContent>
+                        </Card>
+                      ) : (
+                        plannedToday.map((draft) => {
+                          const id = draft.visit_id || draft.id || "";
+                          return (
+                            <Card key={id}>
+                              <CardContent className="space-y-3 p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold">{resolveBusinessName(draft)}</p>
+                                    <p className="text-xs text-muted-foreground">Visit ID: {id || "--"}</p>
+                                  </div>
+                                  <Badge variant="secondary">{draft.status || "Draft"}</Badge>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">Date</p>
+                                    <p>{draft.visit_date || "--"}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">Progress</p>
+                                    <p>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</p>
+                                  </div>
+                                </div>
+                                <Button className="w-full" onClick={() => handleSelectPlannedVisit(draft)}>
+                                  Continue <ArrowRight className="h-4 w-4" />
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    <div className="hidden lg:block">
+                      <Table>
+                        <TableHeader>
                           <TableRow>
-                            <TableCell colSpan={5}>No visits planned for today.</TableCell>
+                            <TableHead>Business</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Progress</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead></TableHead>
                           </TableRow>
-                        ) : (
-                          plannedToday.map((draft) => {
-                            const id = draft.visit_id || draft.id || "";
-                            return (
-                              <TableRow key={id}>
-                                <TableCell>{resolveBusinessName(draft)}</TableCell>
-                                <TableCell>{draft.visit_date || "--"}</TableCell>
-                                <TableCell>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</TableCell>
-                                <TableCell><Badge variant="secondary">{draft.status || "Draft"}</Badge></TableCell>
-                                <TableCell>
-                                  <Button size="sm" onClick={() => handleSelectPlannedVisit(draft)}>
-                                    Continue <ArrowRight className="h-4 w-4" />
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })
-                        )}
-                      </TableBody>
-                    </Table>
+                        </TableHeader>
+                        <TableBody>
+                          {plannedToday.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={5}>No visits planned for today.</TableCell>
+                            </TableRow>
+                          ) : (
+                            plannedToday.map((draft) => {
+                              const id = draft.visit_id || draft.id || "";
+                              return (
+                                <TableRow key={id}>
+                                  <TableCell>{resolveBusinessName(draft)}</TableCell>
+                                  <TableCell>{draft.visit_date || "--"}</TableCell>
+                                  <TableCell>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</TableCell>
+                                  <TableCell><Badge variant="secondary">{draft.status || "Draft"}</Badge></TableCell>
+                                  <TableCell>
+                                    <Button size="sm" onClick={() => handleSelectPlannedVisit(draft)}>
+                                      Continue <ArrowRight className="h-4 w-4" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </div>
 
                   <div>
                     <p className="mb-2 text-xs font-semibold text-muted-foreground">UPCOMING</p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Business</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Priority</TableHead>
-                          <TableHead></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {plannedUpcoming.length === 0 ? (
+                    <div className="space-y-3 lg:hidden">
+                      {plannedUpcoming.length === 0 ? (
+                        <Card>
+                          <CardContent className="p-4 text-sm text-muted-foreground">No upcoming planned visits.</CardContent>
+                        </Card>
+                      ) : (
+                        plannedUpcoming.map((draft) => {
+                          const id = draft.visit_id || draft.id || "";
+                          const priority = draft.business_priority || "medium";
+                          return (
+                            <Card key={id}>
+                              <CardContent className="space-y-3 p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold">{resolveBusinessName(draft)}</p>
+                                    <p className="text-xs text-muted-foreground">Visit ID: {id || "--"}</p>
+                                  </div>
+                                  <Badge variant={priority === "high" ? "destructive" : priority === "medium" ? "warning" : "success"}>{priority}</Badge>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Date</p>
+                                  <p className="text-sm">{draft.visit_date || "--"}</p>
+                                </div>
+                                <Button className="w-full" variant="outline" onClick={() => handleSelectPlannedVisit(draft)}>Open</Button>
+                              </CardContent>
+                            </Card>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    <div className="hidden lg:block">
+                      <Table>
+                        <TableHeader>
                           <TableRow>
-                            <TableCell colSpan={4}>No upcoming planned visits.</TableCell>
+                            <TableHead>Business</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Priority</TableHead>
+                            <TableHead></TableHead>
                           </TableRow>
-                        ) : (
-                          plannedUpcoming.map((draft) => {
-                            const id = draft.visit_id || draft.id || "";
-                            const priority = draft.business_priority || "medium";
-                            return (
-                              <TableRow key={id}>
-                                <TableCell>{resolveBusinessName(draft)}</TableCell>
-                                <TableCell>{draft.visit_date || "--"}</TableCell>
-                                <TableCell><Badge variant={priority === "high" ? "destructive" : priority === "medium" ? "warning" : "success"}>{priority}</Badge></TableCell>
-                                <TableCell><Button size="sm" variant="outline" onClick={() => handleSelectPlannedVisit(draft)}>Open</Button></TableCell>
-                              </TableRow>
-                            );
-                          })
-                        )}
-                      </TableBody>
-                    </Table>
+                        </TableHeader>
+                        <TableBody>
+                          {plannedUpcoming.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={4}>No upcoming planned visits.</TableCell>
+                            </TableRow>
+                          ) : (
+                            plannedUpcoming.map((draft) => {
+                              const id = draft.visit_id || draft.id || "";
+                              const priority = draft.business_priority || "medium";
+                              return (
+                                <TableRow key={id}>
+                                  <TableCell>{resolveBusinessName(draft)}</TableCell>
+                                  <TableCell>{draft.visit_date || "--"}</TableCell>
+                                  <TableCell><Badge variant={priority === "high" ? "destructive" : priority === "medium" ? "warning" : "success"}>{priority}</Badge></TableCell>
+                                  <TableCell><Button size="sm" variant="outline" onClick={() => handleSelectPlannedVisit(draft)}>Open</Button></TableCell>
+                                </TableRow>
+                              );
+                            })
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </div>
                 </div>
               )}
@@ -782,7 +855,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                   </Select>
                 </div>
               </div>
-              <Button onClick={handleCreateVisit} disabled={isCreatingVisit || !visitForm.visit_date}>
+              <Button className="w-full sm:w-auto" onClick={handleCreateVisit} disabled={isCreatingVisit || !visitForm.visit_date}>
                 {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Prepare Visit
               </Button>
             </CardContent>
@@ -906,7 +979,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                       ))}
                                     </div>
 
-                                    <Button onClick={() => handleSaveQuestionResponse(question)} disabled={saving}>
+                                     <Button className="w-full sm:w-auto" onClick={() => handleSaveQuestionResponse(question)} disabled={saving}>
                                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Response
                                     </Button>
                                   </CardContent>
@@ -929,7 +1002,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                 <CardDescription>All required responses must be saved before submitting.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap items-center gap-3">
-                <Button onClick={handleSubmitVisit} disabled={isSubmittingVisit}>
+                <Button className="w-full sm:w-auto" onClick={handleSubmitVisit} disabled={isSubmittingVisit}>
                   {isSubmittingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Submit for Review
                 </Button>
                 <Badge variant="secondary">Current status: {status}</Badge>
