@@ -108,11 +108,12 @@ async def create_visit(
             )
         
         # Insert new visit
-        db.execute(text(
+        created_visit_id = db.execute(text(
             """
             INSERT INTO visits 
             (id, business_id, representative_id, created_by, visit_date, visit_type, status, survey_type_id)
             VALUES (gen_random_uuid(), :business_id, :rep_id, :created_by, :visit_date, :visit_type, 'Draft', :survey_type_id)
+            RETURNING id
             """
         ), {
             "business_id": business_id,
@@ -121,13 +122,13 @@ async def create_visit(
             "visit_date": visit_date,
             "visit_type": visit_data.get("visit_type"),
             "survey_type_id": survey_type_id,
-        })
+        }).scalar()
         
         # Commit the transaction
         db.commit()
         
         return {
-            "visit_id": "new-visit-created",
+            "visit_id": str(created_visit_id),
             "status": "Draft",
             "message": "Visit created successfully",
             "created_by": {
@@ -196,6 +197,9 @@ async def get_all_visits(
                 v.visit_type,
                 v.status,
                 b.priority_level as business_priority,
+                v.submitted_by_name,
+                v.submitted_by_email,
+                v.submitted_at,
                 COUNT(r.id) as response_count,
                 COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
                 (SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = v.survey_type_id) as mandatory_total_count,
@@ -207,7 +211,7 @@ async def get_all_visits(
             LEFT JOIN b2b_visit_responses r ON v.id = r.visit_id
             LEFT JOIN questions q ON r.question_id = q.id
             {where_clause}
-            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level
+            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.submitted_by_name, v.submitted_by_email, v.submitted_at
             ORDER BY v.visit_date DESC
         """
         
@@ -227,11 +231,14 @@ async def get_all_visits(
                 "visit_type": row[6],
                 "status": row[7],
                 "business_priority": row[8],
-                "response_count": row[9],
-                "mandatory_answered_count": row[10] if len(row) > 10 else 0,
-                "mandatory_total_count": row[11] if len(row) > 11 else 24,
-                "is_started": row[9] > 0,  # True if any response exists
-                "is_completed": row[13] if len(row) > 13 else False
+                "submitted_by_name": row[9],
+                "submitted_by_email": row[10],
+                "submitted_at": row[11].isoformat() if row[11] else None,
+                "response_count": row[12],
+                "mandatory_answered_count": row[13] if len(row) > 13 else 0,
+                "mandatory_total_count": row[14] if len(row) > 14 else 24,
+                "is_started": row[12] > 0,
+                "is_completed": row[16] if len(row) > 16 else False
             })
         
         return visits
@@ -257,6 +264,9 @@ async def get_draft_visits(db: Session = Depends(get_db)):
                 v.visit_type,
                 v.status,
                 b.priority_level as business_priority,
+                v.submitted_by_name,
+                v.submitted_by_email,
+                v.submitted_at,
                 COUNT(r.id) as response_count,
                 COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
                 (SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = v.survey_type_id) as mandatory_total_count
@@ -266,7 +276,7 @@ async def get_draft_visits(db: Session = Depends(get_db)):
             LEFT JOIN b2b_visit_responses r ON v.id = r.visit_id
             LEFT JOIN questions q ON r.question_id = q.id
             WHERE v.status = 'Draft'
-            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level
+            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.submitted_by_name, v.submitted_by_email, v.submitted_at
             ORDER BY v.visit_date DESC
             """
         )).all()
@@ -283,10 +293,13 @@ async def get_draft_visits(db: Session = Depends(get_db)):
                 "visit_type": row[6],
                 "status": row[7],
                 "business_priority": row[8],
-                "response_count": row[9],
-                "mandatory_answered_count": row[10],
-                "mandatory_total_count": row[11],
-                "is_started": row[9] > 0,
+                "submitted_by_name": row[9],
+                "submitted_by_email": row[10],
+                "submitted_at": row[11].isoformat() if row[11] else None,
+                "response_count": row[12],
+                "mandatory_answered_count": row[13],
+                "mandatory_total_count": row[14],
+                "is_started": row[12] > 0,
                 "is_completed": False
             }
             for row in rows
@@ -315,7 +328,10 @@ async def get_pending_visits(
                 v.visit_date,
                 v.visit_type,
                 v.status,
-                b.priority_level as business_priority
+                b.priority_level as business_priority,
+                v.submitted_by_name,
+                v.submitted_by_email,
+                v.submitted_at
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             WHERE v.status = 'Pending'
@@ -333,6 +349,9 @@ async def get_pending_visits(
                 "visit_type": row[5],
                 "status": row[6],
                 "business_priority": row[7],
+                "submitted_by_name": row[8],
+                "submitted_by_email": row[9],
+                "submitted_at": row[10].isoformat() if row[10] else None,
                 "reviewer_id": None,
                 "review_timestamp": None,
                 "change_notes": None,
@@ -407,7 +426,10 @@ async def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depe
                 v.visit_date,
                 v.visit_type,
                 v.status,
-                b.priority_level as business_priority
+                b.priority_level as business_priority,
+                v.submitted_by_name,
+                v.submitted_by_email,
+                v.submitted_at
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             LEFT JOIN users u ON v.representative_id = u.id
@@ -563,13 +585,30 @@ async def update_response(visit_id: str, response_id: str, response_data: dict, 
 
 
 @router.put("/{visit_id}/submit")
-async def submit_visit(visit_id: str, submit_data: dict, db: Session = Depends(get_db)):
+async def submit_visit(
+    visit_id: str,
+    submit_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Submit a visit for review."""
     try:
         # Update visit status to Pending
         db.execute(text(
-            "UPDATE visits SET status = 'Pending' WHERE id = :visit_id"
-        ), {"visit_id": visit_id})
+            """
+            UPDATE visits
+            SET
+                status = 'Pending',
+                submitted_at = NOW(),
+                submitted_by_name = :submitted_by_name,
+                submitted_by_email = :submitted_by_email
+            WHERE id = :visit_id
+            """
+        ), {
+            "visit_id": visit_id,
+            "submitted_by_name": getattr(current_user, "name", None),
+            "submitted_by_email": getattr(current_user, "email", None),
+        })
         
         # Commit the transaction to save changes
         db.commit()
@@ -577,6 +616,8 @@ async def submit_visit(visit_id: str, submit_data: dict, db: Session = Depends(g
         return {
             "visit_id": visit_id,
             "status": "Pending",
+            "submitted_by_name": getattr(current_user, "name", None),
+            "submitted_by_email": getattr(current_user, "email", None),
             "message": "Visit submitted for review"
         }
     except Exception as e:
@@ -705,7 +746,10 @@ async def get_visit_detail(
                 v.visit_date,
                 v.visit_type,
                 v.status,
-                b.priority_level as business_priority
+                b.priority_level as business_priority,
+                v.submitted_by_name,
+                v.submitted_by_email,
+                v.submitted_at
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             LEFT JOIN users u ON v.representative_id = u.id
@@ -807,6 +851,9 @@ async def get_visit_detail(
             "visit_type": visit_row[6],
             "status": visit_row[7],
             "business_priority": visit_row[8],
+            "submitted_by_name": visit_row[9],
+            "submitted_by_email": visit_row[10],
+            "submitted_at": visit_row[11].isoformat() if visit_row[11] else None,
             "mandatory_answered_count": mandatory_answered_count,
             "mandatory_total_count": mandatory_total_count,
             "is_started": len(responses) > 0,

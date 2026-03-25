@@ -1,20 +1,20 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 import { MsalProvider } from "@azure/msal-react";
-
-import App from "./App.jsx";
+import App from "./App";
 import { ensureMsalInitialized, msalInstance } from "./auth";
-import "../../shared-ui.css";
-import "./index.css";
-import "../../glass-theme.css";
+import "./styles/globals.css";
 
-const root = createRoot(document.getElementById("root"));
+const root = createRoot(document.getElementById("root") as HTMLElement);
 
 const renderApp = () => {
   root.render(
     <React.StrictMode>
       <MsalProvider instance={msalInstance}>
-        <App />
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
       </MsalProvider>
     </React.StrictMode>
   );
@@ -22,7 +22,6 @@ const renderApp = () => {
 
 ensureMsalInitialized()
   .then(renderApp)
-  .catch((error) => {
-    console.error("MSAL initialization failed", error);
+  .catch(() => {
     renderApp();
   });

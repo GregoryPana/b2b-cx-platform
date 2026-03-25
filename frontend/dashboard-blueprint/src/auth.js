@@ -9,21 +9,32 @@ export const loginRequest = {
   scopes: ["openid", "profile", "email", apiScope],
 };
 
-export const msalInstance = new PublicClientApplication({
-  auth: {
-    clientId,
-    authority,
-    redirectUri: window.location.origin,
-  },
-  cache: {
-    cacheLocation: "localStorage",
-    storeAuthStateInCookie: false,
-  },
-});
+export const isMsalSupported =
+  typeof window !== "undefined" &&
+  window.isSecureContext &&
+  typeof window.crypto !== "undefined" &&
+  typeof window.crypto.subtle !== "undefined";
+
+export const msalInstance = isMsalSupported
+  ? new PublicClientApplication({
+      auth: {
+        clientId,
+        authority,
+        redirectUri: window.location.origin,
+      },
+      cache: {
+        cacheLocation: "localStorage",
+        storeAuthStateInCookie: false,
+      },
+    })
+  : null;
 
 let msalInitPromise;
 
 export const ensureMsalInitialized = async () => {
+  if (!msalInstance) {
+    throw new Error("MSAL is unavailable in this browser context. Use HTTPS or localhost.");
+  }
   if (!msalInitPromise) {
     msalInitPromise = msalInstance.initialize();
   }

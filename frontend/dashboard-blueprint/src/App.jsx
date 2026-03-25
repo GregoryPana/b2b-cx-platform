@@ -4,11 +4,67 @@ import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import DashboardPage from "./pages/DashboardPage";
+import PlatformSelectionPage from "./pages/PlatformSelectionPage";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 
-const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8001`;
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
+const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
 
-export default function App() {
+function resolvePlatformsFromRoles(entraRoles) {
+  const isSuperAdmin = entraRoles.includes("CX_SUPER_ADMIN");
+  const canAccess = (platformKey) => {
+    if (isSuperAdmin) return true;
+    if (platformKey === "B2B") return entraRoles.includes("B2B_ADMIN") || entraRoles.includes("B2B_SURVEYOR");
+    if (platformKey === "Mystery Shopper") return entraRoles.includes("MYSTERY_ADMIN") || entraRoles.includes("MYSTERY_SURVEYOR");
+    if (platformKey === "Installation Assessment") return entraRoles.includes("INSTALL_ADMIN") || entraRoles.includes("INSTALL_SURVEYOR");
+    return false;
+  };
+
+  return [
+    { name: "B2B", keyPoints: ["Relationship analytics", "Question trends", "Business management"] },
+    { name: "Mystery Shopper", keyPoints: ["Location-level surveys", "Service quality review", "Operational trend tracking"] },
+    { name: "Installation Assessment", keyPoints: ["Installation checks", "Quality scoring", "Audit traceability"] },
+  ].filter((platform) => canAccess(platform.name));
+}
+
+function DashboardShell({ headers, entraRoles, userName, userEmail, activePlatform, setActivePlatform, onLogout }) {
+  if (!activePlatform) {
+    const availablePlatforms = resolvePlatformsFromRoles(entraRoles);
+    return (
+      <PlatformSelectionPage
+        userName={userName}
+        userEmail={userEmail}
+        availablePlatforms={availablePlatforms}
+        onSelectPlatform={setActivePlatform}
+        onLogout={onLogout}
+      />
+    );
+  }
+
+  return (
+    <MainLayout
+      onLogout={onLogout}
+      onSwitchPlatform={() => setActivePlatform("")}
+      userName={userName}
+      userEmail={userEmail}
+      activePlatform={activePlatform}
+    >
+      <Routes>
+        <Route path="/" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="/planned" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="/trends" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="/review" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="/surveys" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="/businesses" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="/locations" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="/purposes" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </MainLayout>
+  );
+}
+
+function MsalAuthenticatedApp() {
   const { instance, accounts, inProgress } = useMsal();
   const isAuthenticated = useIsAuthenticated();
   const [msalReady, setMsalReady] = useState(false);
@@ -18,6 +74,7 @@ export default function App() {
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [activePlatform, setActivePlatform] = useState("");
+  const [entraRoles, setEntraRoles] = useState([]);
 
   useEffect(() => {
     let active = true;
@@ -64,6 +121,7 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) return;
       const roles = Array.isArray(data.roles) ? data.roles : [];
+      setEntraRoles(roles);
       setRole(roles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
       setUserId(String(data.sub || userId));
       setUserName(data.name || userName);
@@ -80,25 +138,80 @@ export default function App() {
     };
     if (accessToken) next.Authorization = `Bearer ${accessToken}`;
     return next;
-  }, [accessToken, role, userId]);
+  }, [accessToken, entraRoles, role, userId]);
 
   const handleLogout = () => {
     instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
   };
+
+  useEffect(() => {
+    if (!activePlatform) return;
+    const stillAllowed = resolvePlatformsFromRoles(entraRoles).some((platform) => platform.name === activePlatform);
+    if (!stillAllowed) setActivePlatform("");
+  }, [activePlatform, entraRoles]);
 
   if (!msalReady || !isAuthenticated || !accessToken) {
     return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
   }
 
   return (
-    <MainLayout onLogout={handleLogout} userName={userName} userEmail={userEmail}>
-      <Routes>
-        <Route path="/" element={<DashboardPage headers={headers} activePlatform={activePlatform} setActivePlatform={setActivePlatform} />} />
-        <Route path="/trends" element={<DashboardPage headers={headers} activePlatform={activePlatform} setActivePlatform={setActivePlatform} />} />
-        <Route path="/review" element={<DashboardPage headers={headers} activePlatform={activePlatform} setActivePlatform={setActivePlatform} />} />
-        <Route path="/businesses" element={<DashboardPage headers={headers} activePlatform={activePlatform} setActivePlatform={setActivePlatform} />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </MainLayout>
+    <DashboardShell
+      headers={headers}
+      entraRoles={entraRoles}
+      userName={userName}
+      userEmail={userEmail}
+      activePlatform={activePlatform}
+      setActivePlatform={setActivePlatform}
+      onLogout={handleLogout}
+    />
   );
+}
+
+function DevBypassApp() {
+  const devRoles = useMemo(() => {
+    const value = import.meta.env.VITE_DEV_BYPASS_ROLES || "CX_SUPER_ADMIN";
+    return value
+      .split(",")
+      .map((role) => role.trim())
+      .filter(Boolean);
+  }, []);
+
+  const [activePlatform, setActivePlatform] = useState("");
+  const userId = import.meta.env.VITE_DEV_BYPASS_USER_ID || "999999";
+  const userName = import.meta.env.VITE_DEV_BYPASS_NAME || "Dev Local User";
+  const userEmail = import.meta.env.VITE_DEV_BYPASS_EMAIL || "dev.local@example.com";
+  const role = devRoles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative";
+
+  const headers = useMemo(
+    () => ({
+      "Content-Type": "application/json",
+      "X-User-Id": userId,
+      "X-User-Role": role,
+      "X-Dev-Auth-Bypass": "true",
+    }),
+    [devRoles, role, userId]
+  );
+
+  const handleLogout = () => {
+    setActivePlatform("");
+  };
+
+  return (
+    <DashboardShell
+      headers={headers}
+      entraRoles={devRoles}
+      userName={userName}
+      userEmail={userEmail}
+      activePlatform={activePlatform}
+      setActivePlatform={setActivePlatform}
+      onLogout={handleLogout}
+    />
+  );
+}
+
+export default function App() {
+  if (DEV_AUTH_BYPASS) {
+    return <DevBypassApp />;
+  }
+  return <MsalAuthenticatedApp />;
 }

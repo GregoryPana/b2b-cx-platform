@@ -21,7 +21,7 @@ export const msalInstance = new PublicClientApplication({
   },
 });
 
-let msalInitPromise;
+let msalInitPromise: Promise<void> | undefined;
 
 export const ensureMsalInitialized = async () => {
   if (!msalInitPromise) {

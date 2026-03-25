@@ -3,16 +3,16 @@ name: frontend-dashboard-ci
 on:
   push:
     paths:
-      - "frontend/dashboard/**"
+      - "frontend/dashboard-blueprint/**"
       - ".github/workflows/frontend-dashboard-ci.yml"
   pull_request:
     paths:
-      - "frontend/dashboard/**"
+      - "frontend/dashboard-blueprint/**"
       - ".github/workflows/frontend-dashboard-ci.yml"
 
 jobs:
   build:
-    if: ${{ hashFiles('frontend/dashboard/package.json') != '' }}
+    if: ${{ hashFiles('frontend/dashboard-blueprint/package.json') != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +22,10 @@ jobs:
           node-version: "20"
       - name: Install dependencies
         run: npm install
-        working-directory: frontend/dashboard
+        working-directory: frontend/dashboard-blueprint
       - name: Build
+        env:
+          VITE_API_URL: /api
+          VITE_BASE_PATH: /dashboard/
         run: npm run build
-        working-directory: frontend/dashboard
+        working-directory: frontend/dashboard-blueprint

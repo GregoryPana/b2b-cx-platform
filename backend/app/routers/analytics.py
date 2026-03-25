@@ -173,7 +173,23 @@ async def get_comprehensive_analytics(
         
         # Overall Relationship Score
         relationship_stats = db.execute(text(f"""
-            SELECT 
+            WITH latest_business_visits AS (
+                SELECT ranked.id, ranked.business_id
+                FROM (
+                    SELECT
+                        v.id,
+                        v.business_id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY v.business_id
+                            ORDER BY v.visit_date DESC, v.id DESC
+                        ) AS rn
+                    FROM visits v
+                    WHERE v.status = 'Approved'
+                    {where_extra}
+                ) ranked
+                WHERE ranked.rn = 1
+            )
+            SELECT
                 AVG(r.score) as avg_relationship_score,
                 COUNT(r.score) as relationship_questions_answered,
                 SUM(r.score) as total_relationship_score,
@@ -183,14 +199,12 @@ async def get_comprehensive_analytics(
                         ELSE 10
                     END
                 ) as relationship_possible_score
-            FROM b2b_visit_responses r
+            FROM latest_business_visits lbv
+            JOIN b2b_visit_responses r ON r.visit_id = lbv.id
             JOIN questions q ON r.question_id = q.id
-            JOIN visits v ON r.visit_id = v.id
-            WHERE v.status = 'Approved'
-            AND q.input_type = 'score'
+            WHERE q.input_type = 'score'
             AND {relationship_filter}
             AND r.score IS NOT NULL
-            {where_extra}
         """), params).fetchone()
 
         relationship_avg = float(relationship_stats.avg_relationship_score) if relationship_stats.avg_relationship_score else 0.0
@@ -253,18 +267,41 @@ async def get_comprehensive_analytics(
         """), params).fetchone()
 
         competitive_stats = db.execute(text(f"""
+            WITH latest_business_visits AS (
+                SELECT ranked.id, ranked.business_id
+                FROM (
+                    SELECT
+                        v.id,
+                        v.business_id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY v.business_id
+                            ORDER BY v.visit_date DESC, v.id DESC
+                        ) AS rn
+                    FROM visits v
+                    WHERE v.status = 'Approved'
+                    {where_extra}
+                ) ranked
+                WHERE ranked.rn = 1
+            ), business_competitor_usage AS (
+                SELECT
+                    lbv.business_id,
+                    MAX(
+                        CASE
+                            WHEN {q16_filter}
+                             AND (UPPER(COALESCE(r.answer_text, '')) = 'Y' OR LOWER(COALESCE(r.answer_text, '')) = 'yes')
+                            THEN 1
+                            ELSE 0
+                        END
+                    ) AS uses_competitor
+                FROM latest_business_visits lbv
+                LEFT JOIN b2b_visit_responses r ON r.visit_id = lbv.id
+                LEFT JOIN questions q ON q.id = r.question_id
+                GROUP BY lbv.business_id
+            )
             SELECT
-                COUNT(DISTINCT v.business_id) AS total_accounts,
-                COUNT(DISTINCT CASE
-                    WHEN {q16_filter}
-                     AND (UPPER(COALESCE(r.answer_text, '')) = 'Y' OR LOWER(COALESCE(r.answer_text, '')) = 'yes')
-                    THEN v.business_id
-                END) AS accounts_using_competitors
-            FROM visits v
-            LEFT JOIN b2b_visit_responses r ON r.visit_id = v.id
-            LEFT JOIN questions q ON q.id = r.question_id
-            WHERE v.status = 'Approved'
-            {where_extra}
+                COUNT(*) AS total_accounts,
+                SUM(uses_competitor) AS accounts_using_competitors
+            FROM business_competitor_usage
         """), params).fetchone()
 
         total_accounts = int(competitive_stats.total_accounts or 0)

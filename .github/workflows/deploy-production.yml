@@ -21,7 +21,7 @@ jobs:
               - 'scripts/linux/deploy_backend.sh'
               - 'scripts/linux/install_release_bundle.sh'
             dashboard:
-              - 'frontend/dashboard/**'
+              - 'frontend/dashboard-blueprint/**'
             surveys:
               - 'frontend/survey/**'
             mystery:
@@ -62,6 +62,11 @@ jobs:
 
       - name: Install and deploy on VM
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          BUILD_BACKEND: ${{ steps.changes.outputs.backend == 'true' || steps.changes.outputs.infra == 'true' }}
+          BUILD_DASHBOARD: ${{ steps.changes.outputs.dashboard == 'true' || steps.changes.outputs.infra == 'true' }}
+          BUILD_SURVEYS: ${{ steps.changes.outputs.surveys == 'true' || steps.changes.outputs.infra == 'true' }}
+          BUILD_MYSTERY_SHOPPER: ${{ steps.changes.outputs.mystery == 'true' || steps.changes.outputs.infra == 'true' }}
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_USER }}

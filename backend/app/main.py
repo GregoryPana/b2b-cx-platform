@@ -59,6 +59,15 @@ def create_app() -> FastAPI:
     cors_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX", "").strip() or None
     environment = os.getenv("ENVIRONMENT", "dev")
 
+    if not cors_allow_origins and not cors_origin_regex and environment == "dev":
+        cors_origin_regex = (
+            r"^https?://"
+            r"(localhost|127\.0\.0\.1|0\.0\.0\.0|"
+            r"192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|"
+            r"172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)"
+            r"(:\d+)?$"
+        )
+
     # Validate critical configuration
     missing = []
     if not os.getenv("DATABASE_URL"):

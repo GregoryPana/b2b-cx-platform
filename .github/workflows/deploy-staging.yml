@@ -6,10 +6,20 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
 jobs:
-  deploy:
+  changes:
     runs-on: ubuntu-latest
-    environment: staging
+    outputs:
+      should_deploy: ${{ steps.deploy_gate.outputs.should_deploy }}
+      backend: ${{ steps.changes.outputs.backend }}
+      dashboard: ${{ steps.changes.outputs.dashboard }}
+      surveys: ${{ steps.changes.outputs.surveys }}
+      mystery: ${{ steps.changes.outputs.mystery }}
+      infra: ${{ steps.changes.outputs.infra }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,15 +34,18 @@ jobs:
               - 'scripts/linux/deploy_backend.sh'
               - 'scripts/linux/install_release_bundle.sh'
             dashboard:
-              - 'frontend/dashboard/**'
+              - 'frontend/dashboard-blueprint/**'
+              - '.github/workflows/frontend-dashboard-ci.yml'
             surveys:
               - 'frontend/survey/**'
+              - '.github/workflows/frontend-survey-ci.yml'
             mystery:
               - 'frontend/mystery-shopper/**'
             infra:
               - 'scripts/linux/**'
               - '.github/workflows/**'
               - 'ENTERPRISE_DEPLOYMENT_RUNBOOK.md'
+              - 'README.md'
 
       - name: Decide whether to deploy
         id: deploy_gate
@@ -53,31 +66,95 @@ jobs:
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
           fi
 
+  backend_ci:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.should_deploy == 'true' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.infra == 'true') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Run tests
+        env:
+          PYTHONPATH: backend
+        run: pytest backend/tests
+
+  dashboard_ci:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.should_deploy == 'true' && (needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.infra == 'true') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend/dashboard-blueprint
+      - name: Build
+        env:
+          VITE_API_URL: /api
+          VITE_BASE_PATH: /dashboard/
+        run: npm run build
+        working-directory: frontend/dashboard-blueprint
+
+  survey_ci:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.should_deploy == 'true' && (needs.changes.outputs.surveys == 'true' || needs.changes.outputs.infra == 'true') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend/survey
+      - name: Build
+        env:
+          VITE_API_URL: /api
+          VITE_BASE_PATH: /surveys/b2b/
+        run: npm run build
+        working-directory: frontend/survey
+
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    needs: [changes, backend_ci, dashboard_ci, survey_ci]
+    if: ${{ needs.changes.outputs.should_deploy == 'true' && needs.backend_ci.result != 'failure' && needs.dashboard_ci.result != 'failure' && needs.survey_ci.result != 'failure' }}
+    env:
+      RELEASE_ID: staging-${{ github.run_number }}-${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Set up Node.js
-        if: ${{ steps.deploy_gate.outputs.should_deploy == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: Set up Python
-        if: ${{ steps.deploy_gate.outputs.should_deploy == 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Build release bundle
-        if: ${{ steps.deploy_gate.outputs.should_deploy == 'true' }}
         shell: pwsh
         env:
-          BUILD_BACKEND: ${{ steps.changes.outputs.backend == 'true' || steps.changes.outputs.infra == 'true' }}
-          BUILD_DASHBOARD: ${{ steps.changes.outputs.dashboard == 'true' || steps.changes.outputs.infra == 'true' }}
-          BUILD_SURVEYS: ${{ steps.changes.outputs.surveys == 'true' || steps.changes.outputs.infra == 'true' }}
-          BUILD_MYSTERY_SHOPPER: ${{ steps.changes.outputs.mystery == 'true' || steps.changes.outputs.infra == 'true' }}
+          BUILD_BACKEND: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.infra == 'true' }}
+          BUILD_DASHBOARD: ${{ needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.infra == 'true' }}
+          BUILD_SURVEYS: ${{ needs.changes.outputs.surveys == 'true' || needs.changes.outputs.infra == 'true' }}
+          BUILD_MYSTERY_SHOPPER: ${{ needs.changes.outputs.mystery == 'true' || needs.changes.outputs.infra == 'true' }}
         run: |
           pwsh -ExecutionPolicy Bypass -File .\scripts\windows\build_release_bundle.ps1 -OutputZip $env:RUNNER_TEMP\cwscx-release.zip
 
       - name: Upload release bundle to VM
-        if: ${{ steps.deploy_gate.outputs.should_deploy == 'true' }}
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.STAGING_HOST }}
@@ -86,9 +163,15 @@ jobs:
           source: ${{ runner.temp }}/cwscx-release.zip
           target: /tmp/
 
-      - name: Install and deploy on VM
-        if: ${{ steps.deploy_gate.outputs.should_deploy == 'true' }}
+      - name: Install and deploy on VM (with rollback)
+        id: deploy_vm
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          BUILD_BACKEND: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.infra == 'true' }}
+          BUILD_DASHBOARD: ${{ needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.infra == 'true' }}
+          BUILD_SURVEYS: ${{ needs.changes.outputs.surveys == 'true' || needs.changes.outputs.infra == 'true' }}
+          BUILD_MYSTERY_SHOPPER: ${{ needs.changes.outputs.mystery == 'true' || needs.changes.outputs.infra == 'true' }}
+          RELEASE_ID: ${{ env.RELEASE_ID }}
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
@@ -98,49 +181,115 @@ jobs:
             set -euo pipefail
 
             TARGET_ROOT="${{ secrets.STAGING_PATH }}"
+            STAGING_BASE_URL="${{ secrets.STAGING_BASE_URL }}"
+
             if [[ -z "${TARGET_ROOT}" ]]; then
               echo "Missing STAGING_PATH secret"
               exit 1
             fi
 
+            if [[ -z "${STAGING_BASE_URL}" ]]; then
+              STAGING_BASE_URL="https://cwscx-tst01.cwsey.com"
+            fi
+
             sudo mkdir -p "${TARGET_ROOT}"
             sudo chown -R "${USER}:www-data" "${TARGET_ROOT}" || true
-
             cd "${TARGET_ROOT}"
 
-            # Keep a copy of the release bundle for rollback
             TS="$(date +%Y%m%d-%H%M%S)"
+            SHA="${{ github.sha }}"
+            SAFE_RELEASE_ID="${RELEASE_ID:-staging-${TS}-${SHA:0:8}}"
             mkdir -p "${TARGET_ROOT}/releases"
-            cp -f /tmp/cwscx-release.zip "${TARGET_ROOT}/releases/cwscx-release-${TS}.zip"
+            NEW_BUNDLE="${TARGET_ROOT}/releases/cwscx-release-${SAFE_RELEASE_ID}.zip"
+            cp -f /tmp/cwscx-release.zip "${NEW_BUNDLE}"
 
-            # Install artifacts (does not restart services)
-            bash scripts/linux/install_release_bundle.sh /tmp/cwscx-release.zip
+            PREV_BUNDLE="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip 2>/dev/null | grep -v "${SAFE_RELEASE_ID}" | head -n1 || true)"
 
-            # Ensure DB container is up
-            if [[ -f docker-compose.yml ]]; then
-              docker compose up -d
-            fi
+            deploy_release() {
+              bash scripts/linux/install_release_bundle.sh "${NEW_BUNDLE}"
 
-            # Deploy backend only when backend/infra changed
-            if [[ "${BUILD_BACKEND:-false}" == "True" || "${BUILD_BACKEND:-false}" == "true" || "${BUILD_BACKEND:-false}" == "1" ]]; then
-              bash scripts/linux/deploy_backend.sh
+              if [[ -f docker-compose.yml ]]; then
+                docker compose up -d
+              fi
+
+              if [[ "${BUILD_BACKEND:-false}" == "True" || "${BUILD_BACKEND:-false}" == "true" || "${BUILD_BACKEND:-false}" == "1" ]]; then
+                bash scripts/linux/deploy_backend.sh
+              else
+                echo "Skipping backend deploy (no backend changes)."
+              fi
+
+              if [[ "${BUILD_DASHBOARD:-false}" == "True" || "${BUILD_DASHBOARD:-false}" == "true" || "${BUILD_DASHBOARD:-false}" == "1" || \
+                    "${BUILD_SURVEYS:-false}" == "True" || "${BUILD_SURVEYS:-false}" == "true" || "${BUILD_SURVEYS:-false}" == "1" || \
+                    "${BUILD_MYSTERY_SHOPPER:-false}" == "True" || "${BUILD_MYSTERY_SHOPPER:-false}" == "true" || "${BUILD_MYSTERY_SHOPPER:-false}" == "1" ]]; then
+                bash scripts/linux/deploy_frontends.sh
+              else
+                echo "Skipping frontend validation (no frontend changes)."
+              fi
+
+              sudo bash scripts/linux/deploy_nginx.sh
+              STAGING_BASE_URL="${STAGING_BASE_URL}" bash scripts/linux/verify_staging.sh
+            }
+
+            rollback_release() {
+              if [[ -z "${PREV_BUNDLE}" || ! -f "${PREV_BUNDLE}" ]]; then
+                echo "No previous release bundle available for rollback."
+                return
+              fi
+
+              echo "Rolling back using ${PREV_BUNDLE}"
+              bash scripts/linux/install_release_bundle.sh "${PREV_BUNDLE}"
+              bash scripts/linux/deploy_backend.sh || true
+              bash scripts/linux/deploy_frontends.sh || true
+              sudo bash scripts/linux/deploy_nginx.sh || true
+              STAGING_BASE_URL="${STAGING_BASE_URL}" bash scripts/linux/verify_staging.sh || true
+            }
+
+            if deploy_release; then
+              echo "Staging deploy succeeded."
             else
-              echo "Skipping backend deploy (no backend changes)."
+              echo "Staging deploy failed. Initiating rollback."
+              rollback_release
+              exit 1
             fi
 
-            # Validate frontend artifacts
-            if [[ "${BUILD_DASHBOARD:-false}" == "True" || "${BUILD_DASHBOARD:-false}" == "true" || "${BUILD_DASHBOARD:-false}" == "1" || \
-                  "${BUILD_SURVEYS:-false}" == "True" || "${BUILD_SURVEYS:-false}" == "true" || "${BUILD_SURVEYS:-false}" == "1" || \
-                  "${BUILD_MYSTERY_SHOPPER:-false}" == "True" || "${BUILD_MYSTERY_SHOPPER:-false}" == "true" || "${BUILD_MYSTERY_SHOPPER:-false}" == "1" ]]; then
-              bash scripts/linux/deploy_frontends.sh
-            else
-              echo "Skipping frontend validation (no frontend changes)."
-            fi
+      - name: Publish Deploy Summary
+        if: always()
+        shell: bash
+        env:
+          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+        run: |
+          BASE_URL="${STAGING_BASE_URL:-https://cwscx-tst01.cwsey.com}"
+          BACKEND_CHANGED="${{ needs.changes.outputs.backend }}"
+          DASHBOARD_CHANGED="${{ needs.changes.outputs.dashboard }}"
+          SURVEYS_CHANGED="${{ needs.changes.outputs.surveys }}"
+          MYSTERY_CHANGED="${{ needs.changes.outputs.mystery }}"
+          INFRA_CHANGED="${{ needs.changes.outputs.infra }}"
+          COMMIT_SHA="${{ github.sha }}"
+          TRIGGER_EVENT="${{ github.event_name }}"
+          JOB_STATUS="${{ job.status }}"
 
-            # Deploy nginx config
-            sudo bash scripts/linux/deploy_nginx.sh
-
-            # Post-deploy checks
-            curl -fsS http://127.0.0.1:8000/health
-            sudo nginx -t
-            curl -kfsS https://cwscx-tst01.cwsey.com/api/health
+          {
+            echo "## Staging Deploy Summary"
+            echo ""
+            printf -- "- Status: **%s**\n" "$JOB_STATUS"
+            printf -- "- Release ID: `%s`\n" "$RELEASE_ID"
+            printf -- "- Commit: `%s`\n" "$COMMIT_SHA"
+            printf -- "- Trigger: `%s`\n" "$TRIGGER_EVENT"
+            echo ""
+            echo "### Changed Components"
+            printf -- "- Backend: `%s`\n" "$BACKEND_CHANGED"
+            printf -- "- Dashboard (blueprint): `%s`\n" "$DASHBOARD_CHANGED"
+            printf -- "- Surveys (B2B/Installation): `%s`\n" "$SURVEYS_CHANGED"
+            printf -- "- Mystery Shopper: `%s`\n" "$MYSTERY_CHANGED"
+            printf -- "- Infra: `%s`\n" "$INFRA_CHANGED"
+            echo ""
+            echo "### Health / Routes"
+            echo "- ${BASE_URL}/api/health"
+            echo "- ${BASE_URL}/dashboard/"
+            echo "- ${BASE_URL}/surveys/b2b/"
+            echo "- ${BASE_URL}/surveys/installation/"
+            echo ""
+            echo "### Notes"
+            echo "- VM deploy includes rollback attempt when verification fails."
+            echo "- See step logs: **Install and deploy on VM (with rollback)** for rollback details."
+          } >> "$GITHUB_STEP_SUMMARY"

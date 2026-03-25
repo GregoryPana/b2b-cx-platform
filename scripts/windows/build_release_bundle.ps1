@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 # Component build toggles (CI/CD can set these as env vars).
 # Defaults:
 # - Backend: build
-# - Dashboard: build
+# - Dashboard (blueprint): build
 # - Surveys (b2b + installation): build
 # - Mystery shopper: skip (later phase)
 function Get-BoolEnv {
@@ -102,7 +102,7 @@ Start-Sleep -Seconds 1
 Write-Host "Building frontend artifacts..." -ForegroundColor Cyan
 
 if ($BuildDashboard) {
-    Build-Frontend -AppPath (Join-Path $RepoRoot "frontend" "dashboard") -BasePath "/dashboard/"
+    Build-Frontend -AppPath (Join-Path $RepoRoot "frontend" "dashboard-blueprint") -BasePath "/dashboard/"
 }
 
 if ($BuildSurveys) {
@@ -128,7 +128,7 @@ if ($BuildMysteryShopper) {
 
 if ($BuildDashboard) {
     New-Item -ItemType Directory -Force -Path (Join-Path $ReleaseRoot "frontends" "dashboard") | Out-Null
-    Copy-Item (Join-Path $RepoRoot "frontend" "dashboard" "dist") (Join-Path $ReleaseRoot "frontends" "dashboard" "dist") -Recurse -Force
+    Copy-Item (Join-Path $RepoRoot "frontend" "dashboard-blueprint" "dist") (Join-Path $ReleaseRoot "frontends" "dashboard" "dist") -Recurse -Force
 }
 
 Copy-Item (Join-Path $RepoRoot "scripts\linux") (Join-Path $ReleaseRoot "scripts\linux") -Recurse -Force

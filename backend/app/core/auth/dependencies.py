@@ -1,9 +1,11 @@
+import os
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .entra import AuthUser, get_entra_validator
 
-security = HTTPBearer(auto_error=True)
+security = HTTPBearer(auto_error=False)
 
 
 DASHBOARD_ROLES = (
@@ -37,6 +39,26 @@ ALL_PLATFORM_ROLES = tuple(dict.fromkeys((*B2B_ROLES, *MYSTERY_ROLES, *INSTALL_R
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> AuthUser:
+    dev_auth_bypass = os.getenv("DEV_AUTH_BYPASS", "false").strip().lower() in {"1", "true", "yes"}
+    environment = os.getenv("ENVIRONMENT", "dev").strip().lower()
+
+    if dev_auth_bypass and environment == "dev":
+        roles_raw = os.getenv(
+            "DEV_AUTH_BYPASS_ROLES",
+            "CX_SUPER_ADMIN,B2B_ADMIN,MYSTERY_ADMIN,INSTALL_ADMIN,B2B_SURVEYOR,MYSTERY_SURVEYOR,INSTALL_SURVEYOR",
+        )
+        roles = tuple(role.strip() for role in roles_raw.split(",") if role.strip())
+        user_name = os.getenv("DEV_AUTH_BYPASS_NAME", "Dev Local User")
+        user_email = os.getenv("DEV_AUTH_BYPASS_EMAIL", "dev.local@example.com")
+        user_sub = os.getenv("DEV_AUTH_BYPASS_SUB", "dev-auth-bypass-user")
+        return AuthUser(
+            sub=user_sub,
+            name=user_name,
+            preferred_username=user_email,
+            roles=roles,
+            claims={"dev_auth_bypass": True, "roles": list(roles)},
+        )
+
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
 
