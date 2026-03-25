@@ -52,12 +52,93 @@ optional_frontend_dist() {
   return 0
 }
 
+archive_legacy_path() {
+  local path="$1"
+  local archive_root="$2"
+  local path_basename
+  path_basename="$(basename "${path}")"
+  local archive_target="${archive_root}/${path_basename}"
+
+  if [[ ! -e "${path}" ]]; then
+    return 0
+  fi
+
+  if [[ -e "${archive_target}" ]]; then
+    archive_target="${archive_target}-$(date +%s)"
+  fi
+
+  echo "Archiving legacy frontend path: ${path} -> ${archive_target}"
+  mv "${path}" "${archive_target}"
+}
+
+cleanup_legacy_frontends() {
+  local frontends_root="$1"
+  local archive_base="$2"
+  local ts
+  ts="$(date +%Y%m%d-%H%M%S)"
+  local archive_root="${archive_base}/${ts}"
+  local archived_any="false"
+
+  mkdir -p "${archive_root}"
+
+  for item in "${frontends_root}"/*; do
+    [[ -e "${item}" ]] || continue
+    case "$(basename "${item}")" in
+      dashboard|internal-surveys|public)
+        ;;
+      *)
+        archive_legacy_path "${item}" "${archive_root}"
+        archived_any="true"
+        ;;
+    esac
+  done
+
+  if [[ -d "${frontends_root}/internal-surveys" ]]; then
+    for item in "${frontends_root}/internal-surveys"/*; do
+      [[ -e "${item}" ]] || continue
+      case "$(basename "${item}")" in
+        b2b|installation)
+          ;;
+        *)
+          archive_legacy_path "${item}" "${archive_root}"
+          archived_any="true"
+          ;;
+      esac
+    done
+  fi
+
+  if [[ -d "${frontends_root}/public" ]]; then
+    for item in "${frontends_root}/public"/*; do
+      [[ -e "${item}" ]] || continue
+      case "$(basename "${item}")" in
+        mystery-shopper)
+          ;;
+        *)
+          archive_legacy_path "${item}" "${archive_root}"
+          archived_any="true"
+          ;;
+      esac
+    done
+  fi
+
+  if [[ "${archived_any}" == "true" ]]; then
+    echo "Legacy frontend paths archived under ${archive_root}"
+  else
+    rmdir "${archive_root}" 2>/dev/null || true
+    echo "No legacy frontend paths detected."
+  fi
+}
+
 mkdir -p "${TARGET_ROOT}/backend"
+mkdir -p "${TARGET_ROOT}/frontends-src"
+mkdir -p "${TARGET_ROOT}/frontends-archive"
 mkdir -p "${TARGET_ROOT}/frontends-src/public/mystery-shopper"
 mkdir -p "${TARGET_ROOT}/frontends-src/dashboard"
 mkdir -p "${TARGET_ROOT}/frontends-src/internal-surveys/b2b"
 mkdir -p "${TARGET_ROOT}/frontends-src/internal-surveys/installation"
 mkdir -p "${TARGET_ROOT}/shared"
+
+cleanup_legacy_frontends "${TARGET_ROOT}/frontends-src" "${TARGET_ROOT}/frontends-archive"
 
 if [[ ! -d "${BUNDLE_ROOT}/backend" ]]; then
   echo "Backend directory missing in bundle. This is required."
