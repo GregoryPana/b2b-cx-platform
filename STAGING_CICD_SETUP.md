@@ -2,6 +2,12 @@
 
 This checklist is for fully automated staging deploys from GitHub Actions.
 
+## Deployment mode
+
+- `deploy-staging-local` is the primary workflow when staging VM is reachable only on local/private network.
+- It requires a self-hosted runner on the staging network with labels: `self-hosted`, `linux`, `staging`.
+- `deploy-staging` is kept as manual (`workflow_dispatch`) for SSH-based deployments from GitHub-hosted runners.
+
 ## 1) GitHub Environment
 
 Create GitHub environment: `staging`.

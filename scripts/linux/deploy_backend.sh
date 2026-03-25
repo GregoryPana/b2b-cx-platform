@@ -3,6 +3,9 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/opt/cwscx}"
 BACKEND_DIR="${REPO_DIR}/backend/backend"
+if [[ ! -d "${BACKEND_DIR}" ]]; then
+  BACKEND_DIR="${REPO_DIR}/backend"
+fi
 VENV_DIR="${BACKEND_DIR}/venv"
 ENV_FILE="${BACKEND_DIR}/.env"
 SERVICE_FILE="/etc/systemd/system/cwscx-backend.service"
