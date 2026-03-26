@@ -16,8 +16,8 @@ run_as_root() {
     return
   fi
 
-  if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-    sudo "$@"
+  if command -v sudo >/dev/null 2>&1 && sudo -n "$@" >/dev/null 2>&1; then
+    sudo -n "$@"
     return
   fi
 
@@ -51,10 +51,13 @@ fi
 # Normalize potential CRLF line endings to avoid shell/systemd env parse issues
 sed -i 's/\r$//' "${ENV_FILE}"
 
-# Load environment variables for alembic
-set -a
-source "${ENV_FILE}"
-set +a
+# Load DATABASE_URL for Alembic without sourcing full .env shell content
+DATABASE_URL_VALUE="$(grep -E '^DATABASE_URL=' "${ENV_FILE}" | tail -n1 | cut -d'=' -f2- | sed 's/\r$//' || true)"
+if [[ -z "${DATABASE_URL_VALUE}" ]]; then
+  echo "DATABASE_URL is missing in ${ENV_FILE}"
+  exit 1
+fi
+export DATABASE_URL="${DATABASE_URL_VALUE}"
 
 # Use upgrade-only migrations; never clear/reset data
 ALEMBIC_LOG="$(mktemp /tmp/cwscx-alembic.XXXXXX.log)"

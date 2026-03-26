@@ -77,7 +77,7 @@ server {
     location / {
         alias /opt/cwscx/frontends-src/public/mystery-shopper/dist/;
         index index.html;
-        try_files $uri $uri/ /index.html;
+        try_files \$uri \$uri/ /index.html;
     }
 
     # Canonical trailing-slash redirects for SPAs
