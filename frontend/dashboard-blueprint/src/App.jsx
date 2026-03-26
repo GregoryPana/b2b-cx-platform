@@ -75,6 +75,7 @@ function MsalAuthenticatedApp() {
   const [userEmail, setUserEmail] = useState("");
   const [activePlatform, setActivePlatform] = useState("");
   const [entraRoles, setEntraRoles] = useState([]);
+  const [authProfileError, setAuthProfileError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -100,6 +101,11 @@ function MsalAuthenticatedApp() {
     setUserId(String(claims.sub || claims.oid || "3"));
     setUserName(claims.name || account.name || "");
     setUserEmail(claims.preferred_username || account.username || "");
+    const claimRoles = Array.isArray(claims.roles) ? claims.roles : [];
+    if (claimRoles.length > 0) {
+      setEntraRoles(claimRoles);
+      setRole(claimRoles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
+    }
 
     const loadToken = async () => {
       try {
@@ -117,15 +123,34 @@ function MsalAuthenticatedApp() {
   useEffect(() => {
     if (!accessToken) return;
     const run = async () => {
-      const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const data = await res.json();
-      if (!res.ok) return;
-      const roles = Array.isArray(data.roles) ? data.roles : [];
-      setEntraRoles(roles);
-      setRole(roles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
-      setUserId(String(data.sub || userId));
-      setUserName(data.name || userName);
-      setUserEmail(data.preferred_username || userEmail);
+      setAuthProfileError("");
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const contentType = res.headers.get("content-type") || "";
+        let data = null;
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          const rawText = await res.text();
+          throw new Error(`Profile endpoint returned non-JSON response (${res.status}). ${rawText.slice(0, 120)}`);
+        }
+
+        if (!res.ok) {
+          throw new Error(data?.detail || `Failed to load profile (${res.status})`);
+        }
+
+        const roles = Array.isArray(data.roles) ? data.roles : [];
+        if (roles.length > 0) {
+          setEntraRoles(roles);
+          setRole(roles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
+        }
+        setUserId(String(data.sub || userId));
+        setUserName(data.name || userName);
+        setUserEmail(data.preferred_username || userEmail);
+      } catch (error) {
+        console.error("Failed loading /auth/me profile", error);
+        setAuthProfileError("Could not load profile details from server. You can still continue with role claims from your sign-in token.");
+      }
     };
     run();
   }, [accessToken, userEmail, userId, userName]);
@@ -155,15 +180,20 @@ function MsalAuthenticatedApp() {
   }
 
   return (
-    <DashboardShell
-      headers={headers}
-      entraRoles={entraRoles}
-      userName={userName}
-      userEmail={userEmail}
-      activePlatform={activePlatform}
-      setActivePlatform={setActivePlatform}
-      onLogout={handleLogout}
-    />
+    <>
+      {authProfileError ? (
+        <div className="border-b bg-warning/20 px-4 py-2 text-sm text-warning-foreground">{authProfileError}</div>
+      ) : null}
+      <DashboardShell
+        headers={headers}
+        entraRoles={entraRoles}
+        userName={userName}
+        userEmail={userEmail}
+        activePlatform={activePlatform}
+        setActivePlatform={setActivePlatform}
+        onLogout={handleLogout}
+      />
+    </>
   );
 }
 
