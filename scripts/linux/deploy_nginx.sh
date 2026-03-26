@@ -69,7 +69,7 @@ server {
     # Root: serves mystery shopper SPA
     location ^~ /assets/ {
         alias /opt/cwscx/frontends-src/public/mystery-shopper/dist/assets/;
-        try_files $request_filename =404;
+        try_files \$request_filename =404;
         expires 365d;
         add_header Cache-Control "public, immutable";
     }

@@ -7,7 +7,7 @@ if [[ ! -d "${BACKEND_DIR}" ]]; then
   BACKEND_DIR="${REPO_DIR}/backend"
 fi
 VENV_DIR="${BACKEND_DIR}/venv"
-ENV_FILE="${BACKEND_DIR}/.env"
+ENV_FILE="${REPO_DIR}/.env"
 SERVICE_FILE="/etc/systemd/system/cwscx-backend.service"
 
 run_as_root() {
@@ -47,6 +47,9 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   cp "${REPO_DIR}/.env.example" "${ENV_FILE}"
   echo "Created ${ENV_FILE} from .env.example. Update real secrets before restart."
 fi
+
+# Normalize potential CRLF line endings to avoid shell/systemd env parse issues
+sed -i 's/\r$//' "${ENV_FILE}"
 
 # Load environment variables for alembic
 set -a
