@@ -69,6 +69,7 @@ function DashboardShell({ headers, entraRoles, userName, userEmail, activePlatfo
         <Route path="/planned" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
         <Route path="/trends" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
         <Route path="/review" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="/actions" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
         <Route path="/surveys" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
         <Route path="/businesses" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
         <Route path="/locations" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />

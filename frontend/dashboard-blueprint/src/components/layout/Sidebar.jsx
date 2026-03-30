@@ -12,6 +12,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
     ...(isB2BPlatform ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
     { to: "/trends", label: "Trends", icon: FileBarChart2 },
     { to: "/review", label: "Review", icon: ClipboardCheck },
+    ...(isB2BPlatform ? [{ to: "/actions", label: "Actions", icon: ClipboardCheck }] : []),
     { to: "/surveys", label: "Surveys", icon: FileBarChart2 },
     ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
     ...(isMysteryShopperPlatform

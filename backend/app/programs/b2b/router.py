@@ -17,7 +17,7 @@ router = APIRouter(tags=["b2b"])
 
 
 @router.get("/businesses", response_model=List[BusinessOut])
-async def list_businesses(
+def list_businesses(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _access: bool = Depends(require_program_access("B2B"))
@@ -27,7 +27,7 @@ async def list_businesses(
 
 
 @router.get("/businesses/{business_id}", response_model=BusinessOut)
-async def get_business(
+def get_business(
     business_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -44,7 +44,7 @@ async def get_business(
 
 
 @router.get("/businesses/{business_id}/visits", response_model=List[B2BVisitOut])
-async def get_business_visits(
+def get_business_visits(
     business_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -63,7 +63,7 @@ async def get_business_visits(
 
 
 @router.post("/businesses", response_model=BusinessOut, status_code=status.HTTP_201_CREATED)
-async def create_business(
+def create_business(
     business_data: BusinessCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -74,7 +74,7 @@ async def create_business(
 
 
 @router.put("/businesses/{business_id}", response_model=BusinessOut)
-async def update_business(
+def update_business(
     business_id: int,
     business_data: BusinessUpdate,
     db: Session = Depends(get_db),
@@ -86,7 +86,7 @@ async def update_business(
 
 
 @router.get("/businesses/{business_id}/deletion-summary")
-async def get_business_deletion_summary(
+def get_business_deletion_summary(
     business_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -105,7 +105,7 @@ async def get_business_deletion_summary(
 
 
 @router.delete("/businesses/{business_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_business(
+def delete_business(
     business_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -116,7 +116,7 @@ async def delete_business(
 
 
 @router.put("/businesses/{business_id}/retire", response_model=BusinessOut)
-async def retire_business(
+def retire_business(
     business_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -128,7 +128,7 @@ async def retire_business(
 
 # Account Executive Endpoints
 @router.get("/account-executives", response_model=List[AccountExecutiveOut])
-async def list_account_executives(
+def list_account_executives(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _access: bool = Depends(require_program_access("B2B"))
@@ -138,7 +138,7 @@ async def list_account_executives(
 
 
 @router.get("/public/businesses", response_model=List[dict])
-async def list_businesses_public(
+def list_businesses_public(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _access: bool = Depends(require_program_access("B2B")),
@@ -190,7 +190,7 @@ async def list_businesses_public(
 
 
 @router.get("/public/account-executives", response_model=List[dict])
-async def list_account_executives_public(
+def list_account_executives_public(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _access: bool = Depends(require_program_access("B2B")),
@@ -229,7 +229,7 @@ async def list_account_executives_public(
 
 
 @router.get("/account-executives/{ae_id}", response_model=AccountExecutiveOut)
-async def get_account_executive(
+def get_account_executive(
     ae_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -246,7 +246,7 @@ async def get_account_executive(
 
 
 @router.get("/account-executives/{ae_id}/businesses", response_model=List[BusinessOut])
-async def get_ae_businesses(
+def get_ae_businesses(
     ae_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -269,7 +269,7 @@ async def get_ae_businesses(
 
 
 @router.post("/account-executives", response_model=AccountExecutiveOut, status_code=status.HTTP_201_CREATED)
-async def create_account_executive(
+def create_account_executive(
     ae_data: AccountExecutiveCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -280,7 +280,7 @@ async def create_account_executive(
 
 
 @router.put("/account-executives/{ae_id}", response_model=AccountExecutiveOut)
-async def update_account_executive(
+def update_account_executive(
     ae_id: int,
     ae_data: AccountExecutiveUpdate,
     db: Session = Depends(get_db),
@@ -292,7 +292,7 @@ async def update_account_executive(
 
 
 @router.delete("/account-executives/{ae_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_account_executive(
+def delete_account_executive(
     ae_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -304,7 +304,7 @@ async def delete_account_executive(
 
 # Visit Endpoints
 @router.get("/visits", response_model=List[B2BVisitOut])
-async def list_visits(
+def list_visits(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _access: bool = Depends(require_program_access("B2B"))
@@ -314,7 +314,7 @@ async def list_visits(
 
 
 @router.get("/visits/{visit_id}", response_model=B2BVisitOut)
-async def get_visit(
+def get_visit(
     visit_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -331,7 +331,7 @@ async def get_visit(
 
 
 @router.post("/visits", response_model=B2BVisitOut, status_code=status.HTTP_201_CREATED)
-async def create_visit(
+def create_visit(
     visit_data: B2BVisitCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -347,7 +347,7 @@ async def create_visit(
 
 
 @router.put("/visits/{visit_id}", response_model=B2BVisitOut)
-async def update_visit(
+def update_visit(
     visit_id: int,
     visit_data: B2BVisitUpdate,
     db: Session = Depends(get_db),
@@ -359,7 +359,7 @@ async def update_visit(
 
 
 @router.delete("/visits/{visit_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_visit(
+def delete_visit(
     visit_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

@@ -10,8 +10,10 @@ if (-not (Test-Path $Dashboard)) {
 Write-Host "Starting dashboard frontend (dashboard-blueprint) on port 5185..."
 Set-Location $Dashboard
 
-# Bypass Vite proxy and call backend directly to avoid local proxy hangs
-$env:VITE_API_URL = "http://127.0.0.1:8001"
+# Keep browser origin on localhost for Entra redirect URI consistency.
+# API requests go through Vite /api proxy to backend 127.0.0.1:8001.
+$env:VITE_API_URL = "/api"
+$env:VITE_API_PROXY_TARGET = "http://127.0.0.1:8001"
 $env:NO_PROXY = "127.0.0.1,localhost"
 
 npm run dev -- --host --port 5185

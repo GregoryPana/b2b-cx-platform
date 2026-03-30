@@ -28,6 +28,7 @@ const QUESTION_CATEGORY_ORDER = [
 
 const Q16_KEY = "q16_other_provider_products";
 const Q17_KEY = "q17_competitor_products_services";
+const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
 
 type ApiHeaders = Record<string, string>;
 
@@ -511,6 +512,11 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       return;
     }
 
+    if (normalizedActions.some((action) => !ACTION_TIMEFRAME_OPTIONS.includes(action.action_timeframe))) {
+      setError("Action timeframe must be one of: <1 month, <3 months, <6 months, >6 months.");
+      return;
+    }
+
     setSavingQuestionId(question.id);
     pushToast("info", `Saving response for Q${question.question_number || question.id}...`, 1400);
     const payload = {
@@ -986,7 +992,12 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                         <div key={`${question.id}-action-${index}`} className="grid grid-cols-1 gap-2 rounded-md border bg-background p-3 md:grid-cols-2">
                                           <Input placeholder="Action required" value={action.action_required} onChange={(event) => updateActionItem(question.id, index, "action_required", event.target.value)} />
                                           <Input placeholder="Lead owner" value={action.action_owner} onChange={(event) => updateActionItem(question.id, index, "action_owner", event.target.value)} />
-                                          <Input placeholder="Action timeframe" value={action.action_timeframe} onChange={(event) => updateActionItem(question.id, index, "action_timeframe", event.target.value)} />
+                                          <Select value={action.action_timeframe} onChange={(event) => updateActionItem(question.id, index, "action_timeframe", event.target.value)}>
+                                            <option value="">Action timeframe</option>
+                                            {ACTION_TIMEFRAME_OPTIONS.map((option) => (
+                                              <option key={`${question.id}-action-time-${index}-${option}`} value={option}>{option}</option>
+                                            ))}
+                                          </Select>
                                           <Input placeholder="Support needed" value={action.action_support_needed} onChange={(event) => updateActionItem(question.id, index, "action_support_needed", event.target.value)} />
                                           <div className="md:col-span-2">
                                             <Button size="sm" variant="destructive" onClick={() => removeActionItem(question.id, index)}>

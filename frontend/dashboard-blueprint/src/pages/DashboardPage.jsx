@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = API_BASE.endsWith("/api/api") ? `${API_BASE}/b2b` : `${API_BASE}/api/b2b`;
+const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
 
 const COLORS = {
   promoters: "#10b981",
@@ -54,6 +55,16 @@ export default function DashboardPage({ headers, activePlatform }) {
   const [analyticsBusinessSearch, setAnalyticsBusinessSearch] = useState("");
   const [surveyResults, setSurveyResults] = useState([]);
   const [selectedSurveyVisit, setSelectedSurveyVisit] = useState(null);
+  const [actionsBoardItems, setActionsBoardItems] = useState([]);
+  const [actionsBoardSummary, setActionsBoardSummary] = useState(null);
+  const [actionsBoardLoading, setActionsBoardLoading] = useState(false);
+  const [actionsTimelineOptions, setActionsTimelineOptions] = useState(ACTION_TIMEFRAME_OPTIONS);
+  const [actionsFilters, setActionsFilters] = useState({
+    lead_owner: "",
+    support: "",
+    timeline: "",
+    business_id: "",
+  });
   const [plannedVisits, setPlannedVisits] = useState([]);
   const [plannedLoading, setPlannedLoading] = useState(false);
   const [plannedForm, setPlannedForm] = useState({ business_id: "", visit_date: "", visit_type: "Planned" });
@@ -116,7 +127,10 @@ export default function DashboardPage({ headers, activePlatform }) {
 
   const InfoHint = ({ text }) => (
     <details className="group relative inline-flex">
-      <summary className="list-none cursor-pointer rounded-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+      <summary
+        title={text}
+        className="list-none cursor-pointer rounded-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <CircleHelp className="h-4 w-4" />
       </summary>
       <div className="pointer-events-none absolute left-0 top-6 z-30 w-72 rounded-md border bg-popover p-2 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-100 group-hover:opacity-100 group-open:opacity-100">
@@ -374,6 +388,42 @@ export default function DashboardPage({ headers, activePlatform }) {
     }
   };
 
+  const loadActionsBoard = useCallback(async () => {
+    if (!isB2BPlatform) {
+      setActionsBoardItems([]);
+      setActionsBoardSummary(null);
+      return;
+    }
+
+    setActionsBoardLoading(true);
+    setError("");
+
+    try {
+      const params = new URLSearchParams();
+      params.set("survey_type", activePlatform || "B2B");
+      if (actionsFilters.lead_owner.trim()) params.set("lead_owner", actionsFilters.lead_owner.trim());
+      if (actionsFilters.support.trim()) params.set("support", actionsFilters.support.trim());
+      if (actionsFilters.timeline) params.set("timeline", actionsFilters.timeline);
+      if (actionsFilters.business_id) params.set("business_id", actionsFilters.business_id);
+
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/actions?${params.toString()}`, { headers });
+      if (!res.ok) {
+        setError(data?.detail || "Failed to load actions board");
+        return;
+      }
+
+      setActionsBoardItems(Array.isArray(data?.items) ? data.items : []);
+      setActionsBoardSummary(data?.summary || null);
+      setActionsTimelineOptions(
+        Array.isArray(data?.timeline_options) && data.timeline_options.length > 0
+          ? data.timeline_options
+          : ACTION_TIMEFRAME_OPTIONS
+      );
+    } finally {
+      setActionsBoardLoading(false);
+    }
+  }, [activePlatform, actionsFilters, fetchJsonSafe, headers, isB2BPlatform]);
+
   const loadPlannedVisits = async () => {
     if (!isB2BPlatform) {
       setPlannedVisits([]);
@@ -553,6 +603,11 @@ export default function DashboardPage({ headers, activePlatform }) {
     loadPlannedVisits();
   }, [location.pathname, activePlatform, headerSignature]);
 
+  useEffect(() => {
+    if (location.pathname !== "/actions") return;
+    loadActionsBoard();
+  }, [location.pathname, loadActionsBoard]);
+
    const analyticsCards = [
      ...(isMysteryShopperPlatform
        ? [
@@ -656,6 +711,18 @@ export default function DashboardPage({ headers, activePlatform }) {
       overallExperienceAvg: weightedAverage(overallExperience),
     };
   }, [isMysteryShopperPlatform, questionAverages]);
+
+  const groupedActionsBoard = useMemo(() => {
+    const grouped = {};
+    actionsBoardItems.forEach((item) => {
+      const surveyName = item.survey_type || "Unknown";
+      const businessName = item.business_name || "Unknown";
+      if (!grouped[surveyName]) grouped[surveyName] = {};
+      if (!grouped[surveyName][businessName]) grouped[surveyName][businessName] = [];
+      grouped[surveyName][businessName].push(item);
+    });
+    return grouped;
+  }, [actionsBoardItems]);
 
   const categoryBreakdownData = useMemo(() => {
     const shouldUseTargetedBreakdown = selectedAnalyticsEntityIds.length > 0;
@@ -1177,7 +1244,7 @@ export default function DashboardPage({ headers, activePlatform }) {
             <Card className="mb-6">
               <CardHeader>
                 <CardTitle>Business Focus Filter</CardTitle>
-                <CardDescription>Select one or more businesses to focus relationship, competitor, and question trend analytics.</CardDescription>
+                <CardDescription>Choose one or more businesses to see results for only those businesses.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <Input
@@ -1208,54 +1275,11 @@ export default function DashboardPage({ headers, activePlatform }) {
             </Card>
           ) : null}
 
-          {isB2BPlatform ? (
-            <Card className="mt-6">
-              <CardHeader>
-                <CardTitle>Yes/No Question Results</CardTitle>
-                <CardDescription>Distribution of answers for Questions 4, 6, 9, and 16.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                  {yesNoQuestionCards.map((item) => (
-                    <div key={item.key} className="rounded-lg border bg-muted/30 p-4">
-                      <p className="text-sm font-semibold">{item.label}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{item.question_text}</p>
-                      <div className="mt-3 h-56">
-                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                          <PieChart>
-                            <Pie
-                              data={item.chart_data}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={48}
-                              outerRadius={74}
-                              paddingAngle={2}
-                              dataKey="value"
-                            >
-                              {item.chart_data.map((entry) => (
-                                <Cell key={`${item.key}-${entry.name}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip formatter={(value) => [value, "Count"]} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </div>
-                      <div className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
-                        <p className="text-muted-foreground">Yes: {item.yes_count} ({item.yes_percent.toFixed(1)}%)</p>
-                        <p className="text-muted-foreground">No: {item.no_count} ({item.no_percent.toFixed(1)}%)</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
-
           {isMysteryShopperPlatform ? (
             <Card className="mb-6">
               <CardHeader>
                 <CardTitle>Location Focus Filter</CardTitle>
-                <CardDescription>Select one or more service-center locations to focus all analytics and question trends.</CardDescription>
+                <CardDescription>Choose one or more locations to see results for only those locations.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <Input
@@ -1323,7 +1347,7 @@ export default function DashboardPage({ headers, activePlatform }) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   Category Breakdown
-                  <InfoHint text="Click a category to see which score questions are used to calculate its average." />
+                  <InfoHint text="Click a category to open the list of questions behind that score. This helps you understand why the number is high or low." />
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
@@ -1368,10 +1392,10 @@ export default function DashboardPage({ headers, activePlatform }) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   NPS Survey
-                  <InfoHint text="We count answers in three groups: Promoters (9-10), Passives (7-8), and Detractors (0-6). NPS is then calculated as Promoters percent minus Detractors percent." />
+                  <InfoHint text="NPS tells you how likely customers are to recommend us. We group answers into Promoters (9-10), Passives (7-8), and Detractors (0-6). The final NPS number is Promoters% minus Detractors%. Higher is better." />
                 </CardTitle>
                 <CardDescription>
-                  {analytics?.nps?.total_responses ?? 0} approved responses
+                  Based on {analytics?.nps?.total_responses ?? 0} completed responses.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1424,10 +1448,10 @@ export default function DashboardPage({ headers, activePlatform }) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   Customer Satisfaction
-                  <InfoHint text="Customer Satisfaction is the share of positive ratings. We add Satisfied (7-8) and Very Satisfied (9-10), then divide by all responses and convert to a percentage." />
+                  <InfoHint text="CSAT shows the percentage of customers who gave a positive rating. We count Satisfied (7-8) and Very Satisfied (9-10), then divide by all answers. Higher means customers are happier." />
                 </CardTitle>
                 <CardDescription>
-                  {analytics?.customer_satisfaction?.response_count ?? 0} responses to satisfaction question
+                  Based on {analytics?.customer_satisfaction?.response_count ?? 0} answers to the satisfaction question.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1488,8 +1512,11 @@ export default function DashboardPage({ headers, activePlatform }) {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 mt-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Overall Relationship Score</CardTitle>
-                  <CardDescription>Normalized 0-100 from relationship-question scoring.</CardDescription>
+                  <CardTitle className="flex items-center gap-2">
+                    Overall Relationship Score
+                    <InfoHint text="This score combines key relationship questions into one number from 0 to 100. A higher score means customers feel the relationship is strong and healthy." />
+                  </CardTitle>
+                  <CardDescription>A simple 0-100 score that summarizes relationship quality from key relationship questions. Higher means a stronger relationship.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-4xl font-semibold">{analytics?.relationship_score?.score?.toFixed?.(1) ?? "--"}</div>
@@ -1518,8 +1545,11 @@ export default function DashboardPage({ headers, activePlatform }) {
               </Card>
               <Card>
                 <CardHeader>
-                  <CardTitle>Competitor Analysis</CardTitle>
-                  <CardDescription>Accounts using competitor services versus total surveyed accounts.</CardDescription>
+                  <CardTitle className="flex items-center gap-2">
+                    Competitor Analysis
+                    <InfoHint text="This shows how many customers also buy similar services from other providers. If this is high, there is more risk of losing business and we should follow up." />
+                  </CardTitle>
+                  <CardDescription>Shows how many customers also use competitor services. Lower is better for retention.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-4xl font-semibold">{analytics?.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</div>
@@ -1550,6 +1580,49 @@ export default function DashboardPage({ headers, activePlatform }) {
                 </CardContent>
               </Card>
             </div>
+          ) : null}
+
+          {isB2BPlatform ? (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Yes/No Question Results</CardTitle>
+                <CardDescription>Shows how people answered Yes or No for Questions 4, 6, 9, and 16.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  {yesNoQuestionCards.map((item) => (
+                    <div key={item.key} className="rounded-lg border bg-muted/30 p-4">
+                      <p className="text-sm font-semibold">{item.label}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{item.question_text}</p>
+                      <div className="mt-3 h-56">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
+                          <PieChart>
+                            <Pie
+                              data={item.chart_data}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={48}
+                              outerRadius={74}
+                              paddingAngle={2}
+                              dataKey="value"
+                            >
+                              {item.chart_data.map((entry) => (
+                                <Cell key={`${item.key}-${entry.name}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value) => [value, "Count"]} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
+                        <p className="text-muted-foreground">Yes: {item.yes_count} ({item.yes_percent.toFixed(1)}%)</p>
+                        <p className="text-muted-foreground">No: {item.no_count} ({item.no_percent.toFixed(1)}%)</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           ) : null}
 
           {isMysteryShopperPlatform ? (
@@ -1608,7 +1681,7 @@ export default function DashboardPage({ headers, activePlatform }) {
         <Card>
           <CardHeader>
             <CardTitle>Trend Explorer</CardTitle>
-            <CardDescription>Weekly progression for selected questions.</CardDescription>
+            <CardDescription>Shows how the selected score changes over time so you can spot improvements or declines.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Select value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
@@ -1636,7 +1709,7 @@ export default function DashboardPage({ headers, activePlatform }) {
         <Card>
           <CardHeader>
             <CardTitle>Review Queue</CardTitle>
-            <CardDescription>Pending visits waiting for review.</CardDescription>
+            <CardDescription>These submitted visits are waiting for manager review. You can approve or reject each one.</CardDescription>
           </CardHeader>
           <CardContent>
                 <Table className="min-w-[560px]">
@@ -1946,6 +2019,171 @@ export default function DashboardPage({ headers, activePlatform }) {
             </Card>
           ) : null}
         </div>
+      ) : null}
+
+      {location.pathname === "/actions" ? (
+        isB2BPlatform ? (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Actions Management</CardTitle>
+                <CardDescription>Track follow-up actions raised during surveys and filter by owner, support, timeframe, or business.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  <Input
+                    placeholder="Filter by lead owner"
+                    value={actionsFilters.lead_owner}
+                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, lead_owner: event.target.value }))}
+                  />
+                  <Input
+                    placeholder="Filter by support needed"
+                    value={actionsFilters.support}
+                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, support: event.target.value }))}
+                  />
+                  <Select
+                    value={actionsFilters.timeline}
+                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, timeline: event.target.value }))}
+                  >
+                    <option value="">All timelines</option>
+                    {actionsTimelineOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </Select>
+                  <Select
+                    value={actionsFilters.business_id}
+                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, business_id: event.target.value }))}
+                  >
+                    <option value="">All businesses</option>
+                    {businesses.map((business) => (
+                      <option key={business.id} value={String(business.id)}>{business.name}</option>
+                    ))}
+                  </Select>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" onClick={loadActionsBoard}>
+                    {actionsBoardLoading ? "Refreshing..." : "Refresh"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setActionsFilters({ lead_owner: "", support: "", timeline: "", business_id: "" })}
+                  >
+                    Clear Filters
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    {actionsBoardLoading ? "Loading actions..." : `${actionsBoardItems.length} actions`}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Actions by Survey Type</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {Object.entries(actionsBoardSummary?.by_survey || {}).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No actions found for current filters.</p>
+                  ) : (
+                    Object.entries(actionsBoardSummary?.by_survey || {}).map(([surveyName, count]) => (
+                      <div key={surveyName} className="flex items-center justify-between rounded-md bg-muted/60 px-3 py-2 text-sm">
+                        <span>{surveyName}</span>
+                        <Badge variant="secondary">{count}</Badge>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Actions by Business</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {Object.entries(actionsBoardSummary?.by_business || {}).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No actions found for current filters.</p>
+                  ) : (
+                    Object.entries(actionsBoardSummary?.by_business || {}).map(([businessName, count]) => (
+                      <div key={businessName} className="flex items-center justify-between rounded-md bg-muted/60 px-3 py-2 text-sm">
+                        <span>{businessName}</span>
+                        <Badge variant="secondary">{count}</Badge>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-4">
+              {Object.entries(groupedActionsBoard).length === 0 ? (
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-muted-foreground">No actions available for this filter set.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                Object.entries(groupedActionsBoard).map(([surveyName, businessGroups]) => (
+                  <Card key={surveyName}>
+                    <CardHeader>
+                      <CardTitle>{surveyName}</CardTitle>
+                      <CardDescription>Grouped by business, then by survey question.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {Object.entries(businessGroups).map(([businessName, rows]) => (
+                        <div key={`${surveyName}-${businessName}`} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-semibold">{businessName}</h4>
+                            <Badge>{rows.length}</Badge>
+                          </div>
+                          <Table className="min-w-[860px]">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Visit</TableHead>
+                                <TableHead>Date</TableHead>
+                                <TableHead>Question</TableHead>
+                                <TableHead>Action Required</TableHead>
+                                <TableHead>Lead Owner</TableHead>
+                                <TableHead>Timeline</TableHead>
+                                <TableHead>Support Needed</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {rows.map((row) => (
+                                <TableRow key={`${row.visit_id}-${row.question_id}-${row.action_required}-${row.action_owner}-${row.action_timeframe}`}>
+                                  <TableCell>{row.visit_id}</TableCell>
+                                  <TableCell>{row.visit_date || "--"}</TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-col">
+                                      <span>Q{row.question_id}</span>
+                                      <span className="text-xs text-muted-foreground">{row.question_text || "--"}</span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>{row.action_required || "--"}</TableCell>
+                                  <TableCell>{row.action_owner || "--"}</TableCell>
+                                  <TableCell>{row.action_timeframe || "--"}</TableCell>
+                                  <TableCell>{row.action_support_needed || "--"}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Actions</CardTitle>
+              <CardDescription>Action management is currently available only for the B2B platform.</CardDescription>
+            </CardHeader>
+          </Card>
+        )
       ) : null}
 
       {location.pathname === "/locations" ? (

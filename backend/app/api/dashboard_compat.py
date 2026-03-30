@@ -73,7 +73,7 @@ def resolve_survey_type_id(db: Session, survey_type: str | None) -> int | None:
 
 
 @router.get("/nps")
-async def get_nps(
+def get_nps(
     survey_type: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -137,7 +137,7 @@ async def get_nps(
 
 
 @router.get("/coverage")
-async def get_coverage(
+def get_coverage(
     survey_type: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -194,7 +194,7 @@ async def get_coverage(
 
 
 @router.get("/category-breakdown")
-async def get_category_breakdown(
+def get_category_breakdown(
     survey_type: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,

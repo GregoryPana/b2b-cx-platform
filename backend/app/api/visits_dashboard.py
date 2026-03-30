@@ -13,6 +13,8 @@ from ..core.models import User
 
 router = APIRouter(prefix="/dashboard-visits", tags=["dashboard-visits"])
 
+_visit_signature_columns_checked = False
+
 
 def has_table(db: Session, table_name: str) -> bool:
     return bool(db.execute(text(
@@ -44,12 +46,25 @@ def get_response_table(db: Session) -> str | None:
     return None
 
 
+ACTION_TIMEFRAME_OPTIONS = {"<1 month", "<3 months", "<6 months", ">6 months"}
+
+
 def ensure_visit_submission_columns(db: Session) -> None:
+    global _visit_signature_columns_checked
+    if _visit_signature_columns_checked:
+        return
     if not has_table(db, "visits"):
+        return
+    has_name = has_column(db, "visits", "submitted_by_name")
+    has_email = has_column(db, "visits", "submitted_by_email")
+    has_submitted_at = has_column(db, "visits", "submitted_at")
+    if has_name and has_email and has_submitted_at:
+        _visit_signature_columns_checked = True
         return
     db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_name VARCHAR(255)"))
     db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_email VARCHAR(255)"))
     db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ"))
+    _visit_signature_columns_checked = True
 
 
 def resolve_survey_type_id(
@@ -96,6 +111,127 @@ def resolve_survey_type_id(
     ).scalar()
 
 
+def fetch_dashboard_actions(
+    db: Session,
+    survey_type: str | None,
+    lead_owner: str | None,
+    support: str | None,
+    timeline: str | None,
+    business_id: int | None,
+) -> list[dict]:
+    response_table = get_response_table(db)
+    if not response_table:
+        return []
+
+    has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+    resolved_survey_type_id = resolve_survey_type_id(db, survey_type, None)
+    where_clauses = ["1=1"]
+    params: dict[str, object] = {}
+
+    if business_id is not None:
+        where_clauses.append("v.business_id = :business_id")
+        params["business_id"] = business_id
+
+    if resolved_survey_type_id and has_visit_survey_type:
+        where_clauses.append("v.survey_type_id = :survey_type_id")
+        params["survey_type_id"] = resolved_survey_type_id
+
+    if response_table == "b2b_visit_responses":
+        sql = """
+            SELECT
+                v.id as visit_id,
+                v.visit_date,
+                v.status,
+                b.id as business_id,
+                b.name as business_name,
+                q.id as question_id,
+                q.question_text,
+                action_item->>'action_required' as action_required,
+                action_item->>'action_owner' as action_owner,
+                action_item->>'action_timeframe' as action_timeframe,
+                action_item->>'action_support_needed' as action_support_needed,
+                COALESCE(st.name, :fallback_survey_type) as survey_type
+            FROM b2b_visit_responses r
+            JOIN visits v ON v.id = r.visit_id
+            LEFT JOIN businesses b ON b.id = v.business_id
+            LEFT JOIN questions q ON q.id = r.question_id
+            LEFT JOIN survey_types st ON st.id = v.survey_type_id
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.actions, '[]'::jsonb)) action_item
+            WHERE
+                {where_sql}
+                AND (
+                    COALESCE(action_item->>'action_required', '') <> ''
+                    OR COALESCE(action_item->>'action_owner', '') <> ''
+                    OR COALESCE(action_item->>'action_timeframe', '') <> ''
+                    OR COALESCE(action_item->>'action_support_needed', '') <> ''
+                )
+            ORDER BY v.visit_date DESC, v.id DESC
+        """
+        params["fallback_survey_type"] = survey_type or "B2B"
+    else:
+        sql = """
+            SELECT
+                v.id as visit_id,
+                v.visit_date,
+                v.status,
+                b.id as business_id,
+                b.name as business_name,
+                q.id as question_id,
+                q.question_text,
+                r.action_required,
+                r.action_owner,
+                r.action_timeframe,
+                r.action_support_needed,
+                COALESCE(st.name, :fallback_survey_type) as survey_type
+            FROM responses r
+            JOIN visits v ON v.id = r.visit_id
+            LEFT JOIN businesses b ON b.id = v.business_id
+            LEFT JOIN questions q ON q.id = r.question_id
+            LEFT JOIN survey_types st ON st.id = v.survey_type_id
+            WHERE
+                {where_sql}
+                AND (
+                    COALESCE(r.action_required, '') <> ''
+                    OR COALESCE(r.action_owner, '') <> ''
+                    OR COALESCE(r.action_timeframe, '') <> ''
+                    OR COALESCE(r.action_support_needed, '') <> ''
+                )
+            ORDER BY v.visit_date DESC, v.id DESC
+        """
+        params["fallback_survey_type"] = survey_type or "B2B"
+
+    where_sql = " AND ".join(where_clauses)
+    rows = db.execute(text(sql.format(where_sql=where_sql)), params).mappings().all()
+
+    items = []
+    for row in rows:
+        item = {
+            "visit_id": str(row["visit_id"]),
+            "visit_date": row["visit_date"].isoformat() if row["visit_date"] else None,
+            "status": row["status"],
+            "business_id": row["business_id"],
+            "business_name": row["business_name"],
+            "survey_type": row["survey_type"],
+            "question_id": row["question_id"],
+            "question_text": row["question_text"],
+            "action_required": row["action_required"] or "",
+            "action_owner": row["action_owner"] or "",
+            "action_timeframe": row["action_timeframe"] or "",
+            "action_support_needed": row["action_support_needed"] or "",
+        }
+
+        if lead_owner and lead_owner.strip().lower() not in item["action_owner"].lower():
+            continue
+        if support and support.strip().lower() not in item["action_support_needed"].lower():
+            continue
+        if timeline and item["action_timeframe"] != timeline:
+            continue
+
+        items.append(item)
+
+    return items
+
+
 def check_duplicate_visit(
     business_id: int,
     visit_date: str,
@@ -137,7 +273,7 @@ def check_duplicate_visit(
 
 
 @router.post("")
-async def create_visit(
+def create_visit(
     visit_data: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -224,7 +360,7 @@ async def create_visit(
 
 
 @router.get("/all")
-async def get_all_visits(
+def get_all_visits(
     status: Optional[str] = None,
     business_name: Optional[str] = None,
     date_from: Optional[str] = None,
@@ -337,8 +473,65 @@ async def get_all_visits(
         raise HTTPException(status_code=500, detail="Failed to get visits")
 
 
+@router.get("/actions")
+def get_actions_dashboard(
+    survey_type: str | None = "B2B",
+    lead_owner: str | None = None,
+    support: str | None = None,
+    timeline: str | None = None,
+    business_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """List action items raised during survey responses for admin follow-up."""
+    try:
+        if timeline and timeline not in ACTION_TIMEFRAME_OPTIONS:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid timeline. Use one of: <1 month, <3 months, <6 months, >6 months",
+            )
+
+        items = fetch_dashboard_actions(
+            db=db,
+            survey_type=survey_type,
+            lead_owner=lead_owner,
+            support=support,
+            timeline=timeline,
+            business_id=business_id,
+        )
+
+        summary_by_business: dict[str, int] = {}
+        summary_by_survey: dict[str, int] = {}
+        for item in items:
+            business_name = item.get("business_name") or "Unknown"
+            survey_name = item.get("survey_type") or "Unknown"
+            summary_by_business[business_name] = summary_by_business.get(business_name, 0) + 1
+            summary_by_survey[survey_name] = summary_by_survey.get(survey_name, 0) + 1
+
+        return {
+            "items": items,
+            "filters": {
+                "survey_type": survey_type,
+                "lead_owner": lead_owner,
+                "support": support,
+                "timeline": timeline,
+                "business_id": business_id,
+            },
+            "summary": {
+                "total_actions": len(items),
+                "by_business": summary_by_business,
+                "by_survey": summary_by_survey,
+            },
+            "timeline_options": sorted(ACTION_TIMEFRAME_OPTIONS),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching actions dashboard: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch actions dashboard: {str(e)}")
+
+
 @router.get("/drafts")
-async def get_draft_visits(db: Session = Depends(get_db)):
+def get_draft_visits(db: Session = Depends(get_db)):
     """Get draft visits for dashboard."""
     try:
         ensure_visit_submission_columns(db)
@@ -412,7 +605,7 @@ async def get_draft_visits(db: Session = Depends(get_db)):
 
 
 @router.get("/pending")
-async def get_pending_visits(
+def get_pending_visits(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _manager_access: bool = Depends(require_role("Manager"))
@@ -469,7 +662,7 @@ async def get_pending_visits(
 
 
 @router.put("/{visit_id}/draft")
-async def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(get_db)):
+def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(get_db)):
     """Update a draft visit."""
     try:
         # Get current visit details to check business_id
@@ -564,7 +757,7 @@ async def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depe
 
 
 @router.delete("/{visit_id}")
-async def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
+def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
     """Delete a draft (planned) visit and its responses."""
     try:
         response_table = get_response_table(db)
@@ -598,7 +791,7 @@ async def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{visit_id}/responses")
-async def create_response(visit_id: str, response_data: dict, db: Session = Depends(get_db)):
+def create_response(visit_id: str, response_data: dict, db: Session = Depends(get_db)):
     """Create a response for a visit."""
     try:
         response_table = get_response_table(db)
@@ -667,7 +860,7 @@ async def create_response(visit_id: str, response_data: dict, db: Session = Depe
 
 
 @router.put("/{visit_id}/responses/{response_id}")
-async def update_response(visit_id: str, response_id: str, response_data: dict, db: Session = Depends(get_db)):
+def update_response(visit_id: str, response_id: str, response_data: dict, db: Session = Depends(get_db)):
     """Update a response for a visit."""
     try:
         response_table = get_response_table(db)
@@ -753,7 +946,7 @@ async def update_response(visit_id: str, response_id: str, response_data: dict, 
 
 
 @router.put("/{visit_id}/submit")
-async def submit_visit(
+def submit_visit(
     visit_id: str,
     submit_data: dict,
     db: Session = Depends(get_db),
@@ -802,7 +995,7 @@ async def submit_visit(
 
 
 @router.put("/{visit_id}/approve")
-async def approve_visit(visit_id: str, approval_data: dict, db: Session = Depends(get_db)):
+def approve_visit(visit_id: str, approval_data: dict, db: Session = Depends(get_db)):
     """Approve a visit."""
     try:
         # Update visit status to Approved
@@ -834,7 +1027,7 @@ async def approve_visit(visit_id: str, approval_data: dict, db: Session = Depend
 
 
 @router.put("/{visit_id}/reject")
-async def reject_visit(visit_id: str, rejection_data: dict, db: Session = Depends(get_db)):
+def reject_visit(visit_id: str, rejection_data: dict, db: Session = Depends(get_db)):
     """Reject a visit."""
     try:
         # Update visit status to Rejected
@@ -866,7 +1059,7 @@ async def reject_visit(visit_id: str, rejection_data: dict, db: Session = Depend
 
 
 @router.put("/{visit_id}/needs-changes")
-async def request_changes(visit_id: str, changes_data: dict, db: Session = Depends(get_db)):
+def request_changes(visit_id: str, changes_data: dict, db: Session = Depends(get_db)):
     """Request changes for a visit."""
     try:
         # Update visit status back to Draft with change notes
@@ -897,7 +1090,7 @@ async def request_changes(visit_id: str, changes_data: dict, db: Session = Depen
 
 
 @router.get("/{visit_id}")
-async def get_visit_detail(
+def get_visit_detail(
     visit_id: str, 
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

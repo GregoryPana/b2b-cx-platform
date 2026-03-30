@@ -114,7 +114,7 @@ def detect_mystery_tables(db: Session) -> tuple[bool, bool]:
 
 @router.get("")
 @router.get("/")
-async def get_comprehensive_analytics(
+def get_comprehensive_analytics(
     survey_type: str | None = None,
     business_ids: str | None = None,
     date_from: str | None = None,
@@ -553,7 +553,7 @@ async def get_comprehensive_analytics(
 
 
 @router.get("/questions")
-async def get_question_averages(
+def get_question_averages(
     survey_type: str | None = None,
     business_ids: str | None = None,
     date_from: str | None = None,
@@ -646,7 +646,7 @@ async def get_question_averages(
 
 
 @router.get("/questions/yes-no")
-async def get_yes_no_question_analytics(
+def get_yes_no_question_analytics(
     survey_type: str | None = None,
     business_ids: str | None = None,
     date_from: str | None = None,
@@ -745,7 +745,7 @@ async def get_yes_no_question_analytics(
 
 
 @router.get("/questions/{question_id}/trend")
-async def get_question_trend(
+def get_question_trend(
     question_id: int,
     survey_type: str | None = None,
     business_ids: str | None = None,
