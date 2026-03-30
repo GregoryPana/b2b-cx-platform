@@ -74,6 +74,13 @@ export default function DashboardPage({ headers, activePlatform }) {
   const [selectedSurveyBusiness, setSelectedSurveyBusiness] = useState("");
   const [selectedSurveyLocation, setSelectedSurveyLocation] = useState("");
   const [surveyLoading, setSurveyLoading] = useState(false);
+  const [reportDateFrom, setReportDateFrom] = useState("");
+  const [reportDateTo, setReportDateTo] = useState("");
+  const [reportBusinessId, setReportBusinessId] = useState("");
+  const [reportEmailTo, setReportEmailTo] = useState("");
+  const [reportPreview, setReportPreview] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportSending, setReportSending] = useState(false);
   const [reviewActionLoadingVisitId, setReviewActionLoadingVisitId] = useState("");
 
   const headerSignature = useMemo(
@@ -387,6 +394,93 @@ export default function DashboardPage({ headers, activePlatform }) {
       setSurveyLoading(false);
     }
   };
+
+  const buildReportParams = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("survey_type", activePlatform || "B2B");
+    if (reportBusinessId) params.set("business_id", reportBusinessId);
+    if (reportDateFrom) params.set("date_from", reportDateFrom);
+    if (reportDateTo) params.set("date_to", reportDateTo);
+    return params;
+  }, [activePlatform, reportBusinessId, reportDateFrom, reportDateTo]);
+
+  const handlePreviewReport = useCallback(async () => {
+    setReportLoading(true);
+    setError("");
+    try {
+      const params = buildReportParams();
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/reports/export?${params.toString()}`, { headers }, 25000);
+      if (!res.ok) {
+        setError(data?.detail || "Failed to generate report preview");
+        return;
+      }
+      setReportPreview(data?.report || null);
+      setMessage("Report preview generated.");
+    } finally {
+      setReportLoading(false);
+    }
+  }, [buildReportParams, fetchJsonSafe, headers]);
+
+  const handleDownloadReport = useCallback(async () => {
+    pushToast("info", "Preparing report download...", 1500);
+    setError("");
+    const params = buildReportParams();
+    params.set("download", "true");
+    try {
+      const res = await fetch(`${API_BASE}/dashboard-visits/reports/export?${params.toString()}`, { headers });
+      if (!res.ok) {
+        const text = await res.text();
+        setError(text || "Failed to download report");
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "cwscx-survey-report.html";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setMessage("Report downloaded.");
+    } catch {
+      setError("Failed to download report");
+    }
+  }, [buildReportParams, headers, pushToast]);
+
+  const handleEmailReport = useCallback(async () => {
+    const recipients = reportEmailTo
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (recipients.length === 0) {
+      setError("Enter at least one email address.");
+      return;
+    }
+    setReportSending(true);
+    setError("");
+    try {
+      const payload = {
+        to: recipients,
+        survey_type: activePlatform || "B2B",
+        business_id: reportBusinessId ? Number(reportBusinessId) : null,
+        date_from: reportDateFrom || null,
+        date_to: reportDateTo || null,
+      };
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/reports/email`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      }, 25000);
+      if (!res.ok) {
+        setError(data?.detail || "Failed to send report email");
+        return;
+      }
+      setMessage(`Report emailed to ${recipients.join(", ")}.`);
+    } finally {
+      setReportSending(false);
+    }
+  }, [activePlatform, fetchJsonSafe, headers, reportBusinessId, reportDateFrom, reportDateTo, reportEmailTo]);
 
   const loadActionsBoard = useCallback(async () => {
     if (!isB2BPlatform) {
@@ -1016,17 +1110,17 @@ export default function DashboardPage({ headers, activePlatform }) {
       ? `Are you sure you want to delete "${business.name}"? This action cannot be undone.`
       : `Are you sure you want to permanently delete "${business.name}"? This action cannot be undone.`;
     if (!window.confirm(confirmMessage)) return;
-    const res = await fetch(`${B2B_API_BASE}/businesses/${business.id}`, {
+    const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/businesses/${business.id}`, {
       method: "DELETE",
-      headers
+      headers,
     });
-    const data = await res.json();
     if (!res.ok) {
-      setError(data.detail || "Failed to delete business");
+      setError(data?.detail || "Failed to delete business");
       return;
     }
+    setBusinesses((prev) => prev.filter((item) => item.id !== business.id));
     setMessage(`Business deleted: ${business.name}`);
-    await loadBusinesses();
+    pushToast("success", `Business removed: ${business.name}`);
   };
 
   const loadBusinesses = async () => {
@@ -1974,6 +2068,51 @@ export default function DashboardPage({ headers, activePlatform }) {
                 ) : (
                   <div className="hidden lg:block" />
                 )}
+              </div>
+
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
+                    <p className="text-sm text-muted-foreground">Create a management-friendly report by day range and business, then download or email it.</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
+                  <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
+                  <Select value={reportBusinessId} onChange={(event) => setReportBusinessId(event.target.value)}>
+                    <option value="">All Businesses</option>
+                    {businesses.map((business) => (
+                      <option key={business.id} value={String(business.id)}>{business.name}</option>
+                    ))}
+                  </Select>
+                  <Input
+                    placeholder="Email recipients (comma separated)"
+                    value={reportEmailTo}
+                    onChange={(event) => setReportEmailTo(event.target.value)}
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" onClick={handlePreviewReport} disabled={reportLoading}>
+                    {reportLoading ? "Generating..." : "Preview Report"}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={handleDownloadReport}>Download HTML</Button>
+                  <Button type="button" onClick={handleEmailReport} disabled={reportSending}>
+                    {reportSending ? "Sending..." : "Email Report"}
+                  </Button>
+                </div>
+                {reportPreview ? (
+                  <div className="mt-4 space-y-3 rounded-md border bg-background p-3">
+                    <p className="text-sm font-semibold">Report Preview Summary</p>
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Visits</p><p className="text-lg font-semibold">{reportPreview.summary?.total_visits ?? 0}</p></div>
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Businesses</p><p className="text-lg font-semibold">{reportPreview.summary?.total_businesses ?? 0}</p></div>
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Responses</p><p className="text-lg font-semibold">{reportPreview.summary?.total_responses ?? 0}</p></div>
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Average Score</p><p className="text-lg font-semibold">{reportPreview.summary?.average_score ?? "--"}</p></div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">This report includes daily trends, business performance, and visit-level status/progress for management review.</p>
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex flex-wrap gap-2">

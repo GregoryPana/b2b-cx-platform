@@ -3,10 +3,16 @@ Dashboard visits compatibility endpoint - DIFFERENT PREFIX
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Dict, Optional
 import json
+import os
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pydantic import BaseModel, EmailStr
 from ..core.database import get_db
 from ..core.auth.dependencies import get_current_user, require_role
 from ..core.models import User
@@ -47,6 +53,16 @@ def get_response_table(db: Session) -> str | None:
 
 
 ACTION_TIMEFRAME_OPTIONS = {"<1 month", "<3 months", "<6 months", ">6 months"}
+
+
+class ReportEmailRequest(BaseModel):
+    to: List[EmailStr]
+    subject: str | None = None
+    survey_type: str | None = "B2B"
+    business_id: int | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    message: str | None = None
 
 
 def resolve_actor_user_id(db: Session, current_user: User) -> int:
@@ -596,6 +612,342 @@ def get_actions_dashboard(
     except Exception as e:
         print(f"Error fetching actions dashboard: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch actions dashboard: {str(e)}")
+
+
+def build_report_payload(
+    db: Session,
+    survey_type: str | None,
+    business_id: int | None,
+    date_from: str | None,
+    date_to: str | None,
+) -> dict:
+    response_table = get_response_table(db)
+    if not response_table:
+        raise HTTPException(status_code=500, detail="No response table found")
+
+    has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+    resolved_survey_type_id = resolve_survey_type_id(db, survey_type, None)
+
+    where_parts = []
+    params: dict = {}
+    if business_id is not None:
+        where_parts.append("v.business_id = :business_id")
+        params["business_id"] = business_id
+    if date_from:
+        where_parts.append("v.visit_date >= :date_from")
+        params["date_from"] = date_from
+    if date_to:
+        where_parts.append("v.visit_date <= :date_to")
+        params["date_to"] = date_to
+    if resolved_survey_type_id and has_visit_survey_type:
+        where_parts.append("v.survey_type_id = :survey_type_id")
+        params["survey_type_id"] = resolved_survey_type_id
+
+    where_clause = ""
+    if where_parts:
+        where_clause = "WHERE " + " AND ".join(where_parts)
+
+    visit_rows = db.execute(
+        text(
+            f"""
+            SELECT
+                v.id,
+                v.visit_date,
+                v.status,
+                b.id AS business_id,
+                b.name AS business_name,
+                COUNT(r.id) AS response_count,
+                AVG(r.score) FILTER (WHERE r.score IS NOT NULL) AS avg_score,
+                SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END) AS mandatory_answered_count,
+                SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END) AS mandatory_total_count
+            FROM visits v
+            JOIN businesses b ON b.id = v.business_id
+            LEFT JOIN {response_table} r ON r.visit_id = v.id
+            LEFT JOIN questions q ON q.id = r.question_id
+            {where_clause}
+            GROUP BY v.id, v.visit_date, v.status, b.id, b.name
+            ORDER BY v.visit_date DESC, b.name ASC
+            """
+        ),
+        params,
+    ).fetchall()
+
+    visits = []
+    total_responses = 0
+    status_counts = {"Draft": 0, "Pending": 0, "Approved": 0, "Rejected": 0, "Needs Changes": 0}
+    daily_map: dict[str, dict] = {}
+    business_map: dict[int, dict] = {}
+    weighted_score_total = 0.0
+    weighted_score_count = 0
+
+    for row in visit_rows:
+        visit_date = row[1].isoformat() if row[1] else "--"
+        response_count = int(row[5] or 0)
+        avg_score = float(row[6]) if row[6] is not None else None
+        mandatory_answered = int(row[7] or 0)
+        mandatory_total = int(row[8] or 0)
+        status_value = row[2] or "Draft"
+
+        visits.append(
+            {
+                "visit_id": str(row[0]),
+                "visit_date": visit_date,
+                "status": status_value,
+                "business_id": row[3],
+                "business_name": row[4],
+                "response_count": response_count,
+                "avg_score": round(avg_score, 2) if avg_score is not None else None,
+                "mandatory_answered_count": mandatory_answered,
+                "mandatory_total_count": mandatory_total,
+            }
+        )
+
+        status_counts[status_value] = status_counts.get(status_value, 0) + 1
+        total_responses += response_count
+
+        if avg_score is not None and response_count > 0:
+            weighted_score_total += avg_score * response_count
+            weighted_score_count += response_count
+
+        if visit_date not in daily_map:
+            daily_map[visit_date] = {
+                "visit_date": visit_date,
+                "visit_count": 0,
+                "response_count": 0,
+                "weighted_score_sum": 0.0,
+                "weighted_score_count": 0,
+            }
+        daily_map[visit_date]["visit_count"] += 1
+        daily_map[visit_date]["response_count"] += response_count
+        if avg_score is not None and response_count > 0:
+            daily_map[visit_date]["weighted_score_sum"] += avg_score * response_count
+            daily_map[visit_date]["weighted_score_count"] += response_count
+
+        if row[3] not in business_map:
+            business_map[row[3]] = {
+                "business_id": row[3],
+                "business_name": row[4],
+                "visit_count": 0,
+                "response_count": 0,
+                "weighted_score_sum": 0.0,
+                "weighted_score_count": 0,
+                "status_counts": {},
+                "latest_visit_date": visit_date,
+            }
+        business_map[row[3]]["visit_count"] += 1
+        business_map[row[3]]["response_count"] += response_count
+        business_map[row[3]]["status_counts"][status_value] = business_map[row[3]]["status_counts"].get(status_value, 0) + 1
+        if avg_score is not None and response_count > 0:
+            business_map[row[3]]["weighted_score_sum"] += avg_score * response_count
+            business_map[row[3]]["weighted_score_count"] += response_count
+
+    daily_breakdown = []
+    for day in sorted(daily_map.keys(), reverse=True):
+        day_item = daily_map[day]
+        avg_score = None
+        if day_item["weighted_score_count"] > 0:
+            avg_score = round(day_item["weighted_score_sum"] / day_item["weighted_score_count"], 2)
+        daily_breakdown.append(
+            {
+                "visit_date": day_item["visit_date"],
+                "visit_count": day_item["visit_count"],
+                "response_count": day_item["response_count"],
+                "avg_score": avg_score,
+            }
+        )
+
+    business_breakdown = []
+    for business in sorted(business_map.values(), key=lambda item: item["business_name"]):
+        avg_score = None
+        if business["weighted_score_count"] > 0:
+            avg_score = round(business["weighted_score_sum"] / business["weighted_score_count"], 2)
+        business_breakdown.append(
+            {
+                "business_id": business["business_id"],
+                "business_name": business["business_name"],
+                "visit_count": business["visit_count"],
+                "response_count": business["response_count"],
+                "avg_score": avg_score,
+                "latest_visit_date": business["latest_visit_date"],
+                "status_counts": business["status_counts"],
+            }
+        )
+
+    summary_avg_score = None
+    if weighted_score_count > 0:
+        summary_avg_score = round(weighted_score_total / weighted_score_count, 2)
+
+    return {
+        "filters": {
+            "survey_type": survey_type or "B2B",
+            "business_id": business_id,
+            "date_from": date_from,
+            "date_to": date_to,
+        },
+        "summary": {
+            "total_visits": len(visits),
+            "total_businesses": len(business_breakdown),
+            "total_responses": total_responses,
+            "average_score": summary_avg_score,
+            "status_counts": status_counts,
+        },
+        "daily_breakdown": daily_breakdown,
+        "business_breakdown": business_breakdown,
+        "visit_details": visits,
+    }
+
+
+def render_report_html(payload: dict, generated_by: str) -> str:
+    summary = payload.get("summary", {})
+    filters = payload.get("filters", {})
+    daily_rows = payload.get("daily_breakdown", [])
+    business_rows = payload.get("business_breakdown", [])
+    visit_rows = payload.get("visit_details", [])
+
+    daily_table = "".join(
+        f"<tr><td>{row['visit_date']}</td><td>{row['visit_count']}</td><td>{row['response_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td></tr>"
+        for row in daily_rows
+    )
+    business_table = "".join(
+        f"<tr><td>{row['business_name']}</td><td>{row['visit_count']}</td><td>{row['response_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td><td>{row['latest_visit_date']}</td></tr>"
+        for row in business_rows
+    )
+    visit_table = "".join(
+        f"<tr><td>{row['visit_date']}</td><td>{row['business_name']}</td><td>{row['status']}</td><td>{row['response_count']}</td><td>{row['mandatory_answered_count']}/{row['mandatory_total_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td></tr>"
+        for row in visit_rows
+    )
+
+    return f"""
+<!doctype html>
+<html>
+<head>
+  <meta charset=\"utf-8\" />
+  <title>CWSCX Survey Report</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; color: #111827; }}
+    h1 {{ font-size: 24px; margin: 0 0 8px; }}
+    h2 {{ font-size: 18px; margin: 28px 0 8px; }}
+    p {{ margin: 4px 0; color: #374151; }}
+    .summary {{ display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; margin-top: 14px; }}
+    .card {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; background: #f9fafb; }}
+    .label {{ font-size: 12px; color: #6b7280; }}
+    .value {{ font-size: 20px; font-weight: 700; color: #111827; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+    th, td {{ border: 1px solid #e5e7eb; padding: 8px; font-size: 13px; text-align: left; }}
+    th {{ background: #f3f4f6; font-weight: 600; }}
+    .explain {{ border-left: 3px solid #d1d5db; padding-left: 10px; margin-top: 8px; }}
+  </style>
+</head>
+<body>
+  <h1>CWSCX Survey and Analytics Report</h1>
+  <p>Generated by: {generated_by}</p>
+  <p>Survey Type: {filters.get('survey_type') or 'B2B'} | Date Range: {filters.get('date_from') or 'Any'} to {filters.get('date_to') or 'Any'} | Business ID: {filters.get('business_id') or 'All'}</p>
+
+  <div class=\"summary\">
+    <div class=\"card\"><div class=\"label\">Total Visits</div><div class=\"value\">{summary.get('total_visits', 0)}</div></div>
+    <div class=\"card\"><div class=\"label\">Businesses Covered</div><div class=\"value\">{summary.get('total_businesses', 0)}</div></div>
+    <div class=\"card\"><div class=\"label\">Responses Captured</div><div class=\"value\">{summary.get('total_responses', 0)}</div></div>
+    <div class=\"card\"><div class=\"label\">Average Score</div><div class=\"value\">{summary.get('average_score') if summary.get('average_score') is not None else '--'}</div></div>
+  </div>
+
+  <div class=\"explain\">
+    <p>This report helps managers review daily survey execution quality, account coverage, and response health. Use the per-day and per-business tables to identify trends and follow-up priorities.</p>
+  </div>
+
+  <h2>Daily Analytics</h2>
+  <table>
+    <thead><tr><th>Date</th><th>Visits</th><th>Responses</th><th>Average Score</th></tr></thead>
+    <tbody>{daily_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
+  </table>
+
+  <h2>Business Analytics</h2>
+  <table>
+    <thead><tr><th>Business</th><th>Visits</th><th>Responses</th><th>Average Score</th><th>Latest Visit</th></tr></thead>
+    <tbody>{business_table or '<tr><td colspan="5">No data</td></tr>'}</tbody>
+  </table>
+
+  <h2>Visit-Level Results</h2>
+  <table>
+    <thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Responses</th><th>Mandatory Progress</th><th>Average Score</th></tr></thead>
+    <tbody>{visit_table or '<tr><td colspan="6">No data</td></tr>'}</tbody>
+  </table>
+</body>
+</html>
+"""
+
+
+@router.get("/reports/export")
+def export_report(
+    survey_type: str | None = "B2B",
+    business_id: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    download: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payload = build_report_payload(db, survey_type, business_id, date_from, date_to)
+    report_html = render_report_html(payload, getattr(current_user, "name", "Unknown User"))
+    filename = "cwscx-survey-report.html"
+    if download:
+        return HTMLResponse(
+            content=report_html,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    return {
+        "filename": filename,
+        "report_html": report_html,
+        "report": payload,
+    }
+
+
+@router.post("/reports/email")
+def email_report(
+    request: ReportEmailRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USERNAME", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    smtp_from = os.getenv("SMTP_FROM", smtp_user).strip()
+    smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes"}
+
+    if not smtp_host or not smtp_from:
+        raise HTTPException(status_code=400, detail="SMTP is not configured. Set SMTP_HOST and SMTP_FROM.")
+
+    payload = build_report_payload(db, request.survey_type, request.business_id, request.date_from, request.date_to)
+    report_html = render_report_html(payload, getattr(current_user, "name", "Unknown User"))
+
+    subject = request.subject or "CWSCX Survey and Analytics Report"
+    message = MIMEMultipart("alternative")
+    message["Subject"] = subject
+    message["From"] = smtp_from
+    message["To"] = ", ".join(request.to)
+
+    intro_text = request.message or "Please find the latest survey and analytics report below."
+    text_part = MIMEText(f"{intro_text}\n\nThis email contains an HTML report. If you cannot view it, please open in an HTML-enabled email client.", "plain")
+    html_part = MIMEText(f"<p>{intro_text}</p>{report_html}", "html")
+    message.attach(text_part)
+    message.attach(html_part)
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+            if smtp_use_tls:
+                server.starttls()
+            if smtp_user and smtp_password:
+                server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_from, list(request.to), message.as_string())
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send report email: {exc}")
+
+    return {
+        "status": "sent",
+        "recipients": request.to,
+        "subject": subject,
+        "summary": payload.get("summary", {}),
+    }
 
 
 @router.get("/drafts")

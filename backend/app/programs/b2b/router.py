@@ -104,7 +104,7 @@ def get_business_deletion_summary(
         )
 
 
-@router.delete("/businesses/{business_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/businesses/{business_id}")
 def delete_business(
     business_id: int,
     db: Session = Depends(get_db),
@@ -112,7 +112,12 @@ def delete_business(
     _access: bool = Depends(require_role("Admin"))  # Requires Admin role in B2B
 ):
     """Delete a business and all related records (cascade deletion)."""
-    BusinessService.delete_business(db, business_id)
+    result = BusinessService.delete_business(db, business_id)
+    return {
+        "status": "deleted",
+        "business_id": business_id,
+        "deleted_response_count": result.get("deleted_response_count", 0),
+    }
 
 
 @router.put("/businesses/{business_id}/retire", response_model=BusinessOut)

@@ -175,8 +175,8 @@ class BusinessService:
         }
     
     @staticmethod
-    def delete_business(db: Session, business_id: int) -> bool:
-        """Delete a business and all related records (cascade deletion)."""
+    def delete_business(db: Session, business_id: int) -> dict:
+        """Delete a business and all related records safely."""
         business_exists = db.execute(
             text("SELECT 1 FROM businesses WHERE id = :business_id"),
             {"business_id": business_id},
@@ -189,7 +189,27 @@ class BusinessService:
             )
         
         try:
-            # Delete related visits first (cascade)
+            deleted_response_count = 0
+            for table_name in ("b2b_visit_responses", "responses"):
+                table_exists = db.execute(
+                    text("SELECT 1 FROM information_schema.tables WHERE table_name = :table_name LIMIT 1"),
+                    {"table_name": table_name},
+                ).scalar()
+                if not table_exists:
+                    continue
+                deleted = db.execute(
+                    text(
+                        f"""
+                        DELETE FROM {table_name}
+                        WHERE visit_id IN (
+                            SELECT id FROM visits WHERE business_id = :business_id
+                        )
+                        """
+                    ),
+                    {"business_id": business_id},
+                )
+                deleted_response_count += int(deleted.rowcount or 0)
+
             db.execute(
                 text("DELETE FROM visits WHERE business_id = :business_id"),
                 {"business_id": business_id}
@@ -202,7 +222,7 @@ class BusinessService:
             )
             db.commit()
             
-            return True
+            return {"deleted": True, "business_id": business_id, "deleted_response_count": deleted_response_count}
         except Exception as e:
             db.rollback()
             raise HTTPException(
