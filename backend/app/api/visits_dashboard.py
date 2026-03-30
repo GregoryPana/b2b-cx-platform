@@ -1125,18 +1125,18 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   <meta charset=\"utf-8\" />
   <title>CWSCX Survey Report</title>
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; color: #111827; background:#f8fafc; }}
-    .page {{ max-width: 1200px; margin: 0 auto; background:#ffffff; border:1px solid #e5e7eb; border-radius: 12px; padding: 24px; }}
-    h1 {{ font-size: 24px; margin: 0 0 8px; }}
-    h2 {{ font-size: 18px; margin: 28px 0 8px; }}
-    p {{ margin: 4px 0; color: #374151; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; color: #0f172a; background:#f8fafc; line-height: 1.45; }}
+    .page {{ max-width: 1200px; margin: 0 auto; background:#ffffff; border:1px solid #e2e8f0; border-radius: 12px; padding: 24px; }}
+    h1 {{ font-size: 26px; line-height: 1.2; margin: 0 0 10px; color: #0b1220; letter-spacing: -0.01em; }}
+    h2 {{ font-size: 19px; line-height: 1.3; margin: 30px 0 10px; color: #0f172a; letter-spacing: -0.01em; }}
+    p {{ margin: 4px 0; color: #334155; }}
     .summary {{ display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; margin-top: 14px; }}
     .card {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; background: #f9fafb; }}
-    .label {{ font-size: 12px; color: #6b7280; }}
-    .value {{ font-size: 20px; font-weight: 700; color: #111827; }}
+    .label {{ font-size: 12px; color: #475569; font-weight: 500; }}
+    .value {{ font-size: 20px; font-weight: 700; color: #0f172a; line-height: 1.2; }}
     table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-    th, td {{ border: 1px solid #e5e7eb; padding: 8px; font-size: 13px; text-align: left; }}
-    th {{ background: #f3f4f6; font-weight: 600; }}
+    th, td {{ border: 1px solid #e5e7eb; padding: 8px; font-size: 13px; text-align: left; color: #111827; }}
+    th {{ background: #f1f5f9; font-weight: 650; color: #0f172a; }}
     .explain {{ border-left: 3px solid #d1d5db; padding-left: 10px; margin-top: 8px; }}
     .viz-grid {{ display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }}
     .bar-row {{ display:grid; grid-template-columns: 190px 1fr 52px; align-items:center; gap:8px; margin:6px 0; }}
@@ -1150,6 +1150,21 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     .pie {{ width:120px; height:120px; border-radius:999px; position:relative; }}
     .pie::after {{ content:''; position:absolute; inset:24px; background:#ffffff; border-radius:999px; }}
     .mini-grid {{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }}
+    @media (max-width: 900px) {{
+      body {{ margin: 12px; }}
+      .page {{ padding: 14px; border-radius: 10px; }}
+      .summary {{ grid-template-columns: 1fr 1fr; gap: 8px; }}
+      .viz-grid {{ grid-template-columns: 1fr; gap: 10px; }}
+      .mini-grid {{ grid-template-columns: 1fr; gap: 10px; }}
+      h1 {{ font-size: 22px; }}
+      h2 {{ font-size: 17px; margin-top: 24px; }}
+      .value {{ font-size: 18px; }}
+      .bar-row {{ grid-template-columns: 130px 1fr 46px; }}
+      .pie {{ width: 92px; height: 92px; }}
+      .pie::after {{ inset: 18px; }}
+      table {{ display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }}
+      th, td {{ font-size: 12px; padding: 7px; }}
+    }}
   </style>
 </head>
 <body>
@@ -1234,7 +1249,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     </div>
   </div>
 
-  <h2>CEO Snapshot: Selected vs Overall</h2>
+  <h2>Selected vs Overall Comparison</h2>
   <table>
     <thead><tr><th>Metric</th><th>Selected Scope</th><th>Overall Scope</th><th>Interpretation</th></tr></thead>
     <tbody>
