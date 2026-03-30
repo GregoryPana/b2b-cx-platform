@@ -101,13 +101,14 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: backend
-          DATABASE_URL: sqlite:///./ci.db
-          ENTRA_TENANT_ID: ci-tenant
-          ENTRA_CLIENT_ID: ci-client
-          ENTRA_AUTHORITY: https://login.microsoftonline.com/ci-tenant
-          ENTRA_ISSUER: https://sts.windows.net/ci-tenant/
-          ENTRA_AUDIENCE: api://ci-client
-        run: pytest backend/tests
+          TESTING: true
+          DATABASE_URL: postgresql://cxadmin:StrongPassword123!@localhost:5432/cwscx
+          ENTRA_TENANT_ID: 97df7dc2-f178-4ce4-b55e-bcafc144485e
+          ENTRA_CLIENT_ID: 7e09a8c1-f113-4e3f-aeb7-21d1305cbd55
+          ENTRA_AUTHORITY: https://login.microsoftonline.com/97df7dc2-f178-4ce4-b55e-bcafc144485e
+          ENTRA_ISSUER: https://sts.windows.net/97df7dc2-f178-4ce4-b55e-bcafc144485e/
+          ENTRA_AUDIENCE: api://7e09a8c1-f113-4e3f-aeb7-21d1305cbd55
+         run: pytest backend/tests
 
   dashboard_ci:
     runs-on: ubuntu-latest
