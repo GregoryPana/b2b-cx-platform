@@ -98,17 +98,17 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
-       - name: Run tests
-         env:
-           PYTHONPATH: backend
-           TESTING: true
-           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-           ENTRA_TENANT_ID: ${{ secrets.ENTRA_TENANT_ID }}
-           ENTRA_CLIENT_ID: ${{ secrets.ENTRA_CLIENT_ID }}
-           ENTRA_AUTHORITY: https://login.microsoftonline.com/${{ secrets.ENTRA_TENANT_ID }}
-           ENTRA_ISSUER: https://sts.windows.net/${{ secrets.ENTRA_TENANT_ID }}/
-           ENTRA_AUDIENCE: api://${{ secrets.ENTRA_CLIENT_ID }}
-         run: pytest backend/tests
+      - name: Run tests
+        env:
+          PYTHONPATH: backend
+          TESTING: true
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ENTRA_TENANT_ID: ${{ secrets.ENTRA_TENANT_ID }}
+          ENTRA_CLIENT_ID: ${{ secrets.ENTRA_CLIENT_ID }}
+          ENTRA_AUTHORITY: https://login.microsoftonline.com/${{ secrets.ENTRA_TENANT_ID }}
+          ENTRA_ISSUER: https://sts.windows.net/${{ secrets.ENTRA_TENANT_ID }}/
+          ENTRA_AUDIENCE: api://${{ secrets.ENTRA_CLIENT_ID }}
+        run: pytest backend/tests
 
   dashboard_ci:
     runs-on: ubuntu-latest

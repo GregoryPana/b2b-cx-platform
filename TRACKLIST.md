@@ -762,3 +762,56 @@ HTTP_STATUS:200
 [{"id":"e4242cf8-770a-4358-85e6-b924b2b98c25","business_id":7,"business_name":"State House","representative_id":8,"representative_name":"Representative","visit_date":"2026-04-01","visit_type":"Unplanned","status":"Draft","business_priority":"medium","submitted_by_name":null,"submitted_by_email":null,"submitted_at":null,"response_count":19,"mandatory_answered_count":16,"mandatory_total_count":21,"is_started":true,"is_completed":false},{"id":"921e621f-ba65-4f2b-a1f8-dcc6a395fc57","business_id":8,"business_name":"Hilton","representative_id":8,"representative_name":"Representative","visit_date":"2026-03-25","visit_type":"Planned","status":"Rejected","business_priority":"low","submitted_by_name":"Representative","submitted_by_email":"rep@local","submitted_at":"2026-03-25T11:45:56.418300+00:00","response_count":24,"mandatory_answered_count":21,"mandatory_total_count":21,"is_started":true,"is_completed":false},{"id":"04756400-dd30-461b-951a-773951685b8e","business_id":6,"business_name":"Four Seasons","representative_id":8,"representative_name":"Representative","visit_date":"2026-03-19","visit_type":"Planned","status":"Pending","business_priority":"high","submitted_by_name":"Representative","submitted_by_email":"rep@local","submitted_at":"2026-03-25T11:45:56.380585+00:00","response_count":24,"mandatory_answered_count":21,"mandatory_total_count":21,"is_started":true,"is_completed":false},{"id":"9846e7b7-36ff-462b-8491-6400033ccdc5","business_id":5,"business_name":"Air Seychelles","representative_id":8,"representative_name":"Representative","visit_date":"2026-03-12","visit_type":"Planned","status":"Approved","business_priority":"high","submitted_by_name":"Representative","submitted_by_email":"rep@local","submitted_at":"2026-03-25T11:45:56.354279+00:00","response_count":24,"mandatory_answered_count":21,"mandatory_total_count":21,"is_started":true,"is_completed":false}]
 HTTP_STATUS:200
 ```
+
+## Session: TDD Verify 2026-03-30 11:29:00
+
+### Config
+
+- API Base: http://127.0.0.1:8001
+- DB URL: postgresql://b2b:b2b@127.0.0.1:5432/b2b
+- Auth Mode: bearer-token
+
+### Results
+
+- Verify Status: pass
+- Health HTTP: 200
+- Analytics HTTP: 401
+- NPS HTTP: 401
+- Visits HTTP: 401
+
+### Verbatim Output
+
+#### Health
+```
+{"status":"healthy","platform":"CX Assessment Platform","mode":"staging"}
+HTTP_STATUS:200
+```
+
+#### Database Counts
+```
+users: 4
+businesses: 4
+questions: 24
+visits: 4
+responses: 91
+b2b_visit_responses: 91
+survey_types: 3
+```
+
+#### Analytics
+```
+{"detail":"Invalid access token: Signature has expired"}
+HTTP_STATUS:401
+```
+
+#### Dashboard NPS
+```
+{"detail":"Invalid access token: Signature has expired"}
+HTTP_STATUS:401
+```
+
+#### Dashboard Visits
+```
+{"detail":"Invalid access token: Signature has expired"}
+HTTP_STATUS:401
+```
