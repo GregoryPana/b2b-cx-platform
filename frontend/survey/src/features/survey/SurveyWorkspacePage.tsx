@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import Lottie from "lottie-react";
-import { ArrowRight, CheckCircle2, Loader2, Plus, Save, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Loader2, Plus, Save, Sparkles } from "lucide-react";
 import emptyStateAnimation from "../../assets/empty-state-lottie.json";
 import PageContainer from "../../components/layout/PageContainer";
 import { Badge } from "../../components/ui/badge";
@@ -654,8 +654,8 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
         <>
           <Card className="animate-target">
             <CardHeader>
-              <CardTitle>Planned Visits</CardTitle>
-              <CardDescription>Choose an existing planned visit or create a new visit.</CardDescription>
+              <CardTitle className="text-xl font-semibold tracking-tight">Planned Visits</CardTitle>
+              <CardDescription className="text-sm">Choose an existing planned visit or create a new visit.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
@@ -672,7 +672,13 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <p className="mb-2 text-xs font-semibold text-muted-foreground">TODAY</p>
+                    <div className="mb-3 flex items-center justify-between rounded-md border bg-amber-50 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <Clock3 className="h-4 w-4 text-amber-700" />
+                        <p className="text-sm font-semibold text-amber-900">Today</p>
+                      </div>
+                      <Badge variant="warning">{plannedToday.length}</Badge>
+                    </div>
                     <div className="space-y-3 lg:hidden">
                       {plannedToday.length === 0 ? (
                         <Card>
@@ -686,18 +692,18 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                               <CardContent className="space-y-3 p-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
-                                    <p className="text-sm font-semibold">{resolveBusinessName(draft)}</p>
+                                    <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
                                     <p className="text-xs text-muted-foreground">Visit ID: {id || "--"}</p>
                                   </div>
                                   <Badge variant="secondary">{draft.status || "Draft"}</Badge>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3 text-sm">
                                   <div>
-                                    <p className="text-xs text-muted-foreground">Date</p>
+                                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date</p>
                                     <p>{draft.visit_date || "--"}</p>
                                   </div>
                                   <div>
-                                    <p className="text-xs text-muted-foreground">Progress</p>
+                                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Progress</p>
                                     <p>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</p>
                                   </div>
                                 </div>
@@ -751,7 +757,13 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                   </div>
 
                   <div>
-                    <p className="mb-2 text-xs font-semibold text-muted-foreground">UPCOMING</p>
+                    <div className="mb-3 flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <CalendarDays className="h-4 w-4 text-slate-700" />
+                        <p className="text-sm font-semibold text-slate-900">Upcoming</p>
+                      </div>
+                      <Badge variant="secondary">{plannedUpcoming.length}</Badge>
+                    </div>
                     <div className="space-y-3 lg:hidden">
                       {plannedUpcoming.length === 0 ? (
                         <Card>
@@ -766,13 +778,13 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                               <CardContent className="space-y-3 p-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
-                                    <p className="text-sm font-semibold">{resolveBusinessName(draft)}</p>
+                                    <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
                                     <p className="text-xs text-muted-foreground">Visit ID: {id || "--"}</p>
                                   </div>
                                   <Badge variant={priority === "high" ? "destructive" : priority === "medium" ? "warning" : "success"}>{priority}</Badge>
                                 </div>
                                 <div>
-                                  <p className="text-xs text-muted-foreground">Date</p>
+                                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date</p>
                                   <p className="text-sm">{draft.visit_date || "--"}</p>
                                 </div>
                                 <Button className="w-full" variant="outline" onClick={() => handleSelectPlannedVisit(draft)}>Open</Button>
@@ -823,8 +835,8 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
 
           <Card className="animate-target">
             <CardHeader>
-              <CardTitle>Create / Prepare Visit</CardTitle>
-              <CardDescription>Use this form to create a new visit or load a selected planned visit.</CardDescription>
+              <CardTitle className="text-xl font-semibold tracking-tight">Create / Prepare Visit</CardTitle>
+              <CardDescription className="text-sm">Use this form to create a new visit or load a selected planned visit.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">

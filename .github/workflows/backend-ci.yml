@@ -24,4 +24,11 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: backend
+          TESTING: true
+          DATABASE_URL: sqlite:///./ci.db
+          ENTRA_TENANT_ID: ci-tenant
+          ENTRA_CLIENT_ID: ci-client
+          ENTRA_AUTHORITY: https://login.microsoftonline.com/ci-tenant
+          ENTRA_ISSUER: https://sts.windows.net/ci-tenant/
+          ENTRA_AUDIENCE: api://ci-client
         run: pytest backend/tests

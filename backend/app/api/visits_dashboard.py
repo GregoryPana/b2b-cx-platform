@@ -49,6 +49,59 @@ def get_response_table(db: Session) -> str | None:
 ACTION_TIMEFRAME_OPTIONS = {"<1 month", "<3 months", "<6 months", ">6 months"}
 
 
+def resolve_actor_user_id(db: Session, current_user: User) -> int:
+    """Resolve authenticated user to a local users.id row.
+
+    This prevents FK violations when Entra-authenticated users don't exist yet
+    in the legacy `users` table used by visits.representative_id/created_by.
+    """
+    if not has_table(db, "users"):
+        return int(current_user.id)
+
+    email = (getattr(current_user, "email", "") or "").strip().lower()
+    name = (getattr(current_user, "name", "") or "Survey User").strip()[:200]
+
+    if email:
+        existing_id = db.execute(
+            text("SELECT id FROM users WHERE LOWER(email) = :email LIMIT 1"),
+            {"email": email},
+        ).scalar()
+        if existing_id is not None:
+            return int(existing_id)
+
+    fallback_email = email or f"{(getattr(current_user, 'sub', '') or 'survey-user')}@entra.local"
+    fallback_email = fallback_email.strip().lower()[:255]
+
+    role = "Representative"
+    roles = getattr(current_user, "roles", tuple()) or tuple()
+    if any(str(item).upper() in {"CX_SUPER_ADMIN", "B2B_ADMIN", "MYSTERY_ADMIN", "INSTALL_ADMIN"} for item in roles):
+        role = "Admin"
+
+    try:
+        created_id = db.execute(
+            text(
+                """
+                INSERT INTO users (name, email, role, active)
+                VALUES (:name, :email, :role, true)
+                ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+                RETURNING id
+                """
+            ),
+            {"name": name or "Survey User", "email": fallback_email, "role": role},
+        ).scalar()
+        if created_id is not None:
+            return int(created_id)
+    except Exception:
+        existing_id = db.execute(
+            text("SELECT id FROM users WHERE LOWER(email) = :email LIMIT 1"),
+            {"email": fallback_email},
+        ).scalar()
+        if existing_id is not None:
+            return int(existing_id)
+
+    return int(current_user.id)
+
+
 def ensure_visit_submission_columns(db: Session) -> None:
     global _visit_signature_columns_checked
     if _visit_signature_columns_checked:
@@ -281,6 +334,7 @@ def create_visit(
     """Create a new visit."""
     try:
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+        actor_user_id = resolve_actor_user_id(db, current_user)
         # Validate required fields
         business_id = visit_data.get("business_id")
         visit_date = visit_data.get("visit_date")
@@ -304,6 +358,20 @@ def create_visit(
                 detail=f"A visit for this business already exists on {visit_date}. Only one visit per business per day is allowed."
             )
         
+        representative_id = visit_data.get("representative_id")
+        if representative_id in (None, ""):
+            representative_id = actor_user_id
+        else:
+            try:
+                representative_id = int(representative_id)
+            except Exception:
+                raise HTTPException(status_code=400, detail="representative_id must be a valid integer")
+
+        if has_table(db, "users"):
+            rep_exists = db.execute(text("SELECT 1 FROM users WHERE id = :user_id LIMIT 1"), {"user_id": representative_id}).scalar()
+            if not rep_exists:
+                raise HTTPException(status_code=400, detail="Selected representative does not exist")
+
         # Insert new visit
         if has_visit_survey_type:
             created_visit_id = db.execute(text(
@@ -315,8 +383,8 @@ def create_visit(
                 """
             ), {
                 "business_id": business_id,
-                "rep_id": visit_data.get("representative_id") or current_user.id,
-                "created_by": current_user.id,
+                "rep_id": representative_id,
+                "created_by": actor_user_id,
                 "visit_date": visit_date,
                 "visit_type": visit_data.get("visit_type"),
                 "survey_type_id": survey_type_id,
@@ -331,8 +399,8 @@ def create_visit(
                 """
             ), {
                 "business_id": business_id,
-                "rep_id": visit_data.get("representative_id") or current_user.id,
-                "created_by": current_user.id,
+                "rep_id": representative_id,
+                "created_by": actor_user_id,
                 "visit_date": visit_date,
                 "visit_type": visit_data.get("visit_type"),
             }).scalar()
@@ -345,7 +413,7 @@ def create_visit(
             "status": "Draft",
             "message": "Visit created successfully",
             "created_by": {
-                "user_id": current_user.id,
+                "user_id": actor_user_id,
                 "name": current_user.name,
                 "email": current_user.email,
             },

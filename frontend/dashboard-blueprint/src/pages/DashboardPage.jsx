@@ -1725,8 +1725,8 @@ export default function DashboardPage({ headers, activePlatform }) {
       {location.pathname === "/review" ? (
         <Card>
           <CardHeader>
-            <CardTitle>Review Queue</CardTitle>
-            <CardDescription>These submitted visits are waiting for manager review. You can approve or reject each one.</CardDescription>
+            <CardTitle className="text-xl font-semibold tracking-tight">Review Queue</CardTitle>
+            <CardDescription className="text-sm">These submitted visits are waiting for manager review. You can approve or reject each one.</CardDescription>
           </CardHeader>
           <CardContent>
                 <Table className="min-w-[560px]">
@@ -1774,7 +1774,7 @@ export default function DashboardPage({ headers, activePlatform }) {
       {location.pathname === "/review" && selectedSurveyVisit ? (
         <Card>
           <CardHeader>
-            <CardTitle>Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
+            <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
             <CardDescription>
               {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
             </CardDescription>
@@ -1787,7 +1787,7 @@ export default function DashboardPage({ headers, activePlatform }) {
               surveyResponseCategoryGroups.map(({ category, responses }) => (
                 <div key={category} className="space-y-2 rounded-lg border p-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">{category}</p>
+                    <p className="text-base font-semibold tracking-tight">{category}</p>
                     <Badge variant="secondary">{responses.length} questions</Badge>
                   </div>
                   {responses.map((response) => {
@@ -1795,7 +1795,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                     return (
                       <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
                         <div className="mb-1 flex items-center justify-between">
-                          <p className="text-sm font-medium">Question {response.question_number || response.question_id}</p>
+                          <p className="text-base font-medium">Question {response.question_number || response.question_id}</p>
                         </div>
                         <p className="text-sm">{response.question_text || "--"}</p>
                         <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
@@ -1944,7 +1944,7 @@ export default function DashboardPage({ headers, activePlatform }) {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Survey Results</CardTitle>
+              <CardTitle className="text-xl font-semibold tracking-tight">Survey Results</CardTitle>
               <CardDescription>View full survey submissions, then open each visit to inspect all questions and answers.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -2042,7 +2042,7 @@ export default function DashboardPage({ headers, activePlatform }) {
           {selectedSurveyVisit ? (
             <Card>
               <CardHeader>
-                <CardTitle>Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
+                <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
                 <CardDescription>
                   {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
                 </CardDescription>
@@ -2055,7 +2055,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                   surveyResponseCategoryGroups.map(({ category, responses }) => (
                     <div key={category} className="space-y-2 rounded-lg border p-3">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold">{category}</p>
+                        <p className="text-base font-semibold tracking-tight">{category}</p>
                         <Badge variant="secondary">{responses.length} questions</Badge>
                       </div>
                       {responses.map((response) => {
@@ -2063,7 +2063,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                         return (
                           <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
                             <div className="mb-1 flex items-center justify-between">
-                              <p className="text-sm font-medium">Question {response.question_number || response.question_id}</p>
+                              <p className="text-base font-medium">Question {response.question_number || response.question_id}</p>
                             </div>
                             <p className="text-sm">{response.question_text || "--"}</p>
                             <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
