@@ -16,53 +16,15 @@ from ..core.database import get_db
 
 router = APIRouter(prefix="/installation", tags=["installation"])
 
-
-QUESTION_DEFINITIONS: list[dict[str, Any]] = [
-    {
-        "question_number": 1,
-        "question_key": "install_drop_length",
-        "category": "Technical Performance & Network Standards",
-        "question_text": "Is the drop cable within installation length standard (max 3 poles / 180 m)?",
-    },
-    {
-        "question_number": 2,
-        "question_key": "install_fdp_slack",
-        "category": "Technical Performance & Network Standards",
-        "question_text": "Is there enough cable slack at the FDP using the right port for the drop cable?",
-    },
-    {
-        "question_number": 3,
-        "question_key": "install_trunking_standard",
-        "category": "Technical Performance & Network Standards",
-        "question_text": "Is the trunking/internal cable installed to spec using approved clips or screws?",
-    },
-    {
-        "question_number": 4,
-        "question_key": "install_signal_validation",
-        "category": "Technical Performance & Network Standards",
-        "question_text": "Does the auditor confirm optimal signal (power test / speed test / correct provisioning)?",
-    },
-    {
-        "question_number": 5,
-        "question_key": "install_routing_aesthetic",
-        "category": "Physical Routing & Aesthetic Quality",
-        "question_text": "Are cables neatly routed and devices installed level, neat, and unobstructed?",
-    },
-    {
-        "question_number": 6,
-        "question_key": "install_safety_integrity",
-        "category": "Safety & Infrastructure Integrity",
-        "question_text": "Are exterior penetrations sealed, grounded, and using outdoor-rated cabling?",
-    },
-    {
-        "question_number": 7,
-        "question_key": "install_cleanliness_damage",
-        "category": "Site Cleanliness & Property Damage",
-        "question_text": "Is the site free of debris or damage caused by the installation team?",
-    },
-]
-
-QUESTION_INDEX = {item["question_number"]: item for item in QUESTION_DEFINITIONS}
+INSTALLATION_SURVEY_NAME = "Installation Assessment"
+INSTALLATION_SURVEY_CODE_CANDIDATES = (
+    "installation_assessment",
+    "install",
+    "installation",
+    "installation_assessment_survey",
+)
+_SURVEY_TYPE_ID_CACHE: int | None = None
+_SURVEY_TYPES_HAS_CODE_COLUMN: bool | None = None
 
 
 def _threshold_band(score: float) -> dict[str, str]:
@@ -89,6 +51,96 @@ def _threshold_band(score: float) -> dict[str, str]:
         "label": "Critical Fail",
         "description": "Escalate immediately for safety/property damage risks.",
     }
+
+
+def _survey_types_supports_code(db: Session) -> bool:
+    global _SURVEY_TYPES_HAS_CODE_COLUMN
+    if _SURVEY_TYPES_HAS_CODE_COLUMN is not None:
+        return _SURVEY_TYPES_HAS_CODE_COLUMN
+    result = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'survey_types'
+              AND column_name = 'code'
+            LIMIT 1
+            """
+        )
+    ).scalar()
+    _SURVEY_TYPES_HAS_CODE_COLUMN = bool(result)
+    return _SURVEY_TYPES_HAS_CODE_COLUMN
+
+
+def _get_installation_survey_type_id(db: Session) -> int:
+    global _SURVEY_TYPE_ID_CACHE
+    if _SURVEY_TYPE_ID_CACHE is not None:
+        return _SURVEY_TYPE_ID_CACHE
+
+    row = db.execute(
+        text(
+            """
+            SELECT id
+            FROM survey_types
+            WHERE lower(name) = :name
+            ORDER BY id
+            LIMIT 1
+            """
+        ),
+        {"name": INSTALLATION_SURVEY_NAME.lower()},
+    ).scalar()
+
+    if row is None and _survey_types_supports_code(db):
+        for candidate in INSTALLATION_SURVEY_CODE_CANDIDATES:
+            row = db.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM survey_types
+                    WHERE lower(code) = :code
+                    ORDER BY id
+                    LIMIT 1
+                    """
+                ),
+                {"code": candidate.lower()},
+            ).scalar()
+            if row is not None:
+                break
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Installation survey type not configured in database")
+
+    _SURVEY_TYPE_ID_CACHE = int(row)
+    return _SURVEY_TYPE_ID_CACHE
+
+
+def _load_question_bank(db: Session) -> list[dict[str, Any]]:
+    survey_type_id = _get_installation_survey_type_id(db)
+    rows = db.execute(
+        text(
+            """
+            SELECT
+                question_number,
+                COALESCE(question_key, CONCAT('install_q', question_number::text)) AS question_key,
+                COALESCE(category, 'General') AS category,
+                question_text,
+                COALESCE(score_min, 1) AS score_min,
+                COALESCE(score_max, 5) AS score_max,
+                COALESCE(input_type, 'score') AS input_type,
+                COALESCE(is_mandatory, true) AS is_mandatory
+            FROM questions
+            WHERE survey_type_id = :survey_type_id
+            ORDER BY question_number
+            """
+        ),
+        {"survey_type_id": survey_type_id},
+    ).mappings().all()
+
+    if not rows:
+        raise HTTPException(status_code=500, detail="Installation question bank is empty")
+
+    return [dict(row) for row in rows]
 
 
 class InstallationQuestionResponse(BaseModel):
@@ -148,16 +200,20 @@ class InstallationAssessmentRecord(BaseModel):
 
 
 @router.get("/questions")
-def get_installation_questions():
+def get_installation_questions(db: Session = Depends(get_db)):
+    questions = _load_question_bank(db)
     return [
         {
-            **question,
-            "input_type": "score",
-            "score_min": 1,
-            "score_max": 5,
-            "is_mandatory": True,
+            "question_number": item["question_number"],
+            "question_key": item["question_key"],
+            "category": item["category"],
+            "question_text": item["question_text"],
+            "input_type": item["input_type"],
+            "score_min": item["score_min"],
+            "score_max": item["score_max"],
+            "is_mandatory": item["is_mandatory"],
         }
-        for question in QUESTION_DEFINITIONS
+        for item in questions
     ]
 
 
@@ -167,17 +223,38 @@ def create_installation_assessment(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
+    question_bank = _load_question_bank(db)
+    question_map = {question["question_number"]: question for question in question_bank}
     responses_map = {response.question_number: response for response in payload.responses}
     missing_numbers = [
-        question["question_number"]
-        for question in QUESTION_DEFINITIONS
-        if question["question_number"] not in responses_map
+        question_number
+        for question_number in sorted(question_map)
+        if question_number not in responses_map
     ]
     if missing_numbers:
         raise HTTPException(
             status_code=400,
             detail=f"Missing responses for question numbers: {', '.join(str(num) for num in missing_numbers)}",
         )
+
+    invalid_numbers = [number for number in responses_map if number not in question_map]
+    if invalid_numbers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown question numbers supplied: {', '.join(str(num) for num in invalid_numbers)}",
+        )
+
+    for number, response in responses_map.items():
+        question = question_map[number]
+        min_score = question["score_min"]
+        max_score = question["score_max"]
+        if response.score < min_score or response.score > max_score:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Score for question {number} must be between {min_score} and {max_score}."
+                ),
+            )
 
     score_values = [responses_map[number].score for number in responses_map]
     overall_score = sum(score_values) / len(score_values)
@@ -218,7 +295,7 @@ def create_installation_assessment(
             insert_payload,
         )
 
-        for question in QUESTION_DEFINITIONS:
+        for question in question_bank:
             response = responses_map[question["question_number"]]
             db.execute(
                 text(
@@ -282,27 +359,27 @@ def list_installation_assessments(
             """
         ),
         {"limit": limit, "offset": offset},
-    ).all()
+    ).mappings().all()
 
     assessments: list[InstallationAssessmentRecord] = []
     for row in rows:
-        responses = _fetch_responses(db, row[0])
-        band = _threshold_band(float(row[9]))
+        responses = _fetch_responses(db, row["id"])
+        band = _threshold_band(float(row["overall_score"]))
         assessments.append(
             InstallationAssessmentRecord(
-                id=str(row[0]),
-                inspector_name=row[1],
-                customer_name=row[2],
-                customer_type=row[3],
-                location=row[4],
-                work_date=row[5],
-                execution_party=row[6],
-                team_name=row[7],
-                contractor_name=row[8],
-                overall_score=float(row[9]),
-                threshold_band=band["key"],
+                id=str(row["id"]),
+                inspector_name=row["inspector_name"],
+                customer_name=row["customer_name"],
+                customer_type=row["customer_type"],
+                location=row["location"],
+                work_date=row["work_date"],
+                execution_party=row["execution_party"],
+                team_name=row["team_name"],
+                contractor_name=row["contractor_name"],
+                overall_score=float(row["overall_score"]),
+                threshold_band=row["threshold_band"],
                 threshold_label=band["label"],
-                created_at=row[11],
+                created_at=row["created_at"],
                 responses=responses,
             )
         )
@@ -339,27 +416,27 @@ def _fetch_assessment(db: Session, assessment_id: str) -> InstallationAssessment
             """
         ),
         {"assessment_id": assessment_id},
-    ).one_or_none()
+    ).mappings().one_or_none()
 
     if not row:
         return None
 
-    responses = _fetch_responses(db, row[0])
-    band = _threshold_band(float(row[9]))
+    responses = _fetch_responses(db, row["id"])
+    band = _threshold_band(float(row["overall_score"]))
     return InstallationAssessmentRecord(
-        id=str(row[0]),
-        inspector_name=row[1],
-        customer_name=row[2],
-        customer_type=row[3],
-        location=row[4],
-        work_date=row[5],
-        execution_party=row[6],
-        team_name=row[7],
-        contractor_name=row[8],
-        overall_score=float(row[9]),
-        threshold_band=band["key"],
+        id=str(row["id"]),
+        inspector_name=row["inspector_name"],
+        customer_name=row["customer_name"],
+        customer_type=row["customer_type"],
+        location=row["location"],
+        work_date=row["work_date"],
+        execution_party=row["execution_party"],
+        team_name=row["team_name"],
+        contractor_name=row["contractor_name"],
+        overall_score=float(row["overall_score"]),
+        threshold_band=row["threshold_band"],
         threshold_label=band["label"],
-        created_at=row[11],
+        created_at=row["created_at"],
         responses=responses,
     )
 
@@ -375,16 +452,16 @@ def _fetch_responses(db: Session, assessment_id: str) -> list[InstallationAssess
             """
         ),
         {"assessment_id": assessment_id},
-    ).all()
+    ).mappings().all()
 
     return [
         InstallationAssessmentResponseItem(
-            question_number=row[0],
-            question_key=row[1],
-            question_text=row[2],
-            category=row[3],
-            score=row[4],
-            notes=row[5],
+            question_number=row["question_number"],
+            question_key=row["question_key"],
+            question_text=row["question_text"],
+            category=row["category"],
+            score=row["score"],
+            notes=row["notes"],
         )
         for row in rows
     ]

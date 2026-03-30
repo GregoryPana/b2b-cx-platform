@@ -13,95 +13,6 @@ import {
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const SCORE_OPTIONS = [1, 2, 3, 4, 5];
 
-const FALLBACK_QUESTIONS = [
-  {
-    question_number: 1,
-    category: "Technical Performance & Network Standards",
-    question_text: "Is the drop cable within installation length standard (max 3 poles / 180 m)?",
-  },
-  {
-    question_number: 2,
-    category: "Technical Performance & Network Standards",
-    question_text: "Is there enough cable slack at the FDP and is the correct port used?",
-  },
-  {
-    question_number: 3,
-    category: "Technical Performance & Network Standards",
-    question_text: "Is trunking/internal cable secured with approved clips or screws?",
-  },
-  {
-    question_number: 4,
-    category: "Technical Performance & Network Standards",
-    question_text: "Does the auditor confirm optimal signal/power and correct provisioning?",
-  },
-  {
-    question_number: 5,
-    category: "Physical Routing & Aesthetic Quality",
-    question_text: "Are cables neatly routed, clipped evenly, and CPE devices placed cleanly?",
-  },
-  {
-    question_number: 6,
-    category: "Safety & Infrastructure Integrity",
-    question_text: "Are exterior penetrations sealed, grounded, and using outdoor-rated cabling?",
-  },
-  {
-    question_number: 7,
-    category: "Site Cleanliness & Property Damage",
-    question_text: "Is the site free of debris or damage caused by the installation team?",
-  },
-];
-
-const SAMPLE_ASSIGNMENTS = [
-  {
-    id: "IA-DEMO-001",
-    customer: "Garden City Exchange",
-    customerType: "B2B",
-    location: "Lusaka",
-    window: "09:00 - 11:00",
-    date: "2026-03-18",
-    executionParty: "Field Team",
-    team: "Metro Fibre Crew",
-    contact: "Patricia Nkonde",
-    priority: "Today",
-  },
-  {
-    id: "IA-DEMO-002",
-    customer: "Roma Park Residences",
-    customerType: "B2C",
-    location: "Lusaka",
-    window: "13:00 - 15:00",
-    date: "2026-03-18",
-    executionParty: "Field Team",
-    team: "South Ops Team",
-    contact: "Precious Mwansa",
-    priority: "Today",
-  },
-  {
-    id: "IA-DEMO-003",
-    customer: "Manda Hill Retail",
-    customerType: "B2B",
-    location: "Lusaka",
-    window: "Tomorrow",
-    date: "2026-03-19",
-    executionParty: "Contractor",
-    team: "Delta Cabling",
-    contact: "Simon Lungu",
-    priority: "Watch",
-  },
-  {
-    id: "IA-DEMO-004",
-    customer: "Ndola Innovation Lab",
-    customerType: "B2B",
-    location: "Ndola",
-    window: "Friday",
-    date: "2026-03-20",
-    executionParty: "Field Team",
-    team: "Northern Response",
-    contact: "Zoe Chapi",
-    priority: "Prep",
-  },
-];
-
 const HEADER_TEMPLATE = {
   inspectorName: "",
   customerName: "",
@@ -159,14 +70,12 @@ function ScoreButtons({ value, onChange }) {
   );
 }
 
-  const assignments = SAMPLE_ASSIGNMENTS;
-const initialAssignment = assignments.length ? assignments[0] : null;
-
 export default function App() {
-  const [activeAssignmentId, setActiveAssignmentId] = useState(initialAssignment?.id ?? null);
-  const [questionBank, setQuestionBank] = useState(FALLBACK_QUESTIONS);
-  const [header, setHeader] = useState(() => (initialAssignment ? hydrateHeaderFromAssignment(initialAssignment) : { ...HEADER_TEMPLATE }));
-  const [responses, setResponses] = useState(buildInitialResponses(FALLBACK_QUESTIONS));
+  const [assignments, setAssignments] = useState([]);
+  const [activeAssignmentId, setActiveAssignmentId] = useState(null);
+  const [questionBank, setQuestionBank] = useState([]);
+  const [header, setHeader] = useState({ ...HEADER_TEMPLATE });
+  const [responses, setResponses] = useState({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -195,7 +104,7 @@ export default function App() {
       .filter((score) => !Number.isNaN(score));
     const total = completedScores.reduce((sum, value) => sum + value, 0);
     const average = completedScores.length ? total / completedScores.length : null;
-    const completion = completedScores.length / questionBank.length;
+    const completion = questionBank.length ? completedScores.length / questionBank.length : 0;
     const riskItems = questionBank.filter((question, index) => {
       const number = getQuestionNumber(question, index);
       const score = Number(responses[number]?.score);
@@ -222,13 +131,13 @@ export default function App() {
     return {
       average,
       completion,
-      completedAll: completion === 1,
+      completedAll: questionBank.length > 0 && completion === 1,
       riskItems,
       safetyFlags,
       band,
       categories,
     };
-  }, [responses, groupedQuestions]);
+  }, [responses, groupedQuestions, questionBank.length]);
 
   const readyToSubmit = summary.completedAll && headerFieldsComplete(header);
 
@@ -269,12 +178,16 @@ export default function App() {
       const res = await fetch(`${API_BASE}/installation/questions`);
       if (!res.ok) throw new Error("Failed to load questions");
       const data = await res.json();
-      if (Array.isArray(data) && data.length) {
-        setQuestionBank(data);
-        setResponses(buildInitialResponses(data));
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error("Installation question bank is empty");
       }
-    } catch {
-      // fallback already loaded
+      setQuestionBank(data);
+      setResponses(buildInitialResponses(data));
+      setError("");
+    } catch (err) {
+      setQuestionBank([]);
+      setResponses({});
+      setError(err instanceof Error ? err.message : "Unable to load installation questions");
     } finally {
       setLoadingQuestions(false);
     }
@@ -307,6 +220,10 @@ export default function App() {
   const handleSubmit = async () => {
     setError("");
     setMessage("");
+    if (!questionBank.length) {
+      setError("Installation checklist not loaded. Refresh to pull the latest questions.");
+      return;
+    }
     if (!readyToSubmit) {
       setError("Complete inspector/header fields and all seven scores before submitting.");
       return;
@@ -335,15 +252,14 @@ export default function App() {
     }
   };
 
-  const outstandingChecks = questionBank.length - questionBank.filter((question, index) => responses[getQuestionNumber(question, index)]?.score).length;
+  const answeredCount = questionBank.filter((question, index) => responses[getQuestionNumber(question, index)]?.score).length;
+  const outstandingChecks = Math.max(questionBank.length - answeredCount, 0);
   const historyRows = history;
 
   const handleClearAll = () => {
     setHeader({ ...HEADER_TEMPLATE });
     setResponses(buildInitialResponses(questionBank));
-    setHistory([]);
-    setHistoryLoading(false);
-    setActiveAssignmentId(initialAssignment?.id ?? null);
+    setActiveAssignmentId(null);
     setMessage("");
     setError("");
   };
@@ -353,11 +269,11 @@ export default function App() {
       <header>
         <div>
           <h2>Assignments</h2>
-          <p>{assignments.length ? "Installations scheduled in your roster" : "No active assignments available today."}</p>
+          <p>{assignments.length ? "Installations scheduled in your roster" : "Assignments sync once the field operations API is connected."}</p>
         </div>
       </header>
       {assignments.length === 0 ? (
-        <p className="caption">Sync from the Operations console when new visits are assigned.</p>
+        <p className="caption">No live feed yet. This panel will populate automatically when the installation scheduling endpoint ships.</p>
       ) : (
         <div className="assignment-list">
           {assignments.map((assignment) => (
@@ -380,14 +296,14 @@ export default function App() {
       {renderAssignmentsView()}
       <div className="stat-grid">
         <div className="stat-card">
-          <span>Due today</span>
-          <strong>2</strong>
-          <span>Remaining visits in your route</span>
+          <span>Assignments loaded</span>
+          <strong>{assignments.length}</strong>
+          <span>Visits synced from operations</span>
         </div>
         <div className="stat-card">
-          <span>Pending uploads</span>
-          <strong>1</strong>
-          <span>Assessments waiting for connectivity</span>
+          <span>Outstanding checks</span>
+          <strong>{outstandingChecks}</strong>
+          <span>Scores left before submission</span>
         </div>
         <div className="stat-card">
           <span>Risk alerts</span>
@@ -397,6 +313,7 @@ export default function App() {
         <div className="stat-card">
           <span>Overall score</span>
           <strong>{summary.average ? summary.average.toFixed(2) : "--"}</strong>
+          <span>Based on completed answers</span>
         </div>
       </div>
       <section className="section">
@@ -485,6 +402,8 @@ export default function App() {
         <div className="question-groups">
           {loadingQuestions ? (
             <p className="caption">Loading checklist…</p>
+          ) : questionBank.length === 0 ? (
+            <p className="caption">Installation checklist not available. Apply the latest database seed and refresh.</p>
           ) : (
             Object.entries(groupedQuestions).map(([category, list]) => (
               <div key={category} className="question-group">
@@ -538,15 +457,21 @@ export default function App() {
           </tr>
         </thead>
         <tbody>
-          {historyRows.map((row) => (
-            <tr key={row.id}>
-              <td>{row.id}</td>
-              <td>{row.customer_name || row.customer}</td>
-              <td>{Number(row.overall_score ?? row.score).toFixed(2)}</td>
-              <td>{row.threshold_label || row.status}</td>
-              <td>{row.work_date || row.date}</td>
-            </tr>
-          ))}
+          {historyRows.map((row) => {
+            const numericScore = Number(row.overall_score ?? row.score);
+            const displayScore = Number.isFinite(numericScore) ? numericScore.toFixed(2) : "--";
+            const displayStatus = row.threshold_label || row.threshold_band || row.status || "--";
+            const displayDate = row.work_date || row.created_at || row.date || "--";
+            return (
+              <tr key={row.id}>
+                <td>{row.id}</td>
+                <td>{row.customer_name || row.customer}</td>
+                <td>{displayScore}</td>
+                <td>{displayStatus}</td>
+                <td>{displayDate}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     )
