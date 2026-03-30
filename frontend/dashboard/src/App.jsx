@@ -45,6 +45,33 @@ import "./review.css";
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const B2B_API_BASE = API_BASE.endsWith("/api/api") ? `${API_BASE}/b2b` : `${API_BASE}/api/b2b`;
 
+function groupResponsesByCategory(rawResponses) {
+  const responses = Array.isArray(rawResponses) ? rawResponses : [];
+  const grouped = responses.reduce((acc, response) => {
+    const category = String(response?.category || "Uncategorized").trim() || "Uncategorized";
+    if (!acc[category]) acc[category] = [];
+    acc[category].push(response);
+    return acc;
+  }, {});
+
+  const categorySortValue = (categoryName) => {
+    const match = String(categoryName || "").match(/category\s*(\d+)/i);
+    return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+  };
+
+  return Object.entries(grouped)
+    .map(([category, entries]) => ({
+      category,
+      responses: entries.sort((a, b) => Number(a.question_number || a.question_id || 0) - Number(b.question_number || b.question_id || 0)),
+    }))
+    .sort((a, b) => {
+      const aOrder = categorySortValue(a.category);
+      const bOrder = categorySortValue(b.category);
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.category.localeCompare(b.category);
+    });
+}
+
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
   const isAuthenticated = useIsAuthenticated();
@@ -293,6 +320,16 @@ export default function App() {
     const set = new Set(questionAverages.map((item) => item.category).filter(Boolean));
     return ["all", ...Array.from(set)];
   }, [questionAverages]);
+
+  const selectedVisitCategoryGroups = useMemo(
+    () => groupResponsesByCategory(selectedVisit?.responses),
+    [selectedVisit]
+  );
+
+  const selectedSurveyVisitCategoryGroups = useMemo(
+    () => groupResponsesByCategory(selectedSurveyVisit?.responses),
+    [selectedSurveyVisit]
+  );
 
   const mysteryAnalyticsSummary = useMemo(() => {
     if (!isMysteryShopperPlatform) {
@@ -2724,33 +2761,45 @@ export default function App() {
                   </div>
 
                   <div className="responses">
-                    {selectedVisit.responses.map((response) => (
-                      <div key={response.response_id} className="response-card">
-                        <div className="response-header">
-                          <div className="question-info">
-                            <strong>Q{response.question_number || response.question_id}</strong>
-                            <p className="question-text">{response.question_text || "Question text not available"}</p>
+                    {selectedVisitCategoryGroups.length === 0 ? (
+                      <p className="caption">No responses found for this visit.</p>
+                    ) : (
+                      selectedVisitCategoryGroups.map((group) => (
+                        <div key={group.category} className="response-category-group">
+                          <div className="response-category-header">
+                            <h4>{group.category}</h4>
+                            <Badge variant="secondary">{group.responses.length} questions</Badge>
                           </div>
-                          {response.score !== null && response.score !== undefined ? (
-                            <span className="score-badge">Score: {response.score}</span>
-                          ) : (
-                            <span className="text-badge">Text response</span>
-                          )}
+                          {group.responses.map((response) => (
+                            <div key={response.response_id} className="response-card">
+                              <div className="response-header">
+                                <div className="question-info">
+                                  <strong>Q{response.question_number || response.question_id}</strong>
+                                  <p className="question-text">{response.question_text || "Question text not available"}</p>
+                                </div>
+                                {response.score !== null && response.score !== undefined ? (
+                                  <span className="score-badge">Score: {response.score}</span>
+                                ) : (
+                                  <span className="text-badge">Text response</span>
+                                )}
+                              </div>
+                              <p>{response.answer_text || response.verbatim || "No verbatim provided."}</p>
+                              {response.actions && response.actions.length > 0 ? (
+                                <div className="actions-section">
+                                  <strong>Actions:</strong>
+                                  {response.actions.map((action, index) => (
+                                    <p key={`${response.response_id}-action-${index}`} className="action-item">
+                                      {action.action_required} · Owner: {action.action_owner} · Time: {action.action_timeframe}
+                                      {action.action_support_needed ? ` · Support: ${action.action_support_needed}` : ""}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
                         </div>
-                        <p>{response.answer_text || response.verbatim || "No verbatim provided."}</p>
-                        {response.actions && response.actions.length > 0 ? (
-                          <div className="actions-section">
-                            <strong>Actions:</strong>
-                            {response.actions.map((action) => (
-                              <p key={action.id} className="action-item">
-                                {action.action_required} · Owner: {action.action_owner} · Time: {action.action_timeframe}
-                                {action.action_support_needed ? ` · Support: ${action.action_support_needed}` : ""}
-                              </p>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                   <label className="full">
                     Review Notes
@@ -3208,31 +3257,44 @@ export default function App() {
 
               <div className="responses">
                 <h4>Responses</h4>
-                {selectedSurveyVisit.responses && selectedSurveyVisit.responses.length > 0 ? (
-                  selectedSurveyVisit.responses.map((response) => (
-                    <div key={response.response_id} className="response-card">
-                      <div className="response-header">
-                        <strong>Question {response.question_number || response.question_id}</strong>
-                        {response.score !== null && response.score !== undefined && (
-                          <span className="score">Score: {response.score}</span>
-                        )}
+                {selectedSurveyVisitCategoryGroups.length > 0 ? (
+                  selectedSurveyVisitCategoryGroups.map((group) => (
+                    <div key={group.category} className="response-category-group">
+                      <div className="response-category-header">
+                        <h5>{group.category}</h5>
+                        <Badge variant="secondary">{group.responses.length} questions</Badge>
                       </div>
-                      <p className="question-text">{response.question_text}</p>
-                      <p className="answer-text">{response.answer_text}</p>
-                      {response.verbatim && (
-                        <p className="verbatim">Verbatim: {response.verbatim}</p>
-                      )}
-                      {response.actions && response.actions.length > 0 && (
-                        <div className="actions">
-                          <strong>Actions:</strong>
-                          <ul>
-                            {response.actions.map((action, index) => (
-                              <li key={index}>{action}</li>
-                            ))}
-                          </ul>
+                      {group.responses.map((response) => (
+                        <div key={response.response_id} className="response-card">
+                          <div className="response-header">
+                            <strong>Question {response.question_number || response.question_id}</strong>
+                            {response.score !== null && response.score !== undefined && (
+                              <span className="score">Score: {response.score}</span>
+                            )}
+                          </div>
+                          <p className="question-text">{response.question_text}</p>
+                          <p className="answer-text">{response.answer_text}</p>
+                          {response.verbatim && (
+                            <p className="verbatim">Verbatim: {response.verbatim}</p>
+                          )}
+                          {response.actions && response.actions.length > 0 && (
+                            <div className="actions">
+                              <strong>Actions:</strong>
+                              <ul>
+                                {response.actions.map((action, index) => (
+                                  <li key={`${response.response_id}-action-${index}`}>
+                                    {action.action_required || ""}
+                                    {action.action_owner ? ` | Owner: ${action.action_owner}` : ""}
+                                    {action.action_timeframe ? ` | Time: ${action.action_timeframe}` : ""}
+                                    {action.action_support_needed ? ` | Support: ${action.action_support_needed}` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <p className="timestamp">Created: {response.created_at ? new Date(response.created_at).toLocaleString() : "--"}</p>
                         </div>
-                      )}
-                      <p className="timestamp">Created: {new Date(response.created_at).toLocaleString()}</p>
+                      ))}
                     </div>
                   ))
                 ) : (

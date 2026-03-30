@@ -785,14 +785,31 @@ export default function DashboardPage({ headers, activePlatform }) {
     };
   }, [analytics?.nps]);
 
-  const surveyResponsesByCategory = useMemo(() => {
+  const surveyResponseCategoryGroups = useMemo(() => {
     const responses = Array.isArray(selectedSurveyVisit?.responses) ? selectedSurveyVisit.responses : [];
-    return responses.reduce((acc, response) => {
-      const category = response.category || "Uncategorized";
+    const grouped = responses.reduce((acc, response) => {
+      const category = String(response.category || "Uncategorized").trim() || "Uncategorized";
       if (!acc[category]) acc[category] = [];
       acc[category].push(response);
       return acc;
     }, {});
+
+    const categorySortValue = (categoryName) => {
+      const match = String(categoryName || "").match(/category\s*(\d+)/i);
+      return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+    };
+
+    return Object.entries(grouped)
+      .map(([category, groupedResponses]) => ({
+        category,
+        responses: groupedResponses.sort((a, b) => Number(a.question_number || a.question_id || 0) - Number(b.question_number || b.question_id || 0)),
+      }))
+      .sort((a, b) => {
+        const aOrder = categorySortValue(a.category);
+        const bOrder = categorySortValue(b.category);
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return a.category.localeCompare(b.category);
+      });
   }, [selectedSurveyVisit]);
 
   const relationshipGraphData = useMemo(() => {
@@ -1754,6 +1771,50 @@ export default function DashboardPage({ headers, activePlatform }) {
         </Card>
       ) : null}
 
+      {location.pathname === "/review" && selectedSurveyVisit ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
+            <CardDescription>
+              {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
+            </CardDescription>
+            <CardDescription>
+              Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${selectedSurveyVisit.submitted_at}` : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {surveyResponseCategoryGroups.length > 0 ? (
+              surveyResponseCategoryGroups.map(({ category, responses }) => (
+                <div key={category} className="space-y-2 rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold">{category}</p>
+                    <Badge variant="secondary">{responses.length} questions</Badge>
+                  </div>
+                  {responses.map((response) => {
+                    const display = formatSurveyResponseValue(response);
+                    return (
+                      <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
+                        <div className="mb-1 flex items-center justify-between">
+                          <p className="text-sm font-medium">Question {response.question_number || response.question_id}</p>
+                        </div>
+                        <p className="text-sm">{response.question_text || "--"}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
+                        {response.verbatim ? <p className="mt-1 text-sm text-muted-foreground">Verbatim: {response.verbatim}</p> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No responses found for this visit.</p>
+            )}
+            <div>
+              <Button type="button" variant="outline" onClick={() => setSelectedSurveyVisit(null)}>Close Details</Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {location.pathname === "/planned" ? (
         isB2BPlatform ? (
           <div className="space-y-6">
@@ -1990,10 +2051,13 @@ export default function DashboardPage({ headers, activePlatform }) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {Object.keys(surveyResponsesByCategory).length > 0 ? (
-                  Object.entries(surveyResponsesByCategory).map(([category, responses]) => (
+                {surveyResponseCategoryGroups.length > 0 ? (
+                  surveyResponseCategoryGroups.map(({ category, responses }) => (
                     <div key={category} className="space-y-2 rounded-lg border p-3">
-                      <p className="text-sm font-semibold">{category}</p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold">{category}</p>
+                        <Badge variant="secondary">{responses.length} questions</Badge>
+                      </div>
                       {responses.map((response) => {
                         const display = formatSurveyResponseValue(response);
                         return (

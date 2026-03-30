@@ -1162,7 +1162,8 @@ def get_visit_detail(
                 {"r.updated_at" if response_table == "b2b_visit_responses" else "NULL"} as updated_at,
                 {question_order_col} as question_number,
                 q.question_text,
-                q.input_type
+                q.input_type,
+                q.category
             FROM {response_table} r
             LEFT JOIN questions q ON r.question_id = q.id
             WHERE r.visit_id = :visit_id
@@ -1190,6 +1191,7 @@ def get_visit_detail(
                 "question_number": row[8] if row[8] else row[1],  # Use question_number from questions table, fallback to question_id
                 "question_text": row[9],
                 "question_type": row[10],
+                "category": row[11] or "Uncategorized",
                 "score": row[2],
                 "answer_text": row[3],
                 "verbatim": row[4],
