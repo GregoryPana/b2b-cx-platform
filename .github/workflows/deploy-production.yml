@@ -97,7 +97,8 @@ jobs:
             fi
 
             if [[ "${BUILD_BACKEND:-false}" == "True" || "${BUILD_BACKEND:-false}" == "true" || "${BUILD_BACKEND:-false}" == "1" ]]; then
-              sudo bash scripts/linux/deploy_backend.sh
+              sudo chown -R "${USER}:www-data" "${TARGET_ROOT}/backend" || true
+              bash scripts/linux/deploy_backend.sh
             else
               echo "Skipping backend deploy (no backend changes)."
             fi

@@ -16,9 +16,18 @@ run_as_root() {
     return
   fi
 
-  if command -v sudo >/dev/null 2>&1 && sudo -n "$@" >/dev/null 2>&1; then
-    sudo -n "$@"
-    return
+  if command -v sudo >/dev/null 2>&1; then
+    if sudo -n "$@" >/dev/null 2>&1; then
+      sudo -n "$@"
+      return
+    fi
+
+    if sudo -n bash -lc 'exit 0' >/dev/null 2>&1; then
+      local quoted_cmd
+      quoted_cmd="$(printf '%q ' "$@")"
+      sudo -n bash -lc "${quoted_cmd}"
+      return
+    fi
   fi
 
   echo "This step requires root privileges: $*"
@@ -99,6 +108,16 @@ run_as_root systemctl enable cwscx-backend
 run_as_root systemctl restart cwscx-backend
 run_as_root systemctl --no-pager --full status cwscx-backend
 
-curl -fsS http://127.0.0.1:8000/health || true
+for i in {1..30}; do
+  if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
+    echo "Backend health check passed."
+    echo "Backend deployment complete."
+    exit 0
+  fi
+  sleep 1
+done
 
-echo "Backend deployment complete."
+echo "Backend failed health check after restart."
+run_as_root systemctl --no-pager --full status cwscx-backend || true
+run_as_root journalctl -u cwscx-backend -n 120 --no-pager || true
+exit 1
