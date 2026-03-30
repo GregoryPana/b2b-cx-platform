@@ -17,6 +17,7 @@ from app.programs.b2b.router import router as b2b_router
 # Survey Imports
 from app.api.survey import router as survey_router
 from app.api.mystery_shopper import router as mystery_shopper_router
+from app.api.installation import router as installation_router
 from app.api.auth import router as auth_router
 
 # Dashboard Compatibility Imports
@@ -40,6 +41,7 @@ from app.core.auth.dependencies import (
     ALL_PLATFORM_ROLES,
     B2B_ROLES,
     DASHBOARD_ROLES,
+    INSTALL_ROLES,
     MYSTERY_ROLES,
     require_roles,
 )
@@ -130,6 +132,7 @@ def create_app() -> FastAPI:
     # Survey Routes (for the survey interface)
     app.include_router(survey_router, tags=["survey"], dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
     app.include_router(mystery_shopper_router, dependencies=[Depends(require_roles(*MYSTERY_ROLES))])
+    app.include_router(installation_router, prefix="/api", dependencies=[Depends(require_roles(*INSTALL_ROLES))])
     app.include_router(auth_router, dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
     
     # Dashboard Compatibility Routes (for dashboard metrics)
