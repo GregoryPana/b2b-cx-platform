@@ -2034,12 +2034,16 @@ export default function DashboardPage({ headers, activePlatform }) {
         )
       ) : null}
 
-      {location.pathname === "/surveys" ? (
+      {location.pathname === "/surveys" || location.pathname === "/reports" ? (
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-xl font-semibold tracking-tight">Survey Results</CardTitle>
-              <CardDescription>View full survey submissions, then open each visit to inspect all questions and answers.</CardDescription>
+              <CardTitle className="text-xl font-semibold tracking-tight">{location.pathname === "/reports" ? "Survey Reports" : "Survey Results"}</CardTitle>
+              <CardDescription>
+                {location.pathname === "/reports"
+                  ? "Create visual management reports by date/business, then download or email them."
+                  : "View full survey submissions, then open each visit to inspect all questions and answers."}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-2">
