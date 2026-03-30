@@ -98,16 +98,16 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
-      - name: Run tests
-        env:
-          PYTHONPATH: backend
-          TESTING: true
-          DATABASE_URL: postgresql://cxadmin:StrongPassword123!@localhost:5432/cwscx
-          ENTRA_TENANT_ID: 97df7dc2-f178-4ce4-b55e-bcafc144485e
-          ENTRA_CLIENT_ID: 7e09a8c1-f113-4e3f-aeb7-21d1305cbd55
-          ENTRA_AUTHORITY: https://login.microsoftonline.com/97df7dc2-f178-4ce4-b55e-bcafc144485e
-          ENTRA_ISSUER: https://sts.windows.net/97df7dc2-f178-4ce4-b55e-bcafc144485e/
-          ENTRA_AUDIENCE: api://7e09a8c1-f113-4e3f-aeb7-21d1305cbd55
+       - name: Run tests
+         env:
+           PYTHONPATH: backend
+           TESTING: true
+           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+           ENTRA_TENANT_ID: ${{ secrets.ENTRA_TENANT_ID }}
+           ENTRA_CLIENT_ID: ${{ secrets.ENTRA_CLIENT_ID }}
+           ENTRA_AUTHORITY: https://login.microsoftonline.com/${{ secrets.ENTRA_TENANT_ID }}
+           ENTRA_ISSUER: https://sts.windows.net/${{ secrets.ENTRA_TENANT_ID }}/
+           ENTRA_AUDIENCE: api://${{ secrets.ENTRA_CLIENT_ID }}
          run: pytest backend/tests
 
   dashboard_ci:
