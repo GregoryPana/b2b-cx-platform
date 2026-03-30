@@ -9,6 +9,21 @@ import { ensureMsalInitialized, loginRequest } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
+const ACTIVE_PLATFORM_KEY = "cx.activePlatform";
+const ENTRA_ROLES_KEY = "cx.entraRoles";
+
+function readJwtExpiry(accessToken) {
+  try {
+    const payloadPart = String(accessToken || "").split(".")[1] || "";
+    if (!payloadPart) return null;
+    const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    return typeof payload.exp === "number" ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
 
 function resolvePlatformsFromRoles(entraRoles) {
   const isSuperAdmin = entraRoles.includes("CX_SUPER_ADMIN");
@@ -73,8 +88,22 @@ function MsalAuthenticatedApp() {
   const [role, setRole] = useState("Admin");
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
-  const [activePlatform, setActivePlatform] = useState("");
-  const [entraRoles, setEntraRoles] = useState([]);
+  const [activePlatform, setActivePlatform] = useState(() => {
+    try {
+      return localStorage.getItem(ACTIVE_PLATFORM_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
+  const [entraRoles, setEntraRoles] = useState(() => {
+    try {
+      const raw = localStorage.getItem(ENTRA_ROLES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [authProfileError, setAuthProfileError] = useState("");
 
   useEffect(() => {
@@ -135,6 +164,14 @@ function MsalAuthenticatedApp() {
           throw new Error(`Profile endpoint returned non-JSON response (${res.status}). ${rawText.slice(0, 120)}`);
         }
 
+        if (res.status === 401 && accounts[0]) {
+          const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
+          if (result?.accessToken) {
+            setAccessToken(result.accessToken);
+            return;
+          }
+        }
+
         if (!res.ok) {
           throw new Error(data?.detail || `Failed to load profile (${res.status})`);
         }
@@ -153,7 +190,38 @@ function MsalAuthenticatedApp() {
       }
     };
     run();
-  }, [accessToken, userEmail, userId, userName]);
+  }, [accessToken, userEmail, userId, userName, accounts, instance]);
+
+  useEffect(() => {
+    if (!msalReady || !accounts[0] || !accessToken) return;
+
+    const expiry = readJwtExpiry(accessToken);
+    if (!expiry) return;
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const refreshLeadSeconds = 120;
+    const delayMs = Math.max(1000, (expiry - nowSeconds - refreshLeadSeconds) * 1000);
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      if (cancelled) return;
+      try {
+        const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
+        if (result?.accessToken) {
+          setAccessToken(result.accessToken);
+        }
+      } catch (error) {
+        if (error instanceof InteractionRequiredAuthError) {
+          instance.acquireTokenRedirect(loginRequest);
+        }
+      }
+    }, delayMs);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [msalReady, accounts, accessToken, instance]);
 
   const headers = useMemo(() => {
     const next = {
@@ -170,7 +238,28 @@ function MsalAuthenticatedApp() {
   };
 
   useEffect(() => {
+    try {
+      if (activePlatform) {
+        localStorage.setItem(ACTIVE_PLATFORM_KEY, activePlatform);
+      } else {
+        localStorage.removeItem(ACTIVE_PLATFORM_KEY);
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [activePlatform]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ENTRA_ROLES_KEY, JSON.stringify(Array.isArray(entraRoles) ? entraRoles : []));
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [entraRoles]);
+
+  useEffect(() => {
     if (!activePlatform) return;
+    if (!Array.isArray(entraRoles) || entraRoles.length === 0) return;
     const stillAllowed = resolvePlatformsFromRoles(entraRoles).some((platform) => platform.name === activePlatform);
     if (!stillAllowed) setActivePlatform("");
   }, [activePlatform, entraRoles]);
@@ -206,7 +295,13 @@ function DevBypassApp() {
       .filter(Boolean);
   }, []);
 
-  const [activePlatform, setActivePlatform] = useState("");
+  const [activePlatform, setActivePlatform] = useState(() => {
+    try {
+      return localStorage.getItem(ACTIVE_PLATFORM_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
   const userId = import.meta.env.VITE_DEV_BYPASS_USER_ID || "999999";
   const userName = import.meta.env.VITE_DEV_BYPASS_NAME || "Dev Local User";
   const userEmail = import.meta.env.VITE_DEV_BYPASS_EMAIL || "dev.local@example.com";
@@ -225,6 +320,19 @@ function DevBypassApp() {
   const handleLogout = () => {
     setActivePlatform("");
   };
+
+  useEffect(() => {
+    try {
+      if (activePlatform) {
+        localStorage.setItem(ACTIVE_PLATFORM_KEY, activePlatform);
+      } else {
+        localStorage.removeItem(ACTIVE_PLATFORM_KEY);
+      }
+      localStorage.setItem(ENTRA_ROLES_KEY, JSON.stringify(Array.isArray(devRoles) ? devRoles : []));
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [activePlatform, devRoles]);
 
   return (
     <DashboardShell

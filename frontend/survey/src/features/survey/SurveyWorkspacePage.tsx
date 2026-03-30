@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Textarea } from "../../components/ui/textarea";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+const SURVEY_TYPE = String(import.meta.env.VITE_SURVEY_TYPE || "B2B");
 
 const QUESTION_CATEGORY_ORDER = [
   "Category 1: Relationship Strength",
@@ -112,6 +113,13 @@ function parseChoices(question: Question): string[] {
   }
 }
 
+function normalizeYesNo(value: string | null | undefined): "Y" | "N" | "" {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "y" || normalized === "yes") return "Y";
+  if (normalized === "n" || normalized === "no") return "N";
+  return "";
+}
+
 function categoryToId(value: string) {
   return `category-${String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
 }
@@ -162,7 +170,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
   const visibleQuestions = useMemo(() => {
     const q16Question = questions.find((q) => q.question_key === Q16_KEY);
     const q16Answer = q16Question ? responseDrafts[q16Question.id]?.answer_text || responsesByQuestion[q16Question.id]?.answer_text || "" : "";
-    const q16IsYes = q16Answer === "Y";
+    const q16IsYes = normalizeYesNo(q16Answer) === "Y";
     return questions.filter((q) => q.question_key !== Q17_KEY || q16IsYes);
   }, [questions, responseDrafts, responsesByQuestion]);
 
@@ -225,7 +233,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     };
 
     const loadQuestions = async () => {
-      const params = new URLSearchParams({ survey_type: "B2B" });
+      const params = new URLSearchParams({ survey_type: SURVEY_TYPE });
       const res = await fetch(`${API_BASE}/questions?${params.toString()}`, { headers });
       const data = await res.json();
       if (!res.ok) {
@@ -252,7 +260,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     setError("");
     const params = new URLSearchParams({
       status: "Draft",
-      survey_type: "B2B",
+      survey_type: SURVEY_TYPE,
       _cb: Date.now().toString(),
     });
     const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
@@ -386,7 +394,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
         representative_id: Number(visitForm.representative_id || userId),
         visit_date: visitForm.visit_date,
         visit_type: visitForm.visit_type,
-        survey_type: "B2B",
+        survey_type: SURVEY_TYPE,
         meeting_attendees: [],
       };
       const res = await fetch(`${API_BASE}/dashboard-visits?_cb=${Date.now()}`, { method: "POST", headers, body: JSON.stringify(payload) });
@@ -475,7 +483,11 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       return;
     }
 
-    if (question.input_type === "yes_no" && !["Y", "N"].includes(responseForm.answer_text || "")) {
+    const normalizedAnswerText = question.input_type === "yes_no"
+      ? normalizeYesNo(responseForm.answer_text)
+      : (responseForm.answer_text || "").trim();
+
+    if (question.input_type === "yes_no" && !["Y", "N"].includes(normalizedAnswerText)) {
       setError("Select Yes or No.");
       return;
     }
@@ -504,7 +516,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     const payload = {
       question_id: Number(question.id),
       score: question.input_type === "score" ? scoreNum : null,
-      answer_text: question.input_type === "score" ? null : responseForm.answer_text?.trim() || null,
+      answer_text: question.input_type === "score" ? null : normalizedAnswerText || null,
       verbatim: responseForm.verbatim?.trim() || null,
       actions: normalizedActions,
     };
@@ -933,8 +945,8 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                       />
                                     ) : question.input_type === "yes_no" ? (
                                       <div className="flex gap-2">
-                                        <Button variant={draft.answer_text === "Y" ? "default" : "outline"} onClick={() => updateQuestionDraft(question.id, "answer_text", "Y")}>Yes</Button>
-                                        <Button variant={draft.answer_text === "N" ? "default" : "outline"} onClick={() => updateQuestionDraft(question.id, "answer_text", "N")}>No</Button>
+                                        <Button variant={normalizeYesNo(draft.answer_text) === "Y" ? "default" : "outline"} onClick={() => updateQuestionDraft(question.id, "answer_text", "Y")}>Yes</Button>
+                                        <Button variant={normalizeYesNo(draft.answer_text) === "N" ? "default" : "outline"} onClick={() => updateQuestionDraft(question.id, "answer_text", "N")}>No</Button>
                                       </div>
                                     ) : question.input_type === "always_sometimes_never" ? (
                                       <Select value={draft.answer_text} onChange={(event) => updateQuestionDraft(question.id, "answer_text", event.target.value)}>

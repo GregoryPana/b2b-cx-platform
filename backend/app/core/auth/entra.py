@@ -50,7 +50,8 @@ class EntraTokenValidator:
         self.expected_issuer = os.getenv("ENTRA_ISSUER", f"{authority}/v2.0")
         self.expected_audiences = self._resolve_audiences()
         self.jwks_url = os.getenv("ENTRA_JWKS_URL", f"{authority}/discovery/v2.0/keys")
-        self._jwk_client = PyJWKClient(self.jwks_url)
+        self.jwks_timeout_seconds = int(os.getenv("ENTRA_JWKS_TIMEOUT_SECONDS", "5"))
+        self._jwk_client = PyJWKClient(self.jwks_url, timeout=self.jwks_timeout_seconds)
 
         # Optional debug logging (ASCII-safe for Windows consoles)
         if os.getenv("ENTRA_DEBUG", "false").strip().lower() in {"1", "true", "yes"}:
@@ -60,6 +61,7 @@ class EntraTokenValidator:
             print(f"  Expected Issuer: {self.expected_issuer}")
             print(f"  Expected Audiences: {self.expected_audiences}")
             print(f"  JWKS URL: {self.jwks_url}")
+            print(f"  JWKS Timeout (s): {self.jwks_timeout_seconds}")
 
     def _resolve_audiences(self) -> tuple[str, ...]:
         raw_audience = os.getenv("ENTRA_AUDIENCE", "api://7e09a8c1-f113-4e3f-aeb7-21d1305cbd55")
@@ -102,7 +104,7 @@ class EntraTokenValidator:
         except InvalidTokenError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid access token: {exc}") from exc
         except Exception as exc:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unable to validate access token") from exc
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Unable to validate access token: {exc}") from exc
 
         roles_claim = claims.get("roles") or []
         if isinstance(roles_claim, str):

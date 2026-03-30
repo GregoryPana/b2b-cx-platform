@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -25,6 +25,10 @@ def init_db():
     """Initialize database with tables."""
     try:
         Base.metadata.create_all(bind=engine)
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_name VARCHAR(255)"))
+            connection.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_email VARCHAR(255)"))
+            connection.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP"))
         print("Database initialized successfully")
     except Exception as e:
         print(f"Database initialization failed: {e}")

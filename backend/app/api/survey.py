@@ -2,6 +2,8 @@
 Additional endpoints for the survey interface
 """
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -9,9 +11,39 @@ from typing import List, Dict, Any
 from pydantic import BaseModel
 from ..core.database import get_db
 from ..core.auth.dependencies import B2B_ROLES, require_roles
+from .mystery_shopper import MYSTERY_SHOPPER_QUESTIONS
 import sqlite3
 
 router = APIRouter()
+
+
+DEFAULT_SURVEY_TYPES = [
+    {"code": "B2B", "name": "B2B", "description": "Business-to-Business survey"},
+    {"code": "INSTALLATION", "name": "Installation Assessment", "description": "Installation assessment survey"},
+    {"code": "MYSTERY_SHOPPER", "name": "Mystery Shopper", "description": "Mystery shopper survey"},
+]
+
+
+def has_table(db: Session, table_name: str) -> bool:
+    return bool(db.execute(text(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_name = :table_name
+        LIMIT 1
+        """
+    ), {"table_name": table_name}).scalar())
+
+
+def has_column(db: Session, table_name: str, column_name: str) -> bool:
+    return bool(db.execute(text(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = :table_name AND column_name = :column_name
+        LIMIT 1
+        """
+    ), {"table_name": table_name, "column_name": column_name}).scalar())
 
 
 @router.get("/survey-types")
@@ -22,23 +54,34 @@ async def get_survey_types(db: Session = Depends(get_db)):
     """
 
     try:
+        if not has_table(db, "survey_types"):
+            return [
+                {"id": idx + 1, **survey_type}
+                for idx, survey_type in enumerate(DEFAULT_SURVEY_TYPES)
+            ]
+
+        has_code = has_column(db, "survey_types", "code")
+        select_code = "code" if has_code else "name"
         rows = db.execute(
             text(
                 """
-                SELECT id, name, description
+                SELECT id, {select_code} as code, name, description
                 FROM survey_types
                 ORDER BY id
-                """
+                """.format(select_code=select_code)
             )
         ).all()
 
         return [
-            {"id": row[0], "name": row[1], "description": row[2]}
+            {"id": row[0], "code": row[1], "name": row[2], "description": row[3]}
             for row in rows
         ]
     except Exception as e:
         print(f"Error fetching survey types: {e}")
-        return []
+        return [
+            {"id": idx + 1, **survey_type}
+            for idx, survey_type in enumerate(DEFAULT_SURVEY_TYPES)
+        ]
 
 
 def _question_row_to_payload(row: Any) -> Dict[str, Any]:
@@ -532,13 +575,44 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
     
     # Use the new database structure
     try:
+        normalized_survey_type = (survey_type or "B2B").strip()
+        has_question_number = has_column(db, "questions", "question_number")
+        has_order_index = has_column(db, "questions", "order_index")
+        has_survey_types = has_table(db, "survey_types")
+        has_question_survey_type = has_column(db, "questions", "survey_type_id")
+        has_survey_type_code = has_column(db, "survey_types", "code") if has_survey_types else False
+
+        question_number_select = "q.id"
+        if has_question_number:
+            question_number_select = "q.question_number"
+        elif has_order_index:
+            question_number_select = "q.order_index"
+
+        survey_type_select = "q.survey_type_id"
+        join_clause = ""
+        where_clause = ""
+
+        if has_survey_types and has_question_survey_type:
+            join_clause = "JOIN survey_types st ON q.survey_type_id = st.id"
+            code_filter = "lower(st.name) = lower(:survey_type)"
+            if has_survey_type_code:
+                code_filter = "lower(st.code) = lower(:survey_type)"
+            where_clause = """
+                WHERE
+                    lower(st.name) = lower(:survey_type)
+                    OR {code_filter}
+                    OR replace(lower(st.name), ' ', '') = replace(lower(:survey_type), ' ', '')
+            """.format(code_filter=code_filter)
+        else:
+            survey_type_select = "NULL"
+
         rows = db.execute(
             text(
-                """
+                f"""
                 SELECT
                     q.id,
-                    q.survey_type_id,
-                    q.question_number,
+                    {survey_type_select} as survey_type_id,
+                    {question_number_select} as question_number,
                     q.question_text,
                     q.category,
                     q.is_mandatory,
@@ -552,24 +626,33 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
                     q.requires_escalation,
                     q.question_key
                 FROM questions q
-                JOIN survey_types st ON q.survey_type_id = st.id
-                WHERE st.name = :survey_type
-                ORDER BY q.question_number
+                {join_clause}
+                {where_clause}
+                ORDER BY {question_number_select}
                 """
             ),
-            {"survey_type": survey_type},
+            {"survey_type": normalized_survey_type},
         ).all()
         
         questions = []
         for row in rows:
-            # Parse choices if they exist
             choices = None
-            if row[10]:
-                try:
-                    import json
-                    choices = json.loads(row[10])
-                except:
-                    choices = None
+            if row[10] is not None:
+                raw_choices = row[10]
+                if isinstance(raw_choices, list):
+                    choices = raw_choices
+                elif isinstance(raw_choices, str):
+                    try:
+                        parsed = json.loads(raw_choices)
+                        choices = parsed if isinstance(parsed, list) else None
+                    except Exception:
+                        choices = None
+
+            if not choices:
+                if row[7] == "yes_no":
+                    choices = ["Y", "N"]
+                elif row[7] == "always_sometimes_never":
+                    choices = ["Always", "Sometimes", "Never"]
             
             questions.append({
                 "id": row[0],
@@ -595,7 +678,42 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
         
     except Exception as e:
         print(f"Error fetching questions from new database: {e}")
-        # Fallback to mock data if new structure doesn't exist
+        normalized = (survey_type or "B2B").strip().lower().replace(" ", "")
+        if normalized in {"mysteryshopper", "mystery_shopper", "mystery"}:
+            fallback = []
+            for question in MYSTERY_SHOPPER_QUESTIONS:
+                choices = question.get("choices")
+                if isinstance(choices, str):
+                    try:
+                        choices = json.loads(choices)
+                    except Exception:
+                        choices = None
+                fallback.append(
+                    {
+                        "id": question.get("question_number"),
+                        "survey_type_id": None,
+                        "order_index": question.get("question_number"),
+                        "question_text": question.get("question_text"),
+                        "category": question.get("category"),
+                        "is_mandatory": bool(question.get("is_mandatory", True)),
+                        "is_nps": bool(question.get("is_nps", False)),
+                        "input_type": question.get("input_type", "text"),
+                        "score_min": question.get("score_min"),
+                        "score_max": question.get("score_max"),
+                        "choices": choices,
+                        "helper_text": None,
+                        "requires_issue": False,
+                        "requires_escalation": False,
+                        "question_key": question.get("question_key"),
+                        "order": question.get("question_number"),
+                        "question_type": question.get("input_type", "text"),
+                    }
+                )
+            return fallback
+
+        if normalized in {"installation", "installationassessment", "install"}:
+            return []
+
         return MOCK_QUESTIONS
 
 

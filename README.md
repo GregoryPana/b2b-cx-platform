@@ -60,11 +60,12 @@ Main capabilities include:
 ```text
 /opt/cwscx/
   backend/
-    app/
-    alembic/
-    requirements.txt
-    alembic.ini
-    venv/
+    backend/
+      app/
+      alembic/
+      requirements.txt
+      alembic.ini
+      venv/
   frontends-src/
     dashboard/
       dist/
@@ -76,7 +77,7 @@ Main capabilities include:
     public/
       mystery-shopper/
         dist/
-  frontends-archive/
+  frontends-src-old/
   scripts/linux/
   releases/
   shared/

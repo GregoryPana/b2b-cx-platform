@@ -11,6 +11,7 @@ import { Select } from "../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
+const B2B_API_BASE = API_BASE.endsWith("/api/api") ? `${API_BASE}/b2b` : `${API_BASE}/api/b2b`;
 
 const COLORS = {
   promoters: "#10b981",
@@ -31,6 +32,7 @@ export default function DashboardPage({ headers, activePlatform }) {
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
   const [analytics, setAnalytics] = useState(null);
   const [questionAverages, setQuestionAverages] = useState([]);
+  const [yesNoQuestionAnalytics, setYesNoQuestionAnalytics] = useState([]);
   const [selectedQuestionId, setSelectedQuestionId] = useState("");
   const [trendData, setTrendData] = useState([]);
   const [pendingVisits, setPendingVisits] = useState([]);
@@ -61,6 +63,35 @@ export default function DashboardPage({ headers, activePlatform }) {
   const [selectedSurveyBusiness, setSelectedSurveyBusiness] = useState("");
   const [selectedSurveyLocation, setSelectedSurveyLocation] = useState("");
   const [surveyLoading, setSurveyLoading] = useState(false);
+  const [reviewActionLoadingVisitId, setReviewActionLoadingVisitId] = useState("");
+
+  const headerSignature = useMemo(
+    () => `${headers?.Authorization || ""}|${headers?.["X-User-Id"] || ""}|${headers?.["X-User-Role"] || ""}|${headers?.["X-Dev-Auth-Bypass"] || ""}`,
+    [headers]
+  );
+
+  const fetchJsonSafe = useCallback(async (url, options, timeoutMs = 15000) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...(options || {}), signal: controller.signal });
+      const raw = await res.text();
+      if (!raw) return { res, data: null };
+      try {
+        return { res, data: JSON.parse(raw) };
+      } catch {
+        return { res, data: { detail: raw.slice(0, 200) } };
+      }
+    } catch (error) {
+      const message = error?.name === "AbortError" ? "Request timed out" : (error?.message || "Request failed");
+      return {
+        res: { ok: false, status: 0 },
+        data: { detail: message },
+      };
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }, []);
   const [mysteryLocations, setMysteryLocations] = useState([]);
   const [mysteryPurposes, setMysteryPurposes] = useState([]);
   const [newMysteryLocation, setNewMysteryLocation] = useState("");
@@ -133,16 +164,16 @@ export default function DashboardPage({ headers, activePlatform }) {
 
       try {
         const [npsRes, catRes, analyticsRes] = await Promise.all([
-          fetch(`${API_BASE}/dashboard/nps${queryString}`, { headers }),
-          fetch(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }),
-          fetch(`${API_BASE}/analytics${queryString}`, { headers })
+          fetchJsonSafe(`${API_BASE}/dashboard/nps${queryString}`, { headers }),
+          fetchJsonSafe(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }),
+          fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers })
         ]);
 
-        const npsData = await npsRes.json();
-        const catData = await catRes.json();
-        const analyticsData = await analyticsRes.json();
+        const npsData = npsRes.data || {};
+        const catData = catRes.data || [];
+        const analyticsData = analyticsRes.data || {};
 
-        if (!npsRes.ok || !catRes.ok || !analyticsRes.ok) {
+        if (!npsRes.res.ok || !catRes.res.ok || !analyticsRes.res.ok) {
           setError(
             npsData.detail ||
             catData.detail ||
@@ -167,7 +198,30 @@ export default function DashboardPage({ headers, activePlatform }) {
       }
     };
     load();
-  }, [activePlatform, headers, selectedAnalyticsEntityIds]);
+  }, [activePlatform, headerSignature, selectedAnalyticsEntityIds, fetchJsonSafe]);
+
+  // Load yes/no question analytics
+  useEffect(() => {
+    if (!activePlatform || !isB2BPlatform) {
+      setYesNoQuestionAnalytics([]);
+      return;
+    }
+
+    const load = async () => {
+      const params = new URLSearchParams({ survey_type: activePlatform });
+      if (selectedAnalyticsEntityIds.length > 0) {
+        params.set("business_ids", selectedAnalyticsEntityIds.join(","));
+      }
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/yes-no?${params.toString()}`, { headers });
+      if (!res.ok) {
+        setYesNoQuestionAnalytics([]);
+        return;
+      }
+      setYesNoQuestionAnalytics(Array.isArray(data?.items) ? data.items : []);
+    };
+
+    load();
+  }, [activePlatform, isB2BPlatform, headerSignature, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
   // Load question averages for drilldown table
   useEffect(() => {
@@ -177,8 +231,7 @@ export default function DashboardPage({ headers, activePlatform }) {
       if (selectedAnalyticsEntityIds.length > 0) {
         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
       }
-      const res = await fetch(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
-      const data = await res.json();
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
       if (!res.ok) return;
       const values = Array.isArray(data?.items) ? data.items : [];
       setQuestionAverages(values);
@@ -192,7 +245,7 @@ export default function DashboardPage({ headers, activePlatform }) {
       }
     };
     load();
-  }, [activePlatform, headers, selectedAnalyticsEntityIds, selectedQuestionId]);
+   }, [activePlatform, headerSignature, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
   // Load question trend data
   useEffect(() => {
@@ -202,35 +255,34 @@ export default function DashboardPage({ headers, activePlatform }) {
       if (selectedAnalyticsEntityIds.length > 0) {
         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
       }
-      const res = await fetch(`${API_BASE}/analytics/questions/${selectedQuestionId}/trend?${params.toString()}`, { headers });
-      const data = await res.json();
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/${selectedQuestionId}/trend?${params.toString()}`, { headers });
       if (!res.ok) return;
       const rows = Array.isArray(data?.points) ? data.points : [];
       setTrendData(rows.map((row) => ({ period: row.period_label || row.period, average: Number(row.average_score || 0) })));
     };
     load();
-  }, [activePlatform, headers, selectedQuestionId, selectedAnalyticsEntityIds]);
+  }, [activePlatform, headerSignature, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
+
+  const loadPendingVisits = useCallback(async () => {
+    const params = new URLSearchParams();
+    params.set("status", "Pending");
+    if (activePlatform) params.set("survey_type", activePlatform);
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
+    if (!res.ok) {
+      setError(data?.detail || "Failed to load pending visits");
+      return;
+    }
+    const normalized = (Array.isArray(data) ? data : []).map((visit) => ({
+      ...visit,
+      visit_id: visit.visit_id ?? visit.id,
+    }));
+    setPendingVisits(normalized);
+  }, [activePlatform, headers, fetchJsonSafe]);
 
   // Load pending visits for review queue
   useEffect(() => {
-    const load = async () => {
-      const params = new URLSearchParams();
-      params.set("status", "Pending");
-      if (activePlatform) params.set("survey_type", activePlatform);
-      const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.detail || "Failed to load pending visits");
-        return;
-      }
-      const normalized = (Array.isArray(data) ? data : []).map((visit) => ({
-        ...visit,
-        visit_id: visit.visit_id ?? visit.id,
-      }));
-      setPendingVisits(normalized);
-    };
-    load();
-  }, [headers, activePlatform]);
+    loadPendingVisits();
+  }, [loadPendingVisits]);
 
   const loadMysteryLocations = async () => {
     if (!isMysteryShopperPlatform) {
@@ -309,10 +361,9 @@ export default function DashboardPage({ headers, activePlatform }) {
     setSurveyLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
-      const data = await res.json();
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
       if (!res.ok) {
-        setError(data.detail || "Failed to load survey results");
+        setError(data?.detail || "Failed to load survey results");
         return;
       }
       const rows = Array.isArray(data) ? data : [];
@@ -330,11 +381,10 @@ export default function DashboardPage({ headers, activePlatform }) {
     }
     setPlannedLoading(true);
     const params = new URLSearchParams({ status: "Draft", survey_type: "B2B", _cb: Date.now().toString() });
-    const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
-    const data = await res.json();
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
     setPlannedLoading(false);
     if (!res.ok) {
-      setError(data.detail || "Failed to load planned visits");
+      setError(data?.detail || "Failed to load planned visits");
       return;
     }
     const rows = Array.isArray(data) ? data : [];
@@ -427,6 +477,40 @@ export default function DashboardPage({ headers, activePlatform }) {
     setSelectedSurveyVisit(data);
   };
 
+  const handleReviewDecision = async (visit, decision) => {
+    const visitId = String(visit?.id || visit?.visit_id || "");
+    if (!visitId) return;
+
+    const isApprove = decision === "approve";
+    const decisionLabel = isApprove ? "approve" : "reject";
+    const reasonLabel = isApprove ? "approval notes" : "rejection reason";
+    const notes = window.prompt(`Add ${reasonLabel} (optional):`, "") || "";
+
+    setReviewActionLoadingVisitId(visitId);
+    pushToast("info", `${isApprove ? "Approving" : "Rejecting"} visit...`, 1400);
+
+    const payload = isApprove ? { approval_notes: notes } : { rejection_notes: notes };
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/${visitId}/${decision}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    setReviewActionLoadingVisitId("");
+
+    if (!res.ok) {
+      setError(data?.detail || `Failed to ${decisionLabel} visit`);
+      return;
+    }
+
+    setMessage(`Visit ${visitId} ${isApprove ? "approved" : "rejected"}.`);
+    if (selectedSurveyVisit?.id === visitId) {
+      setSelectedSurveyVisit(null);
+    }
+
+    await Promise.all([loadPendingVisits(), loadSurveyResults()]);
+  };
+
   const formatSurveyResponseValue = (response) => {
     const hasScore = response?.score !== null && response?.score !== undefined;
     if (hasScore) {
@@ -462,12 +546,12 @@ export default function DashboardPage({ headers, activePlatform }) {
   useEffect(() => {
     if (location.pathname !== "/surveys") return;
     loadSurveyResults();
-  }, [location.pathname, activePlatform, headers, surveyStatusFilter, selectedSurveyBusiness, selectedSurveyLocation]);
+  }, [location.pathname, activePlatform, headerSignature, surveyStatusFilter, selectedSurveyBusiness, selectedSurveyLocation]);
 
   useEffect(() => {
     if (location.pathname !== "/planned") return;
     loadPlannedVisits();
-  }, [location.pathname, activePlatform, headers]);
+  }, [location.pathname, activePlatform, headerSignature]);
 
    const analyticsCards = [
      ...(isMysteryShopperPlatform
@@ -658,6 +742,72 @@ export default function DashboardPage({ headers, activePlatform }) {
     ];
   }, [analytics]);
 
+  const yesNoBarChartData = useMemo(() => {
+    return yesNoQuestionAnalytics.map((item) => ({
+      label: `Q${item.question_number || item.question_id}`,
+      question_text: item.question_text,
+      question_key: item.question_key,
+      question_number: Number(item.question_number || item.question_id || 0),
+      yes_percent: Number(item.yes_percent || 0),
+      no_percent: Number(item.no_percent || 0),
+      yes_count: Number(item.yes_count || 0),
+      no_count: Number(item.no_count || 0),
+      total_count: Number(item.total_count || 0),
+    }));
+  }, [yesNoQuestionAnalytics]);
+
+  const yesNoQuestionCards = useMemo(() => {
+    const requiredQuestions = [
+      {
+        key: "q04_ae_business_understanding",
+        number: 4,
+        text: "Does the C&W Account Executive understand your business?.",
+      },
+      {
+        key: "q06_regular_updates",
+        number: 6,
+        text: "Are you receiving regular updates on your account? (Y or N).",
+      },
+      {
+        key: "q09_issues_resolved_on_time",
+        number: 9,
+        text: "Are your issues resolved on time? (Y/N)",
+      },
+      {
+        key: "q16_other_provider_products",
+        number: 16,
+        text: "Do you have other products and services from other service providers? (Yes or No)",
+      },
+    ];
+
+    return requiredQuestions.map((required) => {
+      const matched = yesNoBarChartData.find(
+        (item) => item.question_key === required.key || item.question_number === required.number
+      );
+
+      const yesCount = Number(matched?.yes_count || 0);
+      const noCount = Number(matched?.no_count || 0);
+      const totalCount = Number(matched?.total_count || 0);
+      const yesPercent = totalCount > 0 ? (yesCount / totalCount) * 100 : 0;
+      const noPercent = totalCount > 0 ? (noCount / totalCount) * 100 : 0;
+
+      return {
+        key: required.key,
+        label: `Question ${required.number}`,
+        question_text: matched?.question_text || required.text,
+        yes_count: yesCount,
+        no_count: noCount,
+        total_count: totalCount,
+        yes_percent: yesPercent,
+        no_percent: noPercent,
+        chart_data: [
+          { name: "Yes", value: yesCount, color: "#16a34a" },
+          { name: "No", value: noCount, color: "#dc2626" },
+        ],
+      };
+    });
+  }, [yesNoBarChartData]);
+
   // Load representatives (account executives)
   useEffect(() => {
     if (!isB2BPlatform) {
@@ -666,16 +816,15 @@ export default function DashboardPage({ headers, activePlatform }) {
     }
     const load = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/b2b/public/account-executives`, { headers });
-        const data = await res.json();
-        if (!res.ok) return;
-        setRepresentatives(Array.isArray(data) ? data : []);
+      const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/public/account-executives`, { headers });
+      if (!res.ok) return;
+      setRepresentatives(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error("Failed to load representatives", err);
       }
     };
     load();
-  }, [headers, isB2BPlatform]);
+  }, [headerSignature, isB2BPlatform, fetchJsonSafe]);
 
   // Business CRUD handlers
   const handleEditBusiness = (business) => {
@@ -761,7 +910,7 @@ export default function DashboardPage({ headers, activePlatform }) {
     setError("");
     setMessage("");
     pushToast("info", "Archiving business...", 1500);
-    const res = await fetch(`${API_BASE}/api/b2b/businesses/${business.id}`, {
+    const res = await fetch(`${B2B_API_BASE}/businesses/${business.id}`, {
       method: "PUT",
       headers,
       body: JSON.stringify({ active: false })
@@ -783,7 +932,7 @@ export default function DashboardPage({ headers, activePlatform }) {
       ? `Are you sure you want to delete "${business.name}"? This action cannot be undone.`
       : `Are you sure you want to permanently delete "${business.name}"? This action cannot be undone.`;
     if (!window.confirm(confirmMessage)) return;
-    const res = await fetch(`${API_BASE}/api/b2b/businesses/${business.id}`, {
+    const res = await fetch(`${B2B_API_BASE}/businesses/${business.id}`, {
       method: "DELETE",
       headers
     });
@@ -802,10 +951,9 @@ export default function DashboardPage({ headers, activePlatform }) {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/api/b2b/public/businesses`, { headers });
-      const data = await res.json();
+      const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/public/businesses`, { headers });
       if (!res.ok) {
-        setError(data.detail || "Failed to load businesses");
+        setError(data?.detail || "Failed to load businesses");
         return;
       }
       setBusinesses(Array.isArray(data) ? data : []);
@@ -816,7 +964,7 @@ export default function DashboardPage({ headers, activePlatform }) {
 
   useEffect(() => {
     loadBusinesses();
-  }, [headers, isB2BPlatform]);
+  }, [headerSignature, isB2BPlatform, fetchJsonSafe]);
 
   useEffect(() => {
     if (!isB2BPlatform) return;
@@ -1060,6 +1208,49 @@ export default function DashboardPage({ headers, activePlatform }) {
             </Card>
           ) : null}
 
+          {isB2BPlatform ? (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Yes/No Question Results</CardTitle>
+                <CardDescription>Distribution of answers for Questions 4, 6, 9, and 16.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  {yesNoQuestionCards.map((item) => (
+                    <div key={item.key} className="rounded-lg border bg-muted/30 p-4">
+                      <p className="text-sm font-semibold">{item.label}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{item.question_text}</p>
+                      <div className="mt-3 h-56">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
+                          <PieChart>
+                            <Pie
+                              data={item.chart_data}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={48}
+                              outerRadius={74}
+                              paddingAngle={2}
+                              dataKey="value"
+                            >
+                              {item.chart_data.map((entry) => (
+                                <Cell key={`${item.key}-${entry.name}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value) => [value, "Count"]} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
+                        <p className="text-muted-foreground">Yes: {item.yes_count} ({item.yes_percent.toFixed(1)}%)</p>
+                        <p className="text-muted-foreground">No: {item.no_count} ({item.no_percent.toFixed(1)}%)</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           {isMysteryShopperPlatform ? (
             <Card className="mb-6">
               <CardHeader>
@@ -1116,7 +1307,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                 </Select>
               </CardHeader>
               <CardContent className="h-[360px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                   <LineChart data={trendData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" />
@@ -1190,7 +1381,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                   </div>
                   
                   <div className="w-full h-64">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <PieChart>
                         <Pie
                           data={npsPieData}
@@ -1246,7 +1437,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                   </div>
                   
                   <div className="w-full h-64">
-                    <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <PieChart>
                         <Pie
                           data={csatPieData}
@@ -1303,7 +1494,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                 <CardContent className="space-y-4">
                   <div className="text-4xl font-semibold">{analytics?.relationship_score?.score?.toFixed?.(1) ?? "--"}</div>
                   <div className="h-48">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <BarChart data={relationshipGraphData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="label" />
@@ -1333,7 +1524,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                 <CardContent className="space-y-4">
                   <div className="text-4xl font-semibold">{analytics?.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</div>
                   <div className="h-48">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <BarChart data={competitorGraphData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="label" />
@@ -1427,7 +1618,7 @@ export default function DashboardPage({ headers, activePlatform }) {
               ))}
             </Select>
             <div className="h-[420px]">
-              <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                 <LineChart data={trendData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="period" />
@@ -1449,23 +1640,41 @@ export default function DashboardPage({ headers, activePlatform }) {
           </CardHeader>
           <CardContent>
                 <Table className="min-w-[560px]">
-              <TableHeader>
+                <TableHeader>
                 <TableRow>
                   <TableHead>Visit ID</TableHead>
                   <TableHead>Business</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pendingVisits.map((visit) => (
-                  <TableRow key={visit.id || visit.visit_id}>
-                    <TableCell>{visit.id || visit.visit_id}</TableCell>
-                    <TableCell>{visit.business_name || "--"}</TableCell>
-                    <TableCell>{visit.visit_date || "--"}</TableCell>
-                    <TableCell><Badge variant="warning">{visit.status || "Pending"}</Badge></TableCell>
+                {pendingVisits.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5}>No pending visits in review queue.</TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  pendingVisits.map((visit) => {
+                    const visitId = String(visit.id || visit.visit_id || "");
+                    const isLoading = reviewActionLoadingVisitId === visitId;
+                    return (
+                      <TableRow key={visitId}>
+                        <TableCell>{visitId}</TableCell>
+                        <TableCell>{visit.business_name || "--"}</TableCell>
+                        <TableCell>{visit.visit_date || "--"}</TableCell>
+                        <TableCell><Badge variant="warning">{visit.status || "Pending"}</Badge></TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            <Button type="button" size="sm" variant="outline" onClick={() => loadSurveyVisitDetails(visitId)} disabled={isLoading}>View</Button>
+                            <Button type="button" size="sm" onClick={() => handleReviewDecision(visit, "approve")} disabled={isLoading}>Approve</Button>
+                            <Button type="button" size="sm" variant="destructive" onClick={() => handleReviewDecision(visit, "reject")} disabled={isLoading}>Reject</Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
               </TableBody>
             </Table>
           </CardContent>

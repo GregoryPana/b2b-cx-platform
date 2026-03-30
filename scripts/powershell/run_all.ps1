@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path "$PSScriptRoot/../.."
 $Scripts = Join-Path $Root "scripts/powershell"
 $ComposeFile = Join-Path $Root "docker-compose.dev.yml"
-$Ports = @(8001, 5175, 5176, 5177)
+$Ports = @(8001, 5185, 5176, 5177)
 
 function Stop-ExistingPortListeners {
   param([int[]]$TargetPorts)
@@ -84,8 +84,8 @@ $mysteryScript = Join-Path $Scripts "run_mystery_shopper.ps1"
 
 Write-Host "Launching backend..."
 Start-ServiceWindow -ScriptPath $backendScript
-if (-not (Wait-ForHttp -Url "http://localhost:8001/health" -MaxAttempts 45 -DelaySeconds 1)) {
-  throw "Backend health check failed on http://localhost:8001/health"
+if (-not (Wait-ForHttp -Url "http://127.0.0.1:8001/health" -MaxAttempts 45 -DelaySeconds 1)) {
+  throw "Backend health check failed on http://127.0.0.1:8001/health"
 }
 
 Write-Host "Launching frontends..."
@@ -93,15 +93,15 @@ Start-ServiceWindow -ScriptPath $dashboardScript
 Start-ServiceWindow -ScriptPath $surveyScript
 Start-ServiceWindow -ScriptPath $mysteryScript
 
-$dashboardReady = Wait-ForHttp -Url "http://localhost:5175" -MaxAttempts 45 -DelaySeconds 1
-$surveyReady = Wait-ForHttp -Url "http://localhost:5176" -MaxAttempts 45 -DelaySeconds 1
-$mysteryReady = Wait-ForHttp -Url "http://localhost:5177" -MaxAttempts 45 -DelaySeconds 1
+$dashboardReady = Wait-ForHttp -Url "http://127.0.0.1:5185" -MaxAttempts 45 -DelaySeconds 1
+$surveyReady = Wait-ForHttp -Url "http://127.0.0.1:5176" -MaxAttempts 45 -DelaySeconds 1
+$mysteryReady = Wait-ForHttp -Url "http://127.0.0.1:5177" -MaxAttempts 45 -DelaySeconds 1
 
 Write-Host "All service windows launched."
-Write-Host "Backend:   http://localhost:8001"
-Write-Host "Dashboard: http://localhost:5175"
-Write-Host "Survey:    http://localhost:5176"
-Write-Host "Mystery:   http://localhost:5177"
+Write-Host "Backend:   http://127.0.0.1:8001"
+Write-Host "Dashboard: http://127.0.0.1:5185"
+Write-Host "Survey:    http://127.0.0.1:5176"
+Write-Host "Mystery:   http://127.0.0.1:5177"
 
 if (-not ($dashboardReady -and $surveyReady -and $mysteryReady)) {
   Write-Host "One or more frontend health checks did not complete in time. Check spawned terminal windows for errors."

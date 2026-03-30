@@ -1,16 +1,16 @@
-"""update b2b q9 q10 wording and choices
+"""enforce b2b question input types
 
-Revision ID: 20260325_000011
-Revises: 20260325_000010
-Create Date: 2026-03-25 00:00:11
+Revision ID: 20260326_000013
+Revises: 20260326_000012
+Create Date: 2026-03-26 00:00:13
 """
 
 from alembic import op
 from sqlalchemy import text
 
 
-revision = "20260325_000011"
-down_revision = "20260325_000010"
+revision = "20260326_000013"
+down_revision = "20260326_000012"
 branch_labels = None
 depends_on = None
 
@@ -41,17 +41,35 @@ def _ensure_choices_column(conn) -> str:
 def upgrade() -> None:
     conn = op.get_bind()
     choices_data_type = _ensure_choices_column(conn)
+    has_survey_type_id = bool(conn.execute(text(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'questions' AND column_name = 'survey_type_id'
+        LIMIT 1
+        """
+    )).scalar())
 
-    q9_choices_expr = _choices_literal_expr(choices_data_type, '["Y","N"]')
+    yes_no_choices_expr = _choices_literal_expr(choices_data_type, '["Y","N"]')
     q10_choices_expr = _choices_literal_expr(choices_data_type, '["3 months","6 months","9 months","Rarely"]')
+
+    question_scope_filter = ""
+    if has_survey_type_id:
+        question_scope_filter = "AND survey_type_id = (SELECT id FROM survey_types WHERE name = 'B2B' LIMIT 1)"
 
     conn.execute(text(f"""
         UPDATE questions
         SET
             input_type = 'yes_no',
             helper_text = 'Select Y or N',
-            choices = {q9_choices_expr}
-        WHERE question_key = 'q09_issues_resolved_on_time'
+            choices = {yes_no_choices_expr}
+        WHERE question_key IN (
+            'q04_ae_business_understanding',
+            'q06_regular_updates',
+            'q09_issues_resolved_on_time',
+            'q16_other_provider_products'
+        )
+        {question_scope_filter}
     """))
 
     conn.execute(text(f"""
@@ -62,31 +80,9 @@ def upgrade() -> None:
             helper_text = 'Select one option',
             choices = {q10_choices_expr}
         WHERE question_key = 'q10_call_frequency'
+        {question_scope_filter}
     """))
 
 
 def downgrade() -> None:
-    conn = op.get_bind()
-    choices_data_type = _ensure_choices_column(conn)
-
-    q9_choices_expr = _choices_literal_expr(choices_data_type, '["Always","Sometimes","Never"]')
-    q10_choices_expr = _choices_literal_expr(choices_data_type, '["Always","Sometimes","Never"]')
-
-    conn.execute(text(f"""
-        UPDATE questions
-        SET
-            input_type = 'always_sometimes_never',
-            helper_text = 'Choose: Always, Sometimes, or Never',
-            choices = {q9_choices_expr}
-        WHERE question_key = 'q09_issues_resolved_on_time'
-    """))
-
-    conn.execute(text(f"""
-        UPDATE questions
-        SET
-            question_text = 'How often do you need to call C&W to install new products or resolve issues?',
-            input_type = 'always_sometimes_never',
-            helper_text = 'Choose: Always, Sometimes, or Never',
-            choices = {q10_choices_expr}
-        WHERE question_key = 'q10_call_frequency'
-    """))
+    pass

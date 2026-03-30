@@ -14,6 +14,44 @@ from ..core.models import User
 router = APIRouter(prefix="/dashboard-visits", tags=["dashboard-visits"])
 
 
+def has_table(db: Session, table_name: str) -> bool:
+    return bool(db.execute(text(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_name = :table_name
+        LIMIT 1
+        """
+    ), {"table_name": table_name}).scalar())
+
+
+def has_column(db: Session, table_name: str, column_name: str) -> bool:
+    return bool(db.execute(text(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = :table_name AND column_name = :column_name
+        LIMIT 1
+        """
+    ), {"table_name": table_name, "column_name": column_name}).scalar())
+
+
+def get_response_table(db: Session) -> str | None:
+    if has_table(db, "b2b_visit_responses"):
+        return "b2b_visit_responses"
+    if has_table(db, "responses"):
+        return "responses"
+    return None
+
+
+def ensure_visit_submission_columns(db: Session) -> None:
+    if not has_table(db, "visits"):
+        return
+    db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_name VARCHAR(255)"))
+    db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_email VARCHAR(255)"))
+    db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ"))
+
+
 def resolve_survey_type_id(
     db: Session,
     survey_type: str | None,
@@ -31,8 +69,29 @@ def resolve_survey_type_id(
     if survey_type is None:
         return None
 
+    if not has_table(db, "survey_types"):
+        return None
+
+    has_code = has_column(db, "survey_types", "code")
+
+    if not has_code:
+        return db.execute(
+            text("SELECT id FROM survey_types WHERE lower(name) = lower(:survey_type) LIMIT 1"),
+            {"survey_type": survey_type},
+        ).scalar()
+
     return db.execute(
-        text("SELECT id FROM survey_types WHERE name = :survey_type"),
+        text(
+            """
+            SELECT id
+            FROM survey_types
+            WHERE
+                lower(name) = lower(:survey_type)
+                OR lower(code) = lower(:survey_type)
+                OR replace(lower(name), ' ', '') = replace(lower(:survey_type), ' ', '')
+            LIMIT 1
+            """
+        ),
         {"survey_type": survey_type},
     ).scalar()
 
@@ -46,6 +105,7 @@ def check_duplicate_visit(
 ):
     """Check if a visit already exists for the same business on the same date."""
     try:
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         # Build query to check for existing visits
         query = """
             SELECT COUNT(*) as count 
@@ -58,7 +118,7 @@ def check_duplicate_visit(
             "visit_date": visit_date
         }
 
-        if survey_type_id is not None:
+        if survey_type_id is not None and has_visit_survey_type:
             query += " AND survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
         
@@ -84,6 +144,7 @@ async def create_visit(
 ):
     """Create a new visit."""
     try:
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         # Validate required fields
         business_id = visit_data.get("business_id")
         visit_date = visit_data.get("visit_date")
@@ -95,7 +156,7 @@ async def create_visit(
 
         survey_type_id = resolve_survey_type_id(db, survey_type, survey_type_id)
 
-        if survey_type_id is None:
+        if survey_type_id is None and has_table(db, "survey_types"):
             survey_type_id = db.execute(text(
                 "SELECT id FROM survey_types WHERE name = 'B2B'"
             )).scalar()
@@ -108,21 +169,37 @@ async def create_visit(
             )
         
         # Insert new visit
-        created_visit_id = db.execute(text(
-            """
-            INSERT INTO visits 
-            (id, business_id, representative_id, created_by, visit_date, visit_type, status, survey_type_id)
-            VALUES (gen_random_uuid(), :business_id, :rep_id, :created_by, :visit_date, :visit_type, 'Draft', :survey_type_id)
-            RETURNING id
-            """
-        ), {
-            "business_id": business_id,
-            "rep_id": visit_data.get("representative_id") or current_user.id,
-            "created_by": current_user.id,
-            "visit_date": visit_date,
-            "visit_type": visit_data.get("visit_type"),
-            "survey_type_id": survey_type_id,
-        }).scalar()
+        if has_visit_survey_type:
+            created_visit_id = db.execute(text(
+                """
+                INSERT INTO visits
+                (id, business_id, representative_id, created_by, visit_date, visit_type, status, survey_type_id)
+                VALUES (gen_random_uuid(), :business_id, :rep_id, :created_by, :visit_date, :visit_type, 'Draft', :survey_type_id)
+                RETURNING id
+                """
+            ), {
+                "business_id": business_id,
+                "rep_id": visit_data.get("representative_id") or current_user.id,
+                "created_by": current_user.id,
+                "visit_date": visit_date,
+                "visit_type": visit_data.get("visit_type"),
+                "survey_type_id": survey_type_id,
+            }).scalar()
+        else:
+            created_visit_id = db.execute(text(
+                """
+                INSERT INTO visits
+                (id, business_id, representative_id, created_by, visit_date, visit_type, status)
+                VALUES (gen_random_uuid(), :business_id, :rep_id, :created_by, :visit_date, :visit_type, 'Draft')
+                RETURNING id
+                """
+            ), {
+                "business_id": business_id,
+                "rep_id": visit_data.get("representative_id") or current_user.id,
+                "created_by": current_user.id,
+                "visit_date": visit_date,
+                "visit_type": visit_data.get("visit_type"),
+            }).scalar()
         
         # Commit the transaction
         db.commit()
@@ -158,9 +235,13 @@ async def get_all_visits(
 ):
     """Get all visits with filtering support."""
     try:
+        ensure_visit_submission_columns(db)
         # Build WHERE clause for filtering
         where_conditions = []
         params = {}
+        response_table = get_response_table(db)
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+        has_question_survey_type = has_column(db, "questions", "survey_type_id")
 
         resolved_survey_type_id = resolve_survey_type_id(db, survey_type, survey_type_id)
         
@@ -176,9 +257,13 @@ async def get_all_visits(
         if date_to:
             where_conditions.append("v.visit_date <= :date_to")
             params["date_to"] = date_to
-        if resolved_survey_type_id:
+        if resolved_survey_type_id and has_visit_survey_type:
             where_conditions.append("v.survey_type_id = :survey_type_id")
             params["survey_type_id"] = resolved_survey_type_id
+
+        mandatory_total_expr = "(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true)"
+        if has_visit_survey_type and has_question_survey_type:
+            mandatory_total_expr = "(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = v.survey_type_id)"
         
         # Build WHERE clause string
         where_clause = ""
@@ -186,6 +271,10 @@ async def get_all_visits(
             where_clause = "WHERE " + " AND ".join(where_conditions)
         
         # Build the complete query
+        response_join = ""
+        if response_table:
+            response_join = f"LEFT JOIN {response_table} r ON v.id = r.visit_id"
+
         query = f"""
             SELECT 
                 v.id,
@@ -202,13 +291,13 @@ async def get_all_visits(
                 v.submitted_at,
                 COUNT(r.id) as response_count,
                 COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
-                (SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = v.survey_type_id) as mandatory_total_count,
+                {mandatory_total_expr} as mandatory_total_count,
                 false as is_started,
                 false as is_completed
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             LEFT JOIN users u ON v.representative_id = u.id
-            LEFT JOIN b2b_visit_responses r ON v.id = r.visit_id
+            {response_join}
             LEFT JOIN questions q ON r.question_id = q.id
             {where_clause}
             GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.submitted_by_name, v.submitted_by_email, v.submitted_at
@@ -252,8 +341,20 @@ async def get_all_visits(
 async def get_draft_visits(db: Session = Depends(get_db)):
     """Get draft visits for dashboard."""
     try:
+        ensure_visit_submission_columns(db)
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+        has_question_survey_type = has_column(db, "questions", "survey_type_id")
+        mandatory_total_expr = "(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true)"
+        if has_visit_survey_type and has_question_survey_type:
+            mandatory_total_expr = "(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = v.survey_type_id)"
+
+        response_table = get_response_table(db)
+        response_join = ""
+        if response_table:
+            response_join = f"LEFT JOIN {response_table} r ON v.id = r.visit_id"
+
         rows = db.execute(text(
-            """
+            f"""
             SELECT
                 v.id,
                 v.business_id,
@@ -269,11 +370,11 @@ async def get_draft_visits(db: Session = Depends(get_db)):
                 v.submitted_at,
                 COUNT(r.id) as response_count,
                 COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
-                (SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = v.survey_type_id) as mandatory_total_count
+                {mandatory_total_expr} as mandatory_total_count
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             LEFT JOIN users u ON v.representative_id = u.id
-            LEFT JOIN b2b_visit_responses r ON v.id = r.visit_id
+            {response_join}
             LEFT JOIN questions q ON r.question_id = q.id
             WHERE v.status = 'Draft'
             GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.submitted_by_name, v.submitted_by_email, v.submitted_at
@@ -318,6 +419,7 @@ async def get_pending_visits(
 ):
     """Get pending visits for dashboard - requires Manager role."""
     try:
+        ensure_visit_submission_columns(db)
         rows = db.execute(text(
             """
             SELECT 
@@ -465,6 +567,7 @@ async def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depe
 async def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
     """Delete a draft (planned) visit and its responses."""
     try:
+        response_table = get_response_table(db)
         visit_row = db.execute(text(
             "SELECT status FROM visits WHERE id = :visit_id"
         ), {"visit_id": visit_id}).fetchone()
@@ -476,9 +579,10 @@ async def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
         if status_value != "Draft":
             raise HTTPException(status_code=400, detail="Only Draft visits can be deleted")
 
-        db.execute(text(
-            "DELETE FROM b2b_visit_responses WHERE visit_id = :visit_id"
-        ), {"visit_id": visit_id})
+        if response_table:
+            db.execute(text(
+                f"DELETE FROM {response_table} WHERE visit_id = :visit_id"
+            ), {"visit_id": visit_id})
         db.execute(text(
             "DELETE FROM visits WHERE id = :visit_id"
         ), {"visit_id": visit_id})
@@ -497,37 +601,65 @@ async def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
 async def create_response(visit_id: str, response_data: dict, db: Session = Depends(get_db)):
     """Create a response for a visit."""
     try:
-        # Insert response into database
-        result = db.execute(text(
-            """
-            INSERT INTO b2b_visit_responses 
-            (visit_id, question_id, score, answer_text, verbatim, actions)
-            VALUES (:visit_id, :question_id, :score, :answer_text, :verbatim, :actions)
-            RETURNING id, question_id, score, answer_text, verbatim, actions, created_at
-            """
-        ), {
-            "visit_id": visit_id,
-            "question_id": response_data.get("question_id"),
-            "score": response_data.get("score"),
-            "answer_text": response_data.get("answer_text"),
-            "verbatim": response_data.get("verbatim"),
-            "actions": json.dumps(response_data.get("actions", []))
-        })
+        response_table = get_response_table(db)
+        if response_table == "b2b_visit_responses":
+            result = db.execute(text(
+                """
+                INSERT INTO b2b_visit_responses
+                (visit_id, question_id, score, answer_text, verbatim, actions)
+                VALUES (:visit_id, :question_id, :score, :answer_text, :verbatim, :actions)
+                RETURNING id, question_id, score, answer_text, verbatim, actions, created_at
+                """
+            ), {
+                "visit_id": visit_id,
+                "question_id": response_data.get("question_id"),
+                "score": response_data.get("score"),
+                "answer_text": response_data.get("answer_text"),
+                "verbatim": response_data.get("verbatim"),
+                "actions": json.dumps(response_data.get("actions", []))
+            })
+        elif response_table == "responses":
+            actions = response_data.get("actions", []) or []
+            primary_action = actions[0] if actions else {}
+            result = db.execute(text(
+                """
+                INSERT INTO responses
+                (visit_id, question_id, score, answer_text, verbatim, action_required, action_owner, action_timeframe, action_support_needed)
+                VALUES (:visit_id, :question_id, :score, :answer_text, :verbatim, :action_required, :action_owner, :action_timeframe, :action_support_needed)
+                RETURNING id, question_id, score, answer_text, verbatim
+                """
+            ), {
+                "visit_id": visit_id,
+                "question_id": response_data.get("question_id"),
+                "score": response_data.get("score"),
+                "answer_text": response_data.get("answer_text"),
+                "verbatim": response_data.get("verbatim"),
+                "action_required": primary_action.get("action_required"),
+                "action_owner": primary_action.get("action_owner"),
+                "action_timeframe": primary_action.get("action_timeframe"),
+                "action_support_needed": primary_action.get("action_support_needed"),
+            })
+        else:
+            raise HTTPException(status_code=500, detail="No response table found")
         
         # Commit the transaction to save changes
         db.commit()
         
         # Get the inserted response
         row = result.fetchone()
-        return {
+        payload = {
             "response_id": str(row[0]),
             "question_id": row[1],
             "visit_id": visit_id,
             "score": row[2],
             "answer_text": row[3],
             "verbatim": row[4],
-            "actions": json.loads(row[5]) if row[5] else []
         }
+        if response_table == "b2b_visit_responses":
+            payload["actions"] = json.loads(row[5]) if row[5] else []
+        else:
+            payload["actions"] = response_data.get("actions", []) or []
+        return payload
     except Exception as e:
         print(f"Error creating response: {e}")
         db.rollback()
@@ -538,28 +670,60 @@ async def create_response(visit_id: str, response_data: dict, db: Session = Depe
 async def update_response(visit_id: str, response_id: str, response_data: dict, db: Session = Depends(get_db)):
     """Update a response for a visit."""
     try:
-        # Update response in database
-        result = db.execute(text(
-            """
-            UPDATE b2b_visit_responses 
-            SET question_id = :question_id,
-                score = :score,
-                answer_text = :answer_text,
-                verbatim = :verbatim,
-                actions = :actions,
-                updated_at = NOW()
-            WHERE id = :response_id AND visit_id = :visit_id
-            RETURNING id, question_id, score, answer_text, verbatim, actions, updated_at
-            """
-        ), {
-            "response_id": response_id,
-            "visit_id": visit_id,
-            "question_id": response_data.get("question_id"),
-            "score": response_data.get("score"),
-            "answer_text": response_data.get("answer_text"),
-            "verbatim": response_data.get("verbatim"),
-            "actions": json.dumps(response_data.get("actions", []))
-        })
+        response_table = get_response_table(db)
+        if response_table == "b2b_visit_responses":
+            result = db.execute(text(
+                """
+                UPDATE b2b_visit_responses
+                SET question_id = :question_id,
+                    score = :score,
+                    answer_text = :answer_text,
+                    verbatim = :verbatim,
+                    actions = :actions,
+                    updated_at = NOW()
+                WHERE id = :response_id AND visit_id = :visit_id
+                RETURNING id, question_id, score, answer_text, verbatim, actions, updated_at
+                """
+            ), {
+                "response_id": response_id,
+                "visit_id": visit_id,
+                "question_id": response_data.get("question_id"),
+                "score": response_data.get("score"),
+                "answer_text": response_data.get("answer_text"),
+                "verbatim": response_data.get("verbatim"),
+                "actions": json.dumps(response_data.get("actions", []))
+            })
+        elif response_table == "responses":
+            actions = response_data.get("actions", []) or []
+            primary_action = actions[0] if actions else {}
+            result = db.execute(text(
+                """
+                UPDATE responses
+                SET question_id = :question_id,
+                    score = :score,
+                    answer_text = :answer_text,
+                    verbatim = :verbatim,
+                    action_required = :action_required,
+                    action_owner = :action_owner,
+                    action_timeframe = :action_timeframe,
+                    action_support_needed = :action_support_needed
+                WHERE id = :response_id AND visit_id = :visit_id
+                RETURNING id, question_id, score, answer_text, verbatim
+                """
+            ), {
+                "response_id": response_id,
+                "visit_id": visit_id,
+                "question_id": response_data.get("question_id"),
+                "score": response_data.get("score"),
+                "answer_text": response_data.get("answer_text"),
+                "verbatim": response_data.get("verbatim"),
+                "action_required": primary_action.get("action_required"),
+                "action_owner": primary_action.get("action_owner"),
+                "action_timeframe": primary_action.get("action_timeframe"),
+                "action_support_needed": primary_action.get("action_support_needed"),
+            })
+        else:
+            raise HTTPException(status_code=500, detail="No response table found")
         
         # Commit the transaction to save changes
         db.commit()
@@ -569,15 +733,19 @@ async def update_response(visit_id: str, response_id: str, response_data: dict, 
         if not row:
             raise HTTPException(status_code=404, detail="Response not found")
             
-        return {
+        payload = {
             "response_id": str(row[0]),
             "question_id": row[1],
             "visit_id": visit_id,
             "score": row[2],
             "answer_text": row[3],
             "verbatim": row[4],
-            "actions": json.loads(row[5]) if row[5] else []
         }
+        if response_table == "b2b_visit_responses":
+            payload["actions"] = json.loads(row[5]) if row[5] else []
+        else:
+            payload["actions"] = response_data.get("actions", []) or []
+        return payload
     except Exception as e:
         print(f"Error updating response: {e}")
         db.rollback()
@@ -594,21 +762,29 @@ async def submit_visit(
     """Submit a visit for review."""
     try:
         # Update visit status to Pending
+        has_submitted_by_name = has_column(db, "visits", "submitted_by_name")
+        has_submitted_by_email = has_column(db, "visits", "submitted_by_email")
+        has_submitted_at = has_column(db, "visits", "submitted_at")
+
+        update_fields = ["status = 'Pending'"]
+        params = {"visit_id": visit_id}
+
+        if has_submitted_at:
+            update_fields.append("submitted_at = NOW()")
+        if has_submitted_by_name:
+            update_fields.append("submitted_by_name = :submitted_by_name")
+            params["submitted_by_name"] = getattr(current_user, "name", None)
+        if has_submitted_by_email:
+            update_fields.append("submitted_by_email = :submitted_by_email")
+            params["submitted_by_email"] = getattr(current_user, "email", None)
+
         db.execute(text(
-            """
+            f"""
             UPDATE visits
-            SET
-                status = 'Pending',
-                submitted_at = NOW(),
-                submitted_by_name = :submitted_by_name,
-                submitted_by_email = :submitted_by_email
+            SET {', '.join(update_fields)}
             WHERE id = :visit_id
             """
-        ), {
-            "visit_id": visit_id,
-            "submitted_by_name": getattr(current_user, "name", None),
-            "submitted_by_email": getattr(current_user, "email", None),
-        })
+        ), params)
         
         # Commit the transaction to save changes
         db.commit()
@@ -732,7 +908,16 @@ async def get_visit_detail(
     previously-saved answers.
     """
     try:
+        ensure_visit_submission_columns(db)
         print(f"DEBUG: Getting visit detail for visit_id: {visit_id}")
+        has_question_number = has_column(db, "questions", "question_number")
+        has_order_index = has_column(db, "questions", "order_index")
+        if has_question_number:
+            question_order_col = "q.question_number"
+        elif has_order_index:
+            question_order_col = "q.order_index"
+        else:
+            question_order_col = "q.id"
         
         # Get visit details
         visit_rows = db.execute(text(
@@ -766,25 +951,29 @@ async def get_visit_detail(
         visit_row = visit_rows[0]
         print(f"DEBUG: Visit found: {visit_row[2]}")
         
+        response_table = get_response_table(db)
+        if not response_table:
+            raise HTTPException(status_code=500, detail="No response table found")
+
         # Get responses for this visit with correct question numbers
         response_rows = db.execute(text(
-            """
+            f"""
             SELECT 
                 r.id,
                 r.question_id,
                 r.score,
                 r.answer_text,
                 r.verbatim,
-                r.actions,
-                r.created_at,
-                r.updated_at,
-                q.question_number,
+                {"r.actions" if response_table == "b2b_visit_responses" else "NULL"} as actions,
+                {"r.created_at" if response_table == "b2b_visit_responses" else "NULL"} as created_at,
+                {"r.updated_at" if response_table == "b2b_visit_responses" else "NULL"} as updated_at,
+                {question_order_col} as question_number,
                 q.question_text,
                 q.input_type
-            FROM b2b_visit_responses r
+            FROM {response_table} r
             LEFT JOIN questions q ON r.question_id = q.id
             WHERE r.visit_id = :visit_id
-            ORDER BY q.question_number
+            ORDER BY {question_order_col}
             """
         ), {"visit_id": visit_id}).all()
         
@@ -819,22 +1008,40 @@ async def get_visit_detail(
         print(f"DEBUG: Formatted {len(responses)} responses")
         
         # Calculate mandatory answered/total counts, scoped to visit's survey_type_id
-        mandatory_counts_row = db.execute(
-            text(
-                """
-                SELECT
-                    COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
-                    COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
-                FROM questions q
-                JOIN visits v ON v.survey_type_id = q.survey_type_id
-                LEFT JOIN b2b_visit_responses r
-                    ON r.visit_id = v.id
-                    AND r.question_id = q.id
-                WHERE v.id = :visit_id
-                """
-            ),
-            {"visit_id": visit_id},
-        ).fetchone()
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+        has_question_survey_type = has_column(db, "questions", "survey_type_id")
+        if has_visit_survey_type and has_question_survey_type:
+            mandatory_counts_row = db.execute(
+                text(
+                    f"""
+                    SELECT
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
+                    FROM questions q
+                    JOIN visits v ON v.survey_type_id = q.survey_type_id
+                    LEFT JOIN {response_table} r
+                        ON r.visit_id = v.id
+                        AND r.question_id = q.id
+                    WHERE v.id = :visit_id
+                    """
+                ),
+                {"visit_id": visit_id},
+            ).fetchone()
+        else:
+            mandatory_counts_row = db.execute(
+                text(
+                    f"""
+                    SELECT
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
+                    FROM questions q
+                    LEFT JOIN {response_table} r
+                        ON r.question_id = q.id
+                        AND r.visit_id = :visit_id
+                    """
+                ),
+                {"visit_id": visit_id},
+            ).fetchone()
 
         mandatory_answered_count = int(mandatory_counts_row[0] or 0) if mandatory_counts_row else 0
         mandatory_total_count = int(mandatory_counts_row[1] or 0) if mandatory_counts_row else 0

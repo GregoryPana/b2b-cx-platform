@@ -12,12 +12,62 @@ from ..core.database import get_db
 router = APIRouter(prefix="/dashboard", tags=["dashboard-compat"])
 
 
+def has_table(db: Session, table_name: str) -> bool:
+    return bool(db.execute(text(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_name = :table_name
+        LIMIT 1
+        """
+    ), {"table_name": table_name}).scalar())
+
+
+def has_column(db: Session, table_name: str, column_name: str) -> bool:
+    return bool(db.execute(text(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = :table_name AND column_name = :column_name
+        LIMIT 1
+        """
+    ), {"table_name": table_name, "column_name": column_name}).scalar())
+
+
+def response_table(db: Session) -> str | None:
+    if has_table(db, "b2b_visit_responses"):
+        return "b2b_visit_responses"
+    if has_table(db, "responses"):
+        return "responses"
+    return None
+
+
 def resolve_survey_type_id(db: Session, survey_type: str | None) -> int | None:
     if not survey_type or survey_type.lower() == "all":
         return None
 
+    if not has_table(db, "survey_types"):
+        return None
+
+    has_code = has_column(db, "survey_types", "code")
+    if has_code:
+        return db.execute(
+            text(
+                """
+                SELECT id
+                FROM survey_types
+                WHERE
+                    lower(name) = lower(:survey_type)
+                    OR lower(code) = lower(:survey_type)
+                    OR replace(lower(name), ' ', '') = replace(lower(:survey_type), ' ', '')
+                LIMIT 1
+                """
+            ),
+            {"survey_type": survey_type},
+        ).scalar()
+
     return db.execute(
-        text("SELECT id FROM survey_types WHERE name = :survey_type"),
+        text("SELECT id FROM survey_types WHERE lower(name) = lower(:survey_type) LIMIT 1"),
         {"survey_type": survey_type},
     ).scalar()
 
@@ -31,11 +81,15 @@ async def get_nps(
 ):
     """Get NPS summary from B2B data."""
     try:
+        rtable = response_table(db)
+        if not rtable:
+            return {"nps": None, "promoters": 0, "detractors": 0, "passives": 0, "total_responses": 0}
         survey_type_id = resolve_survey_type_id(db, survey_type)
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         # Calculate NPS from b2b_visit_responses where question is NPS
         where_extra = ""
         params: Dict[str, Any] = {}
-        if survey_type_id is not None:
+        if survey_type_id is not None and has_visit_survey_type:
             where_extra = " AND v.survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
         if date_from:
@@ -51,7 +105,7 @@ async def get_nps(
                     COUNT(CASE WHEN r.score <= 6 THEN 1 END) as detractors,
                     COUNT(CASE WHEN r.score IN (7, 8) THEN 1 END) as passives,
                     COUNT(r.score) as total_responses
-                FROM b2b_visit_responses r
+                FROM {rtable} r
                 JOIN visits v ON r.visit_id = v.id
                 JOIN businesses b ON v.business_id = b.id
                 JOIN questions q ON r.question_id = q.id
@@ -92,9 +146,10 @@ async def get_coverage(
     """Get coverage summary from B2B data."""
     try:
         survey_type_id = resolve_survey_type_id(db, survey_type)
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         join_extra = ""
         params: Dict[str, Any] = {}
-        if survey_type_id is not None:
+        if survey_type_id is not None and has_visit_survey_type:
             join_extra = " AND v.survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
         if date_from:
@@ -147,10 +202,14 @@ async def get_category_breakdown(
 ):
     """Get category breakdown from B2B data."""
     try:
+        rtable = response_table(db)
+        if not rtable:
+            return []
         survey_type_id = resolve_survey_type_id(db, survey_type)
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         where_extra = ""
         params: Dict[str, Any] = {}
-        if survey_type_id is not None:
+        if survey_type_id is not None and has_visit_survey_type:
             where_extra = " AND v.survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
         if date_from:
@@ -166,7 +225,7 @@ async def get_category_breakdown(
                     q.category,
                     AVG(r.score) as average_score,
                     COUNT(r.score) as response_count
-                FROM b2b_visit_responses r
+                FROM {rtable} r
                 JOIN visits v ON r.visit_id = v.id
                 JOIN businesses b ON v.business_id = b.id
                 JOIN questions q ON r.question_id = q.id

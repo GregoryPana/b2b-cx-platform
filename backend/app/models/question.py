@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -8,12 +8,15 @@ class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    survey_type_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    question_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     category: Mapped[str] = mapped_column(String(200), nullable=False)
     question_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     question_text: Mapped[str] = mapped_column(String(2000), nullable=False)
     input_type: Mapped[str] = mapped_column(String(40), nullable=False, server_default="score")
     score_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     score_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    choices: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     requires_issue: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     requires_escalation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     helper_text: Mapped[str | None] = mapped_column(Text, nullable=True)

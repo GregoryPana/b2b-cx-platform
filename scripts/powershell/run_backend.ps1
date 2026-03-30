@@ -2,6 +2,8 @@ $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path "$PSScriptRoot/../.."
 $Backend = Join-Path $Root "backend"
+$RepoVenvPython = Join-Path $Root ".venv/Scripts/python.exe"
+$BackendVenvPython = Join-Path $Backend ".venv/Scripts/python.exe"
 
 Write-Host "Starting backend API on port 8001..."
 Set-Location $Backend
@@ -15,14 +17,20 @@ if ($existing) {
   Start-Sleep -Milliseconds 300
 }
 
-$Activate = Join-Path $Backend ".venv/Scripts/Activate.ps1"
-if (Test-Path $Activate) {
-  . $Activate
+if (Test-Path $RepoVenvPython) {
+  $PythonExe = $RepoVenvPython
+} elseif (Test-Path $BackendVenvPython) {
+  $PythonExe = $BackendVenvPython
+} else {
+  throw "Python venv not found. Expected one of: $RepoVenvPython or $BackendVenvPython"
 }
 
-if (-not $env:DATABASE_URL) {
-  $env:DATABASE_URL = "postgresql://b2b:b2b@localhost:5432/b2b"
+# Prefer explicit shell variables; otherwise backend loads from .env automatically.
+if (-not $env:DATABASE_URL -and $env:LOCAL_DATABASE_URL) {
+  $env:DATABASE_URL = $env:LOCAL_DATABASE_URL
 }
+
+$env:PYTHONPATH = $Backend
 
 # Microsoft Entra Authentication Configuration
 if (-not $env:ENTRA_TENANT_ID) {
@@ -44,4 +52,19 @@ if (-not $env:ENTRA_AUDIENCE) {
 # Keep console output safe on Windows codepages
 $env:PYTHONUTF8 = "1"
 
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --no-access-log --log-level warning --timeout-keep-alive 5
+Write-Host "Running Alembic migrations before startup..."
+& $PythonExe -m alembic -c .\alembic.ini upgrade head
+
+if ($env:DATABASE_URL) {
+  Write-Host ("Using DATABASE_URL from environment: " + $env:DATABASE_URL)
+} else {
+  Write-Host "DATABASE_URL not set in shell; backend will load it from .env"
+}
+
+if ($env:ENVIRONMENT) {
+  Write-Host ("Using ENVIRONMENT=" + $env:ENVIRONMENT)
+} else {
+  Write-Host "ENVIRONMENT not set in shell; backend will load it from .env"
+}
+
+& $PythonExe -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --no-access-log --log-level warning --timeout-keep-alive 5

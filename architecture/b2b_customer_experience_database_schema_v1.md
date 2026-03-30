@@ -206,4 +206,4 @@ Integer 1–5 Conditional	5
 Integer 1–5 Optional	3
 Boolean	2
 Text Required	1
-Text Optional	2
+Text Optional

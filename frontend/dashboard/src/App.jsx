@@ -43,6 +43,7 @@ import { isTokenExpired } from "./utils/tokenExpiry";
 import "./review.css";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+const B2B_API_BASE = API_BASE.endsWith("/api/api") ? `${API_BASE}/b2b` : `${API_BASE}/api/b2b`;
 
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
@@ -934,7 +935,7 @@ export default function App() {
       return;
     }
 
-    const res = await fetch(`${API_BASE}/api/b2b/public/businesses`, { headers });
+    const res = await fetch(`${B2B_API_BASE}/public/businesses`, { headers });
     const data = await res.json();
     if (!res.ok) {
       setError(data.detail || "Failed to load businesses");
@@ -949,7 +950,7 @@ export default function App() {
       return;
     }
 
-    const res = await fetch(`${API_BASE}/api/b2b/public/account-executives`, { headers });
+    const res = await fetch(`${B2B_API_BASE}/public/account-executives`, { headers });
     const data = await res.json();
     if (!res.ok) {
       setError(data.detail || "Failed to load account executives");
@@ -1219,7 +1220,7 @@ export default function App() {
     setError("");
     setMessage("");
 
-    const res = await fetch(`${API_BASE}/api/b2b/businesses/${business.id}`, {
+    const res = await fetch(`${B2B_API_BASE}/businesses/${business.id}`, {
       method: "PUT",
       headers,
       body: JSON.stringify({ active: false })
@@ -1238,7 +1239,7 @@ export default function App() {
     setError("");
     setMessage("");
     try {
-      const summaryRes = await fetch(`${API_BASE}/api/b2b/businesses/${business.id}/deletion-summary`, {
+      const summaryRes = await fetch(`${B2B_API_BASE}/businesses/${business.id}/deletion-summary`, {
         headers
       });
 
@@ -1261,7 +1262,7 @@ export default function App() {
         return;
       }
 
-      const res = await fetch(`${API_BASE}/api/b2b/businesses/${business.id}`, {
+      const res = await fetch(`${B2B_API_BASE}/businesses/${business.id}`, {
         method: "DELETE",
         headers
       });

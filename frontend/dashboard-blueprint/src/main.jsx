@@ -28,12 +28,24 @@ function InsecureContextNotice() {
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     {devAuthBypass ? (
-      <BrowserRouter basename={routerBase}>
+      <BrowserRouter
+        basename={routerBase}
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <App />
       </BrowserRouter>
     ) : isMsalSupported && msalInstance ? (
       <MsalProvider instance={msalInstance}>
-        <BrowserRouter basename={routerBase}>
+        <BrowserRouter
+          basename={routerBase}
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
           <App />
         </BrowserRouter>
       </MsalProvider>

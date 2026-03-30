@@ -1,7 +1,16 @@
 import sys
 
+from sqlalchemy import text
+
 from app.core.db import get_session_local
 from app.models import AccountExecutive, Business, Question, Response, User
+
+
+SURVEY_TYPE_BLUEPRINT = [
+    ("B2B", "B2B", "Business-to-Business survey"),
+    ("INSTALLATION", "Installation Assessment", "Installation assessment survey"),
+    ("MYSTERY_SHOPPER", "Mystery Shopper", "Mystery shopper survey"),
+]
 
 
 QUESTION_BLUEPRINT = [
@@ -40,7 +49,8 @@ QUESTION_BLUEPRINT = [
         "category": "Category 1: Relationship Strength",
         "question_text": "Does the C&W Account Executive understand your business?.",
         "input_type": "yes_no",
-        "helper_text": "Select Yes or No",
+        "choices": ["Y", "N"],
+        "helper_text": "Select Y or N",
         "is_mandatory": True,
         "order_index": 4,
     },
@@ -59,7 +69,8 @@ QUESTION_BLUEPRINT = [
         "category": "Category 1: Relationship Strength",
         "question_text": "Are you receiving regular updates on your account? (Y or N).",
         "input_type": "yes_no",
-        "helper_text": "Select Yes or No",
+        "choices": ["Y", "N"],
+        "helper_text": "Select Y or N",
         "is_mandatory": True,
         "order_index": 6,
     },
@@ -147,7 +158,8 @@ QUESTION_BLUEPRINT = [
         "category": "Category 4: Competitive & Portfolio Intelligence",
         "question_text": "Do you have other products and services from other service providers? (Yes or No)",
         "input_type": "yes_no",
-        "helper_text": "Select Yes or No",
+        "choices": ["Y", "N"],
+        "helper_text": "Select Y or N",
         "is_mandatory": True,
         "order_index": 16,
     },
@@ -224,6 +236,36 @@ QUESTION_BLUEPRINT = [
 def seed_data() -> None:
     session = get_session_local()()
     try:
+        question_fields = set(Question.__table__.columns.keys())
+        survey_type_map: dict[str, int] = {}
+
+        has_survey_type_table = bool(session.execute(text(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_name = 'survey_types'
+            LIMIT 1
+            """
+        )).scalar())
+
+        if has_survey_type_table:
+            for code, name, description in SURVEY_TYPE_BLUEPRINT:
+                session.execute(
+                    text(
+                        """
+                        INSERT INTO survey_types (code, name, description)
+                        VALUES (:code, :name, :description)
+                        ON CONFLICT (name) DO UPDATE
+                        SET code = EXCLUDED.code,
+                            description = EXCLUDED.description
+                        """
+                    ),
+                    {"code": code, "name": name, "description": description},
+                )
+
+            rows = session.execute(text("SELECT id, code FROM survey_types")).all()
+            survey_type_map = {str(row[1]): int(row[0]) for row in rows if row[1]}
+
         if session.query(User).count() == 0:
             session.add_all(
                 [
@@ -292,15 +334,23 @@ def seed_data() -> None:
 
         for config in QUESTION_BLUEPRINT:
             question = existing_by_key.get(config["question_key"])
+            model_config = {field: value for field, value in config.items() if field in question_fields}
+
+            if "question_number" in question_fields and "order_index" in config:
+                model_config["question_number"] = config["order_index"]
+
+            if "survey_type_id" in question_fields:
+                model_config["survey_type_id"] = survey_type_map.get("B2B")
+
             if question is None:
-                question = Question(**config)
+                question = Question(**model_config)
                 if question.input_type == "score":
                     question.score_min = 0
                     question.score_max = 10
                 session.add(question)
                 continue
 
-            for field, value in config.items():
+            for field, value in model_config.items():
                 setattr(question, field, value)
 
             if question.input_type == "score":
