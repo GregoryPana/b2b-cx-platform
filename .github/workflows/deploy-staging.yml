@@ -241,7 +241,7 @@ jobs:
 
           deploy_release() {
             bash scripts/linux/install_release_bundle.sh "${NEW_BUNDLE}"
-            bash scripts/linux/deploy_backend.sh
+            sudo bash scripts/linux/deploy_backend.sh
             bash scripts/linux/deploy_frontends.sh
             sudo bash scripts/linux/deploy_nginx.sh
             STAGING_BASE_URL="${STAGING_BASE_URL:-https://cwscx-tst01.cwsey.com}" bash scripts/linux/verify_staging.sh
@@ -255,7 +255,7 @@ jobs:
 
             echo "Rolling back using ${PREV_BUNDLE}"
             bash scripts/linux/install_release_bundle.sh "${PREV_BUNDLE}"
-            bash scripts/linux/deploy_backend.sh || true
+            sudo bash scripts/linux/deploy_backend.sh || true
             bash scripts/linux/deploy_frontends.sh || true
             sudo bash scripts/linux/deploy_nginx.sh || true
             STAGING_BASE_URL="${STAGING_BASE_URL:-https://cwscx-tst01.cwsey.com}" bash scripts/linux/verify_staging.sh || true
