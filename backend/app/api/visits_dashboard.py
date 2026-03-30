@@ -16,7 +16,7 @@ from pydantic import BaseModel, EmailStr
 from ..core.database import get_db
 from ..core.auth.dependencies import get_current_user, require_role
 from ..core.models import User
-from ..routers.analytics import get_comprehensive_analytics, get_yes_no_question_analytics
+from ..routers.analytics import get_comprehensive_analytics, get_question_averages, get_yes_no_question_analytics
 
 router = APIRouter(prefix="/dashboard-visits", tags=["dashboard-visits"])
 
@@ -825,6 +825,28 @@ def build_report_payload(
     except Exception:
         overall_yes_no = {"items": []}
 
+    try:
+        selected_question_averages = get_question_averages(
+            survey_type=report_survey_type,
+            business_ids=filtered_business_ids,
+            date_from=date_from,
+            date_to=date_to,
+            db=db,
+        )
+    except Exception:
+        selected_question_averages = {"items": []}
+
+    try:
+        overall_question_averages = get_question_averages(
+            survey_type=report_survey_type,
+            business_ids=None,
+            date_from=None,
+            date_to=None,
+            db=db,
+        )
+    except Exception:
+        overall_question_averages = {"items": []}
+
     filtered_yes_no_items = list(filtered_yes_no.get("items") or [])
     overall_yes_no_by_question = {int(item.get("question_number") or item.get("question_id") or 0): item for item in list(overall_yes_no.get("items") or [])}
     priority_yes_no_questions = {4, 6, 9, 16}
@@ -846,6 +868,73 @@ def build_report_payload(
                 "filtered_no_percent": float(item.get("no_percent") or 0.0),
                 "overall_yes_percent": float(overall_item.get("yes_percent") or 0.0),
                 "overall_no_percent": float(overall_item.get("no_percent") or 0.0),
+            }
+        )
+
+    def category_rollup(items: list[dict]) -> tuple[list[dict], dict[str, list[dict]]]:
+        category_totals: dict[str, dict] = {}
+        category_questions: dict[str, list[dict]] = {}
+
+        for item in items:
+            category = str(item.get("category") or "Uncategorized").strip() or "Uncategorized"
+            average_score = float(item.get("average_score") or 0.0)
+            response_count = int(item.get("response_count") or 0)
+
+            if category not in category_totals:
+                category_totals[category] = {
+                    "weighted_sum": 0.0,
+                    "response_count": 0,
+                    "question_count": 0,
+                }
+            category_totals[category]["weighted_sum"] += average_score * max(response_count, 1)
+            category_totals[category]["response_count"] += max(response_count, 1)
+            category_totals[category]["question_count"] += 1
+
+            if category not in category_questions:
+                category_questions[category] = []
+            category_questions[category].append(
+                {
+                    "question_number": item.get("question_number"),
+                    "question_text": item.get("question_text"),
+                    "average_score": average_score,
+                    "response_count": response_count,
+                }
+            )
+
+        rollup = []
+        for category, total in category_totals.items():
+            score = round(total["weighted_sum"] / total["response_count"], 2) if total["response_count"] else 0.0
+            rollup.append(
+                {
+                    "category": category,
+                    "average_score": score,
+                    "question_count": total["question_count"],
+                }
+            )
+
+        rollup.sort(key=lambda row: row["category"])
+        for category in category_questions:
+            category_questions[category].sort(key=lambda row: int(row.get("question_number") or 0))
+
+        return rollup, category_questions
+
+    selected_category_rollup, selected_category_questions = category_rollup(list(selected_question_averages.get("items") or []))
+    overall_category_rollup, _ = category_rollup(list(overall_question_averages.get("items") or []))
+    overall_category_by_name = {row["category"]: row for row in overall_category_rollup}
+
+    category_comparison = []
+    for row in selected_category_rollup:
+        overall_row = overall_category_by_name.get(row["category"], {})
+        selected_avg = float(row.get("average_score") or 0.0)
+        overall_avg = float(overall_row.get("average_score") or 0.0) if overall_row else 0.0
+        category_comparison.append(
+            {
+                "category": row["category"],
+                "selected_average_score": selected_avg,
+                "overall_average_score": overall_avg if overall_row else None,
+                "delta": round(selected_avg - overall_avg, 2) if overall_row else None,
+                "question_count": row.get("question_count", 0),
+                "questions": selected_category_questions.get(row["category"], []),
             }
         )
 
@@ -886,6 +975,7 @@ def build_report_payload(
         "analytics_selected": filtered_analytics,
         "analytics_overall": overall_analytics,
         "yes_no_comparison": yes_no_comparison,
+        "category_comparison": category_comparison,
         "daily_breakdown": daily_breakdown,
         "business_breakdown": business_breakdown,
         "visit_details": visits,
@@ -897,6 +987,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     filters = payload.get("filters", {})
     comparison = payload.get("analytics_comparison", {})
     yes_no_comparison = payload.get("yes_no_comparison", [])
+    category_comparison = payload.get("category_comparison", [])
     daily_rows = payload.get("daily_breakdown", [])
     business_rows = payload.get("business_breakdown", [])
     visit_rows = payload.get("visit_details", [])
@@ -908,6 +999,23 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             return f"{float(value):.1f}{suffix}"
         except Exception:
             return f"{value}{suffix}"
+
+    def conic_gradient(values: list[float], colors: list[str]) -> str:
+        total = sum(max(float(v or 0.0), 0.0) for v in values)
+        if total <= 0:
+            return "#e5e7eb"
+        cursor = 0.0
+        parts: list[str] = []
+        for value, color in zip(values, colors):
+            pct = (max(float(value or 0.0), 0.0) / total) * 100.0
+            if pct <= 0:
+                continue
+            next_cursor = min(100.0, cursor + pct)
+            parts.append(f"{color} {cursor:.2f}% {next_cursor:.2f}%")
+            cursor = next_cursor
+        if not parts:
+            return "#e5e7eb"
+        return f"conic-gradient({', '.join(parts)})"
 
     status_counts = summary.get("status_counts", {}) or {}
     status_total = sum(int(value or 0) for value in status_counts.values()) or 1
@@ -951,6 +1059,52 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         for item in yes_no_comparison
     )
 
+    category_rows = "".join(
+        (
+            f"<tr><td>{row.get('category') or '--'}</td>"
+            f"<td>{format_metric(row.get('selected_average_score'))}</td>"
+            f"<td>{format_metric(row.get('overall_average_score'))}</td>"
+            f"<td>{format_metric(row.get('delta'))}</td>"
+            f"<td>{int(row.get('question_count') or 0)}</td></tr>"
+        )
+        for row in category_comparison
+    )
+
+    category_detail_blocks = "".join(
+        (
+            f"<div class='card'><div class='label'>{row.get('category') or '--'} (Selected Scope)</div>"
+            f"<table><thead><tr><th>Question</th><th>Average</th><th>Responses</th></tr></thead><tbody>"
+            + "".join(
+                f"<tr><td>Q{int(question.get('question_number') or 0)} - {question.get('question_text') or '--'}</td>"
+                f"<td>{format_metric(question.get('average_score'))}</td><td>{int(question.get('response_count') or 0)}</td></tr>"
+                for question in list(row.get("questions") or [])
+            )
+            + "</tbody></table></div>"
+        )
+        for row in category_comparison
+    )
+
+    nps_obj = comparison.get("nps") or {}
+    csat_obj = comparison.get("csat") or {}
+    selected_analytics = payload.get("analytics_selected", {}) or {}
+    nps_breakdown = selected_analytics.get("nps") or {}
+    csat_breakdown = (selected_analytics.get("customer_satisfaction") or {}).get("score_distribution") or {}
+
+    nps_pie_style = conic_gradient(
+        [nps_breakdown.get("promoters", 0), nps_breakdown.get("passives", 0), nps_breakdown.get("detractors", 0)],
+        ["#16a34a", "#d97706", "#dc2626"],
+    )
+    csat_pie_style = conic_gradient(
+        [
+            csat_breakdown.get("very_satisfied", 0),
+            csat_breakdown.get("satisfied", 0),
+            csat_breakdown.get("neutral", 0),
+            csat_breakdown.get("dissatisfied", 0),
+            csat_breakdown.get("very_dissatisfied", 0),
+        ],
+        ["#16a34a", "#65a30d", "#9ca3af", "#ea580c", "#dc2626"],
+    )
+
     daily_table = "".join(
         f"<tr><td>{row['visit_date']}</td><td>{row['visit_count']}</td><td>{row['response_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td></tr>"
         for row in daily_rows
@@ -992,6 +1146,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     .bar-value {{ font-size: 12px; font-weight: 600; text-align: right; color:#111827; }}
     .legend {{ display:flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size:12px; color:#4b5563; }}
     .legend i {{ display:inline-block; width:10px; height:10px; border-radius: 999px; margin-right:6px; vertical-align: middle; }}
+    .pie-wrap {{ display:flex; align-items:center; gap:14px; margin-top:6px; }}
+    .pie {{ width:120px; height:120px; border-radius:999px; position:relative; }}
+    .pie::after {{ content:''; position:absolute; inset:24px; background:#ffffff; border-radius:999px; }}
+    .mini-grid {{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }}
   </style>
 </head>
 <body>
@@ -1003,10 +1161,53 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   <div class=\"summary\">
     <div class=\"card\"><div class=\"label\">Total Visits</div><div class=\"value\">{summary.get('total_visits', 0)}</div></div>
     <div class=\"card\"><div class=\"label\">Businesses Covered</div><div class=\"value\">{summary.get('total_businesses', 0)}</div></div>
-    <div class=\"card\"><div class=\"label\">NPS (Selected / Overall)</div><div class=\"value\">{format_metric((comparison.get('nps') or {}).get('selected'))} / {format_metric((comparison.get('nps') or {}).get('overall'))}</div></div>
-    <div class=\"card\"><div class=\"label\">CSAT % (Selected / Overall)</div><div class=\"value\">{format_metric((comparison.get('csat') or {}).get('selected'), '%')} / {format_metric((comparison.get('csat') or {}).get('overall'), '%')}</div></div>
-    <div class=\"card\"><div class=\"label\">Relationship Score</div><div class=\"value\">{format_metric((comparison.get('relationship_score') or {}).get('selected'))} / {format_metric((comparison.get('relationship_score') or {}).get('overall'))}</div></div>
-    <div class=\"card\"><div class=\"label\">Competitor Exposure %</div><div class=\"value\">{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')} / {format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</div></div>
+  </div>
+
+  <h2>Selected Scope KPIs</h2>
+  <div class=\"summary\">
+    <div class=\"card\"><div class=\"label\">NPS</div><div class=\"value\">{format_metric((comparison.get('nps') or {}).get('selected'))}</div></div>
+    <div class=\"card\"><div class=\"label\">CSAT</div><div class=\"value\">{format_metric((comparison.get('csat') or {}).get('selected'), '%')}</div></div>
+    <div class=\"card\"><div class=\"label\">Relationship Score</div><div class=\"value\">{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</div></div>
+    <div class=\"card\"><div class=\"label\">Competitor Exposure</div><div class=\"value\">{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</div></div>
+  </div>
+
+  <h2>Overall Benchmark KPIs</h2>
+  <div class=\"summary\">
+    <div class=\"card\"><div class=\"label\">NPS</div><div class=\"value\">{format_metric((comparison.get('nps') or {}).get('overall'))}</div></div>
+    <div class=\"card\"><div class=\"label\">CSAT</div><div class=\"value\">{format_metric((comparison.get('csat') or {}).get('overall'), '%')}</div></div>
+    <div class=\"card\"><div class=\"label\">Relationship Score</div><div class=\"value\">{format_metric((comparison.get('relationship_score') or {}).get('overall'))}</div></div>
+    <div class=\"card\"><div class=\"label\">Competitor Exposure</div><div class=\"value\">{format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</div></div>
+  </div>
+
+  <div class=\"mini-grid\" style=\"margin-top:12px\">
+    <div class=\"card\">
+      <div class=\"label\">NPS Mix (Selected Scope)</div>
+      <div class=\"pie-wrap\">
+        <div class=\"pie\" style=\"background:{nps_pie_style}\"></div>
+        <div>
+          <p class=\"label\">Promoters: {int(nps_breakdown.get('promoters') or 0)}</p>
+          <p class=\"label\">Passives: {int(nps_breakdown.get('passives') or 0)}</p>
+          <p class=\"label\">Detractors: {int(nps_breakdown.get('detractors') or 0)}</p>
+          <p class=\"label\" style=\"margin-top:8px\">Selected NPS: {format_metric(nps_obj.get('selected'))}</p>
+          <p class=\"label\">Overall NPS Benchmark: {format_metric(nps_obj.get('overall'))}</p>
+        </div>
+      </div>
+    </div>
+    <div class=\"card\">
+      <div class=\"label\">CSAT Distribution (Selected Scope)</div>
+      <div class=\"pie-wrap\">
+        <div class=\"pie\" style=\"background:{csat_pie_style}\"></div>
+        <div>
+          <p class=\"label\">Very Satisfied: {int(csat_breakdown.get('very_satisfied') or 0)}</p>
+          <p class=\"label\">Satisfied: {int(csat_breakdown.get('satisfied') or 0)}</p>
+          <p class=\"label\">Neutral: {int(csat_breakdown.get('neutral') or 0)}</p>
+          <p class=\"label\">Dissatisfied: {int(csat_breakdown.get('dissatisfied') or 0)}</p>
+          <p class=\"label\">Very Dissatisfied: {int(csat_breakdown.get('very_dissatisfied') or 0)}</p>
+          <p class=\"label\" style=\"margin-top:8px\">Selected CSAT: {format_metric(csat_obj.get('selected'), '%')}</p>
+          <p class=\"label\">Overall CSAT Benchmark: {format_metric(csat_obj.get('overall'), '%')}</p>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class=\"explain\">
@@ -1047,6 +1248,17 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   <h2>Yes/No Question Comparison</h2>
   <div class=\"viz-grid\">
     {yes_no_cards or '<div class="card"><p class="label">No yes/no analytics in current scope.</p></div>'}
+  </div>
+
+  <h2>Category Breakdown</h2>
+  <table>
+    <thead><tr><th>Category</th><th>Selected Avg</th><th>Overall Avg</th><th>Delta</th><th>Questions</th></tr></thead>
+    <tbody>{category_rows or '<tr><td colspan="5">No category score data</td></tr>'}</tbody>
+  </table>
+
+  <h2>Category Question Details (Selected Scope)</h2>
+  <div class=\"viz-grid\">
+    {category_detail_blocks or '<div class="card"><p class="label">No category question details available.</p></div>'}
   </div>
 
   <h2>Daily Analytics</h2>

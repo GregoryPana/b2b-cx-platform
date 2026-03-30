@@ -2111,8 +2111,10 @@ export default function DashboardPage({ headers, activePlatform }) {
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Visits</p><p className="text-lg font-semibold">{reportPreview.summary?.total_visits ?? 0}</p></div>
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Businesses</p><p className="text-lg font-semibold">{reportPreview.summary?.total_businesses ?? 0}</p></div>
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">NPS (Sel / Overall)</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.nps?.selected ?? "--"} / {reportPreview.analytics_comparison?.nps?.overall ?? "--"}</p></div>
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">CSAT % (Sel / Overall)</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.csat?.selected?.toFixed?.(1) ?? "--"}% / {reportPreview.analytics_comparison?.csat?.overall?.toFixed?.(1) ?? "--"}%</p></div>
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Selected NPS</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.nps?.selected ?? "--"}</p></div>
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall NPS</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.nps?.overall ?? "--"}</p></div>
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Selected CSAT</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.csat?.selected?.toFixed?.(1) ?? "--"}%</p></div>
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall CSAT</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.csat?.overall?.toFixed?.(1) ?? "--"}%</p></div>
                     </div>
                     <p className="text-xs text-muted-foreground">Includes executive metrics (NPS, CSAT, Relationship, Competitor Exposure), selected-vs-overall comparison, and yes/no analytics in a visual report format.</p>
                   </div>
