@@ -157,9 +157,11 @@ if [[ ! -f "${BUNDLE_ROOT}/backend/requirements.txt" ]]; then
   exit 1
 fi
 
-rsync -a --delete \
+rsync -a \
   --exclude 'venv' \
   --exclude 'logs' \
+  --exclude '__pycache__' \
+  --exclude '*.pyc' \
   "${BUNDLE_ROOT}/backend/" \
   "${TARGET_ROOT}/backend/"
 

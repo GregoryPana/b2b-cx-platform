@@ -16,6 +16,7 @@ from pydantic import BaseModel, EmailStr
 from ..core.database import get_db
 from ..core.auth.dependencies import get_current_user, require_role
 from ..core.models import User
+from ..routers.analytics import get_comprehensive_analytics, get_yes_no_question_analytics
 
 router = APIRouter(prefix="/dashboard-visits", tags=["dashboard-visits"])
 
@@ -777,9 +778,99 @@ def build_report_payload(
     if weighted_score_count > 0:
         summary_avg_score = round(weighted_score_total / weighted_score_count, 2)
 
+    report_survey_type = survey_type or "B2B"
+    filtered_business_ids = str(business_id) if business_id is not None else None
+
+    try:
+        filtered_analytics = get_comprehensive_analytics(
+            survey_type=report_survey_type,
+            business_ids=filtered_business_ids,
+            date_from=date_from,
+            date_to=date_to,
+            db=db,
+        )
+    except Exception:
+        filtered_analytics = {}
+
+    try:
+        overall_analytics = get_comprehensive_analytics(
+            survey_type=report_survey_type,
+            business_ids=None,
+            date_from=None,
+            date_to=None,
+            db=db,
+        )
+    except Exception:
+        overall_analytics = {}
+
+    try:
+        filtered_yes_no = get_yes_no_question_analytics(
+            survey_type=report_survey_type,
+            business_ids=filtered_business_ids,
+            date_from=date_from,
+            date_to=date_to,
+            db=db,
+        )
+    except Exception:
+        filtered_yes_no = {"items": []}
+
+    try:
+        overall_yes_no = get_yes_no_question_analytics(
+            survey_type=report_survey_type,
+            business_ids=None,
+            date_from=None,
+            date_to=None,
+            db=db,
+        )
+    except Exception:
+        overall_yes_no = {"items": []}
+
+    filtered_yes_no_items = list(filtered_yes_no.get("items") or [])
+    overall_yes_no_by_question = {int(item.get("question_number") or item.get("question_id") or 0): item for item in list(overall_yes_no.get("items") or [])}
+    priority_yes_no_questions = {4, 6, 9, 16}
+    focused_yes_no = [
+        item for item in filtered_yes_no_items if int(item.get("question_number") or item.get("question_id") or 0) in priority_yes_no_questions
+    ]
+    if not focused_yes_no:
+        focused_yes_no = filtered_yes_no_items[:6]
+
+    yes_no_comparison = []
+    for item in focused_yes_no:
+        qn = int(item.get("question_number") or item.get("question_id") or 0)
+        overall_item = overall_yes_no_by_question.get(qn, {})
+        yes_no_comparison.append(
+            {
+                "question_number": qn,
+                "question_text": item.get("question_text") or "--",
+                "filtered_yes_percent": float(item.get("yes_percent") or 0.0),
+                "filtered_no_percent": float(item.get("no_percent") or 0.0),
+                "overall_yes_percent": float(overall_item.get("yes_percent") or 0.0),
+                "overall_no_percent": float(overall_item.get("no_percent") or 0.0),
+            }
+        )
+
+    kpi_comparison = {
+        "nps": {
+            "selected": (filtered_analytics.get("nps") or {}).get("nps"),
+            "overall": (overall_analytics.get("nps") or {}).get("nps"),
+        },
+        "csat": {
+            "selected": (filtered_analytics.get("customer_satisfaction") or {}).get("csat_score"),
+            "overall": (overall_analytics.get("customer_satisfaction") or {}).get("csat_score"),
+        },
+        "relationship_score": {
+            "selected": (filtered_analytics.get("relationship_score") or {}).get("score"),
+            "overall": (overall_analytics.get("relationship_score") or {}).get("score"),
+        },
+        "competitor_exposure": {
+            "selected": (filtered_analytics.get("competitive_exposure") or {}).get("exposure_rate"),
+            "overall": (overall_analytics.get("competitive_exposure") or {}).get("exposure_rate"),
+        },
+    }
+
     return {
         "filters": {
-            "survey_type": survey_type or "B2B",
+            "survey_type": report_survey_type,
             "business_id": business_id,
             "date_from": date_from,
             "date_to": date_to,
@@ -791,6 +882,10 @@ def build_report_payload(
             "average_score": summary_avg_score,
             "status_counts": status_counts,
         },
+        "analytics_comparison": kpi_comparison,
+        "analytics_selected": filtered_analytics,
+        "analytics_overall": overall_analytics,
+        "yes_no_comparison": yes_no_comparison,
         "daily_breakdown": daily_breakdown,
         "business_breakdown": business_breakdown,
         "visit_details": visits,
@@ -800,9 +895,19 @@ def build_report_payload(
 def render_report_html(payload: dict, generated_by: str) -> str:
     summary = payload.get("summary", {})
     filters = payload.get("filters", {})
+    comparison = payload.get("analytics_comparison", {})
+    yes_no_comparison = payload.get("yes_no_comparison", [])
     daily_rows = payload.get("daily_breakdown", [])
     business_rows = payload.get("business_breakdown", [])
     visit_rows = payload.get("visit_details", [])
+
+    def format_metric(value, suffix: str = ""):
+        if value is None:
+            return "--"
+        try:
+            return f"{float(value):.1f}{suffix}"
+        except Exception:
+            return f"{value}{suffix}"
 
     status_counts = summary.get("status_counts", {}) or {}
     status_total = sum(int(value or 0) for value in status_counts.values()) or 1
@@ -833,6 +938,17 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f"<div class='bar-value'>{int(row.get('response_count') or 0)}</div></div>"
         )
         for row in top_business
+    )
+
+    yes_no_cards = "".join(
+        (
+            f"<div class='card'><div class='label'>Q{int(item.get('question_number') or 0)} Yes/No</div>"
+            f"<p style='margin:6px 0 10px; font-size:12px; color:#374151'>{item.get('question_text') or '--'}</p>"
+            f"<div class='bar-row'><div class='bar-label'>Selected: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('filtered_yes_percent') or 0.0), 0.0), 100.0)}%; background:#16a34a'></div></div><div class='bar-value'>{float(item.get('filtered_yes_percent') or 0.0):.1f}%</div></div>"
+            f"<div class='bar-row'><div class='bar-label'>Overall: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('overall_yes_percent') or 0.0), 0.0), 100.0)}%; background:#1d4ed8'></div></div><div class='bar-value'>{float(item.get('overall_yes_percent') or 0.0):.1f}%</div></div>"
+            f"</div>"
+        )
+        for item in yes_no_comparison
     )
 
     daily_table = "".join(
@@ -887,8 +1003,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   <div class=\"summary\">
     <div class=\"card\"><div class=\"label\">Total Visits</div><div class=\"value\">{summary.get('total_visits', 0)}</div></div>
     <div class=\"card\"><div class=\"label\">Businesses Covered</div><div class=\"value\">{summary.get('total_businesses', 0)}</div></div>
-    <div class=\"card\"><div class=\"label\">Responses Captured</div><div class=\"value\">{summary.get('total_responses', 0)}</div></div>
-    <div class=\"card\"><div class=\"label\">Average Score</div><div class=\"value\">{summary.get('average_score') if summary.get('average_score') is not None else '--'}</div></div>
+    <div class=\"card\"><div class=\"label\">NPS (Selected / Overall)</div><div class=\"value\">{format_metric((comparison.get('nps') or {}).get('selected'))} / {format_metric((comparison.get('nps') or {}).get('overall'))}</div></div>
+    <div class=\"card\"><div class=\"label\">CSAT % (Selected / Overall)</div><div class=\"value\">{format_metric((comparison.get('csat') or {}).get('selected'), '%')} / {format_metric((comparison.get('csat') or {}).get('overall'), '%')}</div></div>
+    <div class=\"card\"><div class=\"label\">Relationship Score</div><div class=\"value\">{format_metric((comparison.get('relationship_score') or {}).get('selected'))} / {format_metric((comparison.get('relationship_score') or {}).get('overall'))}</div></div>
+    <div class=\"card\"><div class=\"label\">Competitor Exposure %</div><div class=\"value\">{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')} / {format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</div></div>
   </div>
 
   <div class=\"explain\">
@@ -913,6 +1031,22 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       {business_bars or '<p class="label">No business data</p>'}
       <p class=\"label\" style=\"margin-top:8px\">Bars compare response volume across businesses in this report range.</p>
     </div>
+  </div>
+
+  <h2>CEO Snapshot: Selected vs Overall</h2>
+  <table>
+    <thead><tr><th>Metric</th><th>Selected Scope</th><th>Overall Scope</th><th>Interpretation</th></tr></thead>
+    <tbody>
+      <tr><td>NPS</td><td>{format_metric((comparison.get('nps') or {}).get('selected'))}</td><td>{format_metric((comparison.get('nps') or {}).get('overall'))}</td><td>Higher is better. Positive means more promoters than detractors.</td></tr>
+      <tr><td>CSAT</td><td>{format_metric((comparison.get('csat') or {}).get('selected'), '%')}</td><td>{format_metric((comparison.get('csat') or {}).get('overall'), '%')}</td><td>Higher means more satisfied accounts.</td></tr>
+      <tr><td>Overall Relationship Score</td><td>{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</td><td>{format_metric((comparison.get('relationship_score') or {}).get('overall'))}</td><td>Composite relationship strength score (0-100).</td></tr>
+      <tr><td>Competitor Exposure</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Yes/No Question Comparison</h2>
+  <div class=\"viz-grid\">
+    {yes_no_cards or '<div class="card"><p class="label">No yes/no analytics in current scope.</p></div>'}
   </div>
 
   <h2>Daily Analytics</h2>

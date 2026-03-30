@@ -112,7 +112,7 @@ server {
     # Dashboard SPA
     location ^~ /dashboard/assets/ {
         alias /opt/cwscx/frontends-src/dashboard/dist/assets/;
-        try_files \$request_filename =404;
+        try_files \$uri =404;
         expires 365d;
         add_header Cache-Control "public, immutable";
     }
@@ -136,7 +136,7 @@ server {
     # Surveys: B2B SPA
     location ^~ /surveys/b2b/assets/ {
         alias /opt/cwscx/frontends-src/internal-surveys/b2b/dist/assets/;
-        try_files \$request_filename =404;
+        try_files \$uri =404;
         expires 365d;
         add_header Cache-Control "public, immutable";
     }
@@ -160,7 +160,7 @@ server {
     # Surveys: Installation SPA
     location ^~ /surveys/installation/assets/ {
         alias /opt/cwscx/frontends-src/internal-surveys/installation/dist/assets/;
-        try_files \$request_filename =404;
+        try_files \$uri =404;
         expires 365d;
         add_header Cache-Control "public, immutable";
     }
