@@ -2206,7 +2206,12 @@ export default function DashboardPage({ headers, activePlatform }) {
                     <p className="text-sm text-muted-foreground">Choose report type: Per Survey, Selected Date, Lifetime Overview, or Action Points. Preview, download, or email in a mobile-ready layout.</p>
                   </div>
                 </div>
-                <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <section className="rounded-lg border bg-card p-4">
+                <div className="mb-3">
+                  <p className="text-sm font-semibold tracking-tight">1) Select Report Type</p>
+                  <p className="text-xs text-muted-foreground">Pick the report format that matches your reporting objective.</p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                   {REPORT_TYPE_OPTIONS.map((option) => (
                     <Card key={option.key} className="h-full min-w-0 overflow-visible">
                       <CardHeader>
@@ -2225,7 +2230,14 @@ export default function DashboardPage({ headers, activePlatform }) {
                       </CardContent>
                     </Card>
                   ))}
+                </div>
                 </section>
+
+                <section className="rounded-lg border bg-background p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold tracking-tight">2) Define Report Scope</p>
+                  <p className="text-xs text-muted-foreground">Select business/date/survey where needed. Only completed or approved surveys are report-eligible.</p>
+                </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                   {(reportType === "survey" || reportType === "date") ? (
                     <Select value={reportBusinessId} onChange={(event) => setReportBusinessId(event.target.value)}>
@@ -2241,7 +2253,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                     <Select value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)}>
                       <option value="">Select approved survey</option>
                       {reportEligibleSurveys.map((visit) => (
-                        <option key={visit.visit_id} value={visit.visit_id}>Visit {visit.visit_id} - {visit.visit_date || "--"} ({visit.status})</option>
+                        <option key={visit.visit_id} value={visit.visit_id}>Survey on {visit.visit_date || "--"} ({visit.status})</option>
                       ))}
                     </Select>
                   ) : reportType === "date" ? (
@@ -2266,13 +2278,20 @@ export default function DashboardPage({ headers, activePlatform }) {
                         <p className="text-sm font-medium text-amber-900">Unavailable surveys (cannot generate report)</p>
                         <div className="mt-2 space-y-1 text-xs text-amber-800">
                           {reportIneligibleSurveys.slice(0, 8).map((visit) => (
-                            <p key={`ineligible-${visit.visit_id}`}>Visit {visit.visit_id} - {visit.visit_date || "--"} ({visit.status}) - {visit.reason || "Not report-eligible"}</p>
+                            <p key={`ineligible-${visit.visit_id}`}>Survey on {visit.visit_date || "--"} ({visit.status}) - {visit.reason || "Not report-eligible"}</p>
                           ))}
                         </div>
                       </div>
                     ) : null}
                   </div>
                 ) : null}
+                </section>
+
+                <section className="rounded-lg border bg-background p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold tracking-tight">3) Deliver Report</p>
+                  <p className="text-xs text-muted-foreground">Preview in-page, download as HTML, or send by email.</p>
+                </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                   <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
                   <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
@@ -2312,6 +2331,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                     ) : null}
                   </div>
                 ) : null}
+                </section>
               </div>
               ) : null}
 

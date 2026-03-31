@@ -1701,7 +1701,10 @@ def email_report(
         or os.getenv("STMP_EMAIL", "").strip()
         or smtp_user
     )
-    smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes"}
+    smtp_use_tls_raw = os.getenv("SMTP_USE_TLS", "").strip().lower()
+    smtp_use_ssl_raw = os.getenv("SMTP_USE_SSL", "").strip().lower()
+    smtp_use_tls = (smtp_port == 587) if smtp_use_tls_raw == "" else smtp_use_tls_raw in {"1", "true", "yes"}
+    smtp_use_ssl = (smtp_port == 465) if smtp_use_ssl_raw == "" else smtp_use_ssl_raw in {"1", "true", "yes"}
 
     if not smtp_host or not smtp_from:
         raise HTTPException(status_code=400, detail="SMTP is not configured. Set SMTP_HOST and SMTP_FROM (or SMTP_EMAIL/STMP_EMAIL).")
@@ -1731,12 +1734,30 @@ def email_report(
     message.attach(html_part)
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-            if smtp_use_tls:
-                server.starttls()
+        smtp_client_cls = smtplib.SMTP_SSL if smtp_use_ssl else smtplib.SMTP
+        with smtp_client_cls(smtp_host, smtp_port, timeout=20) as server:
+            if not smtp_use_ssl:
+                try:
+                    server.ehlo()
+                except Exception:
+                    pass
+                if smtp_use_tls:
+                    if getattr(server, "has_extn", lambda *_args: False)("starttls"):
+                        server.starttls()
+                        try:
+                            server.ehlo()
+                        except Exception:
+                            pass
+                    else:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="SMTP server does not support STARTTLS. Set SMTP_USE_TLS=false or use an SMTP server/port with TLS support.",
+                        )
             if smtp_user and smtp_password:
                 server.login(smtp_user, smtp_password)
             server.sendmail(smtp_from, list(request.to), message.as_string())
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to send report email: {exc}")
 
