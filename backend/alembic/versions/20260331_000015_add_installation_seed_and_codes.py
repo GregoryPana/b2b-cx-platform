@@ -166,10 +166,10 @@ def _seed_installation_questions(connection, survey_type_id: int) -> None:
 
 
 def upgrade() -> None:
-    op.add_column("survey_types", sa.Column("code", sa.String(length=64), nullable=True))
-    op.create_unique_constraint("uq_survey_types_code", "survey_types", ["code"])
-
     connection = op.get_bind()
+    if not _has_column(connection, "survey_types", "code"):
+        op.add_column("survey_types", sa.Column("code", sa.String(length=64), nullable=True))
+        op.create_unique_constraint("uq_survey_types_code", "survey_types", ["code"])
     now = datetime.utcnow()
     existing_codes = {
         "B2B": "B2B",
@@ -204,3 +204,18 @@ def downgrade() -> None:
 
     op.drop_constraint("uq_survey_types_code", "survey_types", type_="unique")
     op.drop_column("survey_types", "code")
+def _has_column(connection, table_name: str, column_name: str) -> bool:
+    result = connection.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = :table
+              AND column_name = :column
+            LIMIT 1
+            """
+        ),
+        {"table": table_name, "column": column_name},
+    ).scalar()
+    return bool(result)

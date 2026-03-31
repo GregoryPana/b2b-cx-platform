@@ -20,8 +20,8 @@ if (Test-Path $Activate) {
   . $Activate
 }
 
-if (-not $env:DATABASE_URL) {
-  $env:DATABASE_URL = "postgresql://b2b:b2b@localhost:5432/b2b"
+if ($true) {
+  $env:DATABASE_URL = "postgresql://b2b:b2b@localhost:55432/b2b"
 }
 
 if (-not $env:DEV_AUTH_BYPASS) {

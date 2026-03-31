@@ -16,6 +16,9 @@ if (-not (Test-Path "node_modules")) {
 }
 
 $env:VITE_DISABLE_TYPECHECK = "true"
+if (-not $env:VITE_API_URL) {
+  $env:VITE_API_URL = "http://localhost:8001/api"
+}
 
 $existingNode = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
   Where-Object { $_.LocalPort -eq 5181 } |

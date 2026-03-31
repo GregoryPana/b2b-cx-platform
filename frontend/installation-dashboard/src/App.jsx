@@ -1,28 +1,52 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ClipboardList,
   ShieldCheck,
   Timer,
   UploadCloud,
-  ListChecks,
   History as HistoryIcon,
-  BookOpen,
+  Building2,
 } from "lucide-react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const SCORE_OPTIONS = [1, 2, 3, 4, 5];
 
+const SCORE_GUIDANCE = [
+  {
+    range: "4 – 5",
+    label: "Pass – Excellent",
+    description: "High-quality install. No further action needed.",
+  },
+  {
+    range: "3 – 4",
+    label: "Pass – Needs Improvement",
+    description:
+      "Minor aesthetic issues (e.g., a few loose clips) or customer education gaps. Correct minor issues on the spot and log feedback for the Technician.",
+  },
+  {
+    range: "2",
+    label: "Fail – Rework Required",
+    description:
+      "Significant physical or technical misses. Generate a rework order for the original contractor/staff to return and fix the installation.",
+  },
+  {
+    range: "1",
+    label: "Critical Fail",
+    description:
+      "Major safety violations, property damage, or severe network degradation. Trigger immediate escalation, potential financial penalty or chargeback, and urgent rework.",
+  },
+];
+
 const HEADER_TEMPLATE = {
-  inspectorName: "",
   customerName: "",
   customerType: "B2B",
   location: "",
   workDate: "",
-  executionParty: "Field Team",
-  teamName: "",
-  contractorName: "",
+  representativeName: "",
 };
+
+const DRAFT_STORAGE_KEY = "installation-assessment-draft";
 
 const buildInitialResponses = (questions) => {
   return questions.reduce((acc, question, index) => {
@@ -38,18 +62,16 @@ const bandForScore = (score) => {
     label: "Incomplete",
     detail: "Fill in all seven scores to calculate",
   };
-  if (score >= 4) return { key: "excellent", label: "Pass · Excellent", detail: "No follow-up required" };
-  if (score >= 3) return { key: "needs-improvement", label: "Pass · Needs Improvement", detail: "Log the fix before closing" };
-  if (score >= 2) return { key: "rework", label: "Fail · Rework Required", detail: "Issue work order" };
-  return { key: "critical", label: "Critical Fail", detail: "Escalate immediately" };
+  if (score >= 4) return { key: "excellent", label: "Good result", detail: "No follow-up needed" };
+  if (score >= 3) return { key: "needs-improvement", label: "Needs small improvements", detail: "Record what was fixed before closing" };
+  if (score >= 2) return { key: "rework", label: "Needs rework", detail: "Create a rework task" };
+  return { key: "critical", label: "Urgent issue", detail: "Escalate immediately" };
 };
 
 const headerFieldsComplete = (header) => {
-  if (!header.inspectorName || !header.customerName || !header.location || !header.workDate || !header.executionParty) {
+  if (!header.customerName || !header.location || !header.workDate || !header.representativeName) {
     return false;
   }
-  if (header.executionParty === "Field Team" && !header.teamName) return false;
-  if (header.executionParty === "Contractor" && !header.contractorName) return false;
   return true;
 };
 
@@ -71,8 +93,6 @@ function ScoreButtons({ value, onChange }) {
 }
 
 export default function App() {
-  const [assignments, setAssignments] = useState([]);
-  const [activeAssignmentId, setActiveAssignmentId] = useState(null);
   const [questionBank, setQuestionBank] = useState([]);
   const [header, setHeader] = useState({ ...HEADER_TEMPLATE });
   const [responses, setResponses] = useState({});
@@ -82,9 +102,9 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
-  const [activeModule, setActiveModule] = useState("Capture");
-
-  const activeAssignment = assignments.find((item) => item.id === activeAssignmentId);
+  const [draftInitialized, setDraftInitialized] = useState(false);
+  const [activeModule, setActiveModule] = useState("Survey");
+  const [selectedBusiness, setSelectedBusiness] = useState(null);
 
   const groupedQuestions = useMemo(() => {
     return questionBank.reduce((acc, question) => {
@@ -96,34 +116,56 @@ export default function App() {
   }, [questionBank]);
 
   const summary = useMemo(() => {
-    const completedScores = questionBank
+    const scoredValues = questionBank
       .map((question, index) => {
         const number = getQuestionNumber(question, index);
-        return Number(responses[number]?.score);
+        const raw = responses[number]?.score;
+        if (raw === "" || raw === undefined || raw === null) {
+          return null;
+        }
+        const numeric = Number(raw);
+        if (Number.isNaN(numeric)) return null;
+        return numeric;
       })
-      .filter((score) => !Number.isNaN(score));
-    const total = completedScores.reduce((sum, value) => sum + value, 0);
-    const average = completedScores.length ? total / completedScores.length : null;
-    const completion = questionBank.length ? completedScores.length / questionBank.length : 0;
-    const riskItems = questionBank.filter((question, index) => {
-      const number = getQuestionNumber(question, index);
-      const score = Number(responses[number]?.score);
-      return !Number.isNaN(score) && score <= 2;
-    });
-    const safetyFlags = questionBank.filter((question, index) => {
-      const number = getQuestionNumber(question, index);
-      const score = Number(responses[number]?.score);
-      return question.category.includes("Safety") && !Number.isNaN(score) && score <= 2;
-    });
+      .filter((value) => value !== null);
+    const total = scoredValues.reduce((sum, value) => sum + value, 0);
+    const average = scoredValues.length ? total / scoredValues.length : null;
+    const hasStarted = scoredValues.length > 0;
+    const totalChecks = hasStarted ? questionBank.length : 0;
+    const answeredCount = hasStarted ? scoredValues.length : 0;
+    const outstandingCount = hasStarted ? Math.max(totalChecks - answeredCount, 0) : 0;
+    const completion = totalChecks ? answeredCount / totalChecks : 0;
+    const riskItems = hasStarted
+      ? questionBank.filter((question, index) => {
+          const number = getQuestionNumber(question, index);
+          const raw = responses[number]?.score;
+          if (raw === "" || raw === undefined || raw === null) return false;
+          const score = Number(raw);
+          return !Number.isNaN(score) && score <= 2;
+        })
+      : [];
+    const safetyFlags = hasStarted
+      ? questionBank.filter((question, index) => {
+          const number = getQuestionNumber(question, index);
+          const raw = responses[number]?.score;
+          if (raw === "" || raw === undefined || raw === null) return false;
+          const score = Number(raw);
+          return question.category.includes("Safety") && !Number.isNaN(score) && score <= 2;
+        })
+      : [];
     const band = bandForScore(average);
 
     const categories = Object.entries(groupedQuestions).map(([category, list]) => {
       const subset = list
         .map((question, idx) => {
           const number = getQuestionNumber(question, idx);
-          return Number(responses[number]?.score);
+          const raw = responses[number]?.score;
+          if (raw === "" || raw === undefined || raw === null) return null;
+          const numeric = Number(raw);
+          if (Number.isNaN(numeric)) return null;
+          return numeric;
         })
-        .filter((score) => !Number.isNaN(score));
+        .filter((score) => score !== null);
       const catAverage = subset.length ? subset.reduce((sum, value) => sum + value, 0) / subset.length : null;
       return { category, average: catAverage };
     });
@@ -131,11 +173,15 @@ export default function App() {
     return {
       average,
       completion,
-      completedAll: questionBank.length > 0 && completion === 1,
+      completedAll: hasStarted && totalChecks > 0 && outstandingCount === 0,
       riskItems,
       safetyFlags,
       band,
       categories,
+      hasStarted,
+      answeredCount,
+      outstandingCount,
+      totalChecks,
     };
   }, [responses, groupedQuestions, questionBank.length]);
 
@@ -165,13 +211,6 @@ export default function App() {
     }));
   };
 
-  const handleSelectAssignment = (assignment) => {
-    setActiveAssignmentId(assignment.id);
-    setHeader((prev) => ({ ...prev, ...hydrateHeaderFromAssignment(assignment) }));
-    setMessage("");
-    setError("");
-  };
-
   const loadQuestions = async () => {
     setLoadingQuestions(true);
     try {
@@ -182,7 +221,7 @@ export default function App() {
         throw new Error("Installation question bank is empty");
       }
       setQuestionBank(data);
-      setResponses(buildInitialResponses(data));
+      setResponses((prev) => (Object.keys(prev).length ? prev : buildInitialResponses(data)));
       setError("");
     } catch (err) {
       setQuestionBank([]);
@@ -196,7 +235,7 @@ export default function App() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/installation/assessments?limit=5`);
+      const res = await fetch(`${API_BASE}/installation/assessments?limit=100`);
       if (!res.ok) throw new Error("Failed to load history");
       const data = await res.json();
       setHistory(Array.isArray(data) ? data : []);
@@ -212,8 +251,37 @@ export default function App() {
     loadHistory();
   }, []);
 
+  useEffect(() => {
+    if (draftInitialized || loadingQuestions || !questionBank.length) return;
+    const stored = localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.header) {
+          setHeader((prev) => ({ ...prev, ...parsed.header }));
+        }
+        if (parsed.responses) {
+          setResponses(parsed.responses);
+        }
+      } catch {
+        // ignore invalid draft
+      }
+    }
+    setDraftInitialized(true);
+  }, [loadingQuestions, questionBank.length, draftInitialized]);
+
+  useEffect(() => {
+    if (!draftInitialized) return;
+    const payload = {
+      header,
+      responses,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+  }, [header, responses, draftInitialized]);
+
   const handleSaveDraft = () => {
-    setMessage(`Draft saved for ${header.customerName || "current assignment"}.`);
+    setMessage(`Draft saved for ${header.customerName || "current survey"}.`);
     setError("");
   };
 
@@ -225,7 +293,7 @@ export default function App() {
       return;
     }
     if (!readyToSubmit) {
-      setError("Complete inspector/header fields and all seven scores before submitting.");
+      setError("Complete representative/header fields and all seven scores before submitting.");
       return;
     }
 
@@ -244,6 +312,8 @@ export default function App() {
       }
       setMessage(`Assessment submitted for ${data.customer_name || payload.customer_name}.`);
       setResponses(buildInitialResponses(questionBank));
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+      setDraftInitialized(false);
       await loadHistory();
     } catch {
       setError("Network error submitting assessment");
@@ -252,86 +322,114 @@ export default function App() {
     }
   };
 
-  const answeredCount = questionBank.filter((question, index) => responses[getQuestionNumber(question, index)]?.score).length;
-  const outstandingChecks = Math.max(questionBank.length - answeredCount, 0);
   const historyRows = history;
+  const businessSummaries = useMemo(() => {
+    const map = new Map();
+    history.forEach((row) => {
+      const name = row.customer_name || row.customer || "Unnamed Business";
+      if (!map.has(name)) {
+        map.set(name, {
+          name,
+          visits: 0,
+          representatives: new Set(),
+          lastVisit: null,
+          lastLocation: row.location || "—",
+          scores: [],
+        });
+      }
+      const record = map.get(name);
+      record.visits += 1;
+      if (row.representative_name) record.representatives.add(row.representative_name);
+      const dateValue = row.work_date || row.created_at || row.date;
+      if (!record.lastVisit || (dateValue && dateValue > record.lastVisit)) {
+        record.lastVisit = dateValue;
+        record.lastLocation = row.location || record.lastLocation;
+      }
+      const numeric = Number(row.overall_score ?? row.score);
+      if (Number.isFinite(numeric)) record.scores.push(numeric);
+    });
+    return Array.from(map.values()).map((record) => {
+      const averageScore = record.scores.length
+        ? record.scores.reduce((sum, value) => sum + value, 0) / record.scores.length
+        : null;
+      return {
+        ...record,
+        representatives: Array.from(record.representatives).join(", ") || "—",
+        averageScore,
+        lastLocation: record.lastLocation,
+        band: bandForScore(averageScore),
+      };
+    });
+  }, [history]);
+
+  const visitCounts = useMemo(() => {
+    const counts = {};
+    history.forEach((row) => {
+      const name = row.customer_name || row.customer || "Unnamed Business";
+      counts[name] = (counts[name] || 0) + 1;
+    });
+    return counts;
+  }, [history]);
+
+  const systemStats = useMemo(() => {
+    const totalScore = historyRows.reduce((acc, row) => acc + Number(row.overall_score || row.score || 0), 0);
+    const avgScore = historyRows.length > 0 ? totalScore / historyRows.length : null;
+    const problemCount = historyRows.filter(r => r.threshold_band === 'rework' || r.threshold_band === 'critical').length;
+    return {
+      avgScore,
+      totalSurveys: historyRows.length,
+      problemCount,
+      uniqueBusinesses: businessSummaries.length,
+      band: bandForScore(avgScore)
+    };
+  }, [historyRows, businessSummaries]);
 
   const handleClearAll = () => {
     setHeader({ ...HEADER_TEMPLATE });
     setResponses(buildInitialResponses(questionBank));
-    setActiveAssignmentId(null);
     setMessage("");
     setError("");
+    localStorage.removeItem(DRAFT_STORAGE_KEY);
+    setDraftInitialized(false);
   };
-
-  const renderAssignmentsView = () => (
-    <section className="section">
-      <header>
-        <div>
-          <h2>Assignments</h2>
-          <p>{assignments.length ? "Installations scheduled in your roster" : "Assignments sync once the field operations API is connected."}</p>
-        </div>
-      </header>
-      {assignments.length === 0 ? (
-        <p className="caption">No live feed yet. This panel will populate automatically when the installation scheduling endpoint ships.</p>
-      ) : (
-        <div className="assignment-list">
-          {assignments.map((assignment) => (
-            <div key={assignment.id} className={`assignment-card ${assignment.id === activeAssignmentId ? "active" : ""}`}>
-              <button type="button" onClick={() => handleSelectAssignment(assignment)}>
-                <strong>{assignment.customer}</strong>
-                <span className="assignment-note">{assignment.location}</span>
-                <span className="assignment-note">Window: {assignment.window}</span>
-                <span className={`badge ${assignment.priority === "Today" ? "scheduled" : ""}`}>{assignment.priority}</span>
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
 
   const renderCaptureView = () => (
     <>
-      {renderAssignmentsView()}
-      <div className="stat-grid">
-        <div className="stat-card">
-          <span>Assignments loaded</span>
-          <strong>{assignments.length}</strong>
-          <span>Visits synced from operations</span>
+            <div className="stat-grid">
+        <div className="stat-card" style={{borderColor: '#2563eb', backgroundColor: '#eff6ff'}}>
+          <span>Total Surveys Completed</span>
+          <strong style={{color: '#1e3a8a'}}>{systemStats.totalSurveys}</strong>
+          <span>Sent to review</span>
         </div>
-        <div className="stat-card">
-          <span>Outstanding checks</span>
-          <strong>{outstandingChecks}</strong>
-          <span>Scores left before submission</span>
+        <div className="stat-card" style={{borderColor: '#16a34a', backgroundColor: '#f0fdf4'}}>
+          <span>Businesses Serviced</span>
+          <strong style={{color: '#14532d'}}>{systemStats.uniqueBusinesses}</strong>
+          <span>Unique locations visited</span>
         </div>
-        <div className="stat-card">
-          <span>Risk alerts</span>
-          <strong>{summary.riskItems.length}</strong>
-          <span>Triggered during this capture</span>
+        <div className="stat-card" style={{borderColor: '#dc2626', backgroundColor: '#fef2f2'}}>
+          <span>Problem alerts</span>
+          <strong style={{color: '#7f1d1d'}}>{systemStats.problemCount}</strong>
+          <span>Rework/Critical issues logged</span>
         </div>
-        <div className="stat-card">
-          <span>Overall score</span>
-          <strong>{summary.average ? summary.average.toFixed(2) : "--"}</strong>
-          <span>Based on completed answers</span>
+        <div className="stat-card" style={{borderColor: '#ca8a04', backgroundColor: '#fefce8'}}>
+          <span>System Avg Score</span>
+          <strong style={{color: '#713f12'}}>{systemStats.avgScore ? systemStats.avgScore.toFixed(2) : "--"}</strong>
+          <span>Across all surveys</span>
         </div>
       </div>
+
       <section className="section">
         <header>
           <div>
             <h2>Assessment Header</h2>
-            <p>Keep these fields accurate for audit history</p>
+            <p>Enter details clearly so the review team can understand each visit</p>
           </div>
           <div className={summary.safetyFlags.length ? "risk-note" : "risk-note safe"}>
             {summary.safetyFlags.length ? <AlertTriangle size={16} /> : <ShieldCheck size={16} />}
-            {summary.safetyFlags.length ? "Safety attention required" : "Safety checks passed"}
+            {summary.safetyFlags.length ? "Safety issue needs attention" : "No safety issue found"}
           </div>
         </header>
         <div className="form-grid">
-          <div className="field">
-            <label>Inspector / Auditor name</label>
-            <input value={header.inspectorName} onChange={(event) => handleFieldChange("inspectorName", event.target.value)} />
-          </div>
           <div className="field">
             <label>Customer name</label>
             <input value={header.customerName} onChange={(event) => handleFieldChange("customerName", event.target.value)} />
@@ -339,8 +437,8 @@ export default function App() {
           <div className="field">
             <label>Customer type</label>
             <select value={header.customerType} onChange={(event) => handleFieldChange("customerType", event.target.value)}>
-              <option value="B2B">B2B</option>
-              <option value="B2C">B2C</option>
+              <option value="B2B">Business customer</option>
+              <option value="B2C">Residential customer</option>
             </select>
           </div>
           <div className="field">
@@ -352,51 +450,50 @@ export default function App() {
             <input type="date" value={header.workDate} onChange={(event) => handleFieldChange("workDate", event.target.value)} />
           </div>
           <div className="field">
-            <label>Execution party</label>
-            <select
-              value={header.executionParty}
-              onChange={(event) => {
-                const value = event.target.value;
-                handleFieldChange("executionParty", value);
-              }}
-            >
-              <option value="Field Team">Field Team</option>
-              <option value="Contractor">Contractor</option>
-            </select>
+            <label>Representative / Employee name</label>
+            <input value={header.representativeName} onChange={(event) => handleFieldChange("representativeName", event.target.value)} />
           </div>
-          {header.executionParty === "Field Team" ? (
-            <div className="field">
-              <label>Team name</label>
-              <input value={header.teamName} onChange={(event) => handleFieldChange("teamName", event.target.value)} />
-            </div>
-          ) : (
-            <div className="field">
-              <label>Contractor name</label>
-              <input value={header.contractorName} onChange={(event) => handleFieldChange("contractorName", event.target.value)} />
-            </div>
-          )}
         </div>
         <div className="score-summary">
           <div className="summary-card">
-            <p>Overall score</p>
-            <strong>{summary.average ? summary.average.toFixed(2) : "--"}</strong>
+            <p>{summary.answeredCount > 0 ? "Visit Score" : "Your Overall Average"}</p>
+            <strong>{summary.answeredCount > 0 ? summary.average.toFixed(2) : (systemStats.avgScore ? systemStats.avgScore.toFixed(2) : "--")}</strong>
           </div>
           <div className="summary-card">
-            <p>Threshold</p>
-            <strong>{summary.band.label}</strong>
-            <p>{summary.band.detail}</p>
+            <p>Performance Result</p>
+            <strong>{summary.answeredCount > 0 ? summary.band.label : systemStats.band.label}</strong>
+            <p>{summary.answeredCount > 0 ? summary.band.description : "Summary of all your submitted assessments"}</p>
           </div>
           <div className="summary-card">
-            <p>Completion</p>
-            <strong>{Math.round(summary.completion * 100)}%</strong>
+            <p>{summary.answeredCount > 0 ? "Visit Completion" : "Daily Progress"}</p>
+            <strong>{summary.answeredCount > 0 ? Math.round(summary.completion * 100) + "%" : systemStats.totalSurveys + " Surveys Done"}</strong>
           </div>
         </div>
       </section>
       <section className="section">
         <header>
           <div>
-            <h2>Quality Checklist</h2>
-            <p>Score every category before submitting</p>
+            <h2>Score guide</h2>
+            <p>Use this guide so every person scores the same way.</p>
+          </div>
+        </header>
+        <div className="score-guidance-grid">
+          {SCORE_GUIDANCE.map((item) => (
+            <article key={item.range} className="score-guidance-card">
+              <div className="score-range">{item.range}</div>
+              <div>
+                <strong>{item.label}</strong>
+                <p>{item.description}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="section">
+        <header>
+          <div>
+            <h2>Survey questions</h2>
+            <p>Answer every question before submitting</p>
           </div>
         </header>
         <div className="question-groups">
@@ -428,15 +525,19 @@ export default function App() {
           )}
         </div>
       </section>
-      <section className="section">
-        <header>
-          <div>
-            <h2>Recent submissions</h2>
-            <p>Latest push to governance dashboard</p>
-          </div>
-        </header>
-        {renderHistoryTable()}
-      </section>
+      <div className="form-actions bottom">
+        <button type="button" className="btn ghost" onClick={handleSaveDraft}>
+          <Timer size={16} />
+          Save Draft
+        </button>
+        <button type="button" className="btn" onClick={handleClearAll}>
+          Clear
+        </button>
+        <button type="button" className="btn primary" onClick={handleSubmit} disabled={saving}>
+          <UploadCloud size={16} />
+          {saving ? "Submitting…" : "Submit Assessment"}
+        </button>
+      </div>
     </>
   );
 
@@ -449,11 +550,13 @@ export default function App() {
       <table className="history-table">
         <thead>
           <tr>
-            <th>ID</th>
-            <th>Customer</th>
+            <th>Business</th>
+            <th>Location</th>
+            <th>Visit Date</th>
+            <th>Survey person</th>
             <th>Score</th>
             <th>Status</th>
-            <th>Date</th>
+            <th>Visits</th>
           </tr>
         </thead>
         <tbody>
@@ -462,13 +565,17 @@ export default function App() {
             const displayScore = Number.isFinite(numericScore) ? numericScore.toFixed(2) : "--";
             const displayStatus = row.threshold_label || row.threshold_band || row.status || "--";
             const displayDate = row.work_date || row.created_at || row.date || "--";
+            const businessName = row.customer_name || row.customer || "Unnamed Business";
+            const band = bandForScore(numericScore);
             return (
-              <tr key={row.id}>
-                <td>{row.id}</td>
-                <td>{row.customer_name || row.customer}</td>
+              <tr key={row.id} className={`status-${band.key}`} onClick={() => setSelectedBusiness(businessName)} style={{cursor: 'pointer'}}>
+                <td>{businessName}</td>
+                <td>{row.location || "—"}</td>
+                <td>{displayDate}</td>
+                <td>{row.representative_name || row.representative || "—"}</td>
                 <td>{displayScore}</td>
                 <td>{displayStatus}</td>
-                <td>{displayDate}</td>
+                <td>{visitCounts[businessName] || 1}</td>
               </tr>
             );
           })}
@@ -482,62 +589,162 @@ export default function App() {
       <header>
         <div>
           <h2>History</h2>
-          <p>Complete log of submitted assessments</p>
+          <p>Complete list of submitted surveys</p>
         </div>
       </header>
       {renderHistoryTable()}
     </section>
   );
 
-  const renderResourcesView = () => (
+  const renderBusinessesView = () => (
     <section className="section">
       <header>
         <div>
-          <h2>Resources</h2>
-          <p>Guides and SOP links</p>
+          <h2>Visited businesses</h2>
+          <p>Total list of site visits. Click any row to view business performance details.</p>
         </div>
       </header>
-      <div className="section-list">
-        <article className="assignment-card">
-          <strong>Installation SOP</strong>
-          <p className="assignment-note">Full checklist for fibre installs.</p>
-          <span className="badge">PDF</span>
-        </article>
-        <article className="assignment-card">
-          <strong>Safety Escalation Tree</strong>
-          <p className="assignment-note">Who to call when safety issues arise.</p>
-          <span className="badge">Intranet</span>
-        </article>
-      </div>
+      {renderHistoryTable()}
+      {selectedBusiness && (
+        <div className="business-detail">
+          <div className="business-detail-overlay" onClick={() => setSelectedBusiness(null)}></div>
+          <div className="business-detail-content">
+          <header>
+            <div>
+              <h3 style={{fontSize: '1.5rem', color: '#1e293b'}}>{selectedBusiness}</h3>
+              <p className="assignment-note">Full Performance Profile</p>
+            </div>
+            <button type="button" className="btn ghost" onClick={() => setSelectedBusiness(null)}>
+              Close
+            </button>
+          </header>
+          {(() => {
+            const businessData = businessSummaries.find(b => b.name === selectedBusiness);
+            if (!businessData) return <p className="caption">Aggregating company data...</p>;
+            return (
+              <div className="detail-scroll-area">
+                <div className="detail-stats-hub">
+                  <div className={`summary-card status-${businessData.band.key}`}>
+                    <p style={{margin: 0, fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b'}}>Overall Avg Score</p>
+                    <strong style={{fontSize: '2rem'}}>{businessData.averageScore.toFixed(2)}</strong>
+                    <span className="badge" style={{marginTop: '4px'}}>{businessData.band.label}</span>
+                  </div>
+                  <div className="mini-stats-grid">
+                    <div className="mini-stat">
+                      <span>Customer Location</span>
+                      <strong>{businessData.lastLocation}</strong>
+                    </div>
+                    <div className="mini-stat">
+                      <span>Total Visits Captured</span>
+                      <strong>{businessData.visits}</strong>
+                    </div>
+                    <div className="mini-stat">
+                      <span>Field Representatives</span>
+                      <strong>{businessData.representatives}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{marginTop: '24px'}}>
+                  <h4 style={{fontSize: '1rem', fontWeight: '600', marginBottom: '12px'}}>Performance by Category</h4>
+                  {(() => {
+                    const businessResponses = history
+                      .filter(r => (r.customer_name || r.customer || "Unnamed Business") === selectedBusiness)
+                      .flatMap(r => r.responses || []);
+                    
+                    const catStats = businessResponses.reduce((acc, resp) => {
+                      const quest = questionBank.find(q => q.question_number === resp.question_number);
+                      const cat = quest ? (quest.category || quest.section) : "Technical Standards";
+                      if (!acc[cat]) acc[cat] = { sum: 0, count: 0 };
+                      acc[cat].sum += Number(resp.score || 0);
+                      acc[cat].count += 1;
+                      return acc;
+                    }, {});
+
+                    if (Object.keys(catStats).length === 0) return <p className="caption">Category breakdown not available for legacy records.</p>;
+
+                    return (
+                      <div className="mini-stats-grid" style={{gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px'}}>
+                        {Object.entries(catStats).map(([cat, stats]) => (
+                           <div key={cat} className="mini-stat" style={{borderLeft: '3px solid #3b82f6', backgroundColor: '#f0f9ff'}}>
+                             <span style={{fontSize: '0.7rem', color: '#1e40af'}}>{cat}</span>
+                             <strong style={{color: '#1e3a8a'}}>{(stats.sum / stats.count).toFixed(2)}</strong>
+                           </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div style={{marginTop: '24px'}}>
+                  <h4 style={{fontSize: '1rem', fontWeight: '600', marginBottom: '12px'}}>Visit-by-Visit History</h4>
+                  <div className="business-detail-list">
+                    {history
+                      .filter((row) => (row.customer_name || row.customer || "Unnamed Business") === selectedBusiness)
+                      .map((row, idx, filtered) => {
+                        const numericScore = Number(row.overall_score ?? row.score);
+                        const band = bandForScore(numericScore);
+                        return (
+                          <article key={`${row.id}-item`} className={`business-detail-card status-${band.key}`} style={{marginBottom: '10px', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px'}}>
+                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px'}}>
+                              <strong>Visit #{filtered.length - idx}</strong>
+                              <span className="badge" style={{fontSize: '0.7rem'}}>{band.label}</span>
+                            </div>
+                            <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', fontSize: '0.875rem'}}>
+                              <div>
+                                <span style={{color: '#64748b', fontSize: '0.75rem'}}>Date:</span> {row.work_date || row.created_at || "—"}
+                              </div>
+                              <div>
+                                <span style={{color: '#64748b', fontSize: '0.75rem'}}>By:</span> {row.representative_name || "—"}
+                              </div>
+                              <div>
+                                <span style={{color: '#64748b', fontSize: '0.75rem'}}>Score:</span> <strong>{numericScore.toFixed(2)}</strong>
+                              </div>
+                            </div>
+                            {row.notes && (
+                              <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#f8fafc', borderRadius: '4px', fontSize: '0.8rem'}}>
+                                <span style={{fontSize: '0.7rem', color: '#64748b', fontWeight: '600'}}>Notes:</span> {row.notes}
+                              </div>
+                            )}
+                          </article>
+                        );
+                      })}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+          </div>
+        </div>
+      )}
     </section>
   );
 
-  const pageTitle = activeModule === "Capture" ? "Capture & Upload" : activeModule;
+  const pageTitle = activeModule === "Survey" ? "Survey" : activeModule;
 
   const renderActiveModule = () => {
     switch (activeModule) {
-      case "Assignments":
-        return renderAssignmentsView();
       case "History":
         return renderHistoryView();
-      case "Resources":
-        return renderResourcesView();
+      case "Businesses":
+        return renderBusinessesView();
+      case "Survey":
+        return renderCaptureView();
       default:
         return renderCaptureView();
     }
   };
 
   const moduleNav = [
-    { label: "Assignments", icon: ListChecks },
-    { label: "Capture", icon: ClipboardList },
+    { label: "Survey", icon: ClipboardList },
+    { label: "Businesses", icon: Building2 },
     { label: "History", icon: HistoryIcon },
-    { label: "Resources", icon: BookOpen },
   ];
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand">Installation Fieldboard</div>
+        <div className="brand">Installation Survey</div>
         <div className="nav-block">
           <span className="nav-label">Modules</span>
           <ul className="nav-list">
@@ -552,9 +759,13 @@ export default function App() {
           </ul>
         </div>
         <div className="nav-block">
-          <span className="nav-label">Status</span>
-          <p className="assignment-note">{outstandingChecks} checks outstanding</p>
-          <p className="assignment-note">{summary.safetyFlags.length ? "Safety follow-up required" : "Safety clear"}</p>
+          <span className="nav-label">Progress</span>
+          <p className="assignment-note">
+            {summary.hasStarted ? `${summary.outstandingCount} questions left` : "No active survey"}
+          </p>
+          <p className="assignment-note">
+            {summary.hasStarted && summary.safetyFlags.length ? "Safety follow-up needed" : "Safety clear"}
+          </p>
         </div>
       </aside>
 
@@ -562,9 +773,9 @@ export default function App() {
         <div className="page-header">
           <div>
             <h1>{pageTitle}</h1>
-            <p className="meta">Signed in as field engineer • {activeAssignment?.window || ""}</p>
+            <p className="meta">Signed in as field engineer</p>
           </div>
-          {activeModule === "Capture" ? (
+          {activeModule === "Survey" && (
             <div className="actions-row">
               <button type="button" className="btn ghost" onClick={handleSaveDraft}>
                 <Timer size={16} />
@@ -573,12 +784,8 @@ export default function App() {
               <button type="button" className="btn" onClick={handleClearAll}>
                 Clear All
               </button>
-              <button type="button" className="btn primary" onClick={handleSubmit} disabled={saving}>
-                <UploadCloud size={16} />
-                {saving ? "Submitting..." : "Submit Assessment"}
-              </button>
             </div>
-          ) : null}
+          )}
         </div>
 
         {message ? <div className="section" style={{ padding: "12px" }}>{message}</div> : null}
@@ -595,7 +802,7 @@ export default function App() {
 function hydrateHeaderFromAssignment(assignment) {
   if (!assignment) return { ...HEADER_TEMPLATE };
   return {
-    inspectorName: "",
+    representativeName: "",
     customerName: assignment.customer,
     customerType: assignment.customerType,
     location: assignment.location,
@@ -617,14 +824,11 @@ function getQuestionNumber(question, index) {
 
 function buildPayload(header, questionBank, responses) {
   return {
-    inspector_name: header.inspectorName,
     customer_name: header.customerName,
     customer_type: header.customerType,
     location: header.location,
     work_date: header.workDate,
-    execution_party: header.executionParty,
-    team_name: header.executionParty === "Field Team" ? header.teamName : null,
-    contractor_name: header.executionParty === "Contractor" ? header.contractorName : null,
+    representative_name: header.representativeName,
     responses: questionBank.map((question, index) => {
       const number = getQuestionNumber(question, index);
       const response = responses[number] || { score: "", notes: "" };

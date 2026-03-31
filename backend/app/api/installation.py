@@ -150,27 +150,12 @@ class InstallationQuestionResponse(BaseModel):
 
 
 class InstallationAssessmentCreate(BaseModel):
-    inspector_name: str | None = Field(default=None, max_length=255)
+    representative_name: str | None = Field(default=None, max_length=255)
     customer_name: str = Field(..., max_length=255)
-    customer_type: str = Field(..., regex=r"^(B2B|B2C)$")
+    customer_type: str = Field(..., pattern=r"^(B2B|B2C)$")
     location: str = Field(..., max_length=255)
     work_date: date
-    execution_party: str = Field(..., regex=r"^(Field Team|Contractor)$")
-    team_name: str | None = Field(default=None, max_length=255)
-    contractor_name: str | None = Field(default=None, max_length=255)
     responses: list[InstallationQuestionResponse]
-
-    @validator("team_name", always=True)
-    def validate_team_name(cls, value, values):
-        if values.get("execution_party") == "Field Team" and not value:
-            raise ValueError("Team name is required for Field Team installs")
-        return value
-
-    @validator("contractor_name", always=True)
-    def validate_contractor_name(cls, value, values):
-        if values.get("execution_party") == "Contractor" and not value:
-            raise ValueError("Contractor name is required for contractor installs")
-        return value
 
 
 class InstallationAssessmentResponseItem(BaseModel):
@@ -184,14 +169,11 @@ class InstallationAssessmentResponseItem(BaseModel):
 
 class InstallationAssessmentRecord(BaseModel):
     id: str
-    inspector_name: str
+    representative_name: str
     customer_name: str
     customer_type: str
     location: str
     work_date: date
-    execution_party: str
-    team_name: str | None
-    contractor_name: str | None
     overall_score: float
     threshold_band: str
     threshold_label: str
@@ -260,19 +242,16 @@ def create_installation_assessment(
     overall_score = sum(score_values) / len(score_values)
     band = _threshold_band(overall_score)
 
-    inspector_name = (payload.inspector_name or current_user.name or current_user.preferred_username or "Unknown Inspector").strip()
+    representative_name = (payload.representative_name or current_user.name or current_user.preferred_username or "Unknown Representative").strip()
     assessment_id = str(uuid4())
 
     insert_payload = {
         "id": assessment_id,
-        "inspector_name": inspector_name,
+        "representative_name": representative_name,
         "customer_name": payload.customer_name.strip(),
         "customer_type": payload.customer_type,
         "location": payload.location.strip(),
         "work_date": payload.work_date,
-        "execution_party": payload.execution_party,
-        "team_name": payload.team_name.strip() if payload.team_name else None,
-        "contractor_name": payload.contractor_name.strip() if payload.contractor_name else None,
         "overall_score": round(overall_score, 2),
         "threshold_band": band["key"],
     }
@@ -282,13 +261,11 @@ def create_installation_assessment(
             text(
                 """
                 INSERT INTO installation_assessments (
-                    id, inspector_name, customer_name, customer_type, location,
-                    work_date, execution_party, team_name, contractor_name,
-                    overall_score, threshold_band
+                    id, representative_name, customer_name, customer_type, location,
+                    work_date, overall_score, threshold_band
                 ) VALUES (
-                    :id, :inspector_name, :customer_name, :customer_type, :location,
-                    :work_date, :execution_party, :team_name, :contractor_name,
-                    :overall_score, :threshold_band
+                    :id, :representative_name, :customer_name, :customer_type, :location,
+                    :work_date, :overall_score, :threshold_band
                 )
                 """
             ),
@@ -342,14 +319,11 @@ def list_installation_assessments(
             """
             SELECT
                 id,
-                inspector_name,
+                representative_name,
                 customer_name,
                 customer_type,
                 location,
                 work_date,
-                execution_party,
-                team_name,
-                contractor_name,
                 overall_score,
                 threshold_band,
                 created_at
@@ -368,14 +342,11 @@ def list_installation_assessments(
         assessments.append(
             InstallationAssessmentRecord(
                 id=str(row["id"]),
-                inspector_name=row["inspector_name"],
+                representative_name=row["representative_name"],
                 customer_name=row["customer_name"],
                 customer_type=row["customer_type"],
                 location=row["location"],
                 work_date=row["work_date"],
-                execution_party=row["execution_party"],
-                team_name=row["team_name"],
-                contractor_name=row["contractor_name"],
                 overall_score=float(row["overall_score"]),
                 threshold_band=row["threshold_band"],
                 threshold_label=band["label"],
@@ -400,14 +371,11 @@ def _fetch_assessment(db: Session, assessment_id: str) -> InstallationAssessment
             """
             SELECT
                 id,
-                inspector_name,
+                representative_name,
                 customer_name,
                 customer_type,
                 location,
                 work_date,
-                execution_party,
-                team_name,
-                contractor_name,
                 overall_score,
                 threshold_band,
                 created_at
@@ -425,14 +393,11 @@ def _fetch_assessment(db: Session, assessment_id: str) -> InstallationAssessment
     band = _threshold_band(float(row["overall_score"]))
     return InstallationAssessmentRecord(
         id=str(row["id"]),
-        inspector_name=row["inspector_name"],
+        representative_name=row["representative_name"],
         customer_name=row["customer_name"],
         customer_type=row["customer_type"],
         location=row["location"],
         work_date=row["work_date"],
-        execution_party=row["execution_party"],
-        team_name=row["team_name"],
-        contractor_name=row["contractor_name"],
         overall_score=float(row["overall_score"]),
         threshold_band=row["threshold_band"],
         threshold_label=band["label"],
