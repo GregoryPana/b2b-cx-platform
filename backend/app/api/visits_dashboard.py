@@ -54,16 +54,26 @@ def get_response_table(db: Session) -> str | None:
 
 
 ACTION_TIMEFRAME_OPTIONS = {"<1 month", "<3 months", "<6 months", ">6 months"}
+ACTION_STATUS_OPTIONS = {"Outstanding", "Completed"}
 
 
 class ReportEmailRequest(BaseModel):
     to: List[EmailStr]
     subject: str | None = None
+    report_type: str | None = "lifetime"
     survey_type: str | None = "B2B"
     business_id: int | None = None
+    visit_id: str | None = None
+    report_date: str | None = None
     date_from: str | None = None
     date_to: str | None = None
     message: str | None = None
+
+
+class ActionStatusUpdateRequest(BaseModel):
+    response_id: int
+    action_index: int
+    status: str
 
 
 def resolve_actor_user_id(db: Session, current_user: User) -> int:
@@ -187,6 +197,7 @@ def fetch_dashboard_actions(
     lead_owner: str | None,
     support: str | None,
     timeline: str | None,
+    action_status: str | None,
     business_id: int | None,
 ) -> list[dict]:
     response_table = get_response_table(db)
@@ -214,26 +225,29 @@ def fetch_dashboard_actions(
                 v.status,
                 b.id as business_id,
                 b.name as business_name,
+                r.id as response_id,
                 q.id as question_id,
                 q.question_text,
-                action_item->>'action_required' as action_required,
-                action_item->>'action_owner' as action_owner,
-                action_item->>'action_timeframe' as action_timeframe,
-                action_item->>'action_support_needed' as action_support_needed,
+                action_item.ordinality - 1 as action_index,
+                action_item.value->>'action_required' as action_required,
+                action_item.value->>'action_owner' as action_owner,
+                action_item.value->>'action_timeframe' as action_timeframe,
+                action_item.value->>'action_support_needed' as action_support_needed,
+                COALESCE(NULLIF(action_item.value->>'action_status', ''), 'Outstanding') as action_status,
                 COALESCE(st.name, :fallback_survey_type) as survey_type
             FROM b2b_visit_responses r
             JOIN visits v ON v.id = r.visit_id
             LEFT JOIN businesses b ON b.id = v.business_id
             LEFT JOIN questions q ON q.id = r.question_id
             LEFT JOIN survey_types st ON st.id = v.survey_type_id
-            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.actions, '[]'::jsonb)) action_item
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.actions, '[]'::jsonb)) WITH ORDINALITY action_item(value, ordinality)
             WHERE
                 {where_sql}
                 AND (
-                    COALESCE(action_item->>'action_required', '') <> ''
-                    OR COALESCE(action_item->>'action_owner', '') <> ''
-                    OR COALESCE(action_item->>'action_timeframe', '') <> ''
-                    OR COALESCE(action_item->>'action_support_needed', '') <> ''
+                    COALESCE(action_item.value->>'action_required', '') <> ''
+                    OR COALESCE(action_item.value->>'action_owner', '') <> ''
+                    OR COALESCE(action_item.value->>'action_timeframe', '') <> ''
+                    OR COALESCE(action_item.value->>'action_support_needed', '') <> ''
                 )
             ORDER BY v.visit_date DESC, v.id DESC
         """
@@ -246,12 +260,15 @@ def fetch_dashboard_actions(
                 v.status,
                 b.id as business_id,
                 b.name as business_name,
+                r.id as response_id,
                 q.id as question_id,
                 q.question_text,
+                0 as action_index,
                 r.action_required,
                 r.action_owner,
                 r.action_timeframe,
                 r.action_support_needed,
+                'Outstanding' as action_status,
                 COALESCE(st.name, :fallback_survey_type) as survey_type
             FROM responses r
             JOIN visits v ON v.id = r.visit_id
@@ -282,12 +299,15 @@ def fetch_dashboard_actions(
             "business_id": row["business_id"],
             "business_name": row["business_name"],
             "survey_type": row["survey_type"],
+            "response_id": row.get("response_id"),
             "question_id": row["question_id"],
             "question_text": row["question_text"],
+            "action_index": int(row.get("action_index") or 0),
             "action_required": row["action_required"] or "",
             "action_owner": row["action_owner"] or "",
             "action_timeframe": row["action_timeframe"] or "",
             "action_support_needed": row["action_support_needed"] or "",
+            "action_status": row.get("action_status") or "Outstanding",
         }
 
         if lead_owner and lead_owner.strip().lower() not in item["action_owner"].lower():
@@ -295,6 +315,8 @@ def fetch_dashboard_actions(
         if support and support.strip().lower() not in item["action_support_needed"].lower():
             continue
         if timeline and item["action_timeframe"] != timeline:
+            continue
+        if action_status and item["action_status"] != action_status:
             continue
 
         items.append(item)
@@ -564,6 +586,7 @@ def get_actions_dashboard(
     lead_owner: str | None = None,
     support: str | None = None,
     timeline: str | None = None,
+    action_status: str | None = None,
     business_id: int | None = None,
     db: Session = Depends(get_db),
 ):
@@ -574,6 +597,8 @@ def get_actions_dashboard(
                 status_code=400,
                 detail="Invalid timeline. Use one of: <1 month, <3 months, <6 months, >6 months",
             )
+        if action_status and action_status not in ACTION_STATUS_OPTIONS:
+            raise HTTPException(status_code=400, detail="Invalid action_status. Use Outstanding or Completed")
 
         items = fetch_dashboard_actions(
             db=db,
@@ -581,16 +606,20 @@ def get_actions_dashboard(
             lead_owner=lead_owner,
             support=support,
             timeline=timeline,
+            action_status=action_status,
             business_id=business_id,
         )
 
         summary_by_business: dict[str, int] = {}
         summary_by_survey: dict[str, int] = {}
+        summary_by_status: dict[str, int] = {}
         for item in items:
             business_name = item.get("business_name") or "Unknown"
             survey_name = item.get("survey_type") or "Unknown"
+            status_name = item.get("action_status") or "Outstanding"
             summary_by_business[business_name] = summary_by_business.get(business_name, 0) + 1
             summary_by_survey[survey_name] = summary_by_survey.get(survey_name, 0) + 1
+            summary_by_status[status_name] = summary_by_status.get(status_name, 0) + 1
 
         return {
             "items": items,
@@ -599,14 +628,17 @@ def get_actions_dashboard(
                 "lead_owner": lead_owner,
                 "support": support,
                 "timeline": timeline,
+                "action_status": action_status,
                 "business_id": business_id,
             },
             "summary": {
                 "total_actions": len(items),
                 "by_business": summary_by_business,
                 "by_survey": summary_by_survey,
+                "by_status": summary_by_status,
             },
             "timeline_options": sorted(ACTION_TIMEFRAME_OPTIONS),
+            "status_options": sorted(ACTION_STATUS_OPTIONS),
         }
     except HTTPException:
         raise
@@ -615,10 +647,72 @@ def get_actions_dashboard(
         raise HTTPException(status_code=500, detail=f"Failed to fetch actions dashboard: {str(e)}")
 
 
+@router.put("/actions/status")
+def update_action_status(
+    request: ActionStatusUpdateRequest,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+):
+    """Update action point status (Outstanding/Completed) for JSON-based action items."""
+    try:
+        if request.status not in ACTION_STATUS_OPTIONS:
+            raise HTTPException(status_code=400, detail="Invalid status. Use Outstanding or Completed")
+
+        response_table = get_response_table(db)
+        if response_table != "b2b_visit_responses":
+            raise HTTPException(status_code=400, detail="Action status updates are supported for B2B responses only")
+
+        row = db.execute(
+            text("SELECT actions FROM b2b_visit_responses WHERE id = :response_id"),
+            {"response_id": request.response_id},
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Response not found")
+
+        actions = row[0] or []
+        if isinstance(actions, str):
+            try:
+                actions = json.loads(actions)
+            except Exception:
+                actions = []
+        if not isinstance(actions, list):
+            actions = []
+
+        if request.action_index < 0 or request.action_index >= len(actions):
+            raise HTTPException(status_code=400, detail="action_index is out of range")
+
+        selected = actions[request.action_index]
+        if not isinstance(selected, dict):
+            selected = {}
+        selected["action_status"] = request.status
+        actions[request.action_index] = selected
+
+        db.execute(
+            text("UPDATE b2b_visit_responses SET actions = CAST(:actions AS jsonb) WHERE id = :response_id"),
+            {"response_id": request.response_id, "actions": json.dumps(actions)},
+        )
+        db.commit()
+
+        return {
+            "status": "updated",
+            "response_id": request.response_id,
+            "action_index": request.action_index,
+            "action_status": request.status,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update action status: {exc}")
+
+
 def build_report_payload(
     db: Session,
+    report_type: str | None,
     survey_type: str | None,
     business_id: int | None,
+    visit_id: str | None,
+    report_date: str | None,
     date_from: str | None,
     date_to: str | None,
 ) -> dict:
@@ -628,18 +722,38 @@ def build_report_payload(
 
     has_visit_survey_type = has_column(db, "visits", "survey_type_id")
     resolved_survey_type_id = resolve_survey_type_id(db, survey_type, None)
+    normalized_report_type = (report_type or "lifetime").strip().lower()
+    if normalized_report_type not in {"survey", "date", "lifetime", "action_points"}:
+        normalized_report_type = "lifetime"
+
+    effective_business_id = business_id
+    effective_date_from = date_from
+    effective_date_to = date_to
+    effective_visit_id = visit_id
+
+    if normalized_report_type == "survey":
+        if not effective_visit_id:
+            raise HTTPException(status_code=400, detail="visit_id is required for survey report")
+    elif normalized_report_type == "date":
+        if not report_date:
+            raise HTTPException(status_code=400, detail="report_date is required for date report")
+        effective_date_from = report_date
+        effective_date_to = report_date
 
     where_parts = []
     params: dict = {}
-    if business_id is not None:
+    if effective_business_id is not None:
         where_parts.append("v.business_id = :business_id")
-        params["business_id"] = business_id
-    if date_from:
+        params["business_id"] = effective_business_id
+    if effective_date_from:
         where_parts.append("v.visit_date >= :date_from")
-        params["date_from"] = date_from
-    if date_to:
+        params["date_from"] = effective_date_from
+    if effective_date_to:
         where_parts.append("v.visit_date <= :date_to")
-        params["date_to"] = date_to
+        params["date_to"] = effective_date_to
+    if effective_visit_id:
+        where_parts.append("v.id = :visit_id")
+        params["visit_id"] = effective_visit_id
     if resolved_survey_type_id and has_visit_survey_type:
         where_parts.append("v.survey_type_id = :survey_type_id")
         params["survey_type_id"] = resolved_survey_type_id
@@ -779,73 +893,80 @@ def build_report_payload(
         summary_avg_score = round(weighted_score_total / weighted_score_count, 2)
 
     report_survey_type = survey_type or "B2B"
-    filtered_business_ids = str(business_id) if business_id is not None else None
+    filtered_business_ids = str(effective_business_id) if effective_business_id is not None else None
+    include_overall_comparison = normalized_report_type == "lifetime"
 
     try:
         filtered_analytics = get_comprehensive_analytics(
             survey_type=report_survey_type,
             business_ids=filtered_business_ids,
-            date_from=date_from,
-            date_to=date_to,
+            date_from=effective_date_from,
+            date_to=effective_date_to,
             db=db,
         )
     except Exception:
         filtered_analytics = {}
 
-    try:
-        overall_analytics = get_comprehensive_analytics(
-            survey_type=report_survey_type,
-            business_ids=None,
-            date_from=None,
-            date_to=None,
-            db=db,
-        )
-    except Exception:
-        overall_analytics = {}
+    overall_analytics = {}
+    if include_overall_comparison:
+        try:
+            overall_analytics = get_comprehensive_analytics(
+                survey_type=report_survey_type,
+                business_ids=None,
+                date_from=None,
+                date_to=None,
+                db=db,
+            )
+        except Exception:
+            overall_analytics = {}
 
     try:
         filtered_yes_no = get_yes_no_question_analytics(
             survey_type=report_survey_type,
             business_ids=filtered_business_ids,
-            date_from=date_from,
-            date_to=date_to,
+            date_from=effective_date_from,
+            date_to=effective_date_to,
             db=db,
         )
     except Exception:
         filtered_yes_no = {"items": []}
 
-    try:
-        overall_yes_no = get_yes_no_question_analytics(
-            survey_type=report_survey_type,
-            business_ids=None,
-            date_from=None,
-            date_to=None,
-            db=db,
-        )
-    except Exception:
-        overall_yes_no = {"items": []}
+    overall_yes_no = {"items": []}
+    if include_overall_comparison:
+        try:
+            overall_yes_no = get_yes_no_question_analytics(
+                survey_type=report_survey_type,
+                business_ids=None,
+                date_from=None,
+                date_to=None,
+                db=db,
+            )
+        except Exception:
+            overall_yes_no = {"items": []}
 
     try:
         selected_question_averages = get_question_averages(
             survey_type=report_survey_type,
             business_ids=filtered_business_ids,
-            date_from=date_from,
-            date_to=date_to,
+            date_from=effective_date_from,
+            date_to=effective_date_to,
             db=db,
         )
     except Exception:
         selected_question_averages = {"items": []}
 
-    try:
-        overall_question_averages = get_question_averages(
-            survey_type=report_survey_type,
-            business_ids=None,
-            date_from=None,
-            date_to=None,
-            db=db,
-        )
-    except Exception:
-        overall_question_averages = {"items": []}
+    overall_question_averages = {"items": []}
+    if include_overall_comparison:
+        try:
+            overall_question_averages = get_question_averages(
+                survey_type=report_survey_type,
+                business_ids=None,
+                date_from=None,
+                date_to=None,
+                db=db,
+            )
+        except Exception:
+            overall_question_averages = {"items": []}
 
     filtered_yes_no_items = list(filtered_yes_no.get("items") or [])
     overall_yes_no_by_question = {int(item.get("question_number") or item.get("question_id") or 0): item for item in list(overall_yes_no.get("items") or [])}
@@ -866,8 +987,8 @@ def build_report_payload(
                 "question_text": item.get("question_text") or "--",
                 "filtered_yes_percent": float(item.get("yes_percent") or 0.0),
                 "filtered_no_percent": float(item.get("no_percent") or 0.0),
-                "overall_yes_percent": float(overall_item.get("yes_percent") or 0.0),
-                "overall_no_percent": float(overall_item.get("no_percent") or 0.0),
+                "overall_yes_percent": float(overall_item.get("yes_percent") or 0.0) if include_overall_comparison else None,
+                "overall_no_percent": float(overall_item.get("no_percent") or 0.0) if include_overall_comparison else None,
             }
         )
 
@@ -931,8 +1052,8 @@ def build_report_payload(
             {
                 "category": row["category"],
                 "selected_average_score": selected_avg,
-                "overall_average_score": overall_avg if overall_row else None,
-                "delta": round(selected_avg - overall_avg, 2) if overall_row else None,
+                "overall_average_score": overall_avg if (overall_row and include_overall_comparison) else None,
+                "delta": round(selected_avg - overall_avg, 2) if (overall_row and include_overall_comparison) else None,
                 "question_count": row.get("question_count", 0),
                 "questions": selected_category_questions.get(row["category"], []),
             }
@@ -957,12 +1078,98 @@ def build_report_payload(
         },
     }
 
+    selected_actions = fetch_dashboard_actions(
+        db=db,
+        survey_type=report_survey_type,
+        lead_owner=None,
+        support=None,
+        timeline=None,
+        action_status=None,
+        business_id=effective_business_id,
+    )
+    if effective_date_from or effective_date_to or effective_visit_id:
+        filtered_actions = []
+        for action in selected_actions:
+            visit_date_value = action.get("visit_date")
+            if effective_visit_id and str(action.get("visit_id")) != str(effective_visit_id):
+                continue
+            if effective_date_from and visit_date_value and visit_date_value < effective_date_from:
+                continue
+            if effective_date_to and visit_date_value and visit_date_value > effective_date_to:
+                continue
+            filtered_actions.append(action)
+        selected_actions = filtered_actions
+
+    def timeline_sort_key(value: str | None) -> int:
+        ordering = {"<1 month": 1, "<3 months": 2, "<6 months": 3, ">6 months": 4}
+        return ordering.get(value or "", 9)
+
+    action_points = sorted(
+        selected_actions,
+        key=lambda item: (
+            item.get("action_status") != "Outstanding",
+            timeline_sort_key(item.get("action_timeframe")),
+            item.get("business_name") or "",
+            item.get("visit_date") or "",
+        ),
+    )
+
+    survey_question_details: list[dict] = []
+    if normalized_report_type == "survey" and effective_visit_id:
+        has_question_order = has_column(db, "questions", "order_index")
+        question_order_col = "q.order_index" if has_question_order else "q.id"
+        if response_table == "b2b_visit_responses":
+            response_rows = db.execute(
+                text(
+                    f"""
+                    SELECT
+                        q.id as question_id,
+                        {question_order_col} as question_number,
+                        q.category,
+                        q.question_text,
+                        q.input_type,
+                        r.score,
+                        r.answer_text,
+                        r.verbatim,
+                        r.actions
+                    FROM b2b_visit_responses r
+                    JOIN questions q ON q.id = r.question_id
+                    WHERE r.visit_id = :visit_id
+                    ORDER BY {question_order_col}, q.id
+                    """
+                ),
+                {"visit_id": effective_visit_id},
+            ).fetchall()
+            for row in response_rows:
+                raw_actions = row[8] if len(row) > 8 else []
+                if isinstance(raw_actions, str):
+                    try:
+                        raw_actions = json.loads(raw_actions)
+                    except Exception:
+                        raw_actions = []
+                survey_question_details.append(
+                    {
+                        "question_id": row[0],
+                        "question_number": row[1],
+                        "category": row[2] or "Uncategorized",
+                        "question_text": row[3],
+                        "input_type": row[4],
+                        "score": row[5],
+                        "answer_text": row[6],
+                        "verbatim": row[7],
+                        "actions": raw_actions if isinstance(raw_actions, list) else [],
+                    }
+                )
+
     return {
         "filters": {
+            "report_type": normalized_report_type,
             "survey_type": report_survey_type,
-            "business_id": business_id,
-            "date_from": date_from,
-            "date_to": date_to,
+            "business_id": effective_business_id,
+            "visit_id": effective_visit_id,
+            "report_date": report_date,
+            "date_from": effective_date_from,
+            "date_to": effective_date_to,
         },
         "summary": {
             "total_visits": len(visits),
@@ -976,6 +1183,8 @@ def build_report_payload(
         "analytics_overall": overall_analytics,
         "yes_no_comparison": yes_no_comparison,
         "category_comparison": category_comparison,
+        "action_points": action_points,
+        "survey_question_details": survey_question_details,
         "daily_breakdown": daily_breakdown,
         "business_breakdown": business_breakdown,
         "visit_details": visits,
@@ -985,9 +1194,12 @@ def build_report_payload(
 def render_report_html(payload: dict, generated_by: str) -> str:
     summary = payload.get("summary", {})
     filters = payload.get("filters", {})
+    report_type = str(filters.get("report_type") or "lifetime")
+    include_overall = report_type == "lifetime"
     comparison = payload.get("analytics_comparison", {})
     yes_no_comparison = payload.get("yes_no_comparison", [])
     category_comparison = payload.get("category_comparison", [])
+    action_points = payload.get("action_points", [])
     daily_rows = payload.get("daily_breakdown", [])
     business_rows = payload.get("business_breakdown", [])
     visit_rows = payload.get("visit_details", [])
@@ -1053,8 +1265,12 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f"<div class='card'><div class='label'>Q{int(item.get('question_number') or 0)} Yes/No</div>"
             f"<p style='margin:6px 0 10px; font-size:12px; color:#374151'>{item.get('question_text') or '--'}</p>"
             f"<div class='bar-row'><div class='bar-label'>Selected: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('filtered_yes_percent') or 0.0), 0.0), 100.0)}%; background:#16a34a'></div></div><div class='bar-value'>{float(item.get('filtered_yes_percent') or 0.0):.1f}%</div></div>"
-            f"<div class='bar-row'><div class='bar-label'>Overall: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('overall_yes_percent') or 0.0), 0.0), 100.0)}%; background:#1d4ed8'></div></div><div class='bar-value'>{float(item.get('overall_yes_percent') or 0.0):.1f}%</div></div>"
-            f"</div>"
+            + (
+                f"<div class='bar-row'><div class='bar-label'>Overall: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('overall_yes_percent') or 0.0), 0.0), 100.0)}%; background:#1d4ed8'></div></div><div class='bar-value'>{float(item.get('overall_yes_percent') or 0.0):.1f}%</div></div>"
+                if include_overall
+                else ""
+            )
+            + f"</div>"
         )
         for item in yes_no_comparison
     )
@@ -1063,9 +1279,13 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         (
             f"<tr><td>{row.get('category') or '--'}</td>"
             f"<td>{format_metric(row.get('selected_average_score'))}</td>"
-            f"<td>{format_metric(row.get('overall_average_score'))}</td>"
-            f"<td>{format_metric(row.get('delta'))}</td>"
-            f"<td>{int(row.get('question_count') or 0)}</td></tr>"
+            + (
+                f"<td>{format_metric(row.get('overall_average_score'))}</td>"
+                f"<td>{format_metric(row.get('delta'))}</td>"
+                if include_overall
+                else ""
+            )
+            + f"<td>{int(row.get('question_count') or 0)}</td></tr>"
         )
         for row in category_comparison
     )
@@ -1083,6 +1303,60 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         )
         for row in category_comparison
     )
+
+    action_rows = "".join(
+        (
+            f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
+            f"<td>{item.get('action_required') or '--'}</td><td>{item.get('action_owner') or '--'}</td>"
+            f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_status') or 'Outstanding'}</td>"
+            f"<td>{item.get('action_support_needed') or '--'}</td></tr>"
+        )
+        for item in action_points
+    )
+
+    action_rows_outstanding = "".join(
+        (
+            f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
+            f"<td>{item.get('action_required') or '--'}</td><td>{item.get('action_owner') or '--'}</td>"
+            f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_support_needed') or '--'}</td></tr>"
+        )
+        for item in action_points
+        if item.get("action_status") != "Completed"
+    )
+
+    action_rows_completed = "".join(
+        (
+            f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
+            f"<td>{item.get('action_required') or '--'}</td><td>{item.get('action_owner') or '--'}</td>"
+            f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_support_needed') or '--'}</td></tr>"
+        )
+        for item in action_points
+        if item.get("action_status") == "Completed"
+    )
+
+    survey_question_rows = list(payload.get("survey_question_details") or [])
+    survey_detail_blocks = ""
+    if report_type == "survey" and survey_question_rows:
+        category_map: dict[str, list[dict]] = {}
+        for item in survey_question_rows:
+            category = str(item.get("category") or "Uncategorized")
+            category_map.setdefault(category, []).append(item)
+
+        rendered = []
+        for category_name in sorted(category_map.keys()):
+            rows_html = "".join(
+                (
+                    f"<tr><td>Q{int(row.get('question_number') or 0)}</td><td>{row.get('question_text') or '--'}</td>"
+                    f"<td>{format_metric(row.get('score')) if row.get('score') is not None else (row.get('answer_text') or '--')}</td>"
+                    f"<td>{row.get('verbatim') or '--'}</td></tr>"
+                )
+                for row in category_map[category_name]
+            )
+            rendered.append(
+                f"<div class='card'><div class='label'>{category_name}</div>"
+                f"<table><thead><tr><th>Question</th><th>Prompt</th><th>Answer</th><th>Verbatim</th></tr></thead><tbody>{rows_html}</tbody></table></div>"
+            )
+        survey_detail_blocks = "".join(rendered)
 
     nps_obj = comparison.get("nps") or {}
     csat_obj = comparison.get("csat") or {}
@@ -1186,13 +1460,13 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     <div class=\"card\"><div class=\"label\">Competitor Exposure</div><div class=\"value\">{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</div></div>
   </div>
 
-  <h2>Overall Benchmark KPIs</h2>
-  <div class=\"summary\">
-    <div class=\"card\"><div class=\"label\">NPS</div><div class=\"value\">{format_metric((comparison.get('nps') or {}).get('overall'))}</div></div>
-    <div class=\"card\"><div class=\"label\">CSAT</div><div class=\"value\">{format_metric((comparison.get('csat') or {}).get('overall'), '%')}</div></div>
-    <div class=\"card\"><div class=\"label\">Relationship Score</div><div class=\"value\">{format_metric((comparison.get('relationship_score') or {}).get('overall'))}</div></div>
-    <div class=\"card\"><div class=\"label\">Competitor Exposure</div><div class=\"value\">{format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</div></div>
-  </div>
+  {f'''<h2>Overall Benchmark KPIs</h2>
+  <div class="summary">
+    <div class="card"><div class="label">NPS</div><div class="value">{format_metric((comparison.get('nps') or {}).get('overall'))}</div></div>
+    <div class="card"><div class="label">CSAT</div><div class="value">{format_metric((comparison.get('csat') or {}).get('overall'), '%')}</div></div>
+    <div class="card"><div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get('relationship_score') or {}).get('overall'))}</div></div>
+    <div class="card"><div class="label">Competitor Exposure</div><div class="value">{format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</div></div>
+  </div>''' if include_overall else ''}
 
   <div class=\"mini-grid\" style=\"margin-top:12px\">
     <div class=\"card\">
@@ -1204,7 +1478,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
           <p class=\"label\">Passives: {int(nps_breakdown.get('passives') or 0)}</p>
           <p class=\"label\">Detractors: {int(nps_breakdown.get('detractors') or 0)}</p>
           <p class=\"label\" style=\"margin-top:8px\">Selected NPS: {format_metric(nps_obj.get('selected'))}</p>
-          <p class=\"label\">Overall NPS Benchmark: {format_metric(nps_obj.get('overall'))}</p>
+          {f'<p class="label">Overall NPS Benchmark: {format_metric(nps_obj.get("overall"))}</p>' if include_overall else ''}
         </div>
       </div>
     </div>
@@ -1219,7 +1493,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
           <p class=\"label\">Dissatisfied: {int(csat_breakdown.get('dissatisfied') or 0)}</p>
           <p class=\"label\">Very Dissatisfied: {int(csat_breakdown.get('very_dissatisfied') or 0)}</p>
           <p class=\"label\" style=\"margin-top:8px\">Selected CSAT: {format_metric(csat_obj.get('selected'), '%')}</p>
-          <p class=\"label\">Overall CSAT Benchmark: {format_metric(csat_obj.get('overall'), '%')}</p>
+          {f'<p class="label">Overall CSAT Benchmark: {format_metric(csat_obj.get("overall"), "%")}</p>' if include_overall else ''}
         </div>
       </div>
     </div>
@@ -1249,7 +1523,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     </div>
   </div>
 
-  <h2>Selected vs Overall Comparison</h2>
+  {f'''<h2>Selected vs Overall Comparison</h2>
   <table>
     <thead><tr><th>Metric</th><th>Selected Scope</th><th>Overall Scope</th><th>Interpretation</th></tr></thead>
     <tbody>
@@ -1258,7 +1532,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       <tr><td>Overall Relationship Score</td><td>{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</td><td>{format_metric((comparison.get('relationship_score') or {}).get('overall'))}</td><td>Composite relationship strength score (0-100).</td></tr>
       <tr><td>Competitor Exposure</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>
     </tbody>
-  </table>
+  </table>''' if include_overall else ''}
 
   <h2>Yes/No Question Comparison</h2>
   <div class=\"viz-grid\">
@@ -1267,14 +1541,32 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 
   <h2>Category Breakdown</h2>
   <table>
-    <thead><tr><th>Category</th><th>Selected Avg</th><th>Overall Avg</th><th>Delta</th><th>Questions</th></tr></thead>
-    <tbody>{category_rows or '<tr><td colspan="5">No category score data</td></tr>'}</tbody>
+    <thead><tr><th>Category</th><th>Selected Avg</th>{'<th>Overall Avg</th><th>Delta</th>' if include_overall else ''}<th>Questions</th></tr></thead>
+    <tbody>{category_rows or f'<tr><td colspan="{5 if include_overall else 3}">No category score data</td></tr>'}</tbody>
   </table>
 
   <h2>Category Question Details (Selected Scope)</h2>
   <div class=\"viz-grid\">
     {category_detail_blocks or '<div class="card"><p class="label">No category question details available.</p></div>'}
   </div>
+
+  <h2>Action Points</h2>
+  {f'''<h2>Outstanding Action Points</h2>
+  <table>
+    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
+    <tbody>{action_rows_outstanding or '<tr><td colspan="6">No outstanding action points.</td></tr>'}</tbody>
+  </table>
+  <h2>Completed Action Points</h2>
+  <table>
+    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
+    <tbody>{action_rows_completed or '<tr><td colspan="6">No completed action points.</td></tr>'}</tbody>
+  </table>''' if report_type == 'action_points' else f'''<table>
+    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th></tr></thead>
+    <tbody>{action_rows or '<tr><td colspan="7">No action points found for this report scope.</td></tr>'}</tbody>
+  </table>'''}
+
+  {f'''<h2>Survey Responses and Verbatim</h2>
+  <div class="viz-grid">{survey_detail_blocks or '<div class="card"><p class="label">No survey response details found.</p></div>'}</div>''' if report_type == 'survey' else ''}
 
   <h2>Daily Analytics</h2>
   <table>
@@ -1301,15 +1593,18 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 
 @router.get("/reports/export")
 def export_report(
+    report_type: str | None = "lifetime",
     survey_type: str | None = "B2B",
     business_id: int | None = None,
+    visit_id: str | None = None,
+    report_date: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     download: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    payload = build_report_payload(db, survey_type, business_id, date_from, date_to)
+    payload = build_report_payload(db, report_type, survey_type, business_id, visit_id, report_date, date_from, date_to)
     report_html = render_report_html(payload, getattr(current_user, "name", "Unknown User"))
     filename = "cwscx-survey-report.html"
     if download:
@@ -1340,7 +1635,16 @@ def email_report(
     if not smtp_host or not smtp_from:
         raise HTTPException(status_code=400, detail="SMTP is not configured. Set SMTP_HOST and SMTP_FROM.")
 
-    payload = build_report_payload(db, request.survey_type, request.business_id, request.date_from, request.date_to)
+    payload = build_report_payload(
+        db,
+        request.report_type,
+        request.survey_type,
+        request.business_id,
+        request.visit_id,
+        request.report_date,
+        request.date_from,
+        request.date_to,
+    )
     report_html = render_report_html(payload, getattr(current_user, "name", "Unknown User"))
 
     subject = request.subject or "CWSCX Survey and Analytics Report"

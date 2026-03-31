@@ -59,10 +59,12 @@ export default function DashboardPage({ headers, activePlatform }) {
   const [actionsBoardSummary, setActionsBoardSummary] = useState(null);
   const [actionsBoardLoading, setActionsBoardLoading] = useState(false);
   const [actionsTimelineOptions, setActionsTimelineOptions] = useState(ACTION_TIMEFRAME_OPTIONS);
+  const [actionsStatusOptions, setActionsStatusOptions] = useState(["Outstanding", "Completed"]);
   const [actionsFilters, setActionsFilters] = useState({
     lead_owner: "",
     support: "",
     timeline: "",
+    action_status: "",
     business_id: "",
   });
   const [plannedVisits, setPlannedVisits] = useState([]);
@@ -76,6 +78,9 @@ export default function DashboardPage({ headers, activePlatform }) {
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [reportDateFrom, setReportDateFrom] = useState("");
   const [reportDateTo, setReportDateTo] = useState("");
+  const [reportType, setReportType] = useState("lifetime");
+  const [reportVisitId, setReportVisitId] = useState("");
+  const [reportSelectedDate, setReportSelectedDate] = useState("");
   const [reportBusinessId, setReportBusinessId] = useState("");
   const [reportEmailTo, setReportEmailTo] = useState("");
   const [reportPreview, setReportPreview] = useState(null);
@@ -397,12 +402,15 @@ export default function DashboardPage({ headers, activePlatform }) {
 
   const buildReportParams = useCallback(() => {
     const params = new URLSearchParams();
+    params.set("report_type", reportType);
     params.set("survey_type", activePlatform || "B2B");
     if (reportBusinessId) params.set("business_id", reportBusinessId);
+    if (reportVisitId.trim()) params.set("visit_id", reportVisitId.trim());
+    if (reportSelectedDate) params.set("report_date", reportSelectedDate);
     if (reportDateFrom) params.set("date_from", reportDateFrom);
     if (reportDateTo) params.set("date_to", reportDateTo);
     return params;
-  }, [activePlatform, reportBusinessId, reportDateFrom, reportDateTo]);
+  }, [activePlatform, reportBusinessId, reportDateFrom, reportDateTo, reportSelectedDate, reportType, reportVisitId]);
 
   const handlePreviewReport = useCallback(async () => {
     setReportLoading(true);
@@ -461,9 +469,12 @@ export default function DashboardPage({ headers, activePlatform }) {
     setError("");
     try {
       const payload = {
+        report_type: reportType,
         to: recipients,
         survey_type: activePlatform || "B2B",
         business_id: reportBusinessId ? Number(reportBusinessId) : null,
+        visit_id: reportVisitId.trim() || null,
+        report_date: reportSelectedDate || null,
         date_from: reportDateFrom || null,
         date_to: reportDateTo || null,
       };
@@ -480,7 +491,7 @@ export default function DashboardPage({ headers, activePlatform }) {
     } finally {
       setReportSending(false);
     }
-  }, [activePlatform, fetchJsonSafe, headers, reportBusinessId, reportDateFrom, reportDateTo, reportEmailTo]);
+  }, [activePlatform, fetchJsonSafe, headers, reportBusinessId, reportDateFrom, reportDateTo, reportEmailTo, reportSelectedDate, reportType, reportVisitId]);
 
   const loadActionsBoard = useCallback(async () => {
     if (!isB2BPlatform) {
@@ -498,6 +509,7 @@ export default function DashboardPage({ headers, activePlatform }) {
       if (actionsFilters.lead_owner.trim()) params.set("lead_owner", actionsFilters.lead_owner.trim());
       if (actionsFilters.support.trim()) params.set("support", actionsFilters.support.trim());
       if (actionsFilters.timeline) params.set("timeline", actionsFilters.timeline);
+      if (actionsFilters.action_status) params.set("action_status", actionsFilters.action_status);
       if (actionsFilters.business_id) params.set("business_id", actionsFilters.business_id);
 
       const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/actions?${params.toString()}`, { headers });
@@ -513,10 +525,43 @@ export default function DashboardPage({ headers, activePlatform }) {
           ? data.timeline_options
           : ACTION_TIMEFRAME_OPTIONS
       );
+      setActionsStatusOptions(
+        Array.isArray(data?.status_options) && data.status_options.length > 0
+          ? data.status_options
+          : ["Outstanding", "Completed"]
+      );
     } finally {
       setActionsBoardLoading(false);
     }
   }, [activePlatform, actionsFilters, fetchJsonSafe, headers, isB2BPlatform]);
+
+  const handleUpdateActionPointStatus = useCallback(async (item, nextStatus) => {
+    if (!item?.response_id && item?.response_id !== 0) {
+      setError("Action point cannot be updated because response_id is missing.");
+      return;
+    }
+    const payload = {
+      response_id: Number(item.response_id),
+      action_index: Number(item.action_index || 0),
+      status: nextStatus,
+    };
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/actions/status`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      setError(data?.detail || "Failed to update action point status");
+      return;
+    }
+    setActionsBoardItems((prev) => prev.map((row) => {
+      if (row.response_id === item.response_id && Number(row.action_index || 0) === Number(item.action_index || 0)) {
+        return { ...row, action_status: nextStatus };
+      }
+      return row;
+    }));
+    setMessage("Action point status updated.");
+  }, [fetchJsonSafe, headers]);
 
   const loadPlannedVisits = async () => {
     if (!isB2BPlatform) {
@@ -2078,18 +2123,46 @@ export default function DashboardPage({ headers, activePlatform }) {
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
-                    <p className="text-sm text-muted-foreground">Create a management-friendly report by day range and business, then download or email it.</p>
+                    <p className="text-sm text-muted-foreground">Choose report type: Per Survey, Selected Date, Lifetime Overview, or Action Points. Preview, download, or email in a mobile-ready layout.</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  <Select value={reportType} onChange={(event) => setReportType(event.target.value)}>
+                    <option value="survey">Per Survey</option>
+                    <option value="date">Selected Date (All Surveys)</option>
+                    <option value="lifetime">Lifetime Overview</option>
+                    <option value="action_points">Action Points</option>
+                  </Select>
+                  {(reportType === "survey" || reportType === "date") ? (
+                    <Select value={reportBusinessId} onChange={(event) => setReportBusinessId(event.target.value)}>
+                      <option value="">All Businesses</option>
+                      {businesses.map((business) => (
+                        <option key={business.id} value={String(business.id)}>{business.name}</option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <div className="hidden lg:block" />
+                  )}
+                  {reportType === "survey" ? (
+                    <Input
+                      placeholder="Visit ID (for one survey report)"
+                      value={reportVisitId}
+                      onChange={(event) => setReportVisitId(event.target.value)}
+                    />
+                  ) : reportType === "date" ? (
+                    <Input type="date" value={reportSelectedDate} onChange={(event) => setReportSelectedDate(event.target.value)} />
+                  ) : (
+                    <div className="hidden lg:block" />
+                  )}
+                  {reportType === "lifetime" || reportType === "action_points" ? (
+                    <div className="text-xs text-muted-foreground">This report uses current full-scope data unless business filters are set in other sections.</div>
+                  ) : (
+                    <div className="hidden lg:block" />
+                  )}
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                   <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
                   <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
-                  <Select value={reportBusinessId} onChange={(event) => setReportBusinessId(event.target.value)}>
-                    <option value="">All Businesses</option>
-                    {businesses.map((business) => (
-                      <option key={business.id} value={String(business.id)}>{business.name}</option>
-                    ))}
-                  </Select>
                   <Input
                     placeholder="Email recipients (comma separated)"
                     value={reportEmailTo}
@@ -2112,9 +2185,11 @@ export default function DashboardPage({ headers, activePlatform }) {
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Visits</p><p className="text-lg font-semibold">{reportPreview.summary?.total_visits ?? 0}</p></div>
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Businesses</p><p className="text-lg font-semibold">{reportPreview.summary?.total_businesses ?? 0}</p></div>
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Selected NPS</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.nps?.selected ?? "--"}</p></div>
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall NPS</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.nps?.overall ?? "--"}</p></div>
+                      {reportType === "lifetime" ? <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall NPS</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.nps?.overall ?? "--"}</p></div> : null}
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Selected CSAT</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.csat?.selected?.toFixed?.(1) ?? "--"}%</p></div>
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall CSAT</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.csat?.overall?.toFixed?.(1) ?? "--"}%</p></div>
+                      {reportType === "lifetime" ? <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall CSAT</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.csat?.overall?.toFixed?.(1) ?? "--"}%</p></div> : null}
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Outstanding Action Points</p><p className="text-lg font-semibold">{(reportPreview.action_points || []).filter((item) => item.action_status !== "Completed").length}</p></div>
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Completed Action Points</p><p className="text-lg font-semibold">{(reportPreview.action_points || []).filter((item) => item.action_status === "Completed").length}</p></div>
                     </div>
                     <p className="text-xs text-muted-foreground">Includes executive metrics (NPS, CSAT, Relationship, Competitor Exposure), selected-vs-overall comparison, and yes/no analytics in a visual report format.</p>
                   </div>
@@ -2235,11 +2310,11 @@ export default function DashboardPage({ headers, activePlatform }) {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Actions Management</CardTitle>
-                <CardDescription>Track follow-up actions raised during surveys and filter by owner, support, timeframe, or business.</CardDescription>
+                <CardTitle>Action Points Management</CardTitle>
+                <CardDescription>Track action points raised during surveys and filter by owner, support, timeline, status, or business.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
                   <Input
                     placeholder="Filter by lead owner"
                     value={actionsFilters.lead_owner}
@@ -2256,6 +2331,15 @@ export default function DashboardPage({ headers, activePlatform }) {
                   >
                     <option value="">All timelines</option>
                     {actionsTimelineOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </Select>
+                  <Select
+                    value={actionsFilters.action_status}
+                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, action_status: event.target.value }))}
+                  >
+                    <option value="">All statuses</option>
+                    {actionsStatusOptions.map((option) => (
                       <option key={option} value={option}>{option}</option>
                     ))}
                   </Select>
@@ -2277,7 +2361,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                   <Button
                     type="button"
                     variant="ghost"
-                    onClick={() => setActionsFilters({ lead_owner: "", support: "", timeline: "", business_id: "" })}
+                    onClick={() => setActionsFilters({ lead_owner: "", support: "", timeline: "", action_status: "", business_id: "" })}
                   >
                     Clear Filters
                   </Button>
@@ -2291,7 +2375,7 @@ export default function DashboardPage({ headers, activePlatform }) {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <Card>
                 <CardHeader>
-                  <CardTitle>Actions by Survey Type</CardTitle>
+                  <CardTitle>Action Points by Survey Type</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {Object.entries(actionsBoardSummary?.by_survey || {}).length === 0 ? (
@@ -2308,7 +2392,7 @@ export default function DashboardPage({ headers, activePlatform }) {
               </Card>
               <Card>
                 <CardHeader>
-                  <CardTitle>Actions by Business</CardTitle>
+                  <CardTitle>Action Points by Business</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {Object.entries(actionsBoardSummary?.by_business || {}).length === 0 ? (
@@ -2355,6 +2439,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                                 <TableHead>Action Required</TableHead>
                                 <TableHead>Lead Owner</TableHead>
                                 <TableHead>Timeline</TableHead>
+                                <TableHead>Status</TableHead>
                                 <TableHead>Support Needed</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -2372,6 +2457,16 @@ export default function DashboardPage({ headers, activePlatform }) {
                                   <TableCell>{row.action_required || "--"}</TableCell>
                                   <TableCell>{row.action_owner || "--"}</TableCell>
                                   <TableCell>{row.action_timeframe || "--"}</TableCell>
+                                  <TableCell>
+                                    <Select
+                                      value={row.action_status || "Outstanding"}
+                                      onChange={(event) => handleUpdateActionPointStatus(row, event.target.value)}
+                                    >
+                                      {actionsStatusOptions.map((option) => (
+                                        <option key={option} value={option}>{option}</option>
+                                      ))}
+                                    </Select>
+                                  </TableCell>
                                   <TableCell>{row.action_support_needed || "--"}</TableCell>
                                 </TableRow>
                               ))}
@@ -2388,8 +2483,8 @@ export default function DashboardPage({ headers, activePlatform }) {
         ) : (
           <Card>
             <CardHeader>
-              <CardTitle>Actions</CardTitle>
-              <CardDescription>Action management is currently available only for the B2B platform.</CardDescription>
+              <CardTitle>Action Points</CardTitle>
+              <CardDescription>Action point management is currently available only for the B2B platform.</CardDescription>
             </CardHeader>
           </Card>
         )
