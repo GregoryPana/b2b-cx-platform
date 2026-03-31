@@ -1278,31 +1278,59 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         except Exception:
             return f"{value}{suffix}"
 
-    def conic_gradient(values: list[float], colors: list[str]) -> str:
+    def svg_pie_chart(values: list[float], colors: list[str], size: int = 120) -> str:
+        """Generate an inline SVG pie chart — compatible with all email clients."""
+        import math as _m
         total = sum(max(float(v or 0.0), 0.0) for v in values)
+        cx = cy = size / 2
+        r = size / 2 - 2
         if total <= 0:
-            return "#e5e7eb"
-        cursor = 0.0
-        parts: list[str] = []
+            return (
+                f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" '
+                f'style="display:block" xmlns="http://www.w3.org/2000/svg">'
+                f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="#e5e7eb"/>'
+                f'<circle cx="{cx}" cy="{cy}" r="{r * 0.55}" fill="#ffffff"/></svg>'
+            )
+        slices: list[tuple[float, str]] = []
         for value, color in zip(values, colors):
-            pct = (max(float(value or 0.0), 0.0) / total) * 100.0
-            if pct <= 0:
-                continue
-            next_cursor = min(100.0, cursor + pct)
-            parts.append(f"{color} {cursor:.2f}% {next_cursor:.2f}%")
-            cursor = next_cursor
-        if not parts:
-            return "#e5e7eb"
-        return f"conic-gradient({', '.join(parts)})"
+            pct = max(float(value or 0.0), 0.0) / total
+            if pct > 0:
+                slices.append((pct, color))
+        if not slices:
+            return (
+                f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" '
+                f'style="display:block" xmlns="http://www.w3.org/2000/svg">'
+                f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="#e5e7eb"/>'
+                f'<circle cx="{cx}" cy="{cy}" r="{r * 0.55}" fill="#ffffff"/></svg>'
+            )
+        paths: list[str] = []
+        angle = -_m.pi / 2
+        for pct, color in slices:
+            end = angle + 2 * _m.pi * pct
+            large = 1 if (end - angle) > _m.pi else 0
+            x1 = cx + r * _m.cos(angle)
+            y1 = cy + r * _m.sin(angle)
+            x2 = cx + r * _m.cos(end)
+            y2 = cy + r * _m.sin(end)
+            d = f"M{cx},{cy} L{x1:.2f},{y1:.2f} A{r},{r} 0 {large},1 {x2:.2f},{y2:.2f} Z"
+            paths.append(f'<path d="{d}" fill="{color}"/>')
+            angle = end
+        hole = r * 0.55
+        return (
+            f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" '
+            f'style="display:block" xmlns="http://www.w3.org/2000/svg">'
+            + "".join(paths)
+            + f'<circle cx="{cx}" cy="{cy}" r="{hole}" fill="#ffffff"/></svg>'
+        )
 
     status_counts = summary.get("status_counts", {}) or {}
     status_total = sum(int(value or 0) for value in status_counts.values()) or 1
     status_palette = {
-        "Approved": "#16a34a",
-        "Pending": "#d97706",
-        "Needs Changes": "#ea580c",
-        "Rejected": "#dc2626",
-        "Draft": "#6b7280",
+        "Approved": "#22c55e",
+        "Pending": "#f59e0b",
+        "Needs Changes": "#f97316",
+        "Rejected": "#ef4444",
+        "Draft": "#94a3b8",
     }
 
     status_bars = "".join(
@@ -1320,7 +1348,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     business_bars = "".join(
         (
             f"<div class='bar-row'><div class='bar-label'>{row.get('business_name') or '--'}</div>"
-            f"<div class='bar-track'><div class='bar-fill' style='width:{round((int(row.get('response_count') or 0) / max_business_responses) * 100, 1)}%;background:#2563eb'></div></div>"
+            f"<div class='bar-track'><div class='bar-fill' style='width:{round((int(row.get('response_count') or 0) / max_business_responses) * 100, 1)}%;background:#3b82f6'></div></div>"
             f"<div class='bar-value'>{int(row.get('response_count') or 0)}</div></div>"
         )
         for row in top_business
@@ -1329,10 +1357,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     yes_no_cards = "".join(
         (
             f"<div class='card'><div class='label'>Q{int(item.get('question_number') or 0)} Yes/No</div>"
-            f"<p style='margin:6px 0 10px; font-size:12px; color:#374151'>{item.get('question_text') or '--'}</p>"
-            f"<div class='bar-row'><div class='bar-label'>Selected: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('filtered_yes_percent') or 0.0), 0.0), 100.0)}%; background:#16a34a'></div></div><div class='bar-value'>{float(item.get('filtered_yes_percent') or 0.0):.1f}%</div></div>"
+            f"<p style='margin:6px 0 10px; font-size:12px; color:#475569'>{item.get('question_text') or '--'}</p>"
+            f"<div class='bar-row'><div class='bar-label'>Selected: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('filtered_yes_percent') or 0.0), 0.0), 100.0)}%; background:#22c55e'></div></div><div class='bar-value'>{float(item.get('filtered_yes_percent') or 0.0):.1f}%</div></div>"
             + (
-                f"<div class='bar-row'><div class='bar-label'>Overall: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('overall_yes_percent') or 0.0), 0.0), 100.0)}%; background:#1d4ed8'></div></div><div class='bar-value'>{float(item.get('overall_yes_percent') or 0.0):.1f}%</div></div>"
+                f"<div class='bar-row'><div class='bar-label'>Overall: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('overall_yes_percent') or 0.0), 0.0), 100.0)}%; background:#6366f1'></div></div><div class='bar-value'>{float(item.get('overall_yes_percent') or 0.0):.1f}%</div></div>"
                 if include_overall
                 else ""
             )
@@ -1359,13 +1387,13 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     category_detail_blocks = "".join(
         (
             f"<div class='card'><div class='label'>{row.get('category') or '--'} (Selected Scope)</div>"
-            f"<table><thead><tr><th>Question</th><th>Average</th><th>Responses</th></tr></thead><tbody>"
+            f"<div class='table-wrap'><table><thead><tr><th>Question</th><th>Average</th><th>Responses</th></tr></thead><tbody>"
             + "".join(
                 f"<tr><td>Q{int(question.get('question_number') or 0)} - {question.get('question_text') or '--'}</td>"
                 f"<td>{format_metric(question.get('average_score'))}</td><td>{int(question.get('response_count') or 0)}</td></tr>"
                 for question in list(row.get("questions") or [])
             )
-            + "</tbody></table></div>"
+            + "</tbody></table></div></div>"
         )
         for row in category_comparison
     )
@@ -1420,7 +1448,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             )
             rendered.append(
                 f"<div class='card'><div class='label'>{category_name}</div>"
-                f"<table><thead><tr><th>Question</th><th>Prompt</th><th>Answer</th><th>Verbatim</th></tr></thead><tbody>{rows_html}</tbody></table></div>"
+                f"<div class='table-wrap'><table><thead><tr><th>Question</th><th>Prompt</th><th>Answer</th><th>Verbatim</th></tr></thead><tbody>{rows_html}</tbody></table></div></div>"
             )
         survey_detail_blocks = "".join(rendered)
 
@@ -1430,11 +1458,11 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     nps_breakdown = selected_analytics.get("nps") or {}
     csat_breakdown = (selected_analytics.get("customer_satisfaction") or {}).get("score_distribution") or {}
 
-    nps_pie_style = conic_gradient(
+    nps_pie_svg = svg_pie_chart(
         [nps_breakdown.get("promoters", 0), nps_breakdown.get("passives", 0), nps_breakdown.get("detractors", 0)],
-        ["#16a34a", "#d97706", "#dc2626"],
+        ["#22c55e", "#eab308", "#ef4444"],
     )
-    csat_pie_style = conic_gradient(
+    csat_pie_svg = svg_pie_chart(
         [
             csat_breakdown.get("very_satisfied", 0),
             csat_breakdown.get("satisfied", 0),
@@ -1442,7 +1470,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             csat_breakdown.get("dissatisfied", 0),
             csat_breakdown.get("very_dissatisfied", 0),
         ],
-        ["#16a34a", "#65a30d", "#9ca3af", "#ea580c", "#dc2626"],
+        ["#22c55e", "#86efac", "#94a3b8", "#f59e0b", "#ef4444"],
     )
 
     daily_table = "".join(
@@ -1465,34 +1493,41 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   <meta charset=\"utf-8\" />
   <title>CWSCX Survey Report</title>
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; color: #0f172a; background:#f8fafc; line-height: 1.45; }}
-    .page {{ max-width: 1200px; margin: 0 auto; background:#ffffff; border:1px solid #e2e8f0; border-radius: 12px; padding: 24px; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; color: #0f172a; background:#f8fafc; line-height: 1.5; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; overflow-x: hidden; }}
+    .page {{ max-width: 1200px; margin: 0 auto; background:#ffffff; border:1px solid #e2e8f0; border-radius: 12px; padding: 28px; box-sizing: border-box; }}
     h1 {{ font-size: 26px; line-height: 1.2; margin: 0 0 10px; color: #0b1220; letter-spacing: -0.01em; }}
     h2 {{ font-size: 19px; line-height: 1.3; margin: 30px 0 10px; color: #0f172a; letter-spacing: -0.01em; }}
-    p {{ margin: 4px 0; color: #334155; }}
-    .summary {{ display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; margin-top: 14px; }}
-    .card {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; background: #f9fafb; }}
-    .label {{ font-size: 12px; color: #475569; font-weight: 500; }}
+    p {{ margin: 4px 0; color: #475569; }}
+    .summary {{ display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 12px; margin-top: 14px; }}
+    .card {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; background: #f9fafb; margin-bottom: 4px; }}
+    .label {{ font-size: 12px; color: #64748b; font-weight: 500; }}
     .value {{ font-size: 20px; font-weight: 700; color: #0f172a; line-height: 1.2; }}
-    table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-    th, td {{ border: 1px solid #e5e7eb; padding: 8px; font-size: 13px; text-align: left; color: #111827; }}
-    th {{ background: #f1f5f9; font-weight: 650; color: #0f172a; }}
-    .explain {{ border-left: 3px solid #d1d5db; padding-left: 10px; margin-top: 8px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 10px; word-wrap: break-word; }}
+    th, td {{ border: 1px solid #e5e7eb; padding: 10px 12px; font-size: 13px; text-align: left; color: #334155; }}
+    th {{ background: #f1f5f9; font-weight: 600; color: #1e293b; }}
+    td {{ background: #ffffff; }}
+    tr:nth-child(even) td {{ background: #f8fafc; }}
+    .explain {{ border-left: 3px solid #cbd5e1; padding: 10px 14px; margin-top: 8px; background: #f8fafc; border-radius: 0 6px 6px 0; }}
     .viz-grid {{ display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }}
     .bar-row {{ display:grid; grid-template-columns: 190px 1fr 52px; align-items:center; gap:8px; margin:6px 0; }}
-    .bar-label {{ font-size: 12px; color:#374151; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-    .bar-track {{ height: 10px; background:#e5e7eb; border-radius: 999px; overflow: hidden; }}
-    .bar-fill {{ height: 100%; border-radius: 999px; }}
-    .bar-value {{ font-size: 12px; font-weight: 600; text-align: right; color:#111827; }}
-    .legend {{ display:flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size:12px; color:#4b5563; }}
+    .bar-label {{ font-size: 12px; color:#475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+    .bar-track {{ height: 10px; background:#e2e8f0; border-radius: 999px; overflow: hidden; }}
+    .bar-fill {{ height: 100%; border-radius: 999px; transition: width 0.3s ease; }}
+    .bar-value {{ font-size: 12px; font-weight: 600; text-align: right; color:#334155; }}
+    .legend {{ display:flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size:12px; color:#64748b; }}
     .legend i {{ display:inline-block; width:10px; height:10px; border-radius: 999px; margin-right:6px; vertical-align: middle; }}
-    .pie-wrap {{ display:flex; align-items:center; gap:14px; margin-top:6px; }}
-    .pie {{ width:120px; height:120px; border-radius:999px; position:relative; }}
-    .pie::after {{ content:''; position:absolute; inset:24px; background:#ffffff; border-radius:999px; }}
+    .pie-wrap {{ display:flex; align-items:center; gap:16px; margin-top:8px; }}
     .mini-grid {{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }}
+    .table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 10px; border: 1px solid #e5e7eb; border-radius: 6px; }}
+    .table-wrap table {{ margin-top: 0; border: none; }}
+    .table-wrap th {{ border-top: none; }}
+    .table-wrap th:first-child {{ border-left: none; }}
+    .table-wrap td:first-child {{ border-left: none; }}
+    .table-wrap th:last-child {{ border-right: none; }}
+    .table-wrap td:last-child {{ border-right: none; }}
     @media (max-width: 900px) {{
-      body {{ margin: 12px; }}
-      .page {{ padding: 14px; border-radius: 10px; }}
+      body {{ margin: 8px; padding: 0; }}
+      .page {{ padding: 16px; border-radius: 10px; }}
       .summary {{ grid-template-columns: 1fr 1fr; gap: 8px; }}
       .viz-grid {{ grid-template-columns: 1fr; gap: 10px; }}
       .mini-grid {{ grid-template-columns: 1fr; gap: 10px; }}
@@ -1500,10 +1535,18 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       h2 {{ font-size: 17px; margin-top: 24px; }}
       .value {{ font-size: 18px; }}
       .bar-row {{ grid-template-columns: 130px 1fr 46px; }}
-      .pie {{ width: 92px; height: 92px; }}
-      .pie::after {{ inset: 18px; }}
-      table {{ display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }}
-      th, td {{ font-size: 12px; padding: 7px; }}
+      .pie-wrap {{ flex-direction: column; align-items: flex-start; }}
+      th, td {{ font-size: 12px; padding: 8px 10px; }}
+      .table-wrap {{ border-radius: 4px; }}
+    }}
+    @media (max-width: 600px) {{
+      body {{ margin: 4px; }}
+      .page {{ padding: 12px; border-radius: 8px; }}
+      .summary {{ grid-template-columns: 1fr; }}
+      h1 {{ font-size: 20px; }}
+      h2 {{ font-size: 16px; margin-top: 20px; }}
+      .bar-row {{ grid-template-columns: 100px 1fr 40px; }}
+      th, td {{ font-size: 11px; padding: 6px 8px; }}
     }}
   </style>
 </head>
@@ -1536,9 +1579,9 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 
   <div class=\"mini-grid\" style=\"margin-top:12px\">
     <div class=\"card\">
-      <div class=\"label\">NPS Mix (Selected Scope)</div>
+      <div class=\"label\">NPS Survey (Selected Scope)</div>
       <div class=\"pie-wrap\">
-        <div class=\"pie\" style=\"background:{nps_pie_style}\"></div>
+        {nps_pie_svg}
         <div>
           <p class=\"label\">Promoters: {int(nps_breakdown.get('promoters') or 0)}</p>
           <p class=\"label\">Passives: {int(nps_breakdown.get('passives') or 0)}</p>
@@ -1551,7 +1594,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     <div class=\"card\">
       <div class=\"label\">CSAT Distribution (Selected Scope)</div>
       <div class=\"pie-wrap\">
-        <div class=\"pie\" style=\"background:{csat_pie_style}\"></div>
+        {csat_pie_svg}
         <div>
           <p class=\"label\">Very Satisfied: {int(csat_breakdown.get('very_satisfied') or 0)}</p>
           <p class=\"label\">Satisfied: {int(csat_breakdown.get('satisfied') or 0)}</p>
@@ -1575,11 +1618,11 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       <div class=\"label\">Visit Status Distribution</div>
       {status_bars or '<p class="label">No status data</p>'}
       <div class=\"legend\">
-        <span><i style=\"background:#16a34a\"></i>Approved</span>
-        <span><i style=\"background:#d97706\"></i>Pending</span>
-        <span><i style=\"background:#ea580c\"></i>Needs Changes</span>
-        <span><i style=\"background:#dc2626\"></i>Rejected</span>
-        <span><i style=\"background:#6b7280\"></i>Draft</span>
+        <span><i style=\"background:#22c55e\"></i>Approved</span>
+        <span><i style=\"background:#f59e0b\"></i>Pending</span>
+        <span><i style=\"background:#f97316\"></i>Needs Changes</span>
+        <span><i style=\"background:#ef4444\"></i>Rejected</span>
+        <span><i style=\"background:#94a3b8\"></i>Draft</span>
       </div>
     </div>
     <div class=\"card\">
@@ -1590,7 +1633,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   </div>
 
   {f'''<h2>Selected vs Overall Comparison</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Metric</th><th>Selected Scope</th><th>Overall Scope</th><th>Interpretation</th></tr></thead>
     <tbody>
       <tr><td>NPS</td><td>{format_metric((comparison.get('nps') or {}).get('selected'))}</td><td>{format_metric((comparison.get('nps') or {}).get('overall'))}</td><td>Higher is better. Positive means more promoters than detractors.</td></tr>
@@ -1598,7 +1641,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       <tr><td>Overall Relationship Score</td><td>{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</td><td>{format_metric((comparison.get('relationship_score') or {}).get('overall'))}</td><td>Composite relationship strength score (0-100).</td></tr>
       <tr><td>Competitor Exposure</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>
     </tbody>
-  </table>''' if include_overall else ''}
+  </table></div>''' if include_overall else ''}
 
   <h2>Yes/No Question Comparison</h2>
   <div class=\"viz-grid\">
@@ -1606,10 +1649,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   </div>
 
   <h2>Category Breakdown</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Category</th><th>Selected Avg</th>{'<th>Overall Avg</th><th>Delta</th>' if include_overall else ''}<th>Questions</th></tr></thead>
     <tbody>{category_rows or f'<tr><td colspan="{5 if include_overall else 3}">No category score data</td></tr>'}</tbody>
-  </table>
+  </table></div>
 
   <h2>Category Question Details (Selected Scope)</h2>
   <div class=\"viz-grid\">
@@ -1618,39 +1661,39 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 
   <h2>Action Points</h2>
   {f'''<h2>Outstanding Action Points</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
     <tbody>{action_rows_outstanding or '<tr><td colspan="6">No outstanding action points.</td></tr>'}</tbody>
-  </table>
+  </table></div>
   <h2>Completed Action Points</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
     <tbody>{action_rows_completed or '<tr><td colspan="6">No completed action points.</td></tr>'}</tbody>
-  </table>''' if report_type == 'action_points' else f'''<table>
+  </table></div>''' if report_type == 'action_points' else f'''<div class="table-wrap"><table>
     <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th></tr></thead>
     <tbody>{action_rows or '<tr><td colspan="7">No action points found for this report scope.</td></tr>'}</tbody>
-  </table>'''}
+  </table></div>'''}
 
   {f'''<h2>Survey Responses and Verbatim</h2>
   <div class="viz-grid">{survey_detail_blocks or '<div class="card"><p class="label">No survey response details found.</p></div>'}</div>''' if report_type == 'survey' else ''}
 
   <h2>Daily Analytics</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Date</th><th>Visits</th><th>Responses</th><th>Average Score</th></tr></thead>
     <tbody>{daily_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
-  </table>
+  </table></div>
 
   <h2>Business Analytics</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Business</th><th>Visits</th><th>Responses</th><th>Average Score</th><th>Latest Visit</th></tr></thead>
     <tbody>{business_table or '<tr><td colspan="5">No data</td></tr>'}</tbody>
-  </table>
+  </table></div>
 
   <h2>Visit-Level Results</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Responses</th><th>Mandatory Progress</th><th>Average Score</th></tr></thead>
     <tbody>{visit_table or '<tr><td colspan="6">No data</td></tr>'}</tbody>
-  </table>
+  </table></div>
   </div>
 </body>
 </html>

@@ -815,3 +815,56 @@ HTTP_STATUS:401
 {"detail":"Invalid access token: Signature has expired"}
 HTTP_STATUS:401
 ```
+
+## Session: TDD Verify 2026-03-31 09:36:19
+
+### Config
+
+- API Base: http://127.0.0.1:8001
+- DB URL: postgresql://b2b:b2b@127.0.0.1:5432/b2b
+- Auth Mode: none
+
+### Results
+
+- Verify Status: pass
+- Health HTTP: 200
+- Analytics HTTP: 401
+- NPS HTTP: 401
+- Visits HTTP: 401
+
+### Verbatim Output
+
+#### Health
+```
+{"status":"healthy","platform":"CX Assessment Platform","mode":"staging"}
+HTTP_STATUS:200
+```
+
+#### Database Counts
+```
+users: 4
+businesses: 4
+questions: 24
+visits: 4
+responses: 91
+b2b_visit_responses: 91
+survey_types: 3
+```
+
+#### Analytics
+```
+{"detail":"Missing bearer token"}
+HTTP_STATUS:401
+```
+
+#### Dashboard NPS
+```
+{"detail":"Missing bearer token"}
+HTTP_STATUS:401
+```
+
+#### Dashboard Visits
+```
+{"detail":"Missing bearer token"}
+HTTP_STATUS:401
+```
