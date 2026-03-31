@@ -1695,11 +1695,16 @@ def email_report(
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USERNAME", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-    smtp_from = os.getenv("SMTP_FROM", smtp_user).strip()
+    smtp_from = (
+        os.getenv("SMTP_FROM", "").strip()
+        or os.getenv("SMTP_EMAIL", "").strip()
+        or os.getenv("STMP_EMAIL", "").strip()
+        or smtp_user
+    )
     smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes"}
 
     if not smtp_host or not smtp_from:
-        raise HTTPException(status_code=400, detail="SMTP is not configured. Set SMTP_HOST and SMTP_FROM.")
+        raise HTTPException(status_code=400, detail="SMTP is not configured. Set SMTP_HOST and SMTP_FROM (or SMTP_EMAIL/STMP_EMAIL).")
 
     payload = build_report_payload(
         db,

@@ -2206,19 +2206,26 @@ export default function DashboardPage({ headers, activePlatform }) {
                     <p className="text-sm text-muted-foreground">Choose report type: Per Survey, Selected Date, Lifetime Overview, or Action Points. Preview, download, or email in a mobile-ready layout.</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                   {REPORT_TYPE_OPTIONS.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => setReportType(option.key)}
-                      className={`rounded-lg border p-4 text-left transition ${reportType === option.key ? "border-primary bg-primary/5" : "border-border bg-background hover:bg-muted/30"}`}
-                    >
-                      <p className="text-sm font-semibold tracking-tight">{option.label}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
-                    </button>
+                    <Card key={option.key} className="h-full min-w-0 overflow-visible">
+                      <CardHeader>
+                        <CardTitle className="text-base">{option.label}</CardTitle>
+                        <CardDescription>{option.description}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex min-h-[8rem] flex-col gap-3">
+                        <Button
+                          type="button"
+                          className="mt-auto w-full"
+                          variant={reportType === option.key ? "default" : "outline"}
+                          onClick={() => setReportType(option.key)}
+                        >
+                          {reportType === option.key ? "Selected" : `Use ${option.label}`}
+                        </Button>
+                      </CardContent>
+                    </Card>
                   ))}
-                </div>
+                </section>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                   {(reportType === "survey" || reportType === "date") ? (
                     <Select value={reportBusinessId} onChange={(event) => setReportBusinessId(event.target.value)}>
