@@ -13,6 +13,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = API_BASE.endsWith("/api/api") ? `${API_BASE}/b2b` : `${API_BASE}/api/b2b`;
 const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
+const REPORT_TYPE_OPTIONS = [
+  { key: "survey", label: "Per Survey", description: "One selected approved survey for one business, including verbatim and action points." },
+  { key: "date", label: "Selected Date", description: "All approved surveys completed on one date, with isolated analytics." },
+  { key: "lifetime", label: "Lifetime Overview", description: "Current full overview metrics and trends for the selected platform." },
+  { key: "action_points", label: "Action Points", description: "All action points grouped by outstanding/completed and ordered by timeline." },
+];
 
 const COLORS = {
   promoters: "#10b981",
@@ -84,6 +90,10 @@ export default function DashboardPage({ headers, activePlatform }) {
   const [reportBusinessId, setReportBusinessId] = useState("");
   const [reportEmailTo, setReportEmailTo] = useState("");
   const [reportPreview, setReportPreview] = useState(null);
+  const [reportPreviewHtml, setReportPreviewHtml] = useState("");
+  const [reportEligibleSurveys, setReportEligibleSurveys] = useState([]);
+  const [reportIneligibleSurveys, setReportIneligibleSurveys] = useState([]);
+  const [reportSurveyLoading, setReportSurveyLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportSending, setReportSending] = useState(false);
   const [reviewActionLoadingVisitId, setReviewActionLoadingVisitId] = useState("");
@@ -400,6 +410,24 @@ export default function DashboardPage({ headers, activePlatform }) {
     }
   };
 
+  const validateReportSelection = useCallback(() => {
+    if (reportType === "survey") {
+      if (!reportBusinessId) {
+        setError("Select a business first for the per-survey report.");
+        return false;
+      }
+      if (!reportVisitId) {
+        setError("Select an approved survey for this business before generating the report.");
+        return false;
+      }
+    }
+    if (reportType === "date" && !reportSelectedDate) {
+      setError("Select the report date for the selected-date report.");
+      return false;
+    }
+    return true;
+  }, [reportBusinessId, reportSelectedDate, reportType, reportVisitId]);
+
   const buildReportParams = useCallback(() => {
     const params = new URLSearchParams();
     params.set("report_type", reportType);
@@ -413,6 +441,7 @@ export default function DashboardPage({ headers, activePlatform }) {
   }, [activePlatform, reportBusinessId, reportDateFrom, reportDateTo, reportSelectedDate, reportType, reportVisitId]);
 
   const handlePreviewReport = useCallback(async () => {
+    if (!validateReportSelection()) return;
     setReportLoading(true);
     setError("");
     try {
@@ -423,13 +452,15 @@ export default function DashboardPage({ headers, activePlatform }) {
         return;
       }
       setReportPreview(data?.report || null);
+      setReportPreviewHtml(data?.report_html || "");
       setMessage("Report preview generated.");
     } finally {
       setReportLoading(false);
     }
-  }, [buildReportParams, fetchJsonSafe, headers]);
+  }, [buildReportParams, fetchJsonSafe, headers, validateReportSelection]);
 
   const handleDownloadReport = useCallback(async () => {
+    if (!validateReportSelection()) return;
     pushToast("info", "Preparing report download...", 1500);
     setError("");
     const params = buildReportParams();
@@ -454,9 +485,10 @@ export default function DashboardPage({ headers, activePlatform }) {
     } catch {
       setError("Failed to download report");
     }
-  }, [buildReportParams, headers, pushToast]);
+  }, [buildReportParams, headers, pushToast, validateReportSelection]);
 
   const handleEmailReport = useCallback(async () => {
+    if (!validateReportSelection()) return;
     const recipients = reportEmailTo
       .split(",")
       .map((item) => item.trim())
@@ -491,7 +523,47 @@ export default function DashboardPage({ headers, activePlatform }) {
     } finally {
       setReportSending(false);
     }
-  }, [activePlatform, fetchJsonSafe, headers, reportBusinessId, reportDateFrom, reportDateTo, reportEmailTo, reportSelectedDate, reportType, reportVisitId]);
+  }, [activePlatform, fetchJsonSafe, headers, reportBusinessId, reportDateFrom, reportDateTo, reportEmailTo, reportSelectedDate, reportType, reportVisitId, validateReportSelection]);
+
+  useEffect(() => {
+    if (location.pathname !== "/reports") return;
+    if (reportType !== "survey") {
+      setReportEligibleSurveys([]);
+      setReportIneligibleSurveys([]);
+      return;
+    }
+    if (!reportBusinessId) {
+      setReportEligibleSurveys([]);
+      setReportIneligibleSurveys([]);
+      setReportVisitId("");
+      return;
+    }
+
+    const loadEligibleSurveys = async () => {
+      setReportSurveyLoading(true);
+      setError("");
+      try {
+        const params = new URLSearchParams();
+        params.set("business_id", reportBusinessId);
+        params.set("survey_type", activePlatform || "B2B");
+        const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/reports/surveys?${params.toString()}`, { headers }, 20000);
+        if (!res.ok) {
+          setError(data?.detail || "Failed to load report-eligible surveys");
+          return;
+        }
+        const eligible = Array.isArray(data?.eligible) ? data.eligible : [];
+        setReportEligibleSurveys(eligible);
+        setReportIneligibleSurveys(Array.isArray(data?.ineligible) ? data.ineligible : []);
+        if (reportVisitId && !eligible.some((item) => String(item.visit_id) === String(reportVisitId))) {
+          setReportVisitId("");
+        }
+      } finally {
+        setReportSurveyLoading(false);
+      }
+    };
+
+    loadEligibleSurveys();
+  }, [activePlatform, fetchJsonSafe, headers, location.pathname, reportBusinessId, reportType, reportVisitId, setError, setReportVisitId]);
 
   const loadActionsBoard = useCallback(async () => {
     if (!isB2BPlatform) {
@@ -746,6 +818,11 @@ export default function DashboardPage({ headers, activePlatform }) {
     if (location.pathname !== "/actions") return;
     loadActionsBoard();
   }, [location.pathname, loadActionsBoard]);
+
+  useEffect(() => {
+    setReportPreview(null);
+    setReportPreviewHtml("");
+  }, [reportType, reportBusinessId, reportVisitId, reportSelectedDate, reportDateFrom, reportDateTo]);
 
    const analyticsCards = [
      ...(isMysteryShopperPlatform
@@ -2091,6 +2168,7 @@ export default function DashboardPage({ headers, activePlatform }) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {location.pathname === "/surveys" ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-2">
                 <Select value={surveyStatusFilter} onChange={(event) => setSurveyStatusFilter(event.target.value)}>
                   <option value="all">All Statuses</option>
@@ -2118,24 +2196,33 @@ export default function DashboardPage({ headers, activePlatform }) {
                   <div className="hidden lg:block" />
                 )}
               </div>
+              ) : null}
 
-              <div className="rounded-lg border bg-muted/20 p-4">
+              {location.pathname === "/reports" ? (
+              <div className="rounded-lg border bg-muted/20 p-5 space-y-5">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
                     <p className="text-sm text-muted-foreground">Choose report type: Per Survey, Selected Date, Lifetime Overview, or Action Points. Preview, download, or email in a mobile-ready layout.</p>
                   </div>
                 </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {REPORT_TYPE_OPTIONS.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setReportType(option.key)}
+                      className={`rounded-lg border p-4 text-left transition ${reportType === option.key ? "border-primary bg-primary/5" : "border-border bg-background hover:bg-muted/30"}`}
+                    >
+                      <p className="text-sm font-semibold tracking-tight">{option.label}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
+                    </button>
+                  ))}
+                </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-                  <Select value={reportType} onChange={(event) => setReportType(event.target.value)}>
-                    <option value="survey">Per Survey</option>
-                    <option value="date">Selected Date (All Surveys)</option>
-                    <option value="lifetime">Lifetime Overview</option>
-                    <option value="action_points">Action Points</option>
-                  </Select>
                   {(reportType === "survey" || reportType === "date") ? (
                     <Select value={reportBusinessId} onChange={(event) => setReportBusinessId(event.target.value)}>
-                      <option value="">All Businesses</option>
+                      <option value="">Select business</option>
                       {businesses.map((business) => (
                         <option key={business.id} value={String(business.id)}>{business.name}</option>
                       ))}
@@ -2144,11 +2231,12 @@ export default function DashboardPage({ headers, activePlatform }) {
                     <div className="hidden lg:block" />
                   )}
                   {reportType === "survey" ? (
-                    <Input
-                      placeholder="Visit ID (for one survey report)"
-                      value={reportVisitId}
-                      onChange={(event) => setReportVisitId(event.target.value)}
-                    />
+                    <Select value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)}>
+                      <option value="">Select approved survey</option>
+                      {reportEligibleSurveys.map((visit) => (
+                        <option key={visit.visit_id} value={visit.visit_id}>Visit {visit.visit_id} - {visit.visit_date || "--"} ({visit.status})</option>
+                      ))}
+                    </Select>
                   ) : reportType === "date" ? (
                     <Input type="date" value={reportSelectedDate} onChange={(event) => setReportSelectedDate(event.target.value)} />
                   ) : (
@@ -2160,6 +2248,24 @@ export default function DashboardPage({ headers, activePlatform }) {
                     <div className="hidden lg:block" />
                   )}
                 </div>
+                {reportType === "survey" ? (
+                  <div className="space-y-2">
+                    {reportSurveyLoading ? <p className="text-sm text-muted-foreground">Loading available surveys...</p> : null}
+                    {!reportSurveyLoading && reportBusinessId && reportEligibleSurveys.length === 0 ? (
+                      <p className="text-sm text-amber-700">No completed/approved surveys are available for this business yet.</p>
+                    ) : null}
+                    {reportIneligibleSurveys.length > 0 ? (
+                      <div className="rounded-md border bg-amber-50 p-3">
+                        <p className="text-sm font-medium text-amber-900">Unavailable surveys (cannot generate report)</p>
+                        <div className="mt-2 space-y-1 text-xs text-amber-800">
+                          {reportIneligibleSurveys.slice(0, 8).map((visit) => (
+                            <p key={`ineligible-${visit.visit_id}`}>Visit {visit.visit_id} - {visit.visit_date || "--"} ({visit.status}) - {visit.reason || "Not report-eligible"}</p>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                   <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
                   <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
@@ -2192,10 +2298,17 @@ export default function DashboardPage({ headers, activePlatform }) {
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Completed Action Points</p><p className="text-lg font-semibold">{(reportPreview.action_points || []).filter((item) => item.action_status === "Completed").length}</p></div>
                     </div>
                     <p className="text-xs text-muted-foreground">Includes executive metrics (NPS, CSAT, Relationship, Competitor Exposure), selected-vs-overall comparison, and yes/no analytics in a visual report format.</p>
+                    {reportPreviewHtml ? (
+                      <div className="rounded-md border">
+                        <iframe title="Report Preview" srcDoc={reportPreviewHtml} className="h-[720px] w-full rounded-md bg-white" />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
+              ) : null}
 
+              {location.pathname === "/surveys" ? (
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={loadSurveyResults}>Refresh</Button>
                 <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${surveyResults.length} results`}</span>
@@ -2256,10 +2369,11 @@ export default function DashboardPage({ headers, activePlatform }) {
                   )}
                 </TableBody>
               </Table>
+              ) : null}
             </CardContent>
           </Card>
 
-          {selectedSurveyVisit ? (
+          {location.pathname === "/surveys" && selectedSurveyVisit ? (
             <Card>
               <CardHeader>
                 <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>

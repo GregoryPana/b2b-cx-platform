@@ -706,6 +706,72 @@ def update_action_status(
         raise HTTPException(status_code=500, detail=f"Failed to update action status: {exc}")
 
 
+@router.get("/reports/surveys")
+def get_report_surveys_for_business(
+    business_id: int,
+    survey_type: str | None = "B2B",
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+):
+    """List business surveys and whether each is report-eligible."""
+    try:
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+        resolved_survey_type_id = resolve_survey_type_id(db, survey_type, None)
+
+        where_clauses = ["v.business_id = :business_id"]
+        params: dict[str, object] = {"business_id": business_id}
+        if resolved_survey_type_id and has_visit_survey_type:
+            where_clauses.append("v.survey_type_id = :survey_type_id")
+            params["survey_type_id"] = resolved_survey_type_id
+
+        rows = db.execute(
+            text(
+                f"""
+                SELECT
+                    v.id,
+                    v.visit_date,
+                    v.status,
+                    b.name as business_name,
+                    COALESCE(st.name, :fallback_survey_type) as survey_type_name
+                FROM visits v
+                JOIN businesses b ON b.id = v.business_id
+                LEFT JOIN survey_types st ON st.id = v.survey_type_id
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY v.visit_date DESC, v.id DESC
+                """
+            ),
+            {**params, "fallback_survey_type": survey_type or "B2B"},
+        ).fetchall()
+
+        eligible_statuses = {"Approved", "Completed"}
+        eligible: list[dict] = []
+        ineligible: list[dict] = []
+
+        for row in rows:
+            visit = {
+                "visit_id": str(row[0]),
+                "visit_date": row[1].isoformat() if row[1] else None,
+                "status": row[2] or "Draft",
+                "business_name": row[3],
+                "survey_type": row[4],
+            }
+            if visit["status"] in eligible_statuses:
+                eligible.append(visit)
+            else:
+                visit["reason"] = "Survey is not completed/approved yet"
+                ineligible.append(visit)
+
+        return {
+            "business_id": business_id,
+            "survey_type": survey_type or "B2B",
+            "eligible": eligible,
+            "ineligible": ineligible,
+            "eligible_statuses": sorted(eligible_statuses),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load report-eligible surveys: {exc}")
+
+
 def build_report_payload(
     db: Session,
     report_type: str | None,
