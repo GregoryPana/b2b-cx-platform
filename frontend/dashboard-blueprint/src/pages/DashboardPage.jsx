@@ -2316,6 +2316,7 @@ export default function DashboardPage({ headers, activePlatform }) {
               ) : null}
 
               {location.pathname === "/surveys" ? (
+              <>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={loadSurveyResults}>Refresh</Button>
                 <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${surveyResults.length} results`}</span>
@@ -2376,6 +2377,7 @@ export default function DashboardPage({ headers, activePlatform }) {
                   )}
                 </TableBody>
               </Table>
+              </>
               ) : null}
             </CardContent>
           </Card>
