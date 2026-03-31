@@ -608,13 +608,19 @@ export default function DashboardPage({ headers, activePlatform }) {
   }, [activePlatform, actionsFilters, fetchJsonSafe, headers, isB2BPlatform]);
 
   const handleUpdateActionPointStatus = useCallback(async (item, nextStatus) => {
-    if (!item?.response_id && item?.response_id !== 0) {
-      setError("Action point cannot be updated because response_id is missing.");
+    const rid = Number(item?.response_id);
+    const aidx = Number(item?.action_index ?? 0);
+    if (!Number.isFinite(rid) || rid <= 0) {
+      setError("Action point cannot be updated: response_id is missing or invalid.");
+      return;
+    }
+    if (!Number.isFinite(aidx) || aidx < 0) {
+      setError("Action point cannot be updated: action_index is invalid.");
       return;
     }
     const payload = {
-      response_id: Number(item.response_id),
-      action_index: Number(item.action_index || 0),
+      response_id: rid,
+      action_index: aidx,
       status: nextStatus,
     };
     const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/actions/status`, {
@@ -623,7 +629,11 @@ export default function DashboardPage({ headers, activePlatform }) {
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
-      setError(data?.detail || "Failed to update action point status");
+      const rawDetail = data?.detail;
+      const msg = Array.isArray(rawDetail)
+        ? rawDetail.map((e) => e.msg || JSON.stringify(e)).join("; ")
+        : (typeof rawDetail === "string" ? rawDetail : null);
+      setError(msg || "Failed to update action point status");
       return;
     }
     setActionsBoardItems((prev) => prev.map((row) => {

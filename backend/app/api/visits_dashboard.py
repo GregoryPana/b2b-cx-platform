@@ -292,6 +292,9 @@ def fetch_dashboard_actions(
 
     items = []
     for row in rows:
+        response_id = row.get("response_id")
+        if response_id is None:
+            continue
         item = {
             "visit_id": str(row["visit_id"]),
             "visit_date": row["visit_date"].isoformat() if row["visit_date"] else None,
@@ -299,7 +302,7 @@ def fetch_dashboard_actions(
             "business_id": row["business_id"],
             "business_name": row["business_name"],
             "survey_type": row["survey_type"],
-            "response_id": row.get("response_id"),
+            "response_id": int(response_id),
             "question_id": row["question_id"],
             "question_text": row["question_text"],
             "action_index": int(row.get("action_index") or 0),
