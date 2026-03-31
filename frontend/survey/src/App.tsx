@@ -8,6 +8,8 @@ import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
+const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
 
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
@@ -96,7 +98,7 @@ export default function App() {
   }, [accessToken, role, userId]);
 
   const handleLogout = () => {
-    instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+    instance.logoutRedirect({ postLogoutRedirectUri: surveyPostLogoutUri });
   };
 
   if (!msalReady || !isAuthenticated || !accessToken) {

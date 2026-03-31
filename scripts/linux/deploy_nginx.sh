@@ -79,6 +79,11 @@ server {
     }
 
     # Root: serves mystery shopper SPA
+    location = /favicon.ico {
+        add_header Cache-Control "public, max-age=300";
+        return 204;
+    }
+
     location ^~ /assets/ {
         alias /opt/cwscx/frontends-src/public/mystery-shopper/dist/assets/;
         try_files \$request_filename =404;
