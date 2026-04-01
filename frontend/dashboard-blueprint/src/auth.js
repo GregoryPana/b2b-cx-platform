@@ -20,7 +20,7 @@ export const msalInstance = isMsalSupported
       auth: {
         clientId,
         authority,
-        redirectUri: window.location.origin + (import.meta.env.BASE_URL || "/"),
+        redirectUri: window.location.origin,
       },
       cache: {
         cacheLocation: "localStorage",

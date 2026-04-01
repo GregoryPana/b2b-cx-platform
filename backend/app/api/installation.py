@@ -247,11 +247,12 @@ def create_installation_assessment(
 
     insert_payload = {
         "id": assessment_id,
-        "representative_name": representative_name,
+        "inspector_name": representative_name,
         "customer_name": payload.customer_name.strip(),
         "customer_type": payload.customer_type,
         "location": payload.location.strip(),
         "work_date": payload.work_date,
+        "execution_party": "Field Team",
         "overall_score": round(overall_score, 2),
         "threshold_band": band["key"],
     }
@@ -261,11 +262,11 @@ def create_installation_assessment(
             text(
                 """
                 INSERT INTO installation_assessments (
-                    id, representative_name, customer_name, customer_type, location,
-                    work_date, overall_score, threshold_band
+                    id, inspector_name, customer_name, customer_type, location,
+                    work_date, execution_party, overall_score, threshold_band
                 ) VALUES (
-                    :id, :representative_name, :customer_name, :customer_type, :location,
-                    :work_date, :overall_score, :threshold_band
+                    :id, :inspector_name, :customer_name, :customer_type, :location,
+                    :work_date, :execution_party, :overall_score, :threshold_band
                 )
                 """
             ),
@@ -319,7 +320,7 @@ def list_installation_assessments(
             """
             SELECT
                 id,
-                representative_name,
+                inspector_name,
                 customer_name,
                 customer_type,
                 location,
@@ -342,7 +343,7 @@ def list_installation_assessments(
         assessments.append(
             InstallationAssessmentRecord(
                 id=str(row["id"]),
-                representative_name=row["representative_name"],
+                representative_name=row["inspector_name"],
                 customer_name=row["customer_name"],
                 customer_type=row["customer_type"],
                 location=row["location"],
@@ -371,7 +372,7 @@ def _fetch_assessment(db: Session, assessment_id: str) -> InstallationAssessment
             """
             SELECT
                 id,
-                representative_name,
+                inspector_name,
                 customer_name,
                 customer_type,
                 location,
@@ -393,7 +394,7 @@ def _fetch_assessment(db: Session, assessment_id: str) -> InstallationAssessment
     band = _threshold_band(float(row["overall_score"]))
     return InstallationAssessmentRecord(
         id=str(row["id"]),
-        representative_name=row["representative_name"],
+        representative_name=row["inspector_name"],
         customer_name=row["customer_name"],
         customer_type=row["customer_type"],
         location=row["location"],
