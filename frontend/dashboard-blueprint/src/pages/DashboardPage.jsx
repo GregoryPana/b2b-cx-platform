@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
+import { cn } from "../lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = API_BASE.endsWith("/api/api") ? `${API_BASE}/b2b` : `${API_BASE}/api/b2b`;

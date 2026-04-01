@@ -1477,15 +1477,15 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     )
 
     daily_table = "".join(
-        f"<tr><td>{row['visit_date']}</td><td>{row['visit_count']}</td><td>{row['response_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td></tr>"
+        f"<tr><td>{row['visit_date']}</td><td>{row['visit_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td></tr>"
         for row in daily_rows
     )
     business_table = "".join(
-        f"<tr><td>{row['business_name']}</td><td>{row['visit_count']}</td><td>{row['response_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td><td>{row['latest_visit_date']}</td></tr>"
+        f"<tr><td>{row['business_name']}</td><td>{row['visit_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td><td>{row['latest_visit_date']}</td></tr>"
         for row in business_rows
     )
     visit_table = "".join(
-        f"<tr><td>{row['visit_date']}</td><td>{row['business_name']}</td><td>{row['status']}</td><td>{row['response_count']}</td><td>{row['mandatory_answered_count']}/{row['mandatory_total_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td></tr>"
+        f"<tr><td>{row['visit_date']}</td><td>{row['business_name']}</td><td>{row['status']}</td><td>{row['mandatory_answered_count']}/{row['mandatory_total_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td></tr>"
         for row in visit_rows
     )
 
@@ -1611,6 +1611,21 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     </div>
   </div>
 
+  <h2>Action Points</h2>
+  {f'''<h3>Outstanding Action Points</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
+    <tbody>{action_rows_outstanding or '<tr><td colspan="6">No outstanding action points.</td></tr>'}</tbody>
+  </table></div>
+  <h3>Completed Action Points</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
+    <tbody>{action_rows_completed or '<tr><td colspan="6">No completed action points.</td></tr>'}</tbody>
+  </table></div>''' if report_type == 'action_points' else f'''<div class="table-wrap"><table>
+    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th></tr></thead>
+    <tbody>{action_rows or '<tr><td colspan="7">No action points found for this report scope.</td></tr>'}</tbody>
+  </table></div>'''}
+
   <div class=\"explain\">
     <p>This report helps managers review daily survey execution quality, account coverage, and response health. Use the per-day and per-business tables to identify trends and follow-up priorities.</p>
   </div>
@@ -1662,40 +1677,25 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     {category_detail_blocks or '<div class="card"><p class="label">No category question details available.</p></div>'}
   </div>
 
-  <h2>Action Points</h2>
-  {f'''<h2>Outstanding Action Points</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
-    <tbody>{action_rows_outstanding or '<tr><td colspan="6">No outstanding action points.</td></tr>'}</tbody>
-  </table></div>
-  <h2>Completed Action Points</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
-    <tbody>{action_rows_completed or '<tr><td colspan="6">No completed action points.</td></tr>'}</tbody>
-  </table></div>''' if report_type == 'action_points' else f'''<div class="table-wrap"><table>
-    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th></tr></thead>
-    <tbody>{action_rows or '<tr><td colspan="7">No action points found for this report scope.</td></tr>'}</tbody>
-  </table></div>'''}
-
   {f'''<h2>Survey Responses and Verbatim</h2>
   <div class="viz-grid">{survey_detail_blocks or '<div class="card"><p class="label">No survey response details found.</p></div>'}</div>''' if report_type == 'survey' else ''}
 
   <h2>Daily Analytics</h2>
   <div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Visits</th><th>Responses</th><th>Average Score</th></tr></thead>
-    <tbody>{daily_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
+    <thead><tr><th>Date</th><th>Visits</th><th>Average Score</th></tr></thead>
+    <tbody>{daily_table or '<tr><td colspan="3">No data</td></tr>'}</tbody>
   </table></div>
 
   <h2>Business Analytics</h2>
   <div class="table-wrap"><table>
-    <thead><tr><th>Business</th><th>Visits</th><th>Responses</th><th>Average Score</th><th>Latest Visit</th></tr></thead>
-    <tbody>{business_table or '<tr><td colspan="5">No data</td></tr>'}</tbody>
+    <thead><tr><th>Business</th><th>Visits</th><th>Average Score</th><th>Latest Visit</th></tr></thead>
+    <tbody>{business_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
   </table></div>
 
   <h2>Visit-Level Results</h2>
   <div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Responses</th><th>Mandatory Progress</th><th>Average Score</th></tr></thead>
-    <tbody>{visit_table or '<tr><td colspan="6">No data</td></tr>'}</tbody>
+    <thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Mandatory Progress</th><th>Average Score</th></tr></thead>
+    <tbody>{visit_table or '<tr><td colspan="5">No data</td></tr>'}</tbody>
   </table></div>
   </div>
 </body>
