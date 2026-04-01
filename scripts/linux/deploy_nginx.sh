@@ -92,9 +92,7 @@ server {
     }
 
     location / {
-        root /opt/cwscx/frontends-src/public/mystery-shopper/dist;
-        index index.html;
-        try_files \$uri \$uri/ /index.html;
+        return 301 /dashboard/;
     }
 
     # Canonical trailing-slash redirects for SPAs
