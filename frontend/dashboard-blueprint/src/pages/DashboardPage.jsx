@@ -104,30 +104,51 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     [headers]
   );
 
-  const fetchJsonSafe = useCallback(async (url, options, timeoutMs = 15000) => {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, { ...(options || {}), signal: controller.signal });
-      if (res.status === 401) {
-        if (typeof onSessionExpired === "function") onSessionExpired();
-        return { res, data: { detail: "Session expired. Re-authenticating..." } };
-      }
-      const raw = await res.text();
-      if (!raw) return { res, data: null };
+  const fetchJsonSafe = useCallback(async (url, options, timeoutMs = 30000) => {
+    const attempt = async () => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
       try {
-        return { res, data: JSON.parse(raw) };
-      } catch {
-        return { res, data: { detail: raw.slice(0, 200) } };
+        const res = await fetch(url, { ...(options || {}), signal: controller.signal });
+        if (res.status === 401) {
+          if (typeof onSessionExpired === "function") onSessionExpired();
+          return { res, data: { detail: "Session expired. Re-authenticating..." } };
+        }
+        const raw = await res.text();
+        if (!raw) return { res, data: null };
+        try {
+          return { res, data: JSON.parse(raw) };
+        } catch {
+          return { res, data: { detail: raw.slice(0, 200) } };
+        }
+      } finally {
+        window.clearTimeout(timeoutId);
       }
+    };
+
+    try {
+      const result = await attempt();
+      if (result.res.status === 504 || result.res.status === 502) {
+        await new Promise((r) => setTimeout(r, 2000));
+        return await attempt();
+      }
+      return result;
     } catch (error) {
-      const message = error?.name === "AbortError" ? "Request timed out" : (error?.message || "Request failed");
+      if (error?.name === "AbortError" || error?.message === "Failed to fetch") {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          return await attempt();
+        } catch (retryError) {
+          return {
+            res: { ok: false, status: 504 },
+            data: { detail: "Server is not responding. Please try again in a moment." },
+          };
+        }
+      }
       return {
         res: { ok: false, status: 0 },
-        data: { detail: message },
+        data: { detail: error?.message || "Request failed" },
       };
-    } finally {
-      window.clearTimeout(timeoutId);
     }
   }, [onSessionExpired]);
   const [mysteryLocations, setMysteryLocations] = useState([]);
@@ -1579,6 +1600,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 </Select>
               </CardHeader>
               <CardContent className="h-[360px]">
+                {trendData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                   <LineChart data={trendData}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -1588,6 +1610,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                     <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-sm text-muted-foreground">Loading trend data...</div>
+                )}
               </CardContent>
             </Card>
 
@@ -1653,6 +1678,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   </div>
                   
                   <div className="w-full h-64">
+                    {npsPieData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <PieChart>
                         <Pie
@@ -1859,9 +1885,12 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                               ))}
                             </Pie>
                             <Tooltip formatter={(value) => [value, "Count"]} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </div>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">No NPS data</div>
+                    )}
+                  </div>
                       <div className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
                         <p className="text-muted-foreground">Yes: {item.yes_count} ({item.yes_percent.toFixed(1)}%)</p>
                         <p className="text-muted-foreground">No: {item.no_count} ({item.no_percent.toFixed(1)}%)</p>

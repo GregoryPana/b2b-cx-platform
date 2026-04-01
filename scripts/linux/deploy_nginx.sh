@@ -72,10 +72,10 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
 
-        proxy_connect_timeout 10s;
-        proxy_send_timeout 120s;
-        proxy_read_timeout 120s;
-        send_timeout 120s;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        send_timeout 300s;
     }
 
     # Root: serves mystery shopper SPA
