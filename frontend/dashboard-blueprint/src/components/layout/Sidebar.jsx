@@ -1,25 +1,25 @@
-import { ArrowLeftRight, BarChart3, Building2, CalendarDays, ClipboardCheck, FileBarChart2, LogOut, Menu, X } from "lucide-react";
+import { ArrowLeftRight, Building2, CalendarDays, ChartLine, ChartPie, FileChartLine, LogOut, Menu, ScanEye, TableOfContents, X } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 
-export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, onLogout, onSwitchPlatform, userName, userEmail, activePlatform }) {
+export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, onLogout, onSwitchPlatform, userName, userEmail, activePlatform, pendingReviewCount }) {
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
   const items = [
-    { to: "/", label: "Analytics", icon: BarChart3 },
+    { to: "/", label: "Analytics", icon: ChartPie },
     ...(isB2BPlatform ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
-    { to: "/trends", label: "Trends", icon: FileBarChart2 },
-    { to: "/review", label: "Review", icon: ClipboardCheck },
-    ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: ClipboardCheck }] : []),
-    { to: "/surveys", label: "Surveys", icon: FileBarChart2 },
-    ...(isB2BPlatform ? [{ to: "/reports", label: "Reports", icon: FileBarChart2 }] : []),
+    { to: "/trends", label: "Trends", icon: ChartLine },
+    { to: "/review", label: "Review", icon: ScanEye },
+    ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: TableOfContents }] : []),
+    { to: "/surveys", label: "Surveys", icon: FileChartLine },
+    ...(isB2BPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
     ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
     ...(isMysteryShopperPlatform
       ? [
           { to: "/locations", label: "Locations", icon: Building2 },
-          { to: "/purposes", label: "Purposes", icon: FileBarChart2 },
+          { to: "/purposes", label: "Purposes", icon: FileChartLine },
         ]
       : []),
   ];
@@ -57,6 +57,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                 >
                   <Icon className="h-4 w-4" />
                   {!collapsed ? <span>{item.label}</span> : null}
+                  {item.to === "/review" && pendingReviewCount > 0 ? (
+                    <span className={cn(
+                      "ml-auto inline-flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold leading-none text-white",
+                      collapsed ? "h-4 w-4 -ml-1 -mt-3" : "h-5 min-w-[20px] px-1",
+                    )}>
+                      {pendingReviewCount > 99 ? "99+" : pendingReviewCount}
+                    </span>
+                  ) : null}
                 </Button>
               )}
             </NavLink>

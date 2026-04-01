@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Navigate, Route, Routes } from "react-router-dom";
@@ -42,7 +42,25 @@ function resolvePlatformsFromRoles(entraRoles) {
   ].filter((platform) => canAccess(platform.name));
 }
 
-function DashboardShell({ headers, entraRoles, userName, userEmail, activePlatform, setActivePlatform, onLogout }) {
+function DashboardShell({ headers, entraRoles, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired }) {
+  const [pendingReviewCount, setPendingReviewCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCount = async () => {
+      try {
+        const params = new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" });
+        const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          setPendingReviewCount(Array.isArray(data) ? data.length : 0);
+        }
+      } catch { /* silent */ }
+    };
+    if (activePlatform) loadCount();
+    const interval = setInterval(() => { if (activePlatform) loadCount(); }, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [activePlatform, headers]);
   if (!activePlatform) {
     const availablePlatforms = resolvePlatformsFromRoles(entraRoles);
     return (
@@ -63,18 +81,19 @@ function DashboardShell({ headers, entraRoles, userName, userEmail, activePlatfo
       userName={userName}
       userEmail={userEmail}
       activePlatform={activePlatform}
+      pendingReviewCount={pendingReviewCount}
     >
       <Routes>
-        <Route path="/" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
-        <Route path="/planned" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
-        <Route path="/trends" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
-        <Route path="/review" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
-        <Route path="/actions" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
-        <Route path="/surveys" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
-        <Route path="/reports" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
-        <Route path="/businesses" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
-        <Route path="/locations" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
-        <Route path="/purposes" element={<DashboardPage headers={headers} activePlatform={activePlatform} />} />
+        <Route path="/" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/planned" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/trends" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/review" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/actions" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/surveys" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/reports" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/businesses" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/locations" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/purposes" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </MainLayout>
@@ -225,6 +244,27 @@ function MsalAuthenticatedApp() {
     };
   }, [msalReady, accounts, accessToken, instance]);
 
+  useEffect(() => {
+    if (!msalReady || !isAuthenticated || !accounts[0]) return;
+    const interval = setInterval(() => {
+      const expiry = readJwtExpiry(accessToken);
+      if (!expiry) return;
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      if (nowSeconds >= expiry - 60) {
+        instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true })
+          .then((result) => {
+            if (result?.accessToken) setAccessToken(result.accessToken);
+          })
+          .catch((error) => {
+            if (error instanceof InteractionRequiredAuthError) {
+              instance.acquireTokenRedirect(loginRequest);
+            }
+          });
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [msalReady, isAuthenticated, accounts, accessToken, instance]);
+
   const headers = useMemo(() => {
     const next = {
       "Content-Type": "application/json",
@@ -238,6 +278,14 @@ function MsalAuthenticatedApp() {
   const handleLogout = () => {
     instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
   };
+
+  const handleSessionExpired = useCallback(() => {
+    if (accounts[0]) {
+      instance.acquireTokenRedirect(loginRequest).catch(() => {
+        instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+      });
+    }
+  }, [accounts, instance]);
 
   useEffect(() => {
     try {
@@ -283,6 +331,7 @@ function MsalAuthenticatedApp() {
         activePlatform={activePlatform}
         setActivePlatform={setActivePlatform}
         onLogout={handleLogout}
+        onSessionExpired={handleSessionExpired}
       />
     </>
   );

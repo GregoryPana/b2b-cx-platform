@@ -31,7 +31,7 @@ const COLORS = {
   very_dissatisfied: "#ef4444",
 };
 
-export default function DashboardPage({ headers, activePlatform }) {
+export default function DashboardPage({ headers, activePlatform, onSessionExpired }) {
   const location = useLocation();
   const businessFormRef = useRef(null);
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
@@ -108,6 +108,10 @@ export default function DashboardPage({ headers, activePlatform }) {
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(url, { ...(options || {}), signal: controller.signal });
+      if (res.status === 401) {
+        if (typeof onSessionExpired === "function") onSessionExpired();
+        return { res, data: { detail: "Session expired. Re-authenticating..." } };
+      }
       const raw = await res.text();
       if (!raw) return { res, data: null };
       try {
@@ -124,7 +128,7 @@ export default function DashboardPage({ headers, activePlatform }) {
     } finally {
       window.clearTimeout(timeoutId);
     }
-  }, []);
+  }, [onSessionExpired]);
   const [mysteryLocations, setMysteryLocations] = useState([]);
   const [mysteryPurposes, setMysteryPurposes] = useState([]);
   const [newMysteryLocation, setNewMysteryLocation] = useState("");
@@ -2221,7 +2225,26 @@ export default function DashboardPage({ headers, activePlatform }) {
                   <p className="text-sm font-semibold tracking-tight">1) Select Report Type</p>
                   <p className="text-xs text-muted-foreground">Pick the report format that matches your reporting objective.</p>
                 </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {/* Mobile: horizontal scroll pills */}
+                <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
+                  {REPORT_TYPE_OPTIONS.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setReportType(option.key)}
+                      className={cn(
+                        "shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
+                        reportType === option.key
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Desktop: card grid */}
+                <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-4">
                   {REPORT_TYPE_OPTIONS.map((option) => (
                     <Card key={option.key} className="h-full min-w-0 overflow-visible">
                       <CardHeader>
