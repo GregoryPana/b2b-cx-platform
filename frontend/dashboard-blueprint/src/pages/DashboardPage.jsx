@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { cn } from "../lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
-const B2B_API_BASE = API_BASE.endsWith("/api/api") ? `${API_BASE}/b2b` : `${API_BASE}/api/b2b`;
+const B2B_API_BASE = `${API_BASE}/b2b`;
 const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
 const REPORT_TYPE_OPTIONS = [
   { key: "survey", label: "Per Survey", description: "One selected approved survey for one business, including verbatim and action points." },
@@ -1697,6 +1697,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                         <Tooltip formatter={(value) => [value, "Count"]} />
                       </PieChart>
                     </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">No NPS data</div>
+                    )}
                   </div>
 
                   <div className="mt-4 grid w-full grid-cols-1 gap-2 sm:grid-cols-3">
@@ -1887,9 +1890,6 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                             <Tooltip formatter={(value) => [value, "Count"]} />
                       </PieChart>
                     </ResponsiveContainer>
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">No NPS data</div>
-                    )}
                   </div>
                       <div className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
                         <p className="text-muted-foreground">Yes: {item.yes_count} ({item.yes_percent.toFixed(1)}%)</p>
