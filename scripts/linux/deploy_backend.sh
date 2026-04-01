@@ -71,9 +71,9 @@ export DATABASE_URL="${DATABASE_URL_VALUE}"
 # Use upgrade-only migrations; never clear/reset data
 ALEMBIC_LOG="$(mktemp /tmp/cwscx-alembic.XXXXXX.log)"
 if ! "${VENV_DIR}/bin/alembic" upgrade head 2>&1 | tee "${ALEMBIC_LOG}"; then
-  if grep -q 'relation "programs" already exists' "${ALEMBIC_LOG}"; then
-    echo "Detected pre-existing schema without matching Alembic revision; stamping baseline and retrying migrations."
-    "${VENV_DIR}/bin/alembic" stamp d01c3a366199
+  if grep -qiE '(already exists|DuplicateTable)' "${ALEMBIC_LOG}"; then
+    echo "Detected pre-existing schema without matching Alembic revision; stamping current head and retrying migrations."
+    "${VENV_DIR}/bin/alembic" stamp 20260326_000012
     "${VENV_DIR}/bin/alembic" upgrade head
   else
     exit 1
