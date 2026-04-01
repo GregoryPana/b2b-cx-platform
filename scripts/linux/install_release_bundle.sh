@@ -165,6 +165,11 @@ rsync -a \
   "${BUNDLE_ROOT}/backend/" \
   "${TARGET_ROOT}/backend/"
 
+# Clean up stale alembic migration files (deleted migrations must not linger)
+if [[ -d "${BUNDLE_ROOT}/backend/alembic/versions" ]]; then
+  rsync -a --delete "${BUNDLE_ROOT}/backend/alembic/versions/" "${TARGET_ROOT}/backend/alembic/versions/"
+fi
+
 if optional_frontend_dist "${BUNDLE_ROOT}/frontends/public/mystery-shopper/dist" "public/mystery-shopper"; then
   rsync -a --delete "${BUNDLE_ROOT}/frontends/public/mystery-shopper/dist/" "${TARGET_ROOT}/frontends-src/public/mystery-shopper/dist/"
 fi
