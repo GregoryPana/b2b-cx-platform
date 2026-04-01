@@ -118,10 +118,10 @@ def create_app() -> FastAPI:
         return {"status": "healthy", "platform": "CX Assessment Platform", "mode": environment}
     
     # Core Platform Routes
-    app.include_router(core_router, prefix="/api/core", tags=["core"], dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
+    app.include_router(core_router, prefix="/core", tags=["core"], dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
     
     # Program Routes
-    app.include_router(b2b_router, prefix="/api/b2b", tags=["b2b"], dependencies=[Depends(require_roles(*B2B_ROLES))])
+    app.include_router(b2b_router, prefix="/b2b", tags=["b2b"], dependencies=[Depends(require_roles(*B2B_ROLES))])
     # TODO: Add program routers as they are implemented
     # app.include_router(b2c_router, prefix="/api/b2c", tags=["b2c"])
     
