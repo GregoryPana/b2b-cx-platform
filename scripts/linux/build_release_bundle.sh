@@ -41,8 +41,8 @@ build_frontend "${REPO_ROOT}/frontend/survey" "/surveys/b2b/" "B2B"
 cp -r "${REPO_ROOT}/frontend/survey/dist" "${RELEASE_ROOT}/frontends/internal-surveys/b2b/dist"
 
 echo "Building installation survey frontend..."
-build_frontend "${REPO_ROOT}/frontend/installation-dashboard" "/surveys/installation/"
-cp -r "${REPO_ROOT}/frontend/installation-dashboard/dist" "${RELEASE_ROOT}/frontends/internal-surveys/installation/dist"
+build_frontend "${REPO_ROOT}/frontend/survey" "/surveys/installation/" "Installation Assessment"
+cp -r "${REPO_ROOT}/frontend/survey/dist" "${RELEASE_ROOT}/frontends/internal-surveys/installation/dist"
 
 cp -r "${REPO_ROOT}/frontend/dashboard-blueprint/dist" "${RELEASE_ROOT}/frontends/dashboard/dist"
 
