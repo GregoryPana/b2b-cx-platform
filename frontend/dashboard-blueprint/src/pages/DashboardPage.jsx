@@ -2303,12 +2303,23 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                   {(reportType === "survey" || reportType === "date") ? (
-                    <Select value={reportBusinessId} onChange={(event) => setReportBusinessId(event.target.value)}>
-                      <option value="">Select business</option>
-                      {businesses.map((business) => (
-                        <option key={business.id} value={String(business.id)}>{business.name}</option>
-                      ))}
-                    </Select>
+                    <div>
+                      <Input
+                        type="text"
+                        list="report-business-list"
+                        placeholder="Type to search business..."
+                        value={businesses.find((b) => String(b.id) === reportBusinessId)?.name || ""}
+                        onChange={(event) => {
+                          const match = businesses.find((b) => b.name === event.target.value);
+                          setReportBusinessId(match ? String(match.id) : "");
+                        }}
+                      />
+                      <datalist id="report-business-list">
+                        {businesses.map((business) => (
+                          <option key={business.id} value={business.name} />
+                        ))}
+                      </datalist>
+                    </div>
                   ) : (
                     <div className="hidden lg:block" />
                   )}

@@ -228,6 +228,8 @@ def fetch_dashboard_actions(
                 r.id as response_id,
                 q.id as question_id,
                 q.question_text,
+                r.score,
+                r.answer_text,
                 action_item.ordinality - 1 as action_index,
                 action_item.value->>'action_required' as action_required,
                 action_item.value->>'action_owner' as action_owner,
@@ -305,6 +307,8 @@ def fetch_dashboard_actions(
             "response_id": int(response_id),
             "question_id": row["question_id"],
             "question_text": row["question_text"],
+            "question_score": row.get("score"),
+            "question_answer": row.get("answer_text"),
             "action_index": int(row.get("action_index") or 0),
             "action_required": row["action_required"] or "",
             "action_owner": row["action_owner"] or "",
@@ -1281,6 +1285,130 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         except Exception:
             return f"{value}{suffix}"
 
+    if report_type == "action_points":
+        from collections import OrderedDict
+        from itertools import groupby
+
+        _ap_cw_logo = '<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg"><circle cx="22" cy="22" r="20" fill="#0056A1"/><text x="22" y="16" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="700" font-family="sans-serif">CW</text><text x="22" y="30" text-anchor="middle" fill="#ffffff" font-size="7" font-weight="500" font-family="sans-serif">SCX</text></svg>'
+
+        def _timeline_color(tf: str | None) -> str:
+            t = (tf or "").strip()
+            if t == "<1 month":
+                return "rgba(239,68,68,0.08)"
+            if t == "<3 months":
+                return "rgba(249,115,22,0.08)"
+            if t == "<6 months":
+                return "rgba(234,179,8,0.08)"
+            if t == ">6 months":
+                return "rgba(34,197,94,0.06)"
+            return "transparent"
+
+        def _answer_display(item: dict) -> str:
+            score = item.get("question_score")
+            answer = item.get("question_answer")
+            if score is not None:
+                return f"{score}/5"
+            if answer:
+                return answer
+            return "--"
+
+        outstanding = [a for a in action_points if a.get("action_status") != "Completed"]
+        completed = [a for a in action_points if a.get("action_status") == "Completed"]
+
+        def _build_section(items: list[dict], section_id: str) -> str:
+            if not items:
+                return '<p class="label">No action points in this section.</p>'
+            sorted_items = sorted(items, key=lambda x: (x.get("business_name") or "", x.get("visit_date") or "", x.get("action_timeframe") or ""))
+            groups = groupby(sorted_items, key=lambda x: x.get("business_name") or "--")
+            sections: list[str] = []
+            for biz_name, biz_group in groups:
+                biz_items = list(biz_group)
+                survey_groups = groupby(biz_items, key=lambda x: x.get("visit_date") or "--")
+                rows: list[str] = []
+                group_idx = 0
+                for survey_date, survey_items in survey_groups:
+                    group_idx += 1
+                    bg = "#f8fafc" if group_idx % 2 == 1 else "#ffffff"
+                    for item in survey_items:
+                        tf = item.get("action_timeframe") or "--"
+                        tf_bg = _timeline_color(tf)
+                        rows.append(
+                            f'<tr style="background:{bg}">'
+                            f'<td>{item.get("visit_date") or "--"}</td>'
+                            f'<td>{item.get("action_required") or "--"}</td>'
+                            f'<td>{item.get("action_owner") or "--"}</td>'
+                            f'<td style="background:{tf_bg}">{tf}</td>'
+                            f'<td>{item.get("action_support_needed") or "--"}</td>'
+                            f'<td>{item.get("question_text") or "--"}</td>'
+                            f'<td>{_answer_display(item)}</td>'
+                            f'</tr>'
+                        )
+                sections.append(
+                    f'<tr><td colspan="7" style="background:#f1f5f9;font-weight:600;padding:10px 12px;color:#0f172a;">{biz_name} ({len(biz_items)} action point{"s" if len(biz_items) != 1 else ""})</td></tr>'
+                    + "".join(rows)
+                )
+            return f'''<div class="table-wrap"><table>
+                <thead><tr><th>Survey Date</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Linked Question</th><th>Answer</th></tr></thead>
+                <tbody>{"".join(sections)}</tbody>
+            </table></div>'''
+
+        outstanding_html = _build_section(outstanding, "outstanding")
+        completed_html = _build_section(completed, "completed")
+
+        filters = payload.get("filters", {})
+        return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CWSCX Action Points Report</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; color: #0f172a; background:#f8fafc; line-height: 1.5; -webkit-text-size-adjust: 100%; overflow-x: hidden; }}
+    .page {{ max-width: 1200px; margin: 0 auto; background:#ffffff; border:1px solid #e2e8f0; border-radius: 12px; padding: 28px; box-sizing: border-box; }}
+    h1 {{ font-size: 26px; line-height: 1.2; margin: 0 0 10px; color: #0b1220; }}
+    h2 {{ font-size: 19px; line-height: 1.3; margin: 30px 0 10px; color: #0f172a; }}
+    h3 {{ font-size: 16px; line-height: 1.3; margin: 20px 0 8px; color: #334155; }}
+    p {{ margin: 4px 0; color: #475569; }}
+    .label {{ font-size: 12px; color: #64748b; font-weight: 500; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 10px; word-wrap: break-word; }}
+    th, td {{ border: 1px solid #e5e7eb; padding: 10px 12px; font-size: 13px; text-align: left; color: #334155; }}
+    th {{ background: #f1f5f9; font-weight: 600; color: #1e293b; }}
+    .table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 10px; border: 1px solid #e5e7eb; border-radius: 6px; }}
+    .table-wrap table {{ margin-top: 0; border: none; }}
+    .table-wrap th {{ border-top: none; }}
+    .table-wrap th:first-child {{ border-left: none; }}
+    .table-wrap td:first-child {{ border-left: none; }}
+    .table-wrap th:last-child {{ border-right: none; }}
+    .table-wrap td:last-child {{ border-right: none; }}
+    @media (max-width: 900px) {{
+      body {{ margin: 8px; padding: 0; }}
+      .page {{ padding: 16px; }}
+      h1 {{ font-size: 22px; }}
+      h2 {{ font-size: 17px; }}
+      th, td {{ font-size: 12px; padding: 8px 10px; }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="page">
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;border-bottom:3px solid #0056A1;padding-bottom:14px;">
+    {_ap_cw_logo}
+    <div>
+      <h1 style="margin:0;">Cable &amp; Wireless — Action Points Report</h1>
+      <p style="margin:2px 0 0;color:#64748b;font-size:13px;">Generated by: {generated_by}</p>
+    </div>
+  </div>
+  <p>Survey Type: {filters.get('survey_type') or 'B2B'} | Date Range: {filters.get('date_from') or 'Any'} to {filters.get('date_to') or 'Any'} | Business: {filters.get('business_id') or 'All'}</p>
+
+  <h2>Outstanding Action Points ({len(outstanding)})</h2>
+  {outstanding_html}
+
+  <h2>Completed Action Points ({len(completed)})</h2>
+  {completed_html}
+
+  </div>
+</body>
+</html>"""
+
     def svg_pie_chart(values: list[float], colors: list[str], size: int = 120) -> str:
         """Generate an inline SVG pie chart — compatible with all email clients."""
         import math as _m
@@ -1485,7 +1613,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         for row in business_rows
     )
     visit_table = "".join(
-        f"<tr><td>{row['visit_date']}</td><td>{row['business_name']}</td><td>{row['status']}</td><td>{row['mandatory_answered_count']}/{row['mandatory_total_count']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td></tr>"
+        f"<tr><td>{row['visit_date']}</td><td>{row['business_name']}</td><td>{row['status']}</td><td>{row['avg_score'] if row['avg_score'] is not None else '--'}</td></tr>"
         for row in visit_rows
     )
 
@@ -1708,8 +1836,8 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 
   <h2>Visit-Level Results</h2>
   <div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Mandatory Progress</th><th>Average Score</th></tr></thead>
-    <tbody>{visit_table or '<tr><td colspan="5">No data</td></tr>'}</tbody>
+    <thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Average Score</th></tr></thead>
+    <tbody>{visit_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
   </table></div>
   </div>
 </body>
