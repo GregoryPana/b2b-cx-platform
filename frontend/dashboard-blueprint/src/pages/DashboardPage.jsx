@@ -860,6 +860,18 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setReportPreviewHtml("");
   }, [reportType, reportBusinessId, reportVisitId, reportSelectedDate, reportDateFrom, reportDateTo]);
 
+  useEffect(() => {
+    setReportBusinessId("");
+    setReportVisitId("");
+    setReportSelectedDate("");
+    setReportDateFrom("");
+    setReportDateTo("");
+    setReportEligibleSurveys([]);
+    setReportIneligibleSurveys([]);
+    setReportPreview(null);
+    setReportPreviewHtml("");
+  }, [reportType]);
+
    const analyticsCards = [
      ...(isMysteryShopperPlatform
        ? [

@@ -1839,36 +1839,36 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     <div class="card">{icon_swords}<div class="label">Competitor Exposure</div><div class="value">{format_metric((comparison.get("competitor_exposure") or {}).get("overall"), "%")}</div></div>
   </div>''' if include_overall else ''}
 
-  <div class=\"mini-grid\" style=\"margin-top:12px\">
-    <div class=\"card\">
-      <div class=\"label\">NPS Survey (Selected Scope)</div>
-      <div class=\"pie-wrap\">
+  {"" if is_single_visit else f'''<div class="mini-grid" style="margin-top:12px">
+    <div class="card">
+      <div class="label">NPS Distribution</div>
+      <div class="pie-wrap">
         {nps_pie_svg}
         <div>
-          <p class=\"label\">Promoters: {int(nps_breakdown.get('promoters') or 0)}</p>
-          <p class=\"label\">Passives: {int(nps_breakdown.get('passives') or 0)}</p>
-          <p class=\"label\">Detractors: {int(nps_breakdown.get('detractors') or 0)}</p>
-          <p class=\"label\" style=\"margin-top:8px\">Selected NPS: {format_metric(nps_obj.get('selected'))}</p>
+          <p class="label">Promoters: {int(nps_breakdown.get('promoters') or 0)}</p>
+          <p class="label">Passives: {int(nps_breakdown.get('passives') or 0)}</p>
+          <p class="label">Detractors: {int(nps_breakdown.get('detractors') or 0)}</p>
+          <p class="label" style="margin-top:8px">Selected NPS: {format_metric(nps_obj.get('selected'))}</p>
           {f'<p class="label">Overall NPS Benchmark: {format_metric(nps_obj.get("overall"))}</p>' if include_overall else ''}
         </div>
       </div>
     </div>
-    <div class=\"card\">
-      <div class=\"label\">CSAT Distribution (Selected Scope)</div>
-      <div class=\"pie-wrap\">
+    <div class="card">
+      <div class="label">CSAT Distribution</div>
+      <div class="pie-wrap">
         {csat_pie_svg}
         <div>
-          <p class=\"label\">Very Satisfied: {int(csat_breakdown.get('very_satisfied') or 0)}</p>
-          <p class=\"label\">Satisfied: {int(csat_breakdown.get('satisfied') or 0)}</p>
-          <p class=\"label\">Neutral: {int(csat_breakdown.get('neutral') or 0)}</p>
-          <p class=\"label\">Dissatisfied: {int(csat_breakdown.get('dissatisfied') or 0)}</p>
-          <p class=\"label\">Very Dissatisfied: {int(csat_breakdown.get('very_dissatisfied') or 0)}</p>
-          <p class=\"label\" style=\"margin-top:8px\">Selected CSAT: {format_metric(csat_obj.get('selected'), '%')}</p>
+          <p class="label">Very Satisfied: {int(csat_breakdown.get('very_satisfied') or 0)}</p>
+          <p class="label">Satisfied: {int(csat_breakdown.get('satisfied') or 0)}</p>
+          <p class="label">Neutral: {int(csat_breakdown.get('neutral') or 0)}</p>
+          <p class="label">Dissatisfied: {int(csat_breakdown.get('dissatisfied') or 0)}</p>
+          <p class="label">Very Dissatisfied: {int(csat_breakdown.get('very_dissatisfied') or 0)}</p>
+          <p class="label" style="margin-top:8px">Selected CSAT: {format_metric(csat_obj.get('selected'), '%')}</p>
           {f'<p class="label">Overall CSAT Benchmark: {format_metric(csat_obj.get("overall"), "%")}</p>' if include_overall else ''}
         </div>
       </div>
     </div>
-  </div>
+  </div>'''}
 
   <h2>Action Points</h2>
   {f'''<h3>Outstanding Action Points</h3>
