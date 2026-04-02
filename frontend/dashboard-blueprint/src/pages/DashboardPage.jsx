@@ -1514,7 +1514,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">CX Dashboard Blueprint</h2>
+          <h2 className="text-3xl font-bold tracking-tight">CX Governance Dashboard</h2>
           <p className="text-muted-foreground">Platform: {activePlatform}</p>
         </div>
       </div>
