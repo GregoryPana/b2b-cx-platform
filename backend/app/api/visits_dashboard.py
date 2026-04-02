@@ -1724,11 +1724,11 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     icon_globe = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0056A1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
     def _load_image_data_uri(filename: str) -> str | None:
         try:
-            repo_root = Path(__file__).resolve().parents[3]
-            img_path = repo_root / filename
-            if img_path.exists():
-                data = base64.b64encode(img_path.read_bytes()).decode()
-                return f"data:image/png;base64,{data}"
+            base_dir = Path(__file__).resolve().parents[3]
+            for candidate in [base_dir / "assets" / filename, base_dir / filename]:
+                if candidate.exists():
+                    data = base64.b64encode(candidate.read_bytes()).decode()
+                    return f"data:image/png;base64,{data}"
         except Exception:
             pass
         return None

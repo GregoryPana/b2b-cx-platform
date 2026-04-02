@@ -57,7 +57,7 @@ cp "${REPO_ROOT}/.env.example" "${RELEASE_ROOT}/.env.example"
 
 # Copy brand assets
 mkdir -p "${RELEASE_ROOT}/assets"
-cp "${REPO_ROOT}/Cable-and-Wireles-Seychelles.png" "${RELEASE_ROOT}/assets/" 2>/dev/null || true
+cp "${REPO_ROOT}/Cable-and-Wireless-Seychelles.png" "${RELEASE_ROOT}/assets/" 2>/dev/null || true
 cp "${REPO_ROOT}/cable and wireless banner.png" "${RELEASE_ROOT}/assets/" 2>/dev/null || true
 
 if [[ -f "${OUTPUT_ZIP}" ]]; then
