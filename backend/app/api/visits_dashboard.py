@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Dict, Optional
+import base64
 import json
 import os
 import smtplib
@@ -1250,6 +1251,7 @@ def build_report_payload(
             "total_responses": total_responses,
             "average_score": summary_avg_score,
             "status_counts": status_counts,
+            "is_single_visit": normalized_report_type == "survey" and effective_visit_id is not None,
         },
         "analytics_comparison": kpi_comparison,
         "analytics_selected": filtered_analytics,
@@ -1269,6 +1271,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     filters = payload.get("filters", {})
     report_type = str(filters.get("report_type") or "lifetime")
     include_overall = report_type == "lifetime"
+    is_single_visit = summary.get("is_single_visit", False)
     comparison = payload.get("analytics_comparison", {})
     yes_no_comparison = payload.get("yes_no_comparison", [])
     category_comparison = payload.get("category_comparison", [])
@@ -1485,20 +1488,31 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         for row in top_business
     )
 
-    yes_no_cards = "".join(
-        (
-            f"<div class='card'><div class='label'>Q{int(item.get('question_number') or 0)} Yes/No</div>"
-            f"<p style='margin:6px 0 10px; font-size:12px; color:#475569'>{item.get('question_text') or '--'}</p>"
-            f"<div class='bar-row'><div class='bar-label'>Selected: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('filtered_yes_percent') or 0.0), 0.0), 100.0)}%; background:#22c55e'></div></div><div class='bar-value'>{float(item.get('filtered_yes_percent') or 0.0):.1f}%</div></div>"
-            + (
-                f"<div class='bar-row'><div class='bar-label'>Overall: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('overall_yes_percent') or 0.0), 0.0), 100.0)}%; background:#6366f1'></div></div><div class='bar-value'>{float(item.get('overall_yes_percent') or 0.0):.1f}%</div></div>"
-                if include_overall
-                else ""
+    if is_single_visit:
+        yes_no_cards = "".join(
+            (
+                f"<div class='card'><div class='label'>Q{int(item.get('question_number') or 0)} Yes/No</div>"
+                f"<p style='margin:6px 0 10px; font-size:12px; color:#475569'>{item.get('question_text') or '--'}</p>"
+                f"<div style='margin:4px 0;'><span style='font-size:14px; font-weight:700; color:{'#22c55e' if float(item.get('filtered_yes_percent') or 0.0) >= 50.0 else '#ef4444'}'>{'Yes' if float(item.get('filtered_yes_percent') or 0.0) >= 50.0 else 'No'}</span></div>"
+                + f"</div>"
             )
-            + f"</div>"
+            for item in yes_no_comparison
         )
-        for item in yes_no_comparison
-    )
+    else:
+        yes_no_cards = "".join(
+            (
+                f"<div class='card'><div class='label'>Q{int(item.get('question_number') or 0)} Yes/No</div>"
+                f"<p style='margin:6px 0 10px; font-size:12px; color:#475569'>{item.get('question_text') or '--'}</p>"
+                f"<div class='bar-row'><div class='bar-label'>Selected: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('filtered_yes_percent') or 0.0), 0.0), 100.0)}%; background:#22c55e'></div></div><div class='bar-value'>{float(item.get('filtered_yes_percent') or 0.0):.1f}%</div></div>"
+                + (
+                    f"<div class='bar-row'><div class='bar-label'>Overall: Yes</div><div class='bar-track'><div class='bar-fill' style='width:{min(max(float(item.get('overall_yes_percent') or 0.0), 0.0), 100.0)}%; background:#6366f1'></div></div><div class='bar-value'>{float(item.get('overall_yes_percent') or 0.0):.1f}%</div></div>"
+                    if include_overall
+                    else ""
+                )
+                + f"</div>"
+            )
+            for item in yes_no_comparison
+        )
 
     category_rows = "".join(
         (
@@ -1624,7 +1638,26 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     icon_swords = _svg('<path d="m2 2 8 8"/><path d="m22 2-8 8"/><path d="M10 4.5 7.5 2"/><path d="M14 4.5 16.5 2"/><path d="M10 19.5 7.5 22"/><path d="M14 19.5 16.5 22"/><path d="m2 22 8-8"/><path d="m22 22-8-8"/>')
     icon_target = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0056A1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>'
     icon_globe = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0056A1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
-    cw_logo = '<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg"><circle cx="22" cy="22" r="20" fill="#0056A1"/><text x="22" y="16" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="700" font-family="sans-serif">CW</text><text x="22" y="30" text-anchor="middle" fill="#ffffff" font-size="7" font-weight="500" font-family="sans-serif">SCX</text></svg>'
+    def _load_image_data_uri(filename: str) -> str | None:
+        try:
+            repo_root = Path(__file__).resolve().parents[3]
+            img_path = repo_root / filename
+            if img_path.exists():
+                data = base64.b64encode(img_path.read_bytes()).decode()
+                return f"data:image/png;base64,{data}"
+        except Exception:
+            pass
+        return None
+
+    _cws_banner_data = _load_image_data_uri("cable and wireless banner.png")
+    _cws_logo_data = _load_image_data_uri("Cable-and-Wireless-Seychelles.png")
+    _svg_logo = '<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg"><circle cx="22" cy="22" r="20" fill="#0056A1"/><text x="22" y="16" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="700" font-family="sans-serif">CW</text><text x="22" y="30" text-anchor="middle" fill="#ffffff" font-size="7" font-weight="500" font-family="sans-serif">SCX</text></svg>'
+    if _cws_banner_data:
+        cw_logo = f'<img src="{_cws_banner_data}" alt="Cable &amp; Wireless" style="height:48px;" />'
+    elif _cws_logo_data:
+        cw_logo = f'<img src="{_cws_logo_data}" alt="Cable &amp; Wireless" style="height:48px;" />'
+    else:
+        cw_logo = _svg_logo
 
     return f"""
 <!doctype html>
@@ -1706,10 +1739,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     <div class=\"card\"><div class=\"label\">Businesses Covered</div><div class=\"value\">{summary.get('total_businesses', 0)}</div></div>
   </div>
 
-  <h2>{icon_target}Selected Scope KPIs</h2>
+  <h2>{icon_target}{'Survey Scores' if is_single_visit else 'Selected Scope KPIs'}</h2>
   <div class="summary">
-    <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">NPS</div><div class="value">{format_metric((comparison.get('nps') or {}).get('selected'))}</div></div>
-    <div class="card">{icon_csat}<div class="label">CSAT</div><div class="value">{format_metric((comparison.get('csat') or {}).get('selected'), '%')}</div></div>
+    <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">{'NPS Score' if is_single_visit else 'NPS'}</div><div class="value">{format_metric((comparison.get('nps') or {}).get('selected'))}</div></div>
+    <div class="card">{icon_csat}<div class="label">{'CSAT Score' if is_single_visit else 'CSAT'}</div><div class="value">{format_metric((comparison.get('csat') or {}).get('selected'), '%')}</div></div>
     <div class="card">{icon_handshake}<div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</div></div>
     <div class="card">{icon_swords}<div class="label">Competitor Exposure</div><div class="value">{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</div></div>
   </div>

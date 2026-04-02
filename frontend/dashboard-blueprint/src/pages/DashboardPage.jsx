@@ -15,10 +15,10 @@ const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
 const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
 const REPORT_TYPE_OPTIONS = [
-  { key: "survey", label: "Per Survey", description: "One selected approved survey for one business, including verbatim and action points." },
-  { key: "date", label: "Selected Date", description: "All approved surveys completed on one date, with isolated analytics." },
-  { key: "lifetime", label: "Lifetime Overview", description: "Current full overview metrics and trends for the selected platform." },
-  { key: "action_points", label: "Action Points", description: "All action points grouped by outstanding/completed and ordered by timeline." },
+  { key: "survey", label: "Selected Business", description: "View survey details for a specific business. Pick a business then select an approved survey." },
+  { key: "date", label: "Selected Date", description: "All approved surveys completed on a single date or within a date range." },
+  { key: "lifetime", label: "Lifetime Overview", description: "Full lifetime metrics, visits per business, and any pending visits across the platform." },
+  { key: "action_points", label: "Action Points", description: "All outstanding and completed action points. Filter by business, date range, or status." },
 ];
 
 const COLORS = {
@@ -2247,7 +2247,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
-                    <p className="text-sm text-muted-foreground">Choose report type: Per Survey, Selected Date, Lifetime Overview, or Action Points. Preview, download, or email in a mobile-ready layout.</p>
+                    <p className="text-sm text-muted-foreground">Choose a report type below. Each type has its own set of filters and options.</p>
                   </div>
                 </div>
                 <section className="rounded-lg border bg-card p-4">
@@ -2299,11 +2299,27 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 <section className="rounded-lg border bg-background p-4 space-y-3">
                 <div>
                   <p className="text-sm font-semibold tracking-tight">2) Define Report Scope</p>
-                  <p className="text-xs text-muted-foreground">Select business/date/survey where needed. Only completed or approved surveys are report-eligible.</p>
+                  {reportType === "lifetime" ? (
+                    <p className="text-xs text-muted-foreground">Lifetime Overview uses all data across the platform. No filters needed.</p>
+                  ) : reportType === "survey" ? (
+                    <p className="text-xs text-muted-foreground">Select a business, then pick an approved survey to view its full details.</p>
+                  ) : reportType === "date" ? (
+                    <p className="text-xs text-muted-foreground">Pick a single date to see all surveys completed that day, or a date range to cover multiple days.</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Filter action points by business, date range, or status. Leave blank to see all.</p>
+                  )}
                 </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-                  {(reportType === "survey" || reportType === "date") ? (
+
+                {reportType === "lifetime" ? (
+                  <div className="rounded-md border bg-blue-50 p-3">
+                    <p className="text-sm text-blue-900">This report aggregates all completed and approved surveys across all businesses and all dates. No additional filters are required.</p>
+                  </div>
+                ) : null}
+
+                {reportType === "survey" ? (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Business</label>
                       <Input
                         type="text"
                         list="report-business-list"
@@ -2320,27 +2336,75 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                         ))}
                       </datalist>
                     </div>
-                  ) : (
-                    <div className="hidden lg:block" />
-                  )}
-                  {reportType === "survey" ? (
-                    <Select value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)}>
-                      <option value="">Select approved survey</option>
-                      {reportEligibleSurveys.map((visit) => (
-                        <option key={visit.visit_id} value={visit.visit_id}>Survey on {visit.visit_date || "--"} ({visit.status})</option>
-                      ))}
-                    </Select>
-                  ) : reportType === "date" ? (
-                    <Input type="date" value={reportSelectedDate} onChange={(event) => setReportSelectedDate(event.target.value)} />
-                  ) : (
-                    <div className="hidden lg:block" />
-                  )}
-                  {reportType === "lifetime" || reportType === "action_points" ? (
-                    <div className="text-xs text-muted-foreground">This report uses current full-scope data unless business filters are set in other sections.</div>
-                  ) : (
-                    <div className="hidden lg:block" />
-                  )}
-                </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Survey</label>
+                      <Select value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)}>
+                        <option value="">Select approved survey</option>
+                        {reportEligibleSurveys.map((visit) => (
+                          <option key={visit.visit_id} value={visit.visit_id}>Survey on {visit.visit_date || "--"} ({visit.status})</option>
+                        ))}
+                      </Select>
+                    </div>
+                  </div>
+                ) : null}
+
+                {reportType === "date" ? (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="rounded-md border bg-blue-50 p-3 md:col-span-2">
+                      <p className="text-sm font-medium text-blue-900">Single Date vs Date Range</p>
+                      <p className="text-xs text-blue-800 mt-1"><strong>Single date:</strong> Shows all surveys completed on exactly that date. Use the date picker below.</p>
+                      <p className="text-xs text-blue-800 mt-1"><strong>Date range:</strong> Shows all surveys completed between two dates. Fill in both "From" and "To" fields below.</p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date</label>
+                      <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">To Date</label>
+                      <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
+                    </div>
+                  </div>
+                ) : null}
+
+                {reportType === "action_points" ? (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Business (optional)</label>
+                      <Input
+                        type="text"
+                        list="report-business-list-ap"
+                        placeholder="All businesses"
+                        value={businesses.find((b) => String(b.id) === reportBusinessId)?.name || ""}
+                        onChange={(event) => {
+                          const match = businesses.find((b) => b.name === event.target.value);
+                          setReportBusinessId(match ? String(match.id) : "");
+                        }}
+                      />
+                      <datalist id="report-business-list-ap">
+                        {businesses.map((business) => (
+                          <option key={business.id} value={business.name} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date (optional)</label>
+                      <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">To Date (optional)</label>
+                      <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Status</label>
+                      <Select value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)}>
+                        <option value="">All action points</option>
+                        <option value="Outstanding">Outstanding only</option>
+                        <option value="Completed">Completed only</option>
+                      </Select>
+                    </div>
+                  </div>
+                ) : null}
+
                 {reportType === "survey" ? (
                   <div className="space-y-2">
                     {reportSurveyLoading ? <p className="text-sm text-muted-foreground">Loading available surveys...</p> : null}
