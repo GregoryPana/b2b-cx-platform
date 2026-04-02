@@ -780,6 +780,44 @@ def get_report_surveys_for_business(
         raise HTTPException(status_code=500, detail=f"Failed to load report-eligible surveys: {exc}")
 
 
+def _fetch_single_visit_scores(db: Session, visit_id: str, response_table: str) -> dict:
+    """Fetch raw NPS and CSAT scores for a single visit."""
+    nps_row = db.execute(
+        text(
+            f"""
+            SELECT r.score, q.question_text
+            FROM {response_table} r
+            JOIN questions q ON r.question_id = q.id
+            WHERE r.visit_id = :visit_id AND q.is_nps = true AND r.score IS NOT NULL
+            LIMIT 1
+            """
+        ),
+        {"visit_id": visit_id},
+    ).mappings().one_or_none()
+
+    csat_row = db.execute(
+        text(
+            f"""
+            SELECT r.score, q.question_text
+            FROM {response_table} r
+            JOIN questions q ON r.question_id = q.id
+            WHERE r.visit_id = :visit_id
+              AND (lower(q.question_text) LIKE '%satisfaction%' OR lower(q.question_text) LIKE '%csat%')
+              AND r.score IS NOT NULL
+            LIMIT 1
+            """
+        ),
+        {"visit_id": visit_id},
+    ).mappings().one_or_none()
+
+    return {
+        "nps_raw_score": int(nps_row["score"]) if nps_row else None,
+        "nps_question_text": nps_row["question_text"] if nps_row else None,
+        "csat_raw_score": int(csat_row["score"]) if csat_row else None,
+        "csat_question_text": csat_row["question_text"] if csat_row else None,
+    }
+
+
 def _fetch_pending_visits(db: Session, survey_type: str | None) -> list[dict]:
     """Fetch visits with Pending status, grouped by business."""
     has_survey_type = has_column(db, "visits", "survey_type_id")
@@ -1296,6 +1334,7 @@ def build_report_payload(
             "status_counts": status_counts,
             "is_single_visit": normalized_report_type == "survey" and effective_visit_id is not None,
         },
+        "single_visit_scores": _fetch_single_visit_scores(db, effective_visit_id, response_table) if normalized_report_type == "survey" and effective_visit_id else None,
         "analytics_comparison": kpi_comparison,
         "analytics_selected": filtered_analytics,
         "analytics_overall": overall_analytics,
@@ -1316,6 +1355,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     report_type = str(filters.get("report_type") or "lifetime")
     include_overall = report_type not in {"lifetime", "action_points"}
     is_single_visit = summary.get("is_single_visit", False)
+    single_scores = payload.get("single_visit_scores") or {}
     comparison = payload.get("analytics_comparison", {})
     yes_no_comparison = payload.get("yes_no_comparison", [])
     category_comparison = payload.get("category_comparison", [])
@@ -1522,12 +1562,12 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     )
 
     top_business = business_rows[:6]
-    max_business_responses = max([int(row.get("response_count") or 0) for row in top_business], default=1)
+    max_business_responses = max([int(row.get("visit_count") or 0) for row in top_business], default=1)
     business_bars = "".join(
         (
             f"<div class='bar-row'><div class='bar-label'>{row.get('business_name') or '--'}</div>"
-            f"<div class='bar-track'><div class='bar-fill' style='width:{round((int(row.get('response_count') or 0) / max_business_responses) * 100, 1)}%;background:#3b82f6'></div></div>"
-            f"<div class='bar-value'>{int(row.get('response_count') or 0)}</div></div>"
+            f"<div class='bar-track'><div class='bar-fill' style='width:{round((int(row.get('visit_count') or 0) / max_business_responses) * 100, 1)}%;background:#3b82f6'></div></div>"
+            f"<div class='bar-value'>{int(row.get('visit_count') or 0)}</div></div>"
         )
         for row in top_business
     )
@@ -1785,8 +1825,8 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 
   <h2>{icon_target}{'Survey Scores' if is_single_visit else ('Lifetime KPIs' if report_type == 'lifetime' else 'Selected Scope KPIs')}</h2>
   <div class="summary">
-    <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">{'NPS Score' if is_single_visit else 'NPS'}</div><div class="value">{format_metric((comparison.get('nps') or {}).get('selected'))}</div></div>
-    <div class="card">{icon_csat}<div class="label">{'CSAT Score' if is_single_visit else 'CSAT'}</div><div class="value">{format_metric((comparison.get('csat') or {}).get('selected'), '%')}</div></div>
+    <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">{'NPS Score' if is_single_visit else 'NPS'}</div><div class="value">{format_metric(single_scores.get('nps_raw_score')) if is_single_visit else format_metric((comparison.get('nps') or {}).get('selected'))}</div></div>
+    <div class="card">{icon_csat}<div class="label">{'CSAT Score' if is_single_visit else 'CSAT'}</div><div class="value">{format_metric(single_scores.get('csat_raw_score')) if is_single_visit else format_metric((comparison.get('csat') or {}).get('selected'), '%')}</div></div>
     <div class="card">{icon_handshake}<div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</div></div>
     <div class="card">{icon_swords}<div class="label">Competitor Exposure</div><div class="value">{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</div></div>
   </div>

@@ -1469,11 +1469,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
   return (
     <PageContainer>
-      <div className="fixed right-4 top-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2">
+      <div className="fixed right-4 bottom-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 pointer-events-none">
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`animate-in fade-in slide-in-from-top-2 rounded-md border px-3 py-2 text-sm shadow-sm ${
+            className={`animate-in fade-in slide-in-from-bottom-2 rounded-md border px-3 py-2 text-sm shadow-sm pointer-events-auto ${
               toast.kind === "success"
                 ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
                 : toast.kind === "error"
@@ -2431,8 +2431,12 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   <p className="text-xs text-muted-foreground">Preview in-page, download as HTML, or send by email.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                  <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
-                  <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
+                  {reportType === "lifetime" || reportType === "survey" ? (
+                    <>
+                      <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} placeholder="From date (optional)" />
+                      <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} placeholder="To date (optional)" />
+                    </>
+                  ) : null}
                   <Input
                     placeholder="Email recipients (comma separated)"
                     value={reportEmailTo}
