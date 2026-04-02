@@ -2640,15 +2640,23 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                       <option key={option} value={option}>{option}</option>
                     ))}
                   </Select>
-                  <Select
-                    value={actionsFilters.business_id}
-                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, business_id: event.target.value }))}
-                  >
-                    <option value="">All businesses</option>
-                    {businesses.map((business) => (
-                      <option key={business.id} value={String(business.id)}>{business.name}</option>
-                    ))}
-                  </Select>
+                  <div>
+                    <Input
+                      type="text"
+                      list="actions-business-list"
+                      placeholder="Type to search business..."
+                      value={businesses.find((b) => String(b.id) === actionsFilters.business_id)?.name || ""}
+                      onChange={(event) => {
+                        const match = businesses.find((b) => b.name === event.target.value);
+                        setActionsFilters((prev) => ({ ...prev, business_id: match ? String(match.id) : "" }));
+                      }}
+                    />
+                    <datalist id="actions-business-list">
+                      {businesses.map((business) => (
+                        <option key={business.id} value={business.name} />
+                      ))}
+                    </datalist>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -2727,7 +2735,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                             <h4 className="text-sm font-semibold">{businessName}</h4>
                             <Badge>{rows.length}</Badge>
                           </div>
-                          <Table className="min-w-[860px]">
+                          <Table className="min-w-[860px] table-resizable">
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Visit</TableHead>
