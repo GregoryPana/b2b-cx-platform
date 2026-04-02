@@ -780,6 +780,40 @@ def get_report_surveys_for_business(
         raise HTTPException(status_code=500, detail=f"Failed to load report-eligible surveys: {exc}")
 
 
+def _fetch_pending_visits(db: Session, survey_type: str | None) -> list[dict]:
+    """Fetch visits with Pending status, grouped by business."""
+    has_survey_type = has_column(db, "visits", "survey_type_id")
+    where = ["v.status = 'Pending'"]
+    params = {}
+    if has_survey_type and survey_type:
+        where.append("st.name = :survey_type")
+        params["survey_type"] = survey_type
+    where_sql = " AND ".join(where)
+    join_sql = "LEFT JOIN survey_types st ON st.id = v.survey_type_id" if has_survey_type else ""
+    rows = db.execute(
+        text(
+            f"""
+            SELECT v.id, v.visit_date, v.status, b.name as business_name
+            FROM visits v
+            LEFT JOIN businesses b ON b.id = v.business_id
+            {join_sql}
+            WHERE {where_sql}
+            ORDER BY b.name, v.visit_date
+            """
+        ),
+        params,
+    ).mappings().all()
+    return [
+        {
+            "visit_id": str(row["id"]),
+            "visit_date": row["visit_date"].isoformat() if row["visit_date"] else None,
+            "status": row["status"],
+            "business_name": row["business_name"] or "--",
+        }
+        for row in rows
+    ]
+
+
 def build_report_payload(
     db: Session,
     report_type: str | None,
@@ -1161,7 +1195,14 @@ def build_report_payload(
         action_status=None,
         business_id=effective_business_id,
     )
-    if effective_date_from or effective_date_to or effective_visit_id:
+
+    # For action_points report, visit_id carries the status filter (Outstanding/Completed)
+    action_status_filter = None
+    if normalized_report_type == "action_points" and effective_visit_id and effective_visit_id in {"Outstanding", "Completed"}:
+        action_status_filter = effective_visit_id
+        effective_visit_id = None  # Clear so it's not used as a visit filter
+
+    if effective_date_from or effective_date_to or effective_visit_id or action_status_filter:
         filtered_actions = []
         for action in selected_actions:
             visit_date_value = action.get("visit_date")
@@ -1170,6 +1211,8 @@ def build_report_payload(
             if effective_date_from and visit_date_value and visit_date_value < effective_date_from:
                 continue
             if effective_date_to and visit_date_value and visit_date_value > effective_date_to:
+                continue
+            if action_status_filter and action.get("action_status") != action_status_filter:
                 continue
             filtered_actions.append(action)
         selected_actions = filtered_actions
@@ -1263,6 +1306,7 @@ def build_report_payload(
         "daily_breakdown": daily_breakdown,
         "business_breakdown": business_breakdown,
         "visit_details": visits,
+        "pending_visits": _fetch_pending_visits(db, report_survey_type) if normalized_report_type == "lifetime" else [],
     }
 
 
@@ -1270,7 +1314,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     summary = payload.get("summary", {})
     filters = payload.get("filters", {})
     report_type = str(filters.get("report_type") or "lifetime")
-    include_overall = report_type == "lifetime"
+    include_overall = report_type not in {"lifetime", "action_points"}
     is_single_visit = summary.get("is_single_visit", False)
     comparison = payload.get("analytics_comparison", {})
     yes_no_comparison = payload.get("yes_no_comparison", [])
@@ -1739,7 +1783,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     <div class=\"card\"><div class=\"label\">Businesses Covered</div><div class=\"value\">{summary.get('total_businesses', 0)}</div></div>
   </div>
 
-  <h2>{icon_target}{'Survey Scores' if is_single_visit else 'Selected Scope KPIs'}</h2>
+  <h2>{icon_target}{'Survey Scores' if is_single_visit else ('Lifetime KPIs' if report_type == 'lifetime' else 'Selected Scope KPIs')}</h2>
   <div class="summary">
     <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">{'NPS Score' if is_single_visit else 'NPS'}</div><div class="value">{format_metric((comparison.get('nps') or {}).get('selected'))}</div></div>
     <div class="card">{icon_csat}<div class="label">{'CSAT Score' if is_single_visit else 'CSAT'}</div><div class="value">{format_metric((comparison.get('csat') or {}).get('selected'), '%')}</div></div>
@@ -1819,7 +1863,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       </div>
     </div>
     <div class=\"card\">
-      <div class=\"label\">Top Businesses by Response Volume</div>
+      <div class=\"label\">Visits per Business</div>
       {business_bars or '<p class="label">No business data</p>'}
       <p class=\"label\" style=\"margin-top:8px\">Bars compare response volume across businesses in this report range.</p>
     </div>
@@ -1835,6 +1879,12 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       <tr><td>Competitor Exposure</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>
     </tbody>
   </table></div>''' if include_overall else ''}
+
+  {f'''<h2>Businesses with Pending Visits</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Business</th><th>Visit Date</th><th>Status</th></tr></thead>
+    <tbody>{''.join(f"<tr><td>{v['business_name']}</td><td>{v['visit_date'] or '--'}</td><td>{v['status']}</td></tr>" for v in (payload.get('pending_visits') or [])) or '<tr><td colspan="3">No pending visits.</td></tr>'}</tbody>
+  </table></div>''' if report_type == 'lifetime' and (payload.get('pending_visits') or []) else ''}
 
   <h2>Yes/No Question Comparison</h2>
   <div class=\"viz-grid\">
