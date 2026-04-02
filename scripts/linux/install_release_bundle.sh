@@ -175,15 +175,18 @@ if optional_frontend_dist "${BUNDLE_ROOT}/frontends/public/mystery-shopper/dist"
 fi
 
 if optional_frontend_dist "${BUNDLE_ROOT}/frontends/dashboard/dist" "dashboard"; then
-  rsync -a --delete "${BUNDLE_ROOT}/frontends/dashboard/dist/" "${TARGET_ROOT}/frontends-src/dashboard/dist/"
+  rm -rf "${TARGET_ROOT}/frontends-src/dashboard/dist"
+  rsync -a "${BUNDLE_ROOT}/frontends/dashboard/dist/" "${TARGET_ROOT}/frontends-src/dashboard/dist/"
 fi
 
 if optional_frontend_dist "${BUNDLE_ROOT}/frontends/internal-surveys/b2b/dist" "internal-surveys/b2b"; then
-  rsync -a --delete "${BUNDLE_ROOT}/frontends/internal-surveys/b2b/dist/" "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist/"
+  rm -rf "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist"
+  rsync -a "${BUNDLE_ROOT}/frontends/internal-surveys/b2b/dist/" "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist/"
 fi
 
 if optional_frontend_dist "${BUNDLE_ROOT}/frontends/internal-surveys/installation/dist" "internal-surveys/installation"; then
-  rsync -a --delete "${BUNDLE_ROOT}/frontends/internal-surveys/installation/dist/" "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist/"
+  rm -rf "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist"
+  rsync -a "${BUNDLE_ROOT}/frontends/internal-surveys/installation/dist/" "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist/"
 fi
 
 mkdir -p "${TARGET_ROOT}/scripts/linux"
