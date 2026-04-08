@@ -24,6 +24,7 @@ jobs:
               - 'frontend/dashboard-blueprint/**'
             surveys:
               - 'frontend/survey/**'
+              - 'frontend/installation-survey/**'
             mystery:
               - 'frontend/mystery-shopper/**'
             infra:

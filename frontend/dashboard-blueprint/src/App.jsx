@@ -42,8 +42,9 @@ function resolvePlatformsFromRoles(entraRoles) {
   ].filter((platform) => canAccess(platform.name));
 }
 
-function DashboardShell({ headers, entraRoles, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired }) {
+function DashboardShell({ headers, availablePlatforms, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired }) {
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
+  const activePlatformAllowed = !activePlatform || availablePlatforms.some((platform) => platform.name === activePlatform);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,8 +62,8 @@ function DashboardShell({ headers, entraRoles, userName, userEmail, activePlatfo
     const interval = setInterval(() => { if (activePlatform) loadCount(); }, 30000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [activePlatform, headers]);
-  if (!activePlatform) {
-    const availablePlatforms = resolvePlatformsFromRoles(entraRoles);
+
+  if (!activePlatform || !activePlatformAllowed) {
     return (
       <PlatformSelectionPage
         userName={userName}
@@ -126,6 +127,7 @@ function MsalAuthenticatedApp() {
     }
   });
   const [authProfileError, setAuthProfileError] = useState("");
+  const availablePlatforms = useMemo(() => resolvePlatformsFromRoles(Array.isArray(entraRoles) ? entraRoles : []), [entraRoles]);
 
   useEffect(() => {
     let active = true;
@@ -316,10 +318,10 @@ function MsalAuthenticatedApp() {
 
   useEffect(() => {
     if (!activePlatform) return;
-    if (!Array.isArray(entraRoles) || entraRoles.length === 0) return;
-    const stillAllowed = resolvePlatformsFromRoles(entraRoles).some((platform) => platform.name === activePlatform);
+    if (availablePlatforms.length === 0) return;
+    const stillAllowed = availablePlatforms.some((platform) => platform.name === activePlatform);
     if (!stillAllowed) setActivePlatform("");
-  }, [activePlatform, entraRoles]);
+  }, [activePlatform, availablePlatforms]);
 
   if (!msalReady || !isAuthenticated || !accessToken) {
     return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
@@ -332,7 +334,7 @@ function MsalAuthenticatedApp() {
       ) : null}
       <DashboardShell
         headers={headers}
-        entraRoles={entraRoles}
+        availablePlatforms={availablePlatforms}
         userName={userName}
         userEmail={userEmail}
         activePlatform={activePlatform}
@@ -364,6 +366,7 @@ function DevBypassApp() {
   const userName = import.meta.env.VITE_DEV_BYPASS_NAME || "Dev Local User";
   const userEmail = import.meta.env.VITE_DEV_BYPASS_EMAIL || "dev.local@example.com";
   const role = devRoles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative";
+  const availablePlatforms = useMemo(() => resolvePlatformsFromRoles(devRoles), [devRoles]);
 
   const headers = useMemo(
     () => ({
@@ -395,7 +398,7 @@ function DevBypassApp() {
   return (
     <DashboardShell
       headers={headers}
-      entraRoles={devRoles}
+      availablePlatforms={availablePlatforms}
       userName={userName}
       userEmail={userEmail}
       activePlatform={activePlatform}
