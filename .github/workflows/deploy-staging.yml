@@ -39,6 +39,7 @@ jobs:
             "backend/requirements.txt"
             "frontend/dashboard-blueprint/package.json"
             "frontend/survey/package.json"
+            "frontend/installation-survey/package.json"
             "scripts/linux/build_release_bundle.sh"
             "scripts/linux/install_release_bundle.sh"
           )
@@ -66,6 +67,7 @@ jobs:
               - '.github/workflows/frontend-dashboard-ci.yml'
             surveys:
               - 'frontend/survey/**'
+              - 'frontend/installation-survey/**'
               - '.github/workflows/frontend-survey-ci.yml'
             mystery:
               - 'frontend/mystery-shopper/**'
@@ -149,6 +151,15 @@ jobs:
           VITE_BASE_PATH: /surveys/b2b/
         run: npm run build
         working-directory: frontend/survey
+      - name: Install dependencies (installation survey)
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend/installation-survey
+      - name: Build (installation survey)
+        env:
+          VITE_API_URL: /api
+          VITE_BASE_PATH: /surveys/installation/
+        run: npm run build
+        working-directory: frontend/installation-survey
 
   deploy:
     runs-on: [self-hosted, linux]
@@ -200,6 +211,7 @@ jobs:
             "backend/requirements.txt"
             "frontend/dashboard-blueprint/package.json"
             "frontend/survey/package.json"
+            "frontend/installation-survey/package.json"
             "scripts/linux/build_release_bundle.sh"
             "scripts/linux/install_release_bundle.sh"
           )

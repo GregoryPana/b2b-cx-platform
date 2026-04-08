@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* CWS Brand Colors (Light Mode) */
+    --background: 0 0% 100%;              /* #FFFFFF - Pure white page bg */
+    --foreground: 222.2 84% 4.9%;         /* #020817 - Primary text */
+
+    /* Card Styling - LIGHT MODE RULE: Different color, NO border */
+    --card: 214 100% 97%;                 /* #EAF2FF - Light blue tint */
+    --card-foreground: 222.2 84% 4.9%;    /* #020817 - Card text */
+
+    /* Muted / Secondary Surfaces */
+    --muted: 210 40% 96.1%;               /* #F1F5F9 - Subtle bg */
+    --muted-foreground: 215.4 16.3% 46.9%; /* #64748B - Muted text */
+
+    /* Borders & Inputs */
+    --border: 214.3 31.8% 91.4%;          /* #E2E8F0 - Standard border */
+    --input: 214.3 31.8% 91.4%;           /* #E2E8F0 - Input border */
+
+    /* CWS Primary Blue Accent */
+    --primary: 211 85% 59%;               /* #4F8DE4 - CWS Blue */
+    --primary-foreground: 210 40% 98%;    /* #F8FAFC - Text on primary */
+
+    /* Secondary (Neutral) */
+    --secondary: 210 40% 96.1%;           /* #F1F5F9 - Light gray */
+    --secondary-foreground: 222.2 47.4% 11.2%; /* #1E293B - Dark text */
+
+    /* Semantic Colors */
+    --destructive: 0 84.2% 60.2%;         /* #EF4444 - Red/Danger */
+    --destructive-foreground: 210 40% 98%; /* #F8FAFC */
+
+    --success: 142 71% 45%;               /* #10B981 - Green */
+    --success-foreground: 210 40% 98%;    /* #F8FAFC */
+
+    --warning: 38 92% 50%;                /* #F59E0B - Amber */
+    --warning-foreground: 222.2 84% 4.9%; /* #020817 */
+
+    /* Interactive Elements */
+    --accent: 210 40% 96.1%;              /* #F1F5F9 - Hover states */
+    --accent-foreground: 222.2 47.4% 11.2%; /* #1E293B */
+
+    --popover: 0 0% 100%;                 /* #FFFFFF */
+    --popover-foreground: 222.2 84% 4.9%; /* #020817 */
+
+    /* Focus Ring */
+    --ring: 211 85% 59%;                  /* #4F8DE4 - Matches primary */
+
+    /* Border Radius */
+    --radius: 0.75rem;                    /* 12px - Modern, rounded */
+  }
+
+  .dark {
+    /* CWS Dark Mode Colors */
+    --background: 222 47% 7%;             /* #0A1628 - Dark base */
+    --foreground: 210 40% 98%;            /* #F8FAFC - Light text */
+
+    /* Card Styling - DARK MODE RULE: Same as bg, WITH subtle border */
+    --card: 222 47% 7%;                   /* #0A1628 - Match background */
+    --card-foreground: 210 40% 98%;       /* #F8FAFC - Light text */
+
+    /* Muted / Secondary Surfaces */
+    --muted: 217 33% 17%;                 /* #1E293B - Slightly elevated */
+    --muted-foreground: 215 20% 65%;      /* #94A3B8 - Muted text */
+
+    /* Borders & Inputs - SUBTLE in dark mode */
+    --border: 215 25% 20%;                /* rgba(140, 173, 219, 0.2) approx */
+    --input: 215 25% 20%;                 /* Same as border */
+
+    /* CWS Primary Blue - Slightly brighter in dark */
+    --primary: 211 85% 59%;               /* #4F8DE4 - CWS Blue */
+    --primary-foreground: 222 47% 7%;     /* #0A1628 - Dark text on blue */
+
+    /* Secondary */
+    --secondary: 217 33% 17%;             /* #1E293B - Dark elevated */
+    --secondary-foreground: 210 40% 98%;  /* #F8FAFC */
+
+    /* Semantic Colors - Same as light mode */
+    --destructive: 0 62.8% 30.6%;         /* Darker red for dark mode */
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 210 40% 98%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 47% 7%;
+
+    /* Interactive Elements */
+    --accent: 217 33% 17%;                /* #1E293B - Hover state */
+    --accent-foreground: 210 40% 98%;
+
+    --popover: 222 47% 11%;               /* #0F1F36 - Elevated popover */
+    --popover-foreground: 210 40% 98%;
+
+    --ring: 211 85% 59%;                  /* #4F8DE4 */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  /* Glassmorphism Utilities - Use sparingly */
+  .glass-effect {
+    @apply backdrop-blur-md bg-white/10 dark:bg-white/5;
+  }
+
+  .glass-border {
+    @apply border border-white/20 dark:border-white/10;
+  }
+
+  /* Custom scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-muted-foreground/20 hover:bg-muted-foreground/30;
+  }
+
+  /* Shimmer effect for loading states */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.1) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+}

@@ -10,6 +10,8 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { cn } from "../lib/utils";
+import InstallationAnalyticsView from "../components/installation/InstallationAnalyticsView";
+import InstallationSurveyExplorer from "../components/installation/InstallationSurveyExplorer";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
@@ -19,6 +21,10 @@ const REPORT_TYPE_OPTIONS = [
   { key: "date", label: "Selected Date", description: "All approved surveys completed on a single date or within a date range." },
   { key: "lifetime", label: "Lifetime Overview", description: "Full lifetime metrics, visits per business, and any pending visits across the platform." },
   { key: "action_points", label: "Action Points", description: "All outstanding and completed action points. Filter by business, date range, or status." },
+];
+const INSTALL_REPORT_TYPE_OPTIONS = [
+  { key: "lifetime", label: "Lifetime Summary", description: "Complete analytics overview of all installation assessments with clear, easy-to-understand metrics and explanations." },
+  { key: "survey", label: "Single Survey Report", description: "Detailed report for a specific installation survey, including all question scores and overall assessment." },
 ];
 
 const COLORS = {
@@ -32,12 +38,31 @@ const COLORS = {
   very_dissatisfied: "#ef4444",
 };
 
+async function fetchJsonSafe(url, options = {}, timeout = 15000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const text = await response.text();
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // ignore parse error
+    }
+    return { res: response, data };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export default function DashboardPage({ headers, activePlatform, onSessionExpired }) {
   const location = useLocation();
   const businessFormRef = useRef(null);
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
+  const isInstallationPlatform = normalizedPlatform.includes("installation");
   const [analytics, setAnalytics] = useState(null);
   const [questionAverages, setQuestionAverages] = useState([]);
   const [yesNoQuestionAnalytics, setYesNoQuestionAnalytics] = useState([]);
@@ -99,58 +124,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [reportSending, setReportSending] = useState(false);
   const [reviewActionLoadingVisitId, setReviewActionLoadingVisitId] = useState("");
 
-  const headerSignature = useMemo(
-    () => `${headers?.Authorization || ""}|${headers?.["X-User-Id"] || ""}|${headers?.["X-User-Role"] || ""}|${headers?.["X-Dev-Auth-Bypass"] || ""}`,
-    [headers]
-  );
 
-  const fetchJsonSafe = useCallback(async (url, options, timeoutMs = 30000) => {
-    const attempt = async () => {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        const res = await fetch(url, { ...(options || {}), signal: controller.signal });
-        if (res.status === 401) {
-          if (typeof onSessionExpired === "function") onSessionExpired();
-          return { res, data: { detail: "Session expired. Re-authenticating..." } };
-        }
-        const raw = await res.text();
-        if (!raw) return { res, data: null };
-        try {
-          return { res, data: JSON.parse(raw) };
-        } catch {
-          return { res, data: { detail: raw.slice(0, 200) } };
-        }
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-    };
-
-    try {
-      const result = await attempt();
-      if (result.res.status === 504 || result.res.status === 502) {
-        await new Promise((r) => setTimeout(r, 2000));
-        return await attempt();
-      }
-      return result;
-    } catch (error) {
-      if (error?.name === "AbortError" || error?.message === "Failed to fetch") {
-        await new Promise((r) => setTimeout(r, 2000));
-        try {
-          return await attempt();
-        } catch (retryError) {
-          return {
-            res: { ok: false, status: 504 },
-            data: { detail: "Server is not responding. Please try again in a moment." },
-          };
-        }
-      }
-      return {
-        res: { ok: false, status: 0 },
-        data: { detail: error?.message || "Request failed" },
-      };
-    }
-  }, [onSessionExpired]);
   const [mysteryLocations, setMysteryLocations] = useState([]);
   const [mysteryPurposes, setMysteryPurposes] = useState([]);
   const [newMysteryLocation, setNewMysteryLocation] = useState("");
@@ -162,6 +136,34 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [analyticsLocationSearch, setAnalyticsLocationSearch] = useState("");
   const [expandedCategory, setExpandedCategory] = useState("");
   const [toasts, setToasts] = useState([]);
+  const [installationAnalytics, setInstallationAnalytics] = useState(null);
+  const [installationAnalyticsLoading, setInstallationAnalyticsLoading] = useState(false);
+  const [installationSurveyFilters, setInstallationSurveyFilters] = useState({
+    customer_name: "",
+    inspector_name: "",
+    location: "",
+    date_work_done: "",
+    date_from: "",
+    date_to: "",
+    customer_type: "",
+    worker_type: "",
+  });
+   const [installationSurveys, setInstallationSurveys] = useState([]);
+   const [installationSurveysLoading, setInstallationSurveysLoading] = useState(false);
+   const [selectedInstallationSurvey, setSelectedInstallationSurvey] = useState(null);
+
+   // Installation Report states
+   const [installReportType, setInstallReportType] = useState("lifetime");
+   const [installReportDateFrom, setInstallReportDateFrom] = useState("");
+   const [installReportDateTo, setInstallReportDateTo] = useState("");
+   const [installReportSurveyId, setInstallReportSurveyId] = useState("");
+   const [installReportEmailTo, setInstallReportEmailTo] = useState("");
+   const [installReportPreview, setInstallReportPreview] = useState(null);
+   const [installReportPreviewHtml, setInstallReportPreviewHtml] = useState("");
+   const [installReportSurveyList, setInstallReportSurveyList] = useState([]);
+   const [installReportSurveyListLoading, setInstallReportSurveyListLoading] = useState(false);
+   const [installReportLoading, setInstallReportLoading] = useState(false);
+   const [installReportSending, setInstallReportSending] = useState(false);
 
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -172,6 +174,210 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setToasts((prev) => [...prev, { id, kind, title }]);
     window.setTimeout(() => dismissToast(id), duration);
   }, [dismissToast]);
+
+  const loadInstallationAnalytics = useCallback(async () => {
+    setInstallationAnalyticsLoading(true);
+    setError("");
+    try {
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/analytics`, { headers });
+      if (!res.ok) {
+        setError(data?.detail || "Failed to load installation analytics");
+        setInstallationAnalytics(null);
+        return;
+      }
+      setInstallationAnalytics(data || null);
+    } catch (err) {
+      setError("Failed to load installation analytics");
+      setInstallationAnalytics(null);
+    } finally {
+      setInstallationAnalyticsLoading(false);
+    }
+  }, [headers, fetchJsonSafe]);
+
+  const loadInstallationSurveys = useCallback(async () => {
+    if (!isInstallationPlatform) return;
+    setInstallationSurveysLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      Object.entries(installationSurveyFilters).forEach(([key, value]) => {
+        if (value) params.set(key, value);
+      });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys?${params.toString()}`, { headers });
+      if (!res.ok) {
+        setError(data?.detail || "Failed to load installation surveys");
+        setInstallationSurveys([]);
+        return;
+      }
+      setInstallationSurveys(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError("Failed to load installation surveys");
+      setInstallationSurveys([]);
+    } finally {
+      setInstallationSurveysLoading(false);
+    }
+  }, [isInstallationPlatform, installationSurveyFilters, headers, fetchJsonSafe]);
+
+  const handleInstallationFilterChange = useCallback((key, value) => {
+    setInstallationSurveyFilters((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const resetInstallationSurveyFilters = useCallback(() => {
+    setInstallationSurveyFilters({
+      customer_name: "",
+      inspector_name: "",
+      location: "",
+      date_work_done: "",
+      date_from: "",
+      date_to: "",
+      customer_type: "",
+      worker_type: "",
+    });
+  }, []);
+
+  const loadInstallationSurveyDetail = useCallback(async (surveyId) => {
+    setError("");
+    try {
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys/${surveyId}`, { headers });
+      if (!res.ok) {
+        setError(data?.detail || "Failed to load survey detail");
+        return;
+      }
+      setSelectedInstallationSurvey(data || null);
+    } catch (err) {
+      setError("Failed to load survey detail");
+    }
+  }, [headers, fetchJsonSafe]);
+
+  // Load surveys for report selection dropdown
+  const loadInstallationReportSurveyList = useCallback(async () => {
+    setInstallReportSurveyListLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      // Optionally apply quick filters? For now load recent ones without filters, limit maybe 100
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys?${params.toString()}`, { headers });
+      if (!res.ok) {
+        setError(data?.detail || "Failed to load surveys for report");
+        setInstallReportSurveyList([]);
+        return;
+      }
+      // Expect data as array of surveys
+      setInstallReportSurveyList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError("Failed to load surveys for report");
+      setInstallReportSurveyList([]);
+    } finally {
+      setInstallReportSurveyListLoading(false);
+    }
+  }, [headers, fetchJsonSafe]);
+
+  const handleInstallationPreviewReport = useCallback(async () => {
+    // Validation
+    if (installReportType === "survey" && !installReportSurveyId) {
+      setError("Please select a survey for the single survey report.");
+      return;
+    }
+    setInstallReportLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      params.set("report_type", installReportType);
+      if (installReportDateFrom) params.set("date_from", installReportDateFrom);
+      if (installReportDateTo) params.set("date_to", installReportDateTo);
+      if (installReportSurveyId) params.set("survey_id", installReportSurveyId);
+
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/reports/export?${params.toString()}`, { headers }, 30000);
+      if (!res.ok) {
+        setError(data?.detail || "Failed to generate report preview");
+        setInstallReportPreview(null);
+        setInstallReportPreviewHtml("");
+        return;
+      }
+      setInstallReportPreview(data?.report || null);
+      setInstallReportPreviewHtml(data?.report_html || "");
+      pushToast("success", "Report preview generated");
+    } catch (err) {
+      setError("Failed to generate report preview");
+      setInstallReportPreview(null);
+      setInstallReportPreviewHtml("");
+    } finally {
+      setInstallReportLoading(false);
+    }
+  }, [installReportType, installReportDateFrom, installReportDateTo, installReportSurveyId, headers, fetchJsonSafe, pushToast]);
+
+  const handleInstallationDownloadReport = useCallback(async () => {
+    if (!installReportPreviewHtml) return;
+    const link = document.createElement("a");
+    const blob = new Blob([installReportPreviewHtml], { type: "text/html" });
+    link.href = URL.createObjectURL(blob);
+    link.download = `installation-report-${new Date().toISOString().slice(0,10)}.html`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    pushToast("success", "Report downloaded");
+  }, [installReportPreviewHtml, pushToast]);
+
+  const handleInstallationEmailReport = useCallback(async () => {
+    if (!installReportEmailTo.trim()) {
+      setError("Please enter at least one email recipient");
+      return;
+    }
+    setInstallReportSending(true);
+    setError("");
+    try {
+      const recipients = installReportEmailTo.split(",").map((e) => e.trim()).filter(Boolean);
+      const payload = {
+        report_type: installReportType,
+        date_from: installReportDateFrom || null,
+        date_to: installReportDateTo || null,
+        survey_id: installReportSurveyId || null,
+        to: recipients,
+      };
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/reports/email`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }, 30000);
+      if (!res.ok) {
+        setError(data?.detail || "Failed to send report email");
+      } else {
+        setInstallReportEmailTo("");
+        pushToast("success", `Report emailed to ${recipients.join(", ")}`);
+      }
+    } catch (err) {
+      setError("Failed to send report email");
+    } finally {
+      setInstallReportSending(false);
+    }
+  }, [installReportType, installReportDateFrom, installReportDateTo, installReportSurveyId, installReportEmailTo, headers, fetchJsonSafe, pushToast]);
+
+  useEffect(() => {
+    if (!isInstallationPlatform) {
+      setInstallationAnalytics(null);
+      return;
+    }
+    loadInstallationAnalytics();
+  }, [isInstallationPlatform, loadInstallationAnalytics]);
+
+  useEffect(() => {
+    if (!isInstallationPlatform || location.pathname !== "/surveys") {
+      return;
+    }
+    loadInstallationSurveys();
+   }, [isInstallationPlatform, location.pathname, loadInstallationSurveys]);
+
+   // Load installation report survey list when on reports page and report type is 'survey'
+   useEffect(() => {
+     if (!isInstallationPlatform || location.pathname !== "/reports") {
+       return;
+     }
+     if (installReportType === "survey") {
+       loadInstallationReportSurveyList();
+     } else {
+       setInstallReportSurveyList([]);
+     }
+   }, [isInstallationPlatform, location.pathname, installReportType, loadInstallationReportSurveyList]);
+
 
   const InfoHint = ({ text }) => (
     <details className="group relative inline-flex">
@@ -206,124 +412,125 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     return [];
   }, [isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsBusinessIds, selectedAnalyticsLocationIds, mysteryLocationMap]);
 
-  // Reset selected question when platform changes
-  useEffect(() => {
-    setSelectedQuestionId("");
-  }, [activePlatform]);
+   // Reset selected question when platform changes
+   useEffect(() => {
+     setSelectedQuestionId("");
+   }, [activePlatform]);
 
-  // Load core metrics (NPS, Category Breakdown, CSAT + B2B analytics)
-  useEffect(() => {
-    if (!activePlatform) return;
-    const load = async () => {
-      setError("");
-      const params = new URLSearchParams();
-      params.set("survey_type", activePlatform);
-      if (selectedAnalyticsEntityIds.length > 0) {
-        params.set("business_ids", selectedAnalyticsEntityIds.join(","));
-      }
-      params.set("_cb", Date.now().toString());
-      const queryString = `?${params.toString()}`;
 
-      try {
-        const [npsRes, catRes, analyticsRes] = await Promise.all([
-          fetchJsonSafe(`${API_BASE}/dashboard/nps${queryString}`, { headers }),
-          fetchJsonSafe(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }),
-          fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers })
-        ]);
+   // Load core metrics (NPS, Category Breakdown, CSAT + B2B analytics)
+   useEffect(() => {
+     if (!activePlatform || isInstallationPlatform) return;
+     const load = async () => {
+       setError("");
+       const params = new URLSearchParams();
+       params.set("survey_type", activePlatform);
+       if (selectedAnalyticsEntityIds.length > 0) {
+         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
+       }
+       params.set("_cb", Date.now().toString());
+       const queryString = `?${params.toString()}`;
 
-        const npsData = npsRes.data || {};
-        const catData = catRes.data || [];
-        const analyticsData = analyticsRes.data || {};
+       try {
+         const [npsRes, catRes, analyticsRes] = await Promise.all([
+           fetchJsonSafe(`${API_BASE}/dashboard/nps${queryString}`, { headers }),
+           fetchJsonSafe(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }),
+           fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers })
+         ]);
 
-        if (!npsRes.res.ok || !catRes.res.ok || !analyticsRes.res.ok) {
-          setError(
-            npsData.detail ||
-            catData.detail ||
-            analyticsData.detail ||
-            "Failed to load metrics"
-          );
-          return;
-        }
+         const npsData = npsRes.data || {};
+         const catData = catRes.data || [];
+         const analyticsData = analyticsRes.data || {};
 
-        setAnalytics({
-          ...analyticsData,
-          nps: npsData,
-          category_breakdown: Array.isArray(catData) ? catData : [],
-          customer_satisfaction: analyticsData.customer_satisfaction || analyticsData,
-          relationship_score: analyticsData.relationship_score || null,
-          competitive_exposure: analyticsData.competitive_exposure || null,
-          mystery_shopper: analyticsData.mystery_shopper || null,
-          visits: analyticsData.visits || null,
-        });
-      } catch (err) {
-        setError("Failed to load metrics");
-      }
-    };
-    load();
-  }, [activePlatform, headerSignature, selectedAnalyticsEntityIds, fetchJsonSafe]);
+         if (!npsRes.res.ok || !catRes.res.ok || !analyticsRes.res.ok) {
+           setError(
+             npsData.detail ||
+             catData.detail ||
+             analyticsData.detail ||
+             "Failed to load metrics"
+           );
+           return;
+         }
 
-  // Load yes/no question analytics
-  useEffect(() => {
-    if (!activePlatform || !isB2BPlatform) {
-      setYesNoQuestionAnalytics([]);
-      return;
-    }
+         setAnalytics({
+           ...analyticsData,
+           nps: npsData,
+           category_breakdown: Array.isArray(catData) ? catData : [],
+           customer_satisfaction: analyticsData.customer_satisfaction || analyticsData,
+           relationship_score: analyticsData.relationship_score || null,
+           competitive_exposure: analyticsData.competitive_exposure || null,
+           mystery_shopper: analyticsData.mystery_shopper || null,
+           visits: analyticsData.visits || null,
+         });
+       } catch (err) {
+         setError("Failed to load metrics");
+       }
+     };
+     load();
+   }, [activePlatform, isInstallationPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
-    const load = async () => {
-      const params = new URLSearchParams({ survey_type: activePlatform });
-      if (selectedAnalyticsEntityIds.length > 0) {
-        params.set("business_ids", selectedAnalyticsEntityIds.join(","));
-      }
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/yes-no?${params.toString()}`, { headers });
-      if (!res.ok) {
-        setYesNoQuestionAnalytics([]);
-        return;
-      }
-      setYesNoQuestionAnalytics(Array.isArray(data?.items) ? data.items : []);
-    };
+   // Load yes/no question analytics
+   useEffect(() => {
+     if (!activePlatform || !isB2BPlatform) {
+       setYesNoQuestionAnalytics([]);
+       return;
+     }
 
-    load();
-  }, [activePlatform, isB2BPlatform, headerSignature, selectedAnalyticsEntityIds, fetchJsonSafe]);
+     const load = async () => {
+       const params = new URLSearchParams({ survey_type: activePlatform });
+       if (selectedAnalyticsEntityIds.length > 0) {
+         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
+       }
+       const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/yes-no?${params.toString()}`, { headers });
+       if (!res.ok) {
+         setYesNoQuestionAnalytics([]);
+         return;
+       }
+       setYesNoQuestionAnalytics(Array.isArray(data?.items) ? data.items : []);
+     };
 
-  // Load question averages for drilldown table
-  useEffect(() => {
-    if (!activePlatform) return;
-    const load = async () => {
-      const params = new URLSearchParams({ survey_type: activePlatform });
-      if (selectedAnalyticsEntityIds.length > 0) {
-        params.set("business_ids", selectedAnalyticsEntityIds.join(","));
-      }
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
-      if (!res.ok) return;
-      const values = Array.isArray(data?.items) ? data.items : [];
-      setQuestionAverages(values);
-      if (values.length === 0) {
-        setSelectedQuestionId("");
-        return;
-      }
-      const hasSelected = values.some((item) => String(item.question_id) === String(selectedQuestionId));
-      if (!hasSelected && values[0]?.question_id) {
-        setSelectedQuestionId(String(values[0].question_id));
-      }
-    };
-    load();
-   }, [activePlatform, headerSignature, selectedAnalyticsEntityIds, fetchJsonSafe]);
+     load();
+   }, [activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
-  // Load question trend data
-  useEffect(() => {
-    if (!selectedQuestionId || !activePlatform) return;
-    const load = async () => {
-      const params = new URLSearchParams({ survey_type: activePlatform, interval: "week" });
-      if (selectedAnalyticsEntityIds.length > 0) {
-        params.set("business_ids", selectedAnalyticsEntityIds.join(","));
-      }
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/${selectedQuestionId}/trend?${params.toString()}`, { headers });
-      if (!res.ok) return;
-      const rows = Array.isArray(data?.points) ? data.points : [];
-      setTrendData(rows.map((row) => ({ period: row.period_label || row.period, average: Number(row.average_score || 0) })));
-    };
-    load();
-  }, [activePlatform, headerSignature, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
+   // Load question averages for drilldown table
+   useEffect(() => {
+     if (!activePlatform || isInstallationPlatform) return;
+     const load = async () => {
+       const params = new URLSearchParams({ survey_type: activePlatform });
+       if (selectedAnalyticsEntityIds.length > 0) {
+         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
+       }
+       const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
+       if (!res.ok) return;
+       const values = Array.isArray(data?.items) ? data.items : [];
+       setQuestionAverages(values);
+       if (values.length === 0) {
+         setSelectedQuestionId("");
+         return;
+       }
+       const hasSelected = values.some((item) => String(item.question_id) === String(selectedQuestionId));
+       if (!hasSelected && values[0]?.question_id) {
+         setSelectedQuestionId(String(values[0].question_id));
+       }
+     };
+     load();
+    }, [activePlatform, isInstallationPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+
+   // Load question trend data
+   useEffect(() => {
+     if (!selectedQuestionId || !activePlatform) return;
+     const load = async () => {
+       const params = new URLSearchParams({ survey_type: activePlatform, interval: "week" });
+       if (selectedAnalyticsEntityIds.length > 0) {
+         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
+       }
+       const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/${selectedQuestionId}/trend?${params.toString()}`, { headers });
+       if (!res.ok) return;
+       const rows = Array.isArray(data?.points) ? data.points : [];
+       setTrendData(rows.map((row) => ({ period: row.period_label || row.period, average: Number(row.average_score || 0) })));
+     };
+     load();
+   }, [activePlatform, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
   const loadPendingVisits = useCallback(async () => {
     const params = new URLSearchParams();
@@ -340,6 +547,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }));
     setPendingVisits(normalized);
   }, [activePlatform, headers, fetchJsonSafe]);
+
+
 
   // Load pending visits for review queue
   useEffect(() => {
@@ -412,7 +621,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   }, [error, pushToast]);
 
   const loadSurveyResults = async () => {
-    if (!activePlatform) return;
+    if (!activePlatform || isInstallationPlatform) return;
 
     const params = new URLSearchParams();
     if (surveyStatusFilter !== "all") params.set("status", surveyStatusFilter);
@@ -838,17 +1047,20 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     if (!isMysteryShopperPlatform) {
       setSelectedSurveyLocation("");
     }
-  }, [isB2BPlatform, isMysteryShopperPlatform]);
+    if (!isInstallationPlatform) {
+      setSelectedInstallationSurvey(null);
+    }
+  }, [isB2BPlatform, isMysteryShopperPlatform, isInstallationPlatform]);
 
-  useEffect(() => {
-    if (location.pathname !== "/surveys") return;
-    loadSurveyResults();
-  }, [location.pathname, activePlatform, headerSignature, surveyStatusFilter, selectedSurveyBusiness, selectedSurveyLocation]);
+   useEffect(() => {
+     if (location.pathname !== "/surveys") return;
+     loadSurveyResults();
+   }, [location.pathname, activePlatform, surveyStatusFilter, selectedSurveyBusiness, selectedSurveyLocation]);
 
-  useEffect(() => {
-    if (location.pathname !== "/planned") return;
-    loadPlannedVisits();
-  }, [location.pathname, activePlatform, headerSignature]);
+   useEffect(() => {
+     if (location.pathname !== "/planned") return;
+     loadPlannedVisits();
+   }, [location.pathname, activePlatform]);
 
   useEffect(() => {
     if (location.pathname !== "/actions") return;
@@ -1156,23 +1368,23 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     });
   }, [yesNoBarChartData]);
 
-  // Load representatives (account executives)
-  useEffect(() => {
-    if (!isB2BPlatform) {
-      setRepresentatives([]);
-      return;
-    }
-    const load = async () => {
-      try {
-      const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/public/account-executives`, { headers });
-      if (!res.ok) return;
-      setRepresentatives(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error("Failed to load representatives", err);
-      }
-    };
-    load();
-  }, [headerSignature, isB2BPlatform, fetchJsonSafe]);
+   // Load representatives (account executives)
+   useEffect(() => {
+     if (!isB2BPlatform) {
+       setRepresentatives([]);
+       return;
+     }
+     const load = async () => {
+       try {
+       const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/public/account-executives`, { headers });
+       if (!res.ok) return;
+       setRepresentatives(Array.isArray(data) ? data : []);
+       } catch (err) {
+         console.error("Failed to load representatives", err);
+       }
+     };
+     load();
+   }, [isB2BPlatform, fetchJsonSafe]);
 
   // Business CRUD handlers
   const handleEditBusiness = (business) => {
@@ -1310,9 +1522,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }
   };
 
-  useEffect(() => {
-    loadBusinesses();
-  }, [headerSignature, isB2BPlatform, fetchJsonSafe]);
+   useEffect(() => {
+     loadBusinesses();
+   }, [isB2BPlatform, fetchJsonSafe]);
 
   useEffect(() => {
     if (!isB2BPlatform) return;
@@ -1520,6 +1732,13 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       </div>
 
       {location.pathname === "/" ? (
+        isInstallationPlatform ? (
+          <InstallationAnalyticsView
+            analytics={installationAnalytics}
+            loading={installationAnalyticsLoading}
+            onRefresh={loadInstallationAnalytics}
+          />
+        ) : (
         <>
           {isB2BPlatform ? (
             <Card className="mb-6">
@@ -1964,6 +2183,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             </div>
           ) : null}
         </>
+        )
       ) : null}
 
       {location.pathname === "/trends" ? (
@@ -2212,7 +2432,201 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         )
       ) : null}
 
-      {location.pathname === "/surveys" || location.pathname === "/reports" ? (
+      {location.pathname === "/surveys" && isInstallationPlatform ? (
+        <InstallationSurveyExplorer
+          filters={installationSurveyFilters}
+          onFilterChange={handleInstallationFilterChange}
+          surveys={installationSurveys}
+          loading={installationSurveysLoading}
+          onSearch={() => loadInstallationSurveys()}
+          onReset={resetInstallationSurveyFilters}
+          onView={loadInstallationSurveyDetail}
+          selectedSurvey={selectedInstallationSurvey}
+          onCloseDetails={() => setSelectedInstallationSurvey(null)}
+        />
+      ) : null}
+
+      {location.pathname === "/reports" && isInstallationPlatform ? (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl font-semibold tracking-tight">Installation Reports</CardTitle>
+              <CardDescription>Generate clear, comprehensive reports for installation assessments. Choose a report type and customize the scope below.</CardDescription>
+            </CardHeader>
+          </Card>
+
+          <div className="rounded-lg border bg-muted/20 p-5 space-y-5">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
+                <p className="text-sm text-muted-foreground">Select a report type and define its scope. Then preview, download, or email.</p>
+              </div>
+            </div>
+
+            <section className="rounded-lg border bg-card p-4">
+              <div className="mb-3">
+                <p className="text-sm font-semibold tracking-tight">1) Select Report Type</p>
+                <p className="text-xs text-muted-foreground">Pick the report format you need.</p>
+              </div>
+              {/* Mobile: horizontal scroll pills */}
+              <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
+                {INSTALL_REPORT_TYPE_OPTIONS.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => {
+                      setInstallReportType(option.key);
+                      setInstallReportSurveyId("");
+                      setInstallReportPreview(null);
+                      setInstallReportPreviewHtml("");
+                    }}
+                    className={cn(
+                      "shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
+                      installReportType === option.key
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {/* Desktop: card grid */}
+              <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {INSTALL_REPORT_TYPE_OPTIONS.map((option) => (
+                  <Card key={option.key} className="h-full min-w-0 overflow-visible">
+                    <CardHeader>
+                      <CardTitle className="text-base">{option.label}</CardTitle>
+                      <CardDescription>{option.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex min-h-[8rem] flex-col gap-3">
+                      <Button
+                        type="button"
+                        className="mt-auto w-full"
+                        variant={installReportType === option.key ? "default" : "outline"}
+                        onClick={() => {
+                          setInstallReportType(option.key);
+                          setInstallReportSurveyId("");
+                          setInstallReportPreview(null);
+                          setInstallReportPreviewHtml("");
+                        }}
+                      >
+                        {installReportType === option.key ? "Selected" : `Use ${option.label}`}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-lg border bg-background p-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold tracking-tight">2) Define Report Scope</p>
+                {installReportType === "lifetime" ? (
+                  <p className="text-xs text-muted-foreground">Lifetime Summary uses all installation data. Optionally filter by date range.</p>
+                ) : installReportType === "survey" ? (
+                  <p className="text-xs text-muted-foreground">Select a single installation survey to generate a detailed report.</p>
+                ) : null}
+              </div>
+
+              {installReportType === "lifetime" ? (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date (optional)</label>
+                    <Input type="date" value={installReportDateFrom} onChange={(e) => setInstallReportDateFrom(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">To Date (optional)</label>
+                    <Input type="date" value={installReportDateTo} onChange={(e) => setInstallReportDateTo(e.target.value)} />
+                  </div>
+                </div>
+              ) : null}
+
+              {installReportType === "survey" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" onClick={loadInstallationReportSurveyList} disabled={installReportSurveyListLoading}>
+                      {installReportSurveyListLoading ? "Loading..." : "Refresh Survey List"}
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      {installReportSurveyListLoading ? "Loading..." : `${installReportSurveyList.length} surveys available`}
+                    </span>
+                  </div>
+                  <Select value={installReportSurveyId} onChange={(e) => setInstallReportSurveyId(e.target.value)}>
+                    <option value="">Select a survey</option>
+                    {installReportSurveyList.map((survey) => (
+                      <option key={survey.survey_id} value={survey.survey_id}>
+                        {survey.customer_name} | {survey.location} | {survey.date_work_done} (Score: {survey.overall_score?.toFixed(1)})
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="rounded-lg border bg-background p-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold tracking-tight">3) Deliver Report</p>
+                <p className="text-xs text-muted-foreground">Preview the report, download as HTML, or send by email.</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {(installReportType === "lifetime" || installReportType === "survey") && (
+                  <>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Email Recipients (comma separated)</label>
+                      <Input
+                        placeholder="manager@example.com"
+                        value={installReportEmailTo}
+                        onChange={(e) => setInstallReportEmailTo(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={handleInstallationPreviewReport} disabled={installReportLoading}>
+                  {installReportLoading ? "Generating..." : "Preview Report"}
+                </Button>
+                <Button type="button" variant="outline" onClick={handleInstallationDownloadReport} disabled={!installReportPreviewHtml}>Download HTML</Button>
+                <Button type="button" onClick={handleInstallationEmailReport} disabled={installReportSending}>
+                  {installReportSending ? "Sending..." : "Email Report"}
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => {
+                  setInstallReportType("lifetime");
+                  setInstallReportDateFrom("");
+                  setInstallReportDateTo("");
+                  setInstallReportSurveyId("");
+                  setInstallReportEmailTo("");
+                  setInstallReportPreview(null);
+                  setInstallReportPreviewHtml("");
+                  setInstallReportSurveyList([]);
+                }}>Clear</Button>
+              </div>
+              {installReportPreview && (
+                <div className="mt-4 space-y-3 rounded-md border bg-background p-3">
+                  <p className="text-sm font-semibold">Report Preview Summary</p>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Total Surveys</p><p className="text-lg font-semibold">{installReportPreview.summary?.total_surveys ?? 0}</p></div>
+                    <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall Average</p><p className="text-lg font-semibold">{installReportPreview.summary?.overall_average_score?.toFixed(2) ?? "--"}</p></div>
+                    <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Categories</p><p className="text-lg font-semibold">{installReportPreview.category_averages?.length ?? 0}</p></div>
+                    {installReportPreview.survey_detail && (
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Survey Score</p><p className="text-lg font-semibold">{installReportPreview.survey_detail?.overall_score?.toFixed(2) ?? "--"}</p></div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Scoring Range: {installReportPreview.scoring_range || "1-5"}</p>
+                  {installReportPreviewHtml ? (
+                    <div className="rounded-md border">
+                      <iframe title="Report Preview" srcDoc={installReportPreviewHtml} className="h-[720px] w-full rounded-md bg-white" />
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      ) : null}
+
+      {(location.pathname === "/surveys" || location.pathname === "/reports") && !isInstallationPlatform ? (
         <div className="space-y-6">
           <Card>
             <CardHeader>

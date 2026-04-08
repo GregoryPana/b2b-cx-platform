@@ -121,9 +121,9 @@ if ($BuildSurveys) {
     New-Item -ItemType Directory -Force -Path (Join-Path $ReleaseRoot "frontends" "internal-surveys" "b2b") | Out-Null
     Copy-Item (Join-Path $RepoRoot "frontend" "survey" "dist") (Join-Path $ReleaseRoot "frontends" "internal-surveys" "b2b" "dist") -Recurse -Force
 
-    Build-Frontend -AppPath (Join-Path $RepoRoot "frontend" "survey") -BasePath "/surveys/installation/"
+    Build-Frontend -AppPath (Join-Path $RepoRoot "frontend" "installation-survey") -BasePath "/surveys/installation/"
     New-Item -ItemType Directory -Force -Path (Join-Path $ReleaseRoot "frontends" "internal-surveys" "installation") | Out-Null
-    Copy-Item (Join-Path $RepoRoot "frontend" "survey" "dist") (Join-Path $ReleaseRoot "frontends" "internal-surveys" "installation" "dist") -Recurse -Force
+    Copy-Item (Join-Path $RepoRoot "frontend" "installation-survey" "dist") (Join-Path $ReleaseRoot "frontends" "internal-surveys" "installation" "dist") -Recurse -Force
 }
 
 Write-Host "Collecting backend and deployment files..." -ForegroundColor Cyan

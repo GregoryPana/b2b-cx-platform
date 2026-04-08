@@ -14,11 +14,10 @@ trap cleanup EXIT
 build_frontend() {
   local app_path="$1"
   local base_path="$2"
-  local survey_type="${3:-B2B}"
 
   pushd "${app_path}" >/dev/null
   npm ci --no-audit --no-fund
-  VITE_API_URL="/api" VITE_BASE_PATH="${base_path}" VITE_SURVEY_TYPE="${survey_type}" npm run build
+  VITE_API_URL="/api" VITE_BASE_PATH="${base_path}" npm run build
   if [[ ! -f "dist/index.html" ]]; then
     echo "Missing build output: ${app_path}/dist/index.html"
     exit 1
@@ -37,12 +36,12 @@ echo "Building dashboard frontend..."
 build_frontend "${REPO_ROOT}/frontend/dashboard-blueprint" "/dashboard/"
 
 echo "Building B2B survey frontend..."
-build_frontend "${REPO_ROOT}/frontend/survey" "/surveys/b2b/" "B2B"
+build_frontend "${REPO_ROOT}/frontend/survey" "/surveys/b2b/"
 cp -r "${REPO_ROOT}/frontend/survey/dist" "${RELEASE_ROOT}/frontends/internal-surveys/b2b/dist"
 
 echo "Building installation survey frontend..."
-build_frontend "${REPO_ROOT}/frontend/survey" "/surveys/installation/" "Installation Assessment"
-cp -r "${REPO_ROOT}/frontend/survey/dist" "${RELEASE_ROOT}/frontends/internal-surveys/installation/dist"
+build_frontend "${REPO_ROOT}/frontend/installation-survey" "/surveys/installation/"
+cp -r "${REPO_ROOT}/frontend/installation-survey/dist" "${RELEASE_ROOT}/frontends/internal-surveys/installation/dist"
 
 cp -r "${REPO_ROOT}/frontend/dashboard-blueprint/dist" "${RELEASE_ROOT}/frontends/dashboard/dist"
 

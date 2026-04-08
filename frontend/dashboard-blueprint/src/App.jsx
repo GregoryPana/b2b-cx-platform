@@ -185,13 +185,20 @@ function MsalAuthenticatedApp() {
           throw new Error(`Profile endpoint returned non-JSON response (${res.status}). ${rawText.slice(0, 120)}`);
         }
 
-        if (res.status === 401 && accounts[0]) {
-          const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
-          if (result?.accessToken) {
-            setAccessToken(result.accessToken);
-            return;
-          }
-        }
+         if (res.status === 401 && accounts[0]) {
+           try {
+             const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
+             if (result?.accessToken) {
+               setAccessToken(result.accessToken);
+               return;
+             }
+           } catch (refreshError) {
+             if (refreshError instanceof InteractionRequiredAuthError) {
+               instance.acquireTokenRedirect(loginRequest);
+               return;
+             }
+           }
+         }
 
         if (!res.ok) {
           throw new Error(data?.detail || `Failed to load profile (${res.status})`);

@@ -174,20 +174,17 @@ if optional_frontend_dist "${BUNDLE_ROOT}/frontends/public/mystery-shopper/dist"
   rsync -a --delete "${BUNDLE_ROOT}/frontends/public/mystery-shopper/dist/" "${TARGET_ROOT}/frontends-src/public/mystery-shopper/dist/"
 fi
 
-if optional_frontend_dist "${BUNDLE_ROOT}/frontends/dashboard/dist" "dashboard"; then
-  rm -rf "${TARGET_ROOT}/frontends-src/dashboard/dist"
-  rsync -a "${BUNDLE_ROOT}/frontends/dashboard/dist/" "${TARGET_ROOT}/frontends-src/dashboard/dist/"
-fi
+require_frontend_dist "${BUNDLE_ROOT}/frontends/dashboard/dist" "dashboard"
+rm -rf "${TARGET_ROOT}/frontends-src/dashboard/dist"
+rsync -a "${BUNDLE_ROOT}/frontends/dashboard/dist/" "${TARGET_ROOT}/frontends-src/dashboard/dist/"
 
-if optional_frontend_dist "${BUNDLE_ROOT}/frontends/internal-surveys/b2b/dist" "internal-surveys/b2b"; then
-  rm -rf "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist"
-  rsync -a "${BUNDLE_ROOT}/frontends/internal-surveys/b2b/dist/" "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist/"
-fi
+require_frontend_dist "${BUNDLE_ROOT}/frontends/internal-surveys/b2b/dist" "internal-surveys/b2b"
+rm -rf "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist"
+rsync -a "${BUNDLE_ROOT}/frontends/internal-surveys/b2b/dist/" "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist/"
 
-if optional_frontend_dist "${BUNDLE_ROOT}/frontends/internal-surveys/installation/dist" "internal-surveys/installation"; then
-  rm -rf "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist"
-  rsync -a "${BUNDLE_ROOT}/frontends/internal-surveys/installation/dist/" "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist/"
-fi
+require_frontend_dist "${BUNDLE_ROOT}/frontends/internal-surveys/installation/dist" "internal-surveys/installation"
+rm -rf "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist"
+rsync -a "${BUNDLE_ROOT}/frontends/internal-surveys/installation/dist/" "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist/"
 
 mkdir -p "${TARGET_ROOT}/scripts/linux"
 rsync -a --delete "${BUNDLE_ROOT}/scripts/linux/" "${TARGET_ROOT}/scripts/linux/"

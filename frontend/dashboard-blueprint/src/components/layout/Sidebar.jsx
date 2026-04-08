@@ -7,22 +7,23 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
-  const items = [
-    { to: "/", label: "Analytics", icon: ChartPie },
-    ...(isB2BPlatform ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
-    { to: "/trends", label: "Trends", icon: ChartLine },
-    { to: "/review", label: "Review", icon: ScanEye },
-    ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: MessageSquareWarning }] : []),
-    { to: "/surveys", label: "Surveys", icon: LayoutList },
-    ...(isB2BPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
-    ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
-    ...(isMysteryShopperPlatform
-      ? [
-          { to: "/locations", label: "Locations", icon: Building2 },
-          { to: "/purposes", label: "Purposes", icon: FileChartLine },
-        ]
-      : []),
-  ];
+  const isInstallationPlatform = normalizedPlatform.includes("installation");
+   const items = [
+     { to: "/", label: "Analytics", icon: ChartPie },
+     ...(isB2BPlatform ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
+     ...(!isInstallationPlatform ? [{ to: "/trends", label: "Trends", icon: ChartLine }] : []),
+     ...(!isInstallationPlatform ? [{ to: "/review", label: "Review", icon: ScanEye }] : []),
+     ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: MessageSquareWarning }] : []),
+     ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/surveys", label: "Surveys", icon: LayoutList }] : []),
+     ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
+     ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
+     ...(isMysteryShopperPlatform
+       ? [
+           { to: "/locations", label: "Locations", icon: Building2 },
+           { to: "/purposes", label: "Purposes", icon: FileChartLine },
+         ]
+       : []),
+   ];
 
   return (
     <>

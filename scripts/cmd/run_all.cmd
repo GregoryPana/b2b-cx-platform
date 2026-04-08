@@ -13,10 +13,11 @@ if errorlevel 1 (
 
 echo.
 echo Startup completed via PowerShell orchestration.
-echo Backend:   http://localhost:8001
-echo Dashboard: http://localhost:5175
-echo Survey:    http://localhost:5176
-echo Mystery:   http://localhost:5177
+echo Backend:      http://localhost:8001
+echo Dashboard:    http://localhost:5185
+echo Survey:       http://localhost:5176
+echo Mystery:      http://localhost:5177
+echo Installation: http://localhost:5181
 
 endlocal
 exit /b 0

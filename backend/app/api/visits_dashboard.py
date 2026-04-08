@@ -1165,6 +1165,8 @@ def build_report_payload(
                     "question_text": item.get("question_text"),
                     "average_score": average_score,
                     "response_count": response_count,
+                    "score_min": item.get("score_min"),
+                    "score_max": item.get("score_max"),
                 }
             )
 
@@ -1283,6 +1285,8 @@ def build_report_payload(
                         q.category,
                         q.question_text,
                         q.input_type,
+                        q.score_min,
+                        q.score_max,
                         r.score,
                         r.answer_text,
                         r.verbatim,
@@ -1294,9 +1298,9 @@ def build_report_payload(
                     """
                 ),
                 {"visit_id": effective_visit_id},
-            ).fetchall()
+            ).mappings().all()
             for row in response_rows:
-                raw_actions = row[8] if len(row) > 8 else []
+                raw_actions = row.get("actions")
                 if isinstance(raw_actions, str):
                     try:
                         raw_actions = json.loads(raw_actions)
@@ -1304,14 +1308,16 @@ def build_report_payload(
                         raw_actions = []
                 survey_question_details.append(
                     {
-                        "question_id": row[0],
-                        "question_number": row[1],
-                        "category": row[2] or "Uncategorized",
-                        "question_text": row[3],
-                        "input_type": row[4],
-                        "score": row[5],
-                        "answer_text": row[6],
-                        "verbatim": row[7],
+                        "question_id": row["question_id"],
+                        "question_number": row["question_number"],
+                        "category": row["category"] or "Uncategorized",
+                        "question_text": row["question_text"],
+                        "input_type": row["input_type"],
+                        "score_min": row["score_min"],
+                        "score_max": row["score_max"],
+                        "score": row["score"],
+                        "answer_text": row["answer_text"],
+                        "verbatim": row["verbatim"],
                         "actions": raw_actions if isinstance(raw_actions, list) else [],
                     }
                 )
@@ -1608,24 +1614,75 @@ def render_report_html(payload: dict, generated_by: str) -> str:
                 if include_overall
                 else ""
             )
-            + f"<td>{int(row.get('question_count') or 0)}</td></tr>"
+            + "</tr>"
         )
         for row in category_comparison
     )
 
-    category_detail_blocks = "".join(
-        (
-            f"<div class='card'><div class='label'>{row.get('category') or '--'} (Selected Scope)</div>"
-            f"<div class='table-wrap'><table><thead><tr><th>Question</th><th>Average</th><th>Responses</th></tr></thead><tbody>"
-            + "".join(
-                f"<tr><td>Q{int(question.get('question_number') or 0)} - {question.get('question_text') or '--'}</td>"
-                f"<td>{format_metric(question.get('average_score'))}</td><td>{int(question.get('response_count') or 0)}</td></tr>"
-                for question in list(row.get("questions") or [])
+    def score_color(score, score_max):
+        """Return color for score based on thresholds. Assumes score and max are numeric."""
+        try:
+            s = float(score)
+            m = float(score_max) if score_max is not None else 10
+            # Normalize to 0-10 scale for thresholds
+            if m != 10:
+                s = (s / m) * 10
+                m = 10
+            # Now s is 0-10
+            if s >= 9:
+                return "#22c55e"  # green-500 excellent
+            if s >= 7:
+                return "#84cc16"  # lime-500 good
+            if s >= 5:
+                return "#f59e0b"  # amber-500 fail
+            return "#ef4444"  # red-500 critical fail
+        except:
+            return None
+
+    category_detail_blocks = ""
+    for row in category_comparison:
+        questions = list(row.get("questions") or [])
+        rows_html_parts = []
+        for q in questions:
+            qnum = int(q.get('question_number') or 0)
+            qtext = q.get('question_text') or '--'
+            avg = q.get('average_score')
+            score_max = q.get('score_max')
+            color = score_color(avg, score_max)
+            # Build cell: if color, show colored badge
+            if color:
+                avg_display = format_metric(avg)
+                avg_cell = f"<span style='display:inline-block;min-width:60px;text-align:right;margin-right:8px;font-weight:600;color:{color}'>{avg_display}</span>"
+            else:
+                avg_cell = format_metric(avg)
+            rows_html_parts.append(
+                f"<tr>"
+                f"<td>Q{qnum}: {qtext}</td>"
+                f"<td>{avg_cell}</td>"
+                f"</tr>"
             )
+        table_body = "".join(rows_html_parts)
+        category_detail_blocks += (
+            f"<div class='card'><div class='label'>{row.get('category') or '--'} (Selected Scope)</div>"
+            f"<div class='table-wrap'><table><thead><tr><th>Question</th><th>Average</th></tr></thead><tbody>"
+            + table_body
             + "</tbody></table></div></div>"
+         )
+
+    # Generate horizontal bar visualization for category averages
+    category_bars = ""
+    for row in category_comparison:
+        cat = row.get('category') or '--'
+        avg = float(row.get('selected_average_score') or 0)
+        color = score_color(avg, 10)  # assume 10 as max for normalization
+        width = min(100, max(0, (avg / 10) * 100))
+        category_bars += (
+            f"<div class='bar-row'>"
+            f"<div class='bar-label'>{cat}</div>"
+            f"<div class='bar-track'><div class='bar-fill' style='width:{width}%;background:{color}'></div></div>"
+            f"<div class='bar-value' style='color:{color}'>{format_metric(avg)}</div>"
+            f"</div>"
         )
-        for row in category_comparison
-    )
 
     action_rows = "".join(
         (
@@ -1667,17 +1724,45 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 
         rendered = []
         for category_name in sorted(category_map.keys()):
-            rows_html = "".join(
-                (
-                    f"<tr><td>Q{int(row.get('question_number') or 0)}</td><td>{row.get('question_text') or '--'}</td>"
-                    f"<td>{format_metric(row.get('score')) if row.get('score') is not None else (row.get('answer_text') or '--')}</td>"
-                    f"<td>{row.get('verbatim') or '--'}</td></tr>"
+            rows = []
+            for row in category_map[category_name]:
+                qnum = int(row.get('question_number') or 0)
+                qtext = row.get('question_text') or '--'
+                score = row.get('score')
+                score_min = row.get('score_min')
+                score_max = row.get('score_max')
+                answer_text = row.get('answer_text') or '--'
+                verbatim = row.get('verbatim') or '--'
+
+                # Determine answer display with range if score is numeric
+                if score is not None:
+                    if score_max is not None:
+                        try:
+                            score_val = float(score)
+                            max_val = float(score_max)
+                            if score_val.is_integer() and max_val.is_integer():
+                                answer_display = f"{int(score_val)} / {int(max_val)}"
+                            else:
+                                answer_display = f"{score_val:.1f} / {max_val:.1f}"
+                        except Exception:
+                            answer_display = f"{score} / {score_max}"
+                    else:
+                        answer_display = format_metric(score)
+                else:
+                    answer_display = answer_text
+
+                rows.append(
+                    f"<tr>"
+                    f"<td>Q{qnum}</td>"
+                    f"<td>{qtext}</td>"
+                    f"<td>{answer_display}</td>"
+                    f"<td>{verbatim}</td>"
+                    f"</tr>"
                 )
-                for row in category_map[category_name]
-            )
+            table_body = "".join(rows)
             rendered.append(
                 f"<div class='card'><div class='label'>{category_name}</div>"
-                f"<div class='table-wrap'><table><thead><tr><th>Question</th><th>Prompt</th><th>Answer</th><th>Verbatim</th></tr></thead><tbody>{rows_html}</tbody></table></div></div>"
+                f"<div class='table-wrap'><table><thead><tr><th>Question</th><th>Prompt</th><th>Answer (Range)</th><th>Verbatim</th></tr></thead><tbody>{table_body}</tbody></table></div></div>"
             )
         survey_detail_blocks = "".join(rendered)
 
@@ -1931,13 +2016,19 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     {yes_no_cards or '<div class="card"><p class="label">No yes/no analytics in current scope.</p></div>'}
   </div>
 
-  <h2>Category Breakdown</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Category</th><th>Selected Avg</th>{'<th>Overall Avg</th><th>Delta</th>' if include_overall else ''}<th>Questions</th></tr></thead>
-    <tbody>{category_rows or f'<tr><td colspan="{5 if include_overall else 3}">No category score data</td></tr>'}</tbody>
-  </table></div>
+   <h2>Category Breakdown</h2>
+   <div class="table-wrap"><table>
+     <thead><tr><th>Category</th><th>Selected Avg</th>{'<th>Overall Avg</th><th>Delta</th>' if include_overall else ''}</tr></thead>
+     <tbody>{category_rows or f'<tr><td colspan="{4 if include_overall else 2}">No category score data</td></tr>'}</tbody>
+   </table></div>
 
-  <h2>Category Question Details (Selected Scope)</h2>
+   <h2>Category Score Overview</h2>
+   <div class="card">
+     <div class="label">Selected Scope Averages</div>
+     {category_bars or '<p class="label">No category score data</p>'}
+   </div>
+
+   <h2>Category Question Details (Selected Scope)</h2>
   <div class=\"viz-grid\">
     {category_detail_blocks or '<div class="card"><p class="label">No category question details available.</p></div>'}
   </div>
@@ -1961,8 +2052,11 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   <div class="table-wrap"><table>
     <thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Average Score</th></tr></thead>
     <tbody>{visit_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
-  </table></div>
-  </div>
+   </table></div>
+   <p class="label" style="margin-top:12px;font-size:12px;color:#64748b;">
+     Note: Scoring ranges vary by question. Answers are displayed as "score / max" (e.g., 7 / 10 indicates a score of 7 out of a possible 10). Most questions use a 1-10 scale; NPS questions use 0-10.
+   </p>
+   </div>
 </body>
 </html>
 """

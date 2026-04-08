@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path "$PSScriptRoot/../.."
 $Scripts = Join-Path $Root "scripts/powershell"
 $ComposeFile = Join-Path $Root "docker-compose.dev.yml"
-$Ports = @(8001, 5185, 5176, 5177)
+$Ports = @(8001, 5185, 5176, 5177, 5181)
 
 function Stop-ExistingPortListeners {
   param([int[]]$TargetPorts)
@@ -53,7 +53,7 @@ function Start-ServiceWindow {
   Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-File", $ScriptPath | Out-Null
 }
 
-Write-Host "Starting all services (DB + backend + dashboard + survey + mystery shopper)..."
+Write-Host "Starting all services (DB + backend + dashboard + surveys + mystery shopper)..."
 Set-Location $Root
 
 Stop-ExistingPortListeners -TargetPorts $Ports
@@ -81,6 +81,7 @@ $backendScript = Join-Path $Scripts "run_backend.ps1"
 $dashboardScript = Join-Path $Scripts "run_dashboard.ps1"
 $surveyScript = Join-Path $Scripts "run_survey.ps1"
 $mysteryScript = Join-Path $Scripts "run_mystery_shopper.ps1"
+$installationScript = Join-Path $Scripts "run_installation_dashboard.ps1"
 
 Write-Host "Launching backend..."
 Start-ServiceWindow -ScriptPath $backendScript
@@ -92,17 +93,20 @@ Write-Host "Launching frontends..."
 Start-ServiceWindow -ScriptPath $dashboardScript
 Start-ServiceWindow -ScriptPath $surveyScript
 Start-ServiceWindow -ScriptPath $mysteryScript
+Start-ServiceWindow -ScriptPath $installationScript
 
 $dashboardReady = Wait-ForHttp -Url "http://127.0.0.1:5185" -MaxAttempts 45 -DelaySeconds 1
 $surveyReady = Wait-ForHttp -Url "http://127.0.0.1:5176" -MaxAttempts 45 -DelaySeconds 1
 $mysteryReady = Wait-ForHttp -Url "http://127.0.0.1:5177" -MaxAttempts 45 -DelaySeconds 1
+$installationReady = Wait-ForHttp -Url "http://127.0.0.1:5181" -MaxAttempts 45 -DelaySeconds 1
 
 Write-Host "All service windows launched."
-Write-Host "Backend:   http://127.0.0.1:8001"
-Write-Host "Dashboard: http://127.0.0.1:5185"
-Write-Host "Survey:    http://127.0.0.1:5176"
-Write-Host "Mystery:   http://127.0.0.1:5177"
+Write-Host "Backend:      http://127.0.0.1:8001"
+Write-Host "Dashboard:    http://127.0.0.1:5185"
+Write-Host "Survey:       http://127.0.0.1:5176"
+Write-Host "Mystery:      http://127.0.0.1:5177"
+Write-Host "Installation: http://127.0.0.1:5181"
 
-if (-not ($dashboardReady -and $surveyReady -and $mysteryReady)) {
+if (-not ($dashboardReady -and $surveyReady -and $mysteryReady -and $installationReady)) {
   Write-Host "One or more frontend health checks did not complete in time. Check spawned terminal windows for errors."
 }
