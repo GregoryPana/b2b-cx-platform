@@ -64,6 +64,8 @@ type DraftVisit = {
   mandatory_total_count?: number;
   is_started?: boolean;
   is_completed?: boolean;
+  account_executive_name?: string;
+  team_member_names?: string[];
 };
 
 type ActionItem = {
@@ -125,6 +127,39 @@ function categoryToId(value: string) {
   return `category-${String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
 }
 
+function getScoreRangeLabel(question: Question) {
+  if (question.input_type !== "score") return "";
+  const min = question.score_min ?? 0;
+  const max = question.score_max ?? 10;
+  return `${min}-${max}`;
+}
+
+function normalizeScoreInput(value: string) {
+  return value.replace(/[^0-9]/g, "");
+}
+
+function getScoreValidationMessage(question: Question, scoreValue: string) {
+  if (question.input_type !== "score") return "";
+  if (scoreValue === "") return "";
+  const min = question.score_min ?? 0;
+  const max = question.score_max ?? 10;
+  const parsed = Number(scoreValue);
+  if (!Number.isFinite(parsed)) return `Enter a number from ${min} to ${max}.`;
+  if (parsed < min || parsed > max) return `Score must be between ${min} and ${max}.`;
+  return "";
+}
+
+function normalizeTeamMemberNames(values: string[]) {
+  const normalized: string[] = [];
+  values.forEach((value) => {
+    const trimmed = String(value || "").trim();
+    if (trimmed && !normalized.includes(trimmed)) {
+      normalized.push(trimmed);
+    }
+  });
+  return normalized;
+}
+
 export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspacePageProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -155,6 +190,8 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     representative_id: userId,
     visit_date: "",
     visit_type: "Planned",
+    account_executive_name: "",
+    team_member_names: [""],
   });
   const animationRef = useRef<HTMLDivElement | null>(null);
 
@@ -308,6 +345,14 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       email: data.submitted_by_email || "",
       submitted_at: data.submitted_at || "",
     });
+    setVisitForm((prev) => ({
+      ...prev,
+      business_id: data.business_id ? String(data.business_id) : prev.business_id,
+      visit_date: data.visit_date || prev.visit_date,
+      visit_type: data.visit_type || prev.visit_type,
+      account_executive_name: data.account_executive_name || "",
+      team_member_names: Array.isArray(data.team_member_names) && data.team_member_names.length > 0 ? data.team_member_names : [""],
+    }));
   };
 
   const resolveBusinessName = (draft: DraftVisit) => {
@@ -367,7 +412,13 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
         const res = await fetch(`${API_BASE}/dashboard-visits/${selectedDraftId}/draft?_cb=${Date.now()}`, {
           method: "PUT",
           headers,
-          body: JSON.stringify({ representative_id: Number(userId), visit_date: visitForm.visit_date, visit_type: visitForm.visit_type }),
+          body: JSON.stringify({
+            representative_id: Number(userId),
+            visit_date: visitForm.visit_date,
+            visit_type: visitForm.visit_type,
+            account_executive_name: visitForm.account_executive_name.trim() || null,
+            team_member_names: normalizeTeamMemberNames(visitForm.team_member_names),
+          }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -396,7 +447,9 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
         visit_date: visitForm.visit_date,
         visit_type: visitForm.visit_type,
         survey_type: SURVEY_TYPE,
-        meeting_attendees: [],
+        account_executive_name: visitForm.account_executive_name.trim() || null,
+        team_member_names: normalizeTeamMemberNames(visitForm.team_member_names),
+        meeting_attendees: normalizeTeamMemberNames(visitForm.team_member_names).map((name) => ({ name, role: "Team Member" })),
       };
       const res = await fetch(`${API_BASE}/dashboard-visits?_cb=${Date.now()}`, { method: "POST", headers, body: JSON.stringify(payload) });
       const data = await res.json();
@@ -423,6 +476,25 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
         [field]: value,
       },
     }));
+  };
+
+  const updateVisitTeamMember = (index: number, value: string) => {
+    setVisitForm((prev) => {
+      const next = [...prev.team_member_names];
+      next[index] = value;
+      return { ...prev, team_member_names: next };
+    });
+  };
+
+  const addVisitTeamMember = () => {
+    setVisitForm((prev) => ({ ...prev, team_member_names: [...prev.team_member_names, ""] }));
+  };
+
+  const removeVisitTeamMember = (index: number) => {
+    setVisitForm((prev) => {
+      const next = prev.team_member_names.filter((_, itemIndex) => itemIndex !== index);
+      return { ...prev, team_member_names: next.length > 0 ? next : [""] };
+    });
   };
 
   const addActionItem = (questionId: number) => {
@@ -645,6 +717,12 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                   : "Not submitted yet"}
               </p>
               {submissionSignature.submitted_at ? <p className="text-xs text-muted-foreground">Submitted at: {submissionSignature.submitted_at}</p> : null}
+            </div>
+            <div className="rounded-md bg-muted p-3 md:col-span-3">
+              <p className="text-xs text-muted-foreground">Account Executive</p>
+              <p className="font-semibold">{visitForm.account_executive_name || "Not captured yet"}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Team Member Names</p>
+              <p className="font-semibold">{normalizeTeamMemberNames(visitForm.team_member_names).join(", ") || "Not captured yet"}</p>
             </div>
           </CardContent>
         </Card>
@@ -890,6 +968,44 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                     <option value="Substitution">Substitution</option>
                   </Select>
                 </div>
+                <div className="md:col-span-2 lg:col-span-4">
+                  <label className="mb-1 block text-sm font-medium">Account Executive</label>
+                  <Input
+                    value={visitForm.account_executive_name}
+                    onChange={(event) => setVisitForm((prev) => ({ ...prev, account_executive_name: event.target.value }))}
+                    placeholder="Enter the account executive for this business"
+                  />
+                </div>
+                <div className="md:col-span-2 lg:col-span-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <label className="block text-sm font-medium">Team Member Names</label>
+                      <p className="text-xs text-muted-foreground">Add every team member who took part in this survey for audit visibility.</p>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={addVisitTeamMember}>
+                      Add Team Member
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {visitForm.team_member_names.map((memberName, index) => (
+                      <div key={`team-member-${index}`} className="flex gap-2">
+                        <Input
+                          value={memberName}
+                          onChange={(event) => updateVisitTeamMember(index, event.target.value)}
+                          placeholder={`Team member ${index + 1}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => removeVisitTeamMember(index)}
+                          disabled={visitForm.team_member_names.length === 1 && !visitForm.team_member_names[0].trim()}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
               <Button className="w-full sm:w-auto" onClick={handleCreateVisit} disabled={isCreatingVisit || !visitForm.visit_date}>
                 {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Prepare Visit
@@ -941,6 +1057,8 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                               const draft = responseDrafts[question.id] || { ...emptyDraft };
                               const choices = parseChoices(question);
                               const saving = savingQuestionId === question.id;
+                              const scoreRangeLabel = getScoreRangeLabel(question);
+                              const scoreValidationMessage = getScoreValidationMessage(question, draft.score);
                               return (
                                 <Card key={question.id}>
                                   <CardHeader>
@@ -948,19 +1066,27 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                     <CardDescription>
                                       <span className="inline-flex gap-2">
                                         <Badge variant="secondary">{question.input_type}</Badge>
+                                        {scoreRangeLabel ? <Badge variant="outline">Score range: {scoreRangeLabel}</Badge> : null}
                                         {question.is_mandatory ? <Badge variant="warning">Required</Badge> : null}
                                       </span>
                                     </CardDescription>
                                   </CardHeader>
                                   <CardContent className="space-y-4">
                                     {question.input_type === "score" ? (
-                                      <Input
-                                        type="number"
-                                        min={question.score_min ?? 0}
-                                        max={question.score_max ?? 10}
-                                        value={draft.score}
-                                        onChange={(event) => updateQuestionDraft(question.id, "score", event.target.value)}
-                                      />
+                                      <div className="space-y-2">
+                                        <Input
+                                          type="number"
+                                          inputMode="numeric"
+                                          min={question.score_min ?? 0}
+                                          max={question.score_max ?? 10}
+                                          value={draft.score}
+                                          onChange={(event) => updateQuestionDraft(question.id, "score", normalizeScoreInput(event.target.value))}
+                                          aria-invalid={scoreValidationMessage ? "true" : "false"}
+                                          className={scoreValidationMessage ? "border-destructive" : undefined}
+                                        />
+                                        <p className="text-xs text-muted-foreground">Enter a whole number in the range {scoreRangeLabel}.</p>
+                                        {scoreValidationMessage ? <p className="text-xs text-destructive">{scoreValidationMessage}</p> : null}
+                                      </div>
                                     ) : question.input_type === "yes_no" ? (
                                       <div className="flex gap-2">
                                         <Button variant={normalizeYesNo(draft.answer_text) === "Y" ? "default" : "outline"} onClick={() => updateQuestionDraft(question.id, "answer_text", "Y")}>Yes</Button>
@@ -1020,9 +1146,9 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                       ))}
                                     </div>
 
-                                     <Button className="w-full sm:w-auto" onClick={() => handleSaveQuestionResponse(question)} disabled={saving}>
-                                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Response
-                                    </Button>
+                                     <Button className="w-full sm:w-auto" onClick={() => handleSaveQuestionResponse(question)} disabled={saving || Boolean(scoreValidationMessage)}>
+                                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Response
+                                     </Button>
                                   </CardContent>
                                 </Card>
                               );

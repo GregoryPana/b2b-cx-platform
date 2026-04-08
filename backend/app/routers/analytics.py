@@ -748,6 +748,92 @@ def get_yes_no_question_analytics(
         raise HTTPException(status_code=500, detail=f"Failed to load yes/no analytics: {e}")
 
 
+@router.get("/account-executives/yes-no-trends")
+def get_account_executive_yes_no_trends(
+    survey_type: str | None = None,
+    business_ids: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Get Q4/Q6 yes rates grouped by captured account executive name."""
+    try:
+        survey_type_id = resolve_survey_type_id(db, survey_type)
+        response_table = "b2b_visit_responses" if has_table(db, "b2b_visit_responses") else "responses"
+        if not has_table(db, response_table) or not has_column(db, "visits", "account_executive_name"):
+            return {"items": []}
+
+        has_question_number, has_order_index, has_question_key = detect_question_columns(db)
+        if has_question_number:
+            number_select = "q.question_number AS question_number"
+            order_expr = "q.question_number"
+        elif has_order_index:
+            number_select = "q.order_index AS question_number"
+            order_expr = "q.order_index"
+        else:
+            number_select = "q.id AS question_number"
+            order_expr = "q.id"
+
+        where_extra = " AND COALESCE(v.account_executive_name, '') <> ''"
+        params: dict[str, Any] = {}
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+
+        if survey_type_id is not None and has_visit_survey_type:
+            where_extra += " AND v.survey_type_id = :survey_type_id"
+            params["survey_type_id"] = survey_type_id
+
+        business_id_values = parse_business_ids(business_ids)
+        if business_id_values:
+            placeholders = []
+            for idx, value in enumerate(business_id_values):
+                key = f"business_id_{idx}"
+                placeholders.append(f":{key}")
+                params[key] = value
+            where_extra += f" AND v.business_id IN ({','.join(placeholders)})"
+
+        if date_from:
+            where_extra += " AND v.visit_date >= :date_from"
+            params["date_from"] = date_from
+        if date_to:
+            where_extra += " AND v.visit_date <= :date_to"
+            params["date_to"] = date_to
+
+        rows = db.execute(text(f"""
+            SELECT
+                v.account_executive_name,
+                {number_select},
+                q.question_text,
+                COUNT(*) AS total_count,
+                COUNT(CASE WHEN lower(COALESCE(r.answer_text, '')) IN ('y', 'yes') THEN 1 END) AS yes_count
+            FROM {response_table} r
+            JOIN visits v ON r.visit_id = v.id
+            JOIN questions q ON r.question_id = q.id
+            WHERE v.status = 'Approved'
+              AND q.input_type = 'yes_no'
+              AND ({order_expr} = 4 OR {order_expr} = 6)
+              {where_extra}
+            GROUP BY v.account_executive_name, q.question_text, {order_expr}
+            ORDER BY lower(v.account_executive_name), {order_expr}
+        """), params).fetchall()
+
+        items = []
+        for row in rows:
+            total_count = int(row.total_count or 0)
+            yes_count = int(row.yes_count or 0)
+            items.append({
+                "account_executive_name": row.account_executive_name,
+                "question_number": int(row.question_number) if row.question_number is not None else None,
+                "question_text": row.question_text,
+                "yes_count": yes_count,
+                "total_count": total_count,
+                "yes_percent": round((yes_count / total_count) * 100, 2) if total_count else 0.0,
+            })
+
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load account executive yes/no trends: {e}")
+
+
 @router.get("/questions/{question_id}/trend")
 def get_question_trend(
     question_id: int,

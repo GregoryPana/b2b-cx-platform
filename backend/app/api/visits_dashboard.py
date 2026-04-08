@@ -22,6 +22,7 @@ from ..routers.analytics import get_comprehensive_analytics, get_question_averag
 router = APIRouter(prefix="/dashboard-visits", tags=["dashboard-visits"])
 
 _visit_signature_columns_checked = False
+_visit_metadata_columns_checked = False
 
 
 def has_table(db: Session, table_name: str) -> bool:
@@ -146,6 +147,67 @@ def ensure_visit_submission_columns(db: Session) -> None:
     db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_email VARCHAR(255)"))
     db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ"))
     _visit_signature_columns_checked = True
+
+
+def ensure_visit_metadata_columns(db: Session) -> None:
+    global _visit_metadata_columns_checked
+    if _visit_metadata_columns_checked:
+        return
+    if not has_table(db, "visits"):
+        return
+    if not has_column(db, "visits", "account_executive_name"):
+        db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS account_executive_name VARCHAR(255)"))
+    _visit_metadata_columns_checked = True
+
+
+def normalize_team_member_names(values: list | None) -> list[str]:
+    normalized: list[str] = []
+    for item in values or []:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+        else:
+            name = str(item or "").strip()
+        if not name:
+            continue
+        if name not in normalized:
+            normalized.append(name[:200])
+    return normalized
+
+
+def sync_visit_team_members(db: Session, visit_id: str, team_member_names: list[str] | None) -> None:
+    if not has_table(db, "meeting_attendees"):
+        return
+    db.execute(
+        text("DELETE FROM meeting_attendees WHERE visit_id = :visit_id AND role = 'Team Member'"),
+        {"visit_id": visit_id},
+    )
+    for name in normalize_team_member_names(team_member_names):
+        db.execute(
+            text(
+                """
+                INSERT INTO meeting_attendees (visit_id, name, role)
+                VALUES (:visit_id, :name, 'Team Member')
+                """
+            ),
+            {"visit_id": visit_id, "name": name},
+        )
+
+
+def fetch_visit_team_members(db: Session, visit_id: str) -> list[str]:
+    if not has_table(db, "meeting_attendees"):
+        return []
+    rows = db.execute(
+        text(
+            """
+            SELECT name
+            FROM meeting_attendees
+            WHERE visit_id = :visit_id AND role = 'Team Member'
+            ORDER BY id
+            """
+        ),
+        {"visit_id": visit_id},
+    ).fetchall()
+    return [str(row[0]).strip() for row in rows if row and row[0]]
 
 
 def resolve_survey_type_id(
@@ -382,11 +444,14 @@ def create_visit(
     try:
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         actor_user_id = resolve_actor_user_id(db, current_user)
+        ensure_visit_metadata_columns(db)
         # Validate required fields
         business_id = visit_data.get("business_id")
         visit_date = visit_data.get("visit_date")
         survey_type_id = visit_data.get("survey_type_id")
         survey_type = visit_data.get("survey_type")
+        account_executive_name = str(visit_data.get("account_executive_name") or "").strip() or None
+        team_member_names = normalize_team_member_names(visit_data.get("team_member_names") or visit_data.get("meeting_attendees") or [])
         
         if not business_id or not visit_date:
             raise HTTPException(status_code=400, detail="business_id and visit_date are required")
@@ -424,8 +489,8 @@ def create_visit(
             created_visit_id = db.execute(text(
                 """
                 INSERT INTO visits
-                (id, business_id, representative_id, created_by, visit_date, visit_type, status, survey_type_id)
-                VALUES (gen_random_uuid(), :business_id, :rep_id, :created_by, :visit_date, :visit_type, 'Draft', :survey_type_id)
+                (id, business_id, representative_id, created_by, visit_date, visit_type, status, survey_type_id, account_executive_name)
+                VALUES (gen_random_uuid(), :business_id, :rep_id, :created_by, :visit_date, :visit_type, 'Draft', :survey_type_id, :account_executive_name)
                 RETURNING id
                 """
             ), {
@@ -435,13 +500,14 @@ def create_visit(
                 "visit_date": visit_date,
                 "visit_type": visit_data.get("visit_type"),
                 "survey_type_id": survey_type_id,
+                "account_executive_name": account_executive_name,
             }).scalar()
         else:
             created_visit_id = db.execute(text(
                 """
                 INSERT INTO visits
-                (id, business_id, representative_id, created_by, visit_date, visit_type, status)
-                VALUES (gen_random_uuid(), :business_id, :rep_id, :created_by, :visit_date, :visit_type, 'Draft')
+                (id, business_id, representative_id, created_by, visit_date, visit_type, status, account_executive_name)
+                VALUES (gen_random_uuid(), :business_id, :rep_id, :created_by, :visit_date, :visit_type, 'Draft', :account_executive_name)
                 RETURNING id
                 """
             ), {
@@ -450,15 +516,20 @@ def create_visit(
                 "created_by": actor_user_id,
                 "visit_date": visit_date,
                 "visit_type": visit_data.get("visit_type"),
+                "account_executive_name": account_executive_name,
             }).scalar()
-        
+
+        sync_visit_team_members(db, str(created_visit_id), team_member_names)
+
         # Commit the transaction
         db.commit()
-        
+
         return {
             "visit_id": str(created_visit_id),
             "status": "Draft",
             "message": "Visit created successfully",
+            "account_executive_name": account_executive_name,
+            "team_member_names": team_member_names,
             "created_by": {
                 "user_id": actor_user_id,
                 "name": current_user.name,
@@ -487,6 +558,7 @@ def get_all_visits(
     """Get all visits with filtering support."""
     try:
         ensure_visit_submission_columns(db)
+        ensure_visit_metadata_columns(db)
         # Build WHERE clause for filtering
         where_conditions = []
         params = {}
@@ -537,6 +609,7 @@ def get_all_visits(
                 v.visit_type,
                 v.status,
                 b.priority_level as business_priority,
+                v.account_executive_name,
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at,
@@ -551,7 +624,7 @@ def get_all_visits(
             {response_join}
             LEFT JOIN questions q ON r.question_id = q.id
             {where_clause}
-            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.submitted_by_name, v.submitted_by_email, v.submitted_at
+            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.account_executive_name, v.submitted_by_name, v.submitted_by_email, v.submitted_at
             ORDER BY v.visit_date DESC
         """
         
@@ -571,14 +644,15 @@ def get_all_visits(
                 "visit_type": row[6],
                 "status": row[7],
                 "business_priority": row[8],
-                "submitted_by_name": row[9],
-                "submitted_by_email": row[10],
-                "submitted_at": row[11].isoformat() if row[11] else None,
-                "response_count": row[12],
-                "mandatory_answered_count": row[13] if len(row) > 13 else 0,
-                "mandatory_total_count": row[14] if len(row) > 14 else 24,
-                "is_started": row[12] > 0,
-                "is_completed": row[16] if len(row) > 16 else False
+                "account_executive_name": row[9],
+                "submitted_by_name": row[10],
+                "submitted_by_email": row[11],
+                "submitted_at": row[12].isoformat() if row[12] else None,
+                "response_count": row[13],
+                "mandatory_answered_count": row[14] if len(row) > 14 else 0,
+                "mandatory_total_count": row[15] if len(row) > 15 else 24,
+                "is_started": row[13] > 0,
+                "is_completed": row[17] if len(row) > 17 else False
             })
         
         return visits
@@ -1272,7 +1346,39 @@ def build_report_payload(
     )
 
     survey_question_details: list[dict] = []
+    selected_visit_info: dict | None = None
     if normalized_report_type == "survey" and effective_visit_id:
+        ensure_visit_metadata_columns(db)
+        visit_info_row = db.execute(
+            text(
+                """
+                SELECT
+                    v.id,
+                    b.name AS business_name,
+                    v.visit_date,
+                    v.status,
+                    v.account_executive_name,
+                    u.name AS representative_name
+                FROM visits v
+                JOIN businesses b ON b.id = v.business_id
+                LEFT JOIN users u ON u.id = v.representative_id
+                WHERE v.id = :visit_id
+                LIMIT 1
+                """
+            ),
+            {"visit_id": effective_visit_id},
+        ).mappings().first()
+        if visit_info_row:
+            selected_visit_info = {
+                "visit_id": str(visit_info_row["id"]),
+                "business_name": visit_info_row["business_name"],
+                "visit_date": visit_info_row["visit_date"].isoformat() if visit_info_row["visit_date"] else None,
+                "status": visit_info_row["status"],
+                "account_executive_name": visit_info_row["account_executive_name"],
+                "representative_name": visit_info_row["representative_name"],
+                "team_member_names": fetch_visit_team_members(db, effective_visit_id),
+            }
+
         has_question_order = has_column(db, "questions", "order_index")
         question_order_col = "q.order_index" if has_question_order else "q.id"
         if response_table == "b2b_visit_responses":
@@ -1347,6 +1453,7 @@ def build_report_payload(
         "yes_no_comparison": yes_no_comparison,
         "category_comparison": category_comparison,
         "action_points": action_points,
+        "selected_visit_info": selected_visit_info,
         "survey_question_details": survey_question_details,
         "daily_breakdown": daily_breakdown,
         "business_breakdown": business_breakdown,
@@ -1369,6 +1476,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     daily_rows = payload.get("daily_breakdown", [])
     business_rows = payload.get("business_breakdown", [])
     visit_rows = payload.get("visit_details", [])
+    selected_visit_info = payload.get("selected_visit_info") or {}
 
     def format_metric(value, suffix: str = ""):
         if value is None:
@@ -2033,7 +2141,17 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     {category_detail_blocks or '<div class="card"><p class="label">No category question details available.</p></div>'}
   </div>
 
-  {f'''<h2>Survey Responses and Verbatim</h2>
+  {f'''<h2>Selected Survey Summary</h2>
+  <div class="summary">
+    <div class="card"><div class="label">Business</div><div class="value">{selected_visit_info.get('business_name') or '--'}</div></div>
+    <div class="card"><div class="label">Visit Date</div><div class="value">{selected_visit_info.get('visit_date') or '--'}</div></div>
+    <div class="card"><div class="label">Account Executive</div><div class="value">{selected_visit_info.get('account_executive_name') or '--'}</div></div>
+    <div class="card"><div class="label">Survey Team</div><div class="value">{', '.join(selected_visit_info.get('team_member_names') or []) or '--'}</div></div>
+  </div>
+  <div class="explain">
+    <p>Representative: {selected_visit_info.get('representative_name') or '--'}</p>
+  </div>
+  <h2>Survey Responses and Verbatim</h2>
   <div class="viz-grid">{survey_detail_blocks or '<div class="card"><p class="label">No survey response details found.</p></div>'}</div>''' if report_type == 'survey' else ''}
 
   <h2>Daily Analytics</h2>
@@ -2309,6 +2427,7 @@ def get_pending_visits(
 def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(get_db)):
     """Update a draft visit."""
     try:
+        ensure_visit_metadata_columns(db)
         # Get current visit details to check business_id
         current_visit = db.execute(text(
             "SELECT business_id FROM visits WHERE id = :visit_id"
@@ -2342,6 +2461,10 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
         if visit_data.get("visit_type") is not None:
             update_fields.append("visit_type = :visit_type")
             params["visit_type"] = visit_data.get("visit_type")
+
+        if "account_executive_name" in visit_data:
+            update_fields.append("account_executive_name = :account_executive_name")
+            params["account_executive_name"] = str(visit_data.get("account_executive_name") or "").strip() or None
         
         if not update_fields:
             raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -2349,6 +2472,13 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
         # Build dynamic UPDATE query
         query = f"UPDATE visits SET {', '.join(update_fields)} WHERE id = :visit_id"
         db.execute(text(query), params)
+
+        if "team_member_names" in visit_data or "meeting_attendees" in visit_data:
+            sync_visit_team_members(
+                db,
+                visit_id,
+                visit_data.get("team_member_names") or visit_data.get("meeting_attendees") or [],
+            )
         
         # Commit the transaction to ensure changes persist
         db.commit()
@@ -2366,6 +2496,7 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
                 v.visit_type,
                 v.status,
                 b.priority_level as business_priority,
+                v.account_executive_name,
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at
@@ -2380,6 +2511,7 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
             raise HTTPException(status_code=404, detail="Visit not found after update")
             
         row = rows[0]
+        team_member_names = fetch_visit_team_members(db, visit_id)
         return {
             "visit_id": row[0],
             "business_id": row[1],
@@ -2389,7 +2521,9 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
             "visit_date": row[5],
             "visit_type": row[6],
             "status": row[7],
-            "business_priority": row[8]
+            "business_priority": row[8],
+            "account_executive_name": row[9],
+            "team_member_names": team_member_names,
         }
         
     except HTTPException:
@@ -2746,6 +2880,7 @@ def get_visit_detail(
     """
     try:
         ensure_visit_submission_columns(db)
+        ensure_visit_metadata_columns(db)
         print(f"DEBUG: Getting visit detail for visit_id: {visit_id}")
         has_question_number = has_column(db, "questions", "question_number")
         has_order_index = has_column(db, "questions", "order_index")
@@ -2769,6 +2904,7 @@ def get_visit_detail(
                 v.visit_type,
                 v.status,
                 b.priority_level as business_priority,
+                v.account_executive_name,
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at
@@ -2887,6 +3023,8 @@ def get_visit_detail(
 
         print(f"DEBUG: Mandatory answered: {mandatory_answered_count}, Total mandatory: {mandatory_total_count}")
         
+        team_member_names = fetch_visit_team_members(db, visit_id)
+
         return {
             "id": visit_row[0],
             "business_id": visit_row[1],
@@ -2897,9 +3035,11 @@ def get_visit_detail(
             "visit_type": visit_row[6],
             "status": visit_row[7],
             "business_priority": visit_row[8],
-            "submitted_by_name": visit_row[9],
-            "submitted_by_email": visit_row[10],
-            "submitted_at": visit_row[11].isoformat() if visit_row[11] else None,
+            "account_executive_name": visit_row[9],
+            "team_member_names": team_member_names,
+            "submitted_by_name": visit_row[10],
+            "submitted_by_email": visit_row[11],
+            "submitted_at": visit_row[12].isoformat() if visit_row[12] else None,
             "mandatory_answered_count": mandatory_answered_count,
             "mandatory_total_count": mandatory_total_count,
             "is_started": len(responses) > 0,

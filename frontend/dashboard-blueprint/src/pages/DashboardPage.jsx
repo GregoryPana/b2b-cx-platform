@@ -68,6 +68,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [yesNoQuestionAnalytics, setYesNoQuestionAnalytics] = useState([]);
   const [selectedQuestionId, setSelectedQuestionId] = useState("");
   const [trendData, setTrendData] = useState([]);
+  const [accountExecutiveYesNoTrendData, setAccountExecutiveYesNoTrendData] = useState([]);
   const [pendingVisits, setPendingVisits] = useState([]);
   const [businesses, setBusinesses] = useState([]);
   const [representatives, setRepresentatives] = useState([]);
@@ -470,10 +471,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
    }, [activePlatform, isInstallationPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
    // Load yes/no question analytics
-   useEffect(() => {
-     if (!activePlatform || !isB2BPlatform) {
-       setYesNoQuestionAnalytics([]);
-       return;
+    useEffect(() => {
+      if (!activePlatform || !isB2BPlatform) {
+        setYesNoQuestionAnalytics([]);
+        return;
      }
 
      const load = async () => {
@@ -489,8 +490,30 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
        setYesNoQuestionAnalytics(Array.isArray(data?.items) ? data.items : []);
      };
 
-     load();
-   }, [activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+      load();
+    }, [activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+
+    useEffect(() => {
+      if (!activePlatform || !isB2BPlatform) {
+        setAccountExecutiveYesNoTrendData([]);
+        return;
+      }
+
+      const load = async () => {
+        const params = new URLSearchParams({ survey_type: activePlatform });
+        if (selectedAnalyticsEntityIds.length > 0) {
+          params.set("business_ids", selectedAnalyticsEntityIds.join(","));
+        }
+        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/account-executives/yes-no-trends?${params.toString()}`, { headers });
+        if (!res.ok) {
+          setAccountExecutiveYesNoTrendData([]);
+          return;
+        }
+        setAccountExecutiveYesNoTrendData(Array.isArray(data?.items) ? data.items : []);
+      };
+
+      load();
+    }, [activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, headers, fetchJsonSafe]);
 
    // Load question averages for drilldown table
    useEffect(() => {
@@ -1320,6 +1343,28 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }));
   }, [yesNoQuestionAnalytics]);
 
+  const accountExecutiveYesNoChartData = useMemo(() => {
+    const grouped = accountExecutiveYesNoTrendData.reduce((acc, item) => {
+      const name = item.account_executive_name || "Unassigned";
+      if (!acc[name]) {
+        acc[name] = {
+          accountExecutive: name,
+          q4YesPercent: 0,
+          q6YesPercent: 0,
+        };
+      }
+      if (Number(item.question_number) === 4) {
+        acc[name].q4YesPercent = Number(item.yes_percent || 0);
+      }
+      if (Number(item.question_number) === 6) {
+        acc[name].q6YesPercent = Number(item.yes_percent || 0);
+      }
+      return acc;
+    }, {});
+
+    return Object.values(grouped).sort((a, b) => a.accountExecutive.localeCompare(b.accountExecutive));
+  }, [accountExecutiveYesNoTrendData]);
+
   const yesNoQuestionCards = useMemo(() => {
     const requiredQuestions = [
       {
@@ -1373,22 +1418,25 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   }, [yesNoBarChartData]);
 
    // Load representatives (account executives)
-   useEffect(() => {
-     if (!isB2BPlatform) {
-       setRepresentatives([]);
-       return;
-     }
-     const load = async () => {
-       try {
-       const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/public/account-executives`, { headers });
-       if (!res.ok) return;
-       setRepresentatives(Array.isArray(data) ? data : []);
-       } catch (err) {
-         console.error("Failed to load representatives", err);
-       }
-     };
-     load();
-   }, [isB2BPlatform, fetchJsonSafe]);
+    useEffect(() => {
+      if (!isB2BPlatform) {
+        setRepresentatives([]);
+        return;
+      }
+      const load = async () => {
+        try {
+          const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/public/account-executives`, { headers }, 30000);
+          if (!res.ok) return;
+          setRepresentatives(Array.isArray(data) ? data : []);
+        } catch (err) {
+          if (err?.name === "AbortError") {
+            return;
+          }
+          console.error("Failed to load representatives", err);
+        }
+      };
+      load();
+    }, [isB2BPlatform, headers]);
 
   // Business CRUD handlers
   const handleEditBusiness = (business) => {
@@ -2191,31 +2239,60 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       ) : null}
 
       {location.pathname === "/trends" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Trend Explorer</CardTitle>
-            <CardDescription>Shows how the selected score changes over time so you can spot improvements or declines.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Select value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
-              {questionAverages.length === 0 ? <option value="">No questions available</option> : null}
-              {questionAverages.map((question) => (
-                <option key={question.question_id} value={String(question.question_id)}>{question.question_text}</option>
-              ))}
-            </Select>
-            <div className="h-[420px]">
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Trend Explorer</CardTitle>
+              <CardDescription>Shows how the selected score changes over time so you can spot improvements or declines.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Select value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
+                {questionAverages.length === 0 ? <option value="">No questions available</option> : null}
+                {questionAverages.map((question) => (
+                  <option key={question.question_id} value={String(question.question_id)}>{question.question_text}</option>
+                ))}
+              </Select>
+              <div className="h-[420px]">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
+                  <LineChart data={trendData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="period" />
+                    <YAxis domain={[0, 10]} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          {isB2BPlatform ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Account Executive Yes/No Performance</CardTitle>
+                <CardDescription>Shows the percentage of "Yes" answers for Questions 4 and 6 grouped by the account executive captured on each approved survey.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[420px]">
+                  {accountExecutiveYesNoChartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                <LineChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="period" />
-                  <YAxis domain={[0, 10]} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+                      <BarChart data={accountExecutiveYesNoChartData} margin={{ top: 8, right: 8, left: 8, bottom: 24 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="accountExecutive" interval={0} angle={-20} textAnchor="end" height={80} />
+                        <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                        <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Yes Rate"]} />
+                        <Bar dataKey="q4YesPercent" fill="#0ea5e9" name="Q4 Yes %" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="q6YesPercent" fill="#8b5cf6" name="Q6 Yes %" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No account executive yes/no data available.</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
       ) : null}
 
       {location.pathname === "/review" ? (
@@ -2273,6 +2350,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
             <CardDescription>
               {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
+            </CardDescription>
+            <CardDescription>
+              Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
             </CardDescription>
             <CardDescription>
               Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${selectedSurveyVisit.submitted_at}` : ""}
@@ -2977,13 +3057,16 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           {location.pathname === "/surveys" && selectedSurveyVisit ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
-                <CardDescription>
-                  {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
-                </CardDescription>
-                <CardDescription>
-                  Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${selectedSurveyVisit.submitted_at}` : ""}
-                </CardDescription>
+              <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
+              <CardDescription>
+                {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
+              </CardDescription>
+              <CardDescription>
+                Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
+              </CardDescription>
+              <CardDescription>
+                Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${selectedSurveyVisit.submitted_at}` : ""}
+              </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {surveyResponseCategoryGroups.length > 0 ? (
