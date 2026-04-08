@@ -41,11 +41,11 @@ The system combines backend services, frontend applications, authentication, and
 ## 3) System modules (functional view)
 
 - Dashboard (`/dashboard/`)
-  - analytics, trends, review queues, business administration
+  - analytics, trends, reports, review queues, business administration, and platform switching
 - B2B Survey (`/surveys/b2b/`)
   - planned visits workflow, response capture, submission
 - Installation Survey (`/surveys/installation/`)
-  - installation assessment workflow
+  - installation assessment workflow with Entra sign-in and role-based access
 - Mystery Shopper (`/`)
   - public-facing mystery shopper SPA flow
 - API backend (`/api/*`)
@@ -85,6 +85,13 @@ Typical B2B cycle:
 4. surveyor submits visit
 5. reviewer validates pending queue
 6. approved items feed analytics views
+
+Typical installation cycle:
+
+1. installation assessor signs in with Entra
+2. assessor completes the installation quality survey
+3. responses are saved and submitted
+4. dashboard users review analytics, survey explorer, and reports for the installation platform
 
 ## 7) Data integrity and safety principles
 

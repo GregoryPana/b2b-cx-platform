@@ -4,6 +4,13 @@ This is the canonical deployment guide for staging/prod-style rollout.
 
 It replaces ad-hoc source-copy instructions and enforces artifact-based deployment.
 
+Plain-language summary:
+
+- the release bundle contains the built frontends and backend code
+- the server installs that bundle into `/opt/cwscx`
+- nginx serves the dashboard and survey apps from their `dist` folders
+- if a new screen is missing after deployment, the first thing to verify is that the `dist` folder timestamp actually updated
+
 Current staging default is self-hosted CI/CD (`deploy-staging`) running locally on the staging VM network.
 Use this runbook for script-level reference and manual recovery operations.
 
@@ -137,6 +144,12 @@ This script:
 - syncs frontend dist artifacts to their required app directories
 - syncs linux scripts to `/opt/cwscx/scripts/linux`
 - creates `/opt/cwscx/.env` from `.env.example` if missing
+
+For the internal frontends, the expected live paths are:
+
+- dashboard: `/opt/cwscx/frontends-src/dashboard/dist`
+- B2B survey: `/opt/cwscx/frontends-src/internal-surveys/b2b/dist`
+- installation survey: `/opt/cwscx/frontends-src/internal-surveys/installation/dist`
 
 ---
 

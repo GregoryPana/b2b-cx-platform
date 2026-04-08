@@ -67,7 +67,7 @@ What it does:
 
 - builds `frontend/dashboard-blueprint` with base path `/dashboard/`
 - builds `frontend/survey` with base path `/surveys/b2b/`
-- builds `frontend/survey` again with base path `/surveys/installation/`
+- builds `frontend/installation-survey` with base path `/surveys/installation/`
 - copies backend code, Alembic files, linux scripts, `.env.example`
 - packages all into zip (`cwscx-release.zip`)
 
@@ -201,7 +201,18 @@ After successful deploy:
 - `MIME type text/html for JS module`
   - asset routing issue (usually wrong dist/assets deployment or nginx mapping)
 
-## 9) Change management checklist before production-like release
+## 9) Plain-language explanation for non-technical users
+
+If you are not an engineer, deployment simply means:
+
+1. the newest approved version of the system is packaged
+2. the package is copied into the server folder
+3. the website and API are refreshed to use that new package
+4. checks run to make sure the pages still open correctly
+
+If deployment works, users should see the new screens or fixes without needing a developer to manually copy files onto the server.
+
+## 10) Change management checklist before production-like release
 
 - CI jobs green (backend/dashboard/survey)
 - deploy summary generated in workflow
@@ -209,7 +220,7 @@ After successful deploy:
 - release zip retained in `/opt/cwscx/releases`
 - rollback candidate identified
 
-## 10) What this flow explicitly does not do
+## 11) What this flow explicitly does not do
 
 - does not copy files from a developer laptop to VM
 - does not require VM to manually pull from developer machine

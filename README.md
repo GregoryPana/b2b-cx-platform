@@ -1,13 +1,21 @@
 # CWSCX Platform
 
-Enterprise Customer Experience platform for Cable and Wireless Seychelles.
+CWSCX is the Customer Experience platform used by Cable and Wireless Seychelles to collect survey feedback, review service quality, and track improvement actions.
+
+In simple terms, this system helps teams:
+
+- collect customer and field survey answers
+- review completed work before it becomes part of reporting
+- monitor dashboards and reports
+- manage separate CX programs from one shared platform
 
 This repository contains:
 
-- a FastAPI backend
+- a FastAPI backend API
 - multiple React/Vite frontends
-- staging CI/CD automation
-- deployment scripts and runbooks
+- Microsoft Entra role-based access control
+- staging and production deployment automation
+- operational guides and recovery runbooks
 
 ## Start here (documentation map)
 
@@ -35,6 +43,21 @@ Main capabilities include:
 - analytics (NPS, CSAT, relationship, competitor exposure)
 - role-based access with Microsoft Entra
 - audit signature capture on visit submission
+
+## Which app should I open?
+
+If you are a new or non-technical user, these are the main entry points:
+
+- `https://<server>/dashboard/`
+  - management dashboard for analytics, reports, review queues, and platform switching
+- `https://<server>/surveys/b2b/`
+  - B2B survey form used by internal staff
+- `https://<server>/surveys/installation/`
+  - Installation CX Survey used for installation quality assessments
+- `https://<server>/`
+  - mystery shopper public entry point
+
+Access to each area depends on your Entra role. If you sign in and do not see a platform, your account likely has not been assigned that platform role yet.
 
 ## Runtime architecture
 
@@ -113,7 +136,13 @@ Current build targets:
 
 - dashboard: `frontend/dashboard-blueprint`
 - B2B survey: `frontend/survey`
-- installation survey: `frontend/survey` (different base path)
+- installation survey: `frontend/installation-survey`
+
+The deployment process builds these apps with the following live URLs:
+
+- dashboard -> `/dashboard/`
+- B2B survey -> `/surveys/b2b/`
+- installation survey -> `/surveys/installation/`
 
 ## Environment essentials
 
@@ -133,6 +162,15 @@ Minimum required for backend startup:
 - health endpoint: `/api/health`
 - backend service: `cwscx-backend.service`
 - deployment scripts: `scripts/linux/*.sh`
+
+## Quick help for new users
+
+If something looks wrong, use this simple checklist first:
+
+1. Refresh the page once.
+2. Confirm you are opening the correct URL for the correct platform.
+3. Sign out and sign in again if access looks incomplete.
+4. If a page still fails, tell support which URL you opened, what time it happened, and what message you saw.
 
 For full troubleshooting and incident playbooks, use:
 
