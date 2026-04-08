@@ -7,6 +7,7 @@ Create Date: 2026-04-08 12:30:00
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import text
 
 
 revision = "20260408_000014"
@@ -16,8 +17,35 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("visits", sa.Column("account_executive_name", sa.String(length=255), nullable=True))
+    bind = op.get_bind()
+    exists = bind.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'visits' AND column_name = 'account_executive_name'
+            LIMIT 1
+            """
+        )
+    ).scalar()
+    if exists:
+        return
+
+    bind.execute(text("SET lock_timeout = '5s'"))
+    op.execute("ALTER TABLE visits ADD COLUMN IF NOT EXISTS account_executive_name VARCHAR(255)")
 
 
 def downgrade() -> None:
-    op.drop_column("visits", "account_executive_name")
+    bind = op.get_bind()
+    exists = bind.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'visits' AND column_name = 'account_executive_name'
+            LIMIT 1
+            """
+        )
+    ).scalar()
+    if exists:
+        op.drop_column("visits", "account_executive_name")
