@@ -1,13 +1,20 @@
 $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path "$PSScriptRoot/../.."
-$FrontendDir = Join-Path $Root "frontend/installation-survey"
+$BackendScript = Join-Path $Root "scripts/powershell/run_backend.ps1"
+$FrontendDir = Join-Path $Root "frontend/survey"
 
 if (-not (Test-Path $FrontendDir)) {
   throw "Installation survey frontend not found at $FrontendDir"
 }
 
-Write-Host "Starting installation survey frontend on port 5181..."
+if (Test-Path $BackendScript) {
+  Write-Host "Launching backend API window..."
+  Start-Process powershell -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-File",$BackendScript | Out-Null
+  Start-Sleep -Seconds 2
+}
+
+Write-Host "Preparing Installation Assessment survey (port 5181)..."
 Set-Location $FrontendDir
 
 if (-not (Test-Path "node_modules")) {
@@ -32,6 +39,13 @@ if ($env:OS -eq "Windows_NT" -and -not (Test-Path $nativeRollup)) {
   }
 }
 
+$env:VITE_DISABLE_TYPECHECK = "true"
+$env:VITE_API_URL = "/api"
+$env:VITE_API_PROXY_TARGET = "http://127.0.0.1:8001"
+$env:VITE_SURVEY_TYPE = "Installation Assessment"
+$env:VITE_BASE_PATH = "/"
+$env:NO_PROXY = "127.0.0.1,localhost"
+
 $existingNode = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
   Where-Object { $_.LocalPort -eq 5181 } |
   Select-Object -First 1
@@ -41,8 +55,12 @@ if ($existingNode) {
   Start-Sleep -Milliseconds 300
 }
 
-$env:VITE_API_URL = "/api"
-$env:VITE_API_PROXY_TARGET = "http://127.0.0.1:8001"
-$env:NO_PROXY = "127.0.0.1,localhost"
+$frontendCommand = "$env:VITE_DISABLE_TYPECHECK='true'; $env:VITE_API_URL='/api'; $env:VITE_API_PROXY_TARGET='http://127.0.0.1:8001'; $env:VITE_SURVEY_TYPE='Installation Assessment'; $env:VITE_BASE_PATH='/'; $env:NO_PROXY='127.0.0.1,localhost'; Set-Location '$FrontendDir'; npm run dev -- --host --port 5181"
+Write-Host "Starting Vite dev server in a new window..."
+Start-Process powershell -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-Command",$frontendCommand | Out-Null
 
-npm run dev -- --host --port 5181
+Start-Sleep -Seconds 3
+Write-Host "Opening http://localhost:5181/ in your default browser..."
+Start-Process "http://localhost:5181/"
+
+Write-Host "Installation survey launch sequence complete. Leave the spawned terminals open to keep services running."

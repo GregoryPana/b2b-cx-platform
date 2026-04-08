@@ -10,6 +10,8 @@ import { isTokenExpired } from "./utils/tokenExpiry";
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
+const surveyType = String(import.meta.env.VITE_SURVEY_TYPE || "B2B");
+const isInstallationSurvey = surveyType === "Installation Assessment";
 
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
@@ -21,6 +23,10 @@ export default function App() {
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [statusText, setStatusText] = useState("Draft workflow available");
+
+  useEffect(() => {
+    document.title = `${surveyType} Survey`;
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated && accounts.length > 0) {
@@ -108,10 +114,10 @@ export default function App() {
   return (
     <MainLayout onLogout={handleLogout} userName={userName} userEmail={userEmail} statusText={statusText}>
       <Routes>
-        <Route path="/planned" element={<SurveyWorkspacePage headers={headers} userId={userId} role={role} />} />
+        {!isInstallationSurvey ? <Route path="/planned" element={<SurveyWorkspacePage headers={headers} userId={userId} role={role} />} /> : null}
         <Route path="/survey" element={<SurveyWorkspacePage headers={headers} userId={userId} role={role} />} />
-        <Route path="/" element={<Navigate to="/planned" replace />} />
-        <Route path="*" element={<Navigate to="/planned" replace />} />
+        <Route path="/" element={<Navigate to={isInstallationSurvey ? "/survey" : "/planned"} replace />} />
+        <Route path="*" element={<Navigate to={isInstallationSurvey ? "/survey" : "/planned"} replace />} />
       </Routes>
     </MainLayout>
   );

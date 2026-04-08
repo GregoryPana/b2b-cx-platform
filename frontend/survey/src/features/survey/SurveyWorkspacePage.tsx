@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import Lottie from "lottie-react";
-import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Loader2, Plus, Save, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Loader2, Plus, Save } from "lucide-react";
 import emptyStateAnimation from "../../assets/empty-state-lottie.json";
 import PageContainer from "../../components/layout/PageContainer";
 import { Badge } from "../../components/ui/badge";
@@ -16,6 +16,7 @@ import { Textarea } from "../../components/ui/textarea";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const SURVEY_TYPE = String(import.meta.env.VITE_SURVEY_TYPE || "B2B");
+const IS_INSTALLATION_SURVEY = SURVEY_TYPE === "Installation Assessment";
 
 const QUESTION_CATEGORY_ORDER = [
   "Category 1: Relationship Strength",
@@ -29,6 +30,18 @@ const QUESTION_CATEGORY_ORDER = [
 const Q16_KEY = "q16_other_provider_products";
 const Q17_KEY = "q17_competitor_products_services";
 const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
+const INSTALLATION_SCORING_BANDS = [
+  { range: "4-5", label: "Excellent", detail: "High-quality install. No further action needed." },
+  { range: "3-4", label: "Pass - Needs Improvement", detail: "Minor issues; correct on site and log feedback." },
+  { range: "2", label: "Fail - Rework Required", detail: "Significant technical or physical issues; rework order required." },
+  { range: "1", label: "Critical Fail", detail: "Major safety/property/network issue; escalate immediately and rework urgently." },
+];
+const CATEGORY_ACCENTS = [
+  "border-l-4 border-l-primary/70 bg-muted/15",
+  "border-l-4 border-l-success/80 bg-muted/15",
+  "border-l-4 border-l-warning/80 bg-muted/15",
+  "border-l-4 border-l-destructive/70 bg-muted/15",
+];
 
 type ApiHeaders = Record<string, string>;
 
@@ -125,10 +138,21 @@ function categoryToId(value: string) {
   return `category-${String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
 }
 
+function toDateInput(value: string | null | undefined): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const direct = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (direct) return `${direct[1]}-${direct[2]}-${direct[3]}`;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
 export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspacePageProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const isPlannedRoute = location.pathname === "/planned" || location.pathname === "/";
+  const showVisitPreparation = isPlannedRoute && !IS_INSTALLATION_SURVEY;
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -141,6 +165,16 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
   const [newBusinessName, setNewBusinessName] = useState("");
   const [visitSource, setVisitSource] = useState<"new" | "planned">("new");
   const [selectedDraftId, setSelectedDraftId] = useState("");
+  const activeVisitSource = IS_INSTALLATION_SURVEY ? "new" : visitSource;
+  const [installationEntryMode, setInstallationEntryMode] = useState<"new" | "draft">("new");
+  const [selectedInstallationDraftId, setSelectedInstallationDraftId] = useState("");
+  const [installationSegment, setInstallationSegment] = useState<"B2B" | "B2C">("B2B");
+  const [installationInspector, setInstallationInspector] = useState("");
+  const [installationCustomerName, setInstallationCustomerName] = useState("");
+  const [installationLocation, setInstallationLocation] = useState("");
+  const [installationDateWorkDone, setInstallationDateWorkDone] = useState("");
+  const [installationTeam, setInstallationTeam] = useState("");
+  const [detailsSavedAt, setDetailsSavedAt] = useState("");
   const [currentCategory, setCurrentCategory] = useState("");
   const [responseDrafts, setResponseDrafts] = useState<Record<number, ResponseDraft>>({});
   const [responsesByQuestion, setResponsesByQuestion] = useState<Record<number, ResponseRecord>>({});
@@ -193,6 +227,46 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     });
   }, [visibleQuestions]);
 
+  const isQuestionAnswered = useCallback((question: Question) => {
+    const existing = responsesByQuestion[question.id];
+    if (existing) return true;
+    const draft = responseDrafts[question.id];
+    if (!draft) return false;
+    if (question.input_type === "score") return draft.score !== "";
+    return String(draft.answer_text || "").trim().length > 0;
+  }, [responsesByQuestion, responseDrafts]);
+
+  const mandatoryProgress = useMemo(() => {
+    const mandatory = visibleQuestions.filter((question) => question.is_mandatory);
+    const answered = mandatory.filter((question) => isQuestionAnswered(question));
+    const percent = mandatory.length > 0 ? Math.round((answered.length / mandatory.length) * 100) : 0;
+    return { total: mandatory.length, answered: answered.length, percent };
+  }, [visibleQuestions, isQuestionAnswered]);
+
+  const categoryCompletion = useMemo(() => {
+    return groupedQuestions.map((category) => {
+      const questionsInCategory = visibleQuestions.filter((question) => question.category === category);
+      const answered = questionsInCategory.filter((question) => isQuestionAnswered(question)).length;
+      return {
+        category,
+        answered,
+        total: questionsInCategory.length,
+      };
+    });
+  }, [groupedQuestions, visibleQuestions, isQuestionAnswered]);
+
+  const categoryCompletionMap = useMemo(() => {
+    return categoryCompletion.reduce<Record<string, { answered: number; total: number }>>((acc, item) => {
+      acc[item.category] = { answered: item.answered, total: item.total };
+      return acc;
+    }, {});
+  }, [categoryCompletion]);
+
+  const firstIncompleteCategoryId = useMemo(() => {
+    const target = categoryCompletion.find((item) => item.answered < item.total);
+    return target ? categoryToId(target.category) : "";
+  }, [categoryCompletion]);
+
   useEffect(() => {
     if (groupedQuestions.length > 0 && !currentCategory) {
       setCurrentCategory(groupedQuestions[0]);
@@ -229,8 +303,16 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       const rows = Array.isArray(data) ? data : [];
       setBusinesses(rows);
       if (rows.length > 0) {
-        setVisitForm((prev) => ({ ...prev, business_id: prev.business_id || String(rows[0].id) }));
+        const first = rows[0];
+        setVisitForm((prev) => ({ ...prev, business_id: prev.business_id || String(first.id) }));
+        setInstallationCustomerName((prev) => prev || first.name || "");
+        setInstallationLocation((prev) => prev || first.location || "");
       }
+      setInstallationDateWorkDone((prev) => {
+        if (prev) return prev;
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      });
     };
 
     const loadQuestions = async () => {
@@ -316,6 +398,212 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     return match ? match.name : "Business";
   };
 
+  const installationDraftOptions = useMemo(() => {
+    return draftVisits.filter((draft) => (draft.visit_id || draft.id));
+  }, [draftVisits]);
+
+  const resetSurveyAnswers = useCallback(() => {
+    setResponsesByQuestion({});
+    setResponseDrafts((prev) => {
+      const next = { ...prev };
+      questions.forEach((question) => {
+        next[question.id] = { ...emptyDraft };
+      });
+      return next;
+    });
+    setSubmissionSignature({ name: "", email: "", submitted_at: "" });
+  }, [questions]);
+
+  const installationDraftStorageKey = useMemo(() => {
+    if (!IS_INSTALLATION_SURVEY) return "";
+    if (installationEntryMode === "draft" && selectedInstallationDraftId) {
+      return `installation-assessment-details:${selectedInstallationDraftId}`;
+    }
+    if (visitId) return `installation-assessment-details:${visitId}`;
+    return "installation-assessment-details:new";
+  }, [IS_INSTALLATION_SURVEY, installationEntryMode, selectedInstallationDraftId, visitId]);
+
+  useEffect(() => {
+    if (!installationDraftStorageKey) return;
+    try {
+      const raw = window.localStorage.getItem(installationDraftStorageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.inspector === "string") setInstallationInspector(parsed.inspector);
+      if (typeof parsed.customer_name === "string") setInstallationCustomerName(parsed.customer_name);
+      if (typeof parsed.location === "string") setInstallationLocation(parsed.location);
+      if (typeof parsed.date_work_done === "string") {
+        const normalizedDate = toDateInput(parsed.date_work_done);
+        setInstallationDateWorkDone(normalizedDate);
+        setVisitForm((prev) => ({ ...prev, visit_date: normalizedDate || prev.visit_date }));
+      }
+      if (parsed.segment === "B2B" || parsed.segment === "B2C") setInstallationSegment(parsed.segment);
+      if (typeof parsed.team === "string") setInstallationTeam(parsed.team);
+      if (typeof parsed.saved_at === "string") setDetailsSavedAt(parsed.saved_at);
+    } catch {
+      // ignore malformed local draft data
+    }
+  }, [installationDraftStorageKey]);
+
+  useEffect(() => {
+    if (!installationDraftStorageKey) return;
+    const savedAt = new Date().toISOString();
+    const payload = {
+      inspector: installationInspector,
+      customer_name: installationCustomerName,
+      location: installationLocation,
+      date_work_done: installationDateWorkDone,
+      segment: installationSegment,
+      team: installationTeam,
+      saved_at: savedAt,
+    };
+    try {
+      window.localStorage.setItem(installationDraftStorageKey, JSON.stringify(payload));
+      setDetailsSavedAt(savedAt);
+    } catch {
+      // storage errors can be ignored safely for draft convenience
+    }
+  }, [installationDraftStorageKey, installationInspector, installationCustomerName, installationLocation, installationDateWorkDone, installationSegment, installationTeam]);
+
+  useEffect(() => {
+    if (!installationDateWorkDone) return;
+    setVisitForm((prev) => ({ ...prev, visit_date: installationDateWorkDone }));
+  }, [installationDateWorkDone]);
+
+  useEffect(() => {
+    if (!IS_INSTALLATION_SURVEY) return;
+    if (installationDraftOptions.length === 0 && installationEntryMode !== "new") {
+      setInstallationEntryMode("new");
+      setSelectedInstallationDraftId("");
+      return;
+    }
+    if (installationEntryMode === "draft" && !selectedInstallationDraftId && installationDraftOptions.length > 0) {
+      setSelectedInstallationDraftId(String(installationDraftOptions[0].visit_id || installationDraftOptions[0].id || ""));
+    }
+  }, [IS_INSTALLATION_SURVEY, installationDraftOptions, installationEntryMode, selectedInstallationDraftId]);
+
+  useEffect(() => {
+    if (!IS_INSTALLATION_SURVEY || installationEntryMode !== "draft") return;
+    if (!selectedInstallationDraftId) return;
+    const chosen = installationDraftOptions.find((item) => String(item.visit_id || item.id) === selectedInstallationDraftId);
+    if (!chosen) return;
+
+    const applyDraft = async () => {
+      resetSurveyAnswers();
+      const targetId = String(chosen.visit_id || chosen.id || "");
+      setVisitId(targetId);
+      setStatus(chosen.status || "Draft");
+      setVisitForm((prev) => ({
+        ...prev,
+        business_id: String(chosen.business_id || prev.business_id || ""),
+        visit_date: toDateInput(chosen.visit_date) || prev.visit_date,
+        visit_type: "Planned",
+      }));
+      setInstallationCustomerName((prev) => prev || resolveBusinessName(chosen));
+      const matchingBusiness = businesses.find((item) => item.id === chosen.business_id);
+      setInstallationLocation((prev) => prev || String(matchingBusiness?.location || ""));
+      setInstallationDateWorkDone(toDateInput(chosen.visit_date));
+      await loadVisitResponses(targetId);
+    };
+
+    void applyDraft();
+  }, [IS_INSTALLATION_SURVEY, installationEntryMode, selectedInstallationDraftId, installationDraftOptions, resetSurveyAnswers, businesses]);
+
+  useEffect(() => {
+    if (!IS_INSTALLATION_SURVEY || installationEntryMode !== "new") return;
+    if (!visitId) return;
+    setVisitId("");
+    resetSurveyAnswers();
+  }, [IS_INSTALLATION_SURVEY, installationEntryMode]);
+
+  const ensureInstallationDraftVisit = async () => {
+    if (visitId) return visitId;
+    if (businesses.length === 0) {
+      setError("No businesses available for this survey.");
+      return "";
+    }
+
+    const businessId = visitForm.business_id || String(businesses[0].id);
+    const today = new Date();
+    const visitDate = toDateInput(visitForm.visit_date) || toDateInput(installationDateWorkDone) || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    if (!visitForm.business_id || !visitForm.visit_date) {
+      setVisitForm((prev) => ({ ...prev, business_id: businessId, visit_date: visitDate }));
+    }
+
+    const payload = {
+      business_id: Number(businessId),
+      representative_id: Number(visitForm.representative_id || userId),
+      visit_date: visitDate,
+      visit_type: "Planned",
+      survey_type: SURVEY_TYPE,
+      meeting_attendees: [],
+    };
+
+    const createRes = await fetch(`${API_BASE}/dashboard-visits?_cb=${Date.now()}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const createData = await createRes.json();
+
+    if (createRes.ok && createData?.visit_id) {
+      setVisitId(createData.visit_id);
+      setStatus(createData.status || "Draft");
+      await loadDrafts();
+      return String(createData.visit_id);
+    }
+
+    const detailText = String(createData?.detail || "");
+    if (detailText.toLowerCase().includes("already exists")) {
+      const params = new URLSearchParams({ status: "Draft", survey_type: SURVEY_TYPE, _cb: Date.now().toString() });
+      const draftRes = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
+      const draftData = await draftRes.json();
+      if (draftRes.ok) {
+        const rows = Array.isArray(draftData) ? draftData : [];
+        const mappedRows = rows.map((item) => ({ ...item, visit_id: item.visit_id || item.id }));
+        setDraftVisits(mappedRows);
+        const matched = mappedRows.find((item) => String(item.business_id) === String(businessId) && String(item.visit_date || "") === visitDate) || mappedRows[0];
+        const matchedId = String(matched?.visit_id || matched?.id || "");
+        if (matchedId) {
+          setError("");
+          setMessage("A draft already exists for today. Switched to Draft mode.");
+          setInstallationEntryMode("draft");
+          setSelectedInstallationDraftId(matchedId);
+        }
+      }
+      return "";
+    }
+
+    setError(createData?.detail || "Failed to create a new draft.");
+    return "";
+  };
+
+  const handleDeleteInstallationDraft = async () => {
+    if (!selectedInstallationDraftId) return;
+    const draftId = selectedInstallationDraftId;
+    const res = await fetch(`${API_BASE}/dashboard-visits/${draftId}?_cb=${Date.now()}`, { method: "DELETE", headers });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data?.detail || "Failed to delete draft");
+      return;
+    }
+
+    try {
+      window.localStorage.removeItem(`installation-assessment-details:${draftId}`);
+    } catch {
+      // no-op
+    }
+
+    setMessage("Draft deleted.");
+    if (visitId === draftId) {
+      setVisitId("");
+      resetSurveyAnswers();
+    }
+    setSelectedInstallationDraftId("");
+    await loadDrafts();
+  };
+
   const handleSelectPlannedVisit = async (draft: DraftVisit) => {
     const selectedId = draft.visit_id ?? draft.id ?? "";
     if (!selectedId) return;
@@ -354,12 +642,12 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
   };
 
   const handleCreateVisit = async () => {
-    pushToast("info", visitSource === "planned" ? "Preparing planned visit..." : "Creating visit...", 1500);
+    pushToast("info", activeVisitSource === "planned" ? "Preparing planned visit..." : "Creating visit...", 1500);
     setIsCreatingVisit(true);
     setError("");
     setMessage("");
     try {
-      if (visitSource === "planned") {
+      if (activeVisitSource === "planned") {
         if (!selectedDraftId) {
           setError("Select a planned visit first.");
           return;
@@ -461,19 +749,25 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     });
   };
 
-  const handleSaveQuestionResponse = async (question: Question) => {
-    if (!visitId) {
-      setError("Create or select a visit first.");
-      return;
+  const handleSaveQuestionResponse = async (question: Question, draftOverride?: ResponseDraft) => {
+    let targetVisitId = visitId;
+    if (!targetVisitId) {
+      if (IS_INSTALLATION_SURVEY && installationEntryMode === "new") {
+        targetVisitId = await ensureInstallationDraftVisit();
+      } else {
+        setError("Create or select a visit first.");
+        return;
+      }
+      if (!targetVisitId) return;
     }
 
-    const responseForm = responseDrafts[question.id] || { ...emptyDraft };
+    const responseForm = draftOverride || responseDrafts[question.id] || { ...emptyDraft };
     const scoreNum = Number(responseForm.score);
 
     if (question.input_type === "score") {
-      const min = question.score_min ?? 0;
-      const max = question.score_max ?? 10;
-      if (responseForm.score === "" || Number.isNaN(scoreNum) || scoreNum < min || scoreNum > max) {
+      const min = IS_INSTALLATION_SURVEY ? 1 : (question.score_min ?? 0);
+      const max = IS_INSTALLATION_SURVEY ? 5 : (question.score_max ?? 10);
+      if (responseForm.score === "" || Number.isNaN(scoreNum) || scoreNum < min || scoreNum > max || (IS_INSTALLATION_SURVEY && !Number.isInteger(scoreNum))) {
         setError(`Enter a valid score (${min}-${max}) for this question.`);
         return;
       }
@@ -528,8 +822,8 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     };
     const existing = responsesByQuestion[question.id];
     const endpoint = existing
-      ? `${API_BASE}/dashboard-visits/${visitId}/responses/${existing.response_id}?_cb=${Date.now()}`
-      : `${API_BASE}/dashboard-visits/${visitId}/responses?_cb=${Date.now()}`;
+      ? `${API_BASE}/dashboard-visits/${targetVisitId}/responses/${existing.response_id}?_cb=${Date.now()}`
+      : `${API_BASE}/dashboard-visits/${targetVisitId}/responses?_cb=${Date.now()}`;
     const method = existing ? "PUT" : "POST";
     const res = await fetch(endpoint, { method, headers, body: JSON.stringify(payload) });
     const data = await res.json();
@@ -539,7 +833,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       return;
     }
     setMessage(existing ? "Response updated." : "Response saved.");
-    await loadVisitResponses(visitId);
+    await loadVisitResponses(targetVisitId);
   };
 
   const handleSubmitVisit = async () => {
@@ -610,15 +904,16 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
           </div>
         ))}
       </div>
-      <PageContainer className="space-y-6">
+      <PageContainer className={IS_INSTALLATION_SURVEY ? "space-y-8" : "space-y-6"}>
       {error ? <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
       {message ? <div className="rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success">{message}</div> : null}
 
+      {!IS_INSTALLATION_SURVEY ? (
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="animate-target">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4" /> Visit Workspace
+              Visit Workspace
             </CardTitle>
             <CardDescription>Create visits, capture responses, and submit for review with mobile-first controls.</CardDescription>
           </CardHeader>
@@ -649,9 +944,11 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
           </CardContent>
         </Card>
       </motion.div>
+      ) : null}
 
-      {isPlannedRoute ? (
+      {showVisitPreparation ? (
         <>
+          {!IS_INSTALLATION_SURVEY ? (
           <Card className="animate-target">
             <CardHeader>
               <CardTitle className="text-xl font-semibold tracking-tight">Planned Visits</CardTitle>
@@ -832,22 +1129,27 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
               )}
             </CardContent>
           </Card>
+          ) : null}
 
           <Card className="animate-target">
             <CardHeader>
               <CardTitle className="text-xl font-semibold tracking-tight">Create / Prepare Visit</CardTitle>
-              <CardDescription className="text-sm">Use this form to create a new visit or load a selected planned visit.</CardDescription>
+              <CardDescription className="text-sm">
+                {IS_INSTALLATION_SURVEY
+                  ? "Create your installation visit to start answering questions."
+                  : "Use this form to create a new visit or load a selected planned visit."}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <div>
+                {!IS_INSTALLATION_SURVEY ? <div>
                   <label className="mb-1 block text-sm font-medium">Source</label>
                   <Select value={visitSource} onChange={(event) => setVisitSource(event.target.value as "new" | "planned")}>
                     <option value="new">Create new visit</option>
                     <option value="planned">Use planned visit</option>
                   </Select>
-                </div>
-                {visitSource === "new" ? (
+                </div> : null}
+                {activeVisitSource === "new" ? (
                   <div>
                     <label className="mb-1 block text-sm font-medium">Business Mode</label>
                     <Select value={businessMode} onChange={(event) => setBusinessMode(event.target.value as "existing" | "new")}>
@@ -856,7 +1158,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                     </Select>
                   </div>
                 ) : null}
-                {visitSource === "new" && businessMode === "existing" ? (
+                {activeVisitSource === "new" && businessMode === "existing" ? (
                   <div>
                     <label className="mb-1 block text-sm font-medium">Business</label>
                     <Select value={visitForm.business_id} onChange={(event) => setVisitForm((prev) => ({ ...prev, business_id: event.target.value }))}>
@@ -866,13 +1168,13 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                     </Select>
                   </div>
                 ) : null}
-                {visitSource === "new" && businessMode === "new" ? (
+                {activeVisitSource === "new" && businessMode === "new" ? (
                   <div>
                     <label className="mb-1 block text-sm font-medium">New Business Name</label>
                     <Input value={newBusinessName} onChange={(event) => setNewBusinessName(event.target.value)} placeholder="Enter business name" />
                   </div>
                 ) : null}
-                {visitSource === "planned" ? (
+                {activeVisitSource === "planned" ? (
                   <div>
                     <label className="mb-1 block text-sm font-medium">Selected Planned Visit ID</label>
                     <Input value={selectedDraftId} disabled placeholder="Choose from table above" />
@@ -882,14 +1184,14 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                   <label className="mb-1 block text-sm font-medium">Visit Date</label>
                   <Input type="date" value={visitForm.visit_date} onChange={(event) => setVisitForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
                 </div>
-                <div>
+                {!IS_INSTALLATION_SURVEY ? <div>
                   <label className="mb-1 block text-sm font-medium">Visit Type</label>
                   <Select value={visitForm.visit_type} onChange={(event) => setVisitForm((prev) => ({ ...prev, visit_type: event.target.value }))}>
                     <option value="Planned">Planned</option>
                     <option value="Priority">Priority</option>
                     <option value="Substitution">Substitution</option>
                   </Select>
-                </div>
+                </div> : null}
               </div>
               <Button className="w-full sm:w-auto" onClick={handleCreateVisit} disabled={isCreatingVisit || !visitForm.visit_date}>
                 {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Prepare Visit
@@ -904,35 +1206,163 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
               <CardTitle>Survey Responses</CardTitle>
               <CardDescription>Capture responses by category. Use save per question, then submit the visit.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {!visitId ? (
+            <CardContent className={IS_INSTALLATION_SURVEY ? "space-y-5" : "space-y-3"}>
+              {IS_INSTALLATION_SURVEY ? (
+                <div className="space-y-5 rounded-md border bg-muted/20 p-5">
+                  <p className="text-base font-semibold">Installation Assessment Details</p>
+                  <div className="rounded-sm border bg-background p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-base font-semibold">Progress</p>
+                      <Badge variant="outline" className="px-3 py-1 text-sm">
+                        {mandatoryProgress.answered}/{mandatoryProgress.total} required
+                      </Badge>
+                    </div>
+                    <div className="h-3 w-full rounded-sm bg-muted">
+                      <div className="h-3 rounded-sm bg-primary transition-all" style={{ width: `${mandatoryProgress.percent}%` }} />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          if (!firstIncompleteCategoryId) return;
+                          const target = document.getElementById(firstIncompleteCategoryId);
+                          if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
+                        disabled={!firstIncompleteCategoryId}
+                      >
+                        Jump to Incomplete
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium uppercase tracking-wide text-muted-foreground">Survey Session</label>
+                      <Select
+                        className="h-11"
+                        value={installationEntryMode}
+                        onChange={(event) => setInstallationEntryMode((event.target.value as "new" | "draft") || "new")}
+                      >
+                        <option value="new">New</option>
+                        <option value="draft" disabled={installationDraftOptions.length === 0}>Draft</option>
+                      </Select>
+                    </div>
+                    {installationEntryMode === "draft" ? (
+                      <div className="md:col-span-2">
+                        <label className="mb-1 block text-sm font-medium uppercase tracking-wide text-muted-foreground">Saved Draft</label>
+                        <div className="flex gap-2">
+                          <Select
+                            className="h-11"
+                            value={selectedInstallationDraftId}
+                            onChange={(event) => setSelectedInstallationDraftId(event.target.value)}
+                            disabled={installationDraftOptions.length === 0}
+                          >
+                            {installationDraftOptions.length === 0 ? <option value="">No drafts available</option> : null}
+                            {installationDraftOptions.map((draft) => {
+                              const draftId = String(draft.visit_id || draft.id || "");
+                              return (
+                                <option key={draftId} value={draftId}>
+                                  {resolveBusinessName(draft)} - {draft.visit_date || "No date"}
+                                </option>
+                              );
+                            })}
+                          </Select>
+                          <Button variant="destructive" onClick={handleDeleteInstallationDraft} disabled={!selectedInstallationDraftId}>Delete Draft</Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium uppercase tracking-wide text-muted-foreground">Inspector / Auditor Name</label>
+                      <Input className="h-11" value={installationInspector} onChange={(event) => setInstallationInspector(event.target.value)} placeholder="Enter inspector name" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium uppercase tracking-wide text-muted-foreground">Customer Name</label>
+                      <Input className="h-11" value={installationCustomerName} onChange={(event) => setInstallationCustomerName(event.target.value)} placeholder="Enter customer name" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium uppercase tracking-wide text-muted-foreground">Choose B2C or B2B</label>
+                      <Select className="h-11" value={installationSegment} onChange={(event) => setInstallationSegment((event.target.value as "B2B" | "B2C") || "B2B")}>
+                        <option value="B2B">B2B</option>
+                        <option value="B2C">B2C</option>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium uppercase tracking-wide text-muted-foreground">Location</label>
+                      <Input className="h-11" value={installationLocation} onChange={(event) => setInstallationLocation(event.target.value)} placeholder="Enter location" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium uppercase tracking-wide text-muted-foreground">Date Work Done</label>
+                      <Input className="h-11" type="date" value={installationDateWorkDone} onChange={(event) => setInstallationDateWorkDone(event.target.value)} />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium uppercase tracking-wide text-muted-foreground">Field Team / Contractors</label>
+                      <Input className="h-11" value={installationTeam} onChange={(event) => setInstallationTeam(event.target.value)} placeholder="Enter team or contractor" />
+                    </div>
+                  </div>
+                  {installationEntryMode === "draft" || !!visitId ? (
+                    <div className="rounded-sm border bg-background p-4">
+                      <p className="text-base font-semibold">Draft Checkpoint</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Details are saved temporarily while this installation assessment is in progress.</p>
+                      <p className="mt-2 text-sm font-medium">
+                        Last saved: {detailsSavedAt ? new Date(detailsSavedAt).toLocaleString() : "Not saved yet"}
+                      </p>
+                    </div>
+                  ) : null}
+                  <div className="rounded-md border bg-background p-4 text-base">
+                    <p className="font-semibold">Scoring guideline: 1 is the lowest and 5 is the highest</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Overall assessment score is the average of all question scores (sum of scores divided by number of questions).</p>
+                  </div>
+                  <div className="rounded-md border bg-background p-3">
+                    <p className="font-semibold">Scoring Thresholds & Actions for Auditors</p>
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      {INSTALLATION_SCORING_BANDS.map((band) => (
+                        <div key={band.range} className="min-h-36 rounded-sm border-2 bg-muted/10 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Score {band.range}</p>
+                          <p className="mt-1 text-lg font-semibold">{band.label}</p>
+                          <p className="mt-2 text-sm text-muted-foreground">{band.detail}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {!visitId && !IS_INSTALLATION_SURVEY ? (
                 <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
                   No visit selected. Go to Planned Visits, select or create a visit, then return here.
                 </div>
               ) : (
                 <>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                     {groupedQuestions.map((category) => (
                       <Button
                         key={category}
-                        size="sm"
+                        size={IS_INSTALLATION_SURVEY ? "default" : "sm"}
                         variant={currentCategory === category ? "default" : "outline"}
+                        className={IS_INSTALLATION_SURVEY ? "h-16 w-full justify-between px-4 text-base font-semibold" : undefined}
                         onClick={() => {
                           setCurrentCategory(category);
                           document.getElementById(categoryToId(category))?.scrollIntoView({ behavior: "smooth", block: "start" });
                         }}
                       >
-                        {category}
+                        <span className="truncate text-left">{category}</span>
+                        <span className="ml-2 text-xs opacity-80">{categoryCompletionMap[category]?.answered || 0}/{categoryCompletionMap[category]?.total || 0}</span>
                       </Button>
                     ))}
                   </div>
 
-                  <div className="space-y-6">
-                    {groupedQuestions.map((category) => (
-                      <div key={category} id={categoryToId(category)} className="space-y-3">
+                  <div className="space-y-8">
+                    {groupedQuestions.map((category, categoryIndex) => (
+                      <div
+                        key={category}
+                        id={categoryToId(category)}
+                        className={`space-y-4 rounded-sm px-4 py-5 ${CATEGORY_ACCENTS[categoryIndex % CATEGORY_ACCENTS.length]}`}
+                      >
                         <div className="flex items-center justify-between">
-                          <h3 className="text-base font-semibold">{category}</h3>
-                          <Badge variant="outline">{visibleQuestions.filter((q) => q.category === category).length} questions</Badge>
+                          <h3 className="text-lg font-semibold">{category}</h3>
+                          <Badge variant="outline" className="px-3 py-1 text-sm">
+                            {categoryCompletionMap[category]?.answered || 0}/{visibleQuestions.filter((q) => q.category === category).length}
+                          </Badge>
                         </div>
                         <div className="grid grid-cols-1 gap-4">
                           {visibleQuestions
@@ -944,23 +1374,47 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                               return (
                                 <Card key={question.id}>
                                   <CardHeader>
-                                    <CardTitle className="text-sm">Q{question.question_number || question.id} - {question.question_text}</CardTitle>
+                                    <CardTitle className={IS_INSTALLATION_SURVEY ? "text-lg" : "text-sm"}>{question.question_text}</CardTitle>
                                     <CardDescription>
                                       <span className="inline-flex gap-2">
                                         <Badge variant="secondary">{question.input_type}</Badge>
                                         {question.is_mandatory ? <Badge variant="warning">Required</Badge> : null}
+                                        <Badge variant={isQuestionAnswered(question) ? "success" : "outline"}>
+                                          {isQuestionAnswered(question) ? "Saved" : "Pending"}
+                                        </Badge>
                                       </span>
                                     </CardDescription>
                                   </CardHeader>
                                   <CardContent className="space-y-4">
                                     {question.input_type === "score" ? (
-                                      <Input
-                                        type="number"
-                                        min={question.score_min ?? 0}
-                                        max={question.score_max ?? 10}
-                                        value={draft.score}
-                                        onChange={(event) => updateQuestionDraft(question.id, "score", event.target.value)}
-                                      />
+                                      IS_INSTALLATION_SURVEY ? (
+                                        <div className="flex flex-wrap gap-3">
+                                          {[1, 2, 3, 4, 5].map((value) => (
+                                            <Button
+                                              key={value}
+                                              type="button"
+                                              variant={String(value) === draft.score ? "default" : "outline"}
+                                              className="h-14 w-14 rounded-md text-lg font-semibold"
+                                              onClick={() => {
+                                                const nextDraft = { ...draft, score: String(value) };
+                                                updateQuestionDraft(question.id, "score", String(value));
+                                                void handleSaveQuestionResponse(question, nextDraft);
+                                              }}
+                                            >
+                                              {value}
+                                            </Button>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <Input
+                                          type="number"
+                                          min={question.score_min ?? 0}
+                                          max={question.score_max ?? 10}
+                                          step={1}
+                                          value={draft.score}
+                                          onChange={(event) => updateQuestionDraft(question.id, "score", event.target.value)}
+                                        />
+                                      )
                                     ) : question.input_type === "yes_no" ? (
                                       <div className="flex gap-2">
                                         <Button variant={normalizeYesNo(draft.answer_text) === "Y" ? "default" : "outline"} onClick={() => updateQuestionDraft(question.id, "answer_text", "Y")}>Yes</Button>
@@ -990,44 +1444,49 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                       <Textarea value={draft.answer_text} onChange={(event) => updateQuestionDraft(question.id, "answer_text", event.target.value)} />
                                     )}
 
-                                    <div>
-                                      <label className="mb-1 block text-sm font-medium">Verbatim</label>
-                                      <Textarea value={draft.verbatim} onChange={(event) => updateQuestionDraft(question.id, "verbatim", event.target.value)} />
-                                    </div>
-
-                                    <div className="space-y-2 rounded-md border bg-muted/40 p-3">
-                                      <div className="flex items-center justify-between">
-                                        <p className="text-sm font-medium">Actions</p>
-                                        <Button size="sm" variant="outline" onClick={() => addActionItem(question.id)}>Add Action</Button>
-                                      </div>
-                                      {draft.actions.map((action, index) => (
-                                        <div key={`${question.id}-action-${index}`} className="grid grid-cols-1 gap-2 rounded-md border bg-background p-3 md:grid-cols-2">
-                                          <Input placeholder="Action required" value={action.action_required} onChange={(event) => updateActionItem(question.id, index, "action_required", event.target.value)} />
-                                          <Input placeholder="Lead owner" value={action.action_owner} onChange={(event) => updateActionItem(question.id, index, "action_owner", event.target.value)} />
-                                          <Select value={action.action_timeframe} onChange={(event) => updateActionItem(question.id, index, "action_timeframe", event.target.value)}>
-                                            <option value="">Action timeframe</option>
-                                            {ACTION_TIMEFRAME_OPTIONS.map((option) => (
-                                              <option key={`${question.id}-action-time-${index}-${option}`} value={option}>{option}</option>
-                                            ))}
-                                          </Select>
-                                          <Input placeholder="Support needed" value={action.action_support_needed} onChange={(event) => updateActionItem(question.id, index, "action_support_needed", event.target.value)} />
-                                          <div className="md:col-span-2">
-                                            <Button size="sm" variant="destructive" onClick={() => removeActionItem(question.id, index)}>
-                                              Remove Action
-                                            </Button>
-                                          </div>
+                                    {!IS_INSTALLATION_SURVEY ? (
+                                      <>
+                                        <div>
+                                          <label className="mb-1 block text-sm font-medium">Verbatim</label>
+                                          <Textarea value={draft.verbatim} onChange={(event) => updateQuestionDraft(question.id, "verbatim", event.target.value)} />
                                         </div>
-                                      ))}
-                                    </div>
 
-                                     <Button className="w-full sm:w-auto" onClick={() => handleSaveQuestionResponse(question)} disabled={saving}>
-                                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Response
-                                    </Button>
+                                        <div className="space-y-2 rounded-md border bg-muted/40 p-3">
+                                          <div className="flex items-center justify-between">
+                                            <p className="text-sm font-medium">Actions</p>
+                                            <Button size="sm" variant="outline" onClick={() => addActionItem(question.id)}>Add Action</Button>
+                                          </div>
+                                          {draft.actions.map((action, index) => (
+                                            <div key={`${question.id}-action-${index}`} className="grid grid-cols-1 gap-2 rounded-md border bg-background p-3 md:grid-cols-2">
+                                              <Input placeholder="Action required" value={action.action_required} onChange={(event) => updateActionItem(question.id, index, "action_required", event.target.value)} />
+                                              <Input placeholder="Lead owner" value={action.action_owner} onChange={(event) => updateActionItem(question.id, index, "action_owner", event.target.value)} />
+                                              <Select value={action.action_timeframe} onChange={(event) => updateActionItem(question.id, index, "action_timeframe", event.target.value)}>
+                                                <option value="">Action timeframe</option>
+                                                {ACTION_TIMEFRAME_OPTIONS.map((option) => (
+                                                  <option key={`${question.id}-action-time-${index}-${option}`} value={option}>{option}</option>
+                                                ))}
+                                              </Select>
+                                              <Input placeholder="Support needed" value={action.action_support_needed} onChange={(event) => updateActionItem(question.id, index, "action_support_needed", event.target.value)} />
+                                              <div className="md:col-span-2">
+                                                <Button size="sm" variant="destructive" onClick={() => removeActionItem(question.id, index)}>
+                                                  Remove Action
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+
+                                        <Button className="w-full sm:w-auto" onClick={() => handleSaveQuestionResponse(question)} disabled={saving}>
+                                          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Response
+                                        </Button>
+                                      </>
+                                    ) : null}
                                   </CardContent>
                                 </Card>
                               );
                             })}
                         </div>
+                        {categoryIndex < groupedQuestions.length - 1 ? <div className="border-t border-border/80 pt-2" /> : null}
                       </div>
                     ))}
                   </div>

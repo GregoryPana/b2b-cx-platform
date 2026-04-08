@@ -12,8 +12,11 @@ interface SidebarProps {
   userEmail: string;
 }
 
+const surveyLabel = String(import.meta.env.VITE_SURVEY_TYPE || "B2B");
+const isInstallationSurvey = surveyLabel === "Installation Assessment";
+
 const items = [
-  { to: "/planned", label: "Planned Visits", icon: CalendarDays },
+  ...(!isInstallationSurvey ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
   { to: "/survey", label: "Survey", icon: ClipboardCheck },
 ];
 
@@ -29,7 +32,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onCloseMobile
         )}
       >
       <div className="flex h-14 items-center justify-between border-b px-4">
-        {!collapsed ? <span className="text-sm font-semibold">B2B Survey</span> : null}
+        {!collapsed ? <span className="text-sm font-semibold">{surveyLabel}</span> : null}
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={onCloseMobile} aria-label="Close navigation">
             <X className="h-4 w-4" />
