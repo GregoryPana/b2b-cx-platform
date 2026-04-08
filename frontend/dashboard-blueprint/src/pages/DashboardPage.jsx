@@ -656,12 +656,16 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         return false;
       }
     }
-    if (reportType === "date" && !reportSelectedDate) {
-      setError("Select the report date for the selected-date report.");
-      return false;
+    if (reportType === "date") {
+      const hasSingleDate = Boolean(reportSelectedDate);
+      const hasDateRange = Boolean(reportDateFrom || reportDateTo);
+      if (!hasSingleDate && !hasDateRange) {
+        setError("Select a single report date or a date range for the selected-date report.");
+        return false;
+      }
     }
     return true;
-  }, [reportBusinessId, reportSelectedDate, reportType, reportVisitId]);
+  }, [reportBusinessId, reportDateFrom, reportDateTo, reportSelectedDate, reportType, reportVisitId]);
 
   const buildReportParams = useCallback(() => {
     const params = new URLSearchParams();
