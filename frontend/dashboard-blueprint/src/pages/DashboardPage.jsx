@@ -72,6 +72,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [pendingVisits, setPendingVisits] = useState([]);
   const [businesses, setBusinesses] = useState([]);
   const [representatives, setRepresentatives] = useState([]);
+  const [selectedExecutive, setSelectedExecutive] = useState(null);
+  const [executiveForm, setExecutiveForm] = useState({ name: "", email: "" });
   const [selectedBusiness, setSelectedBusiness] = useState(null);
   const [businessForm, setBusinessForm] = useState({
     name: "",
@@ -88,6 +90,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [analyticsBusinessSearch, setAnalyticsBusinessSearch] = useState("");
   const [surveyResults, setSurveyResults] = useState([]);
   const [selectedSurveyVisit, setSelectedSurveyVisit] = useState(null);
+  const [reviewResponseDrafts, setReviewResponseDrafts] = useState({});
+  const [reviewSavingResponseId, setReviewSavingResponseId] = useState("");
   const [actionsBoardItems, setActionsBoardItems] = useState([]);
   const [actionsBoardSummary, setActionsBoardSummary] = useState(null);
   const [actionsBoardLoading, setActionsBoardLoading] = useState(false);
@@ -1008,6 +1012,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       return;
     }
     setSelectedSurveyVisit(data);
+    const drafts = {};
+    (Array.isArray(data?.responses) ? data.responses : []).forEach((response) => {
+      drafts[String(response.response_id)] = {
+        answer_text: response.answer_text || "",
+        verbatim: response.verbatim || "",
+        actions: Array.isArray(response.actions) ? response.actions : [],
+      };
+    });
+    setReviewResponseDrafts(drafts);
   };
 
   const handleReviewDecision = async (visit, decision) => {
@@ -1065,6 +1078,87 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       label: "Answer",
       value: "--",
     };
+  };
+
+  const canEditResponseAnswer = (response) => {
+    const type = String(response?.question_type || "").toLowerCase();
+    return type !== "score" && type !== "yes_no";
+  };
+
+  const canEditResponseActions = (response) => {
+    return Boolean(response?.response_id);
+  };
+
+  const updateReviewDraft = (responseId, updater) => {
+    setReviewResponseDrafts((prev) => {
+      const current = prev[responseId] || {};
+      return { ...prev, [responseId]: typeof updater === "function" ? updater(current) : updater };
+    });
+  };
+
+  const updateReviewAction = (responseId, actionIndex, field, value) => {
+    updateReviewDraft(responseId, (current) => {
+      const actions = Array.isArray(current.actions) ? [...current.actions] : [];
+      actions[actionIndex] = { ...(actions[actionIndex] || {}), [field]: value };
+      return { ...current, actions };
+    });
+  };
+
+  const addReviewAction = (responseId) => {
+    updateReviewDraft(responseId, (current) => ({
+      ...current,
+      actions: [
+        ...(Array.isArray(current.actions) ? current.actions : []),
+        { action_required: "", action_owner: "", action_timeframe: "", action_support_needed: "" },
+      ],
+    }));
+  };
+
+  const removeReviewAction = (responseId, actionIndex) => {
+    updateReviewDraft(responseId, (current) => ({
+      ...current,
+      actions: (Array.isArray(current.actions) ? current.actions : []).filter((_, index) => index !== actionIndex),
+    }));
+  };
+
+  const saveReviewResponseEdits = async (response) => {
+    const responseId = String(response?.response_id || "");
+    const visitId = String(selectedSurveyVisit?.id || selectedSurveyVisit?.visit_id || "");
+    if (!responseId || !visitId) return;
+    const draft = reviewResponseDrafts[responseId] || {};
+    const payload = {
+      question_id: response.question_id,
+      score: response.score,
+      answer_text: canEditResponseAnswer(response) ? (draft.answer_text ?? response.answer_text ?? "") : response.answer_text,
+      verbatim: draft.verbatim ?? response.verbatim ?? "",
+      actions: draft.actions ?? response.actions ?? [],
+    };
+    setReviewSavingResponseId(responseId);
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/${visitId}/responses/${responseId}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    setReviewSavingResponseId("");
+    if (!res.ok) {
+      setError(data?.detail || "Failed to update response");
+      return;
+    }
+    setMessage("Survey response updated.");
+    await loadSurveyVisitDetails(visitId);
+  };
+
+  const formatReadableDateTime = (value) => {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return parsed.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   };
 
   useEffect(() => {
@@ -1417,26 +1511,24 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     });
   }, [yesNoBarChartData]);
 
-   // Load representatives (account executives)
-    useEffect(() => {
-      if (!isB2BPlatform) {
-        setRepresentatives([]);
-        return;
-      }
-      const load = async () => {
-        try {
-          const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/public/account-executives`, { headers }, 30000);
-          if (!res.ok) return;
-          setRepresentatives(Array.isArray(data) ? data : []);
-        } catch (err) {
-          if (err?.name === "AbortError") {
-            return;
-          }
-          console.error("Failed to load representatives", err);
-        }
-      };
-      load();
-    }, [isB2BPlatform, headers]);
+  const loadRepresentatives = useCallback(async () => {
+    if (!isB2BPlatform) {
+      setRepresentatives([]);
+      return;
+    }
+    try {
+      const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/public/account-executives`, { headers }, 30000);
+      if (!res.ok) return;
+      setRepresentatives(Array.isArray(data) ? data : []);
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      console.error("Failed to load representatives", err);
+    }
+  }, [isB2BPlatform, headers, fetchJsonSafe]);
+
+  useEffect(() => {
+    loadRepresentatives();
+  }, [loadRepresentatives]);
 
   // Business CRUD handlers
   const handleEditBusiness = (business) => {
@@ -1574,9 +1666,54 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }
   };
 
-   useEffect(() => {
+  useEffect(() => {
      loadBusinesses();
    }, [isB2BPlatform, fetchJsonSafe]);
+
+  const resetExecutiveForm = () => {
+    setSelectedExecutive(null);
+    setExecutiveForm({ name: "", email: "" });
+  };
+
+  const saveExecutive = async () => {
+    if (!isB2BPlatform) return;
+    if (!executiveForm.name.trim() || !executiveForm.email.trim()) {
+      setError("Account executive name and email are required.");
+      return;
+    }
+    const isEdit = Boolean(selectedExecutive?.id);
+    const url = isEdit ? `${API_BASE}/account-executives/${selectedExecutive.id}` : `${API_BASE}/account-executives`;
+    const method = isEdit ? "PUT" : "POST";
+    const { res, data } = await fetchJsonSafe(url, {
+      method,
+      headers,
+      body: JSON.stringify({ name: executiveForm.name.trim(), email: executiveForm.email.trim() }),
+    });
+    if (!res.ok) {
+      setError(data?.detail || `Failed to ${isEdit ? "update" : "create"} account executive`);
+      return;
+    }
+    setMessage(`Account executive ${isEdit ? "updated" : "created"}.`);
+    resetExecutiveForm();
+    await loadRepresentatives();
+  };
+
+  const editExecutive = (executive) => {
+    setSelectedExecutive(executive);
+    setExecutiveForm({ name: executive.name || "", email: executive.email || "" });
+  };
+
+  const deleteExecutive = async (executive) => {
+    if (!window.confirm(`Delete account executive "${executive.name}"?`)) return;
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/account-executives/${executive.id}`, { method: "DELETE", headers });
+    if (!res.ok) {
+      setError(data?.detail || "Failed to delete account executive");
+      return;
+    }
+    setMessage(`Account executive deleted: ${executive.name}`);
+    setRepresentatives((prev) => prev.filter((item) => item.id !== executive.id));
+    if (selectedExecutive?.id === executive.id) resetExecutiveForm();
+  };
 
   useEffect(() => {
     if (!isB2BPlatform) return;
@@ -2106,7 +2243,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    Competitor Analysis
+                    Competitive Exposure
                     <InfoHint text="This shows how many customers also buy similar services from other providers. If this is high, there is more risk of losing business and we should follow up." />
                   </CardTitle>
                   <CardDescription>Shows how many customers also use competitor services. Lower is better for retention.</CardDescription>
@@ -2351,12 +2488,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             <CardDescription>
               {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
             </CardDescription>
-            <CardDescription>
-              Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
-            </CardDescription>
-            <CardDescription>
-              Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${selectedSurveyVisit.submitted_at}` : ""}
-            </CardDescription>
+              <CardDescription>
+                Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
+              </CardDescription>
+              <CardDescription>
+                Last Edited Before Review: {selectedSurveyVisit.edited_by_name || "--"} {selectedSurveyVisit.edited_at ? `at ${formatReadableDateTime(selectedSurveyVisit.edited_at)}` : ""}
+              </CardDescription>
+              <CardDescription>
+                Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${formatReadableDateTime(selectedSurveyVisit.submitted_at)}` : ""}
+              </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {surveyResponseCategoryGroups.length > 0 ? (
@@ -2368,14 +2508,56 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   </div>
                   {responses.map((response) => {
                     const display = formatSurveyResponseValue(response);
+                    const responseId = String(response.response_id || "");
+                    const draft = reviewResponseDrafts[responseId] || { answer_text: response.answer_text || "", verbatim: response.verbatim || "", actions: response.actions || [] };
+                    const isSaving = reviewSavingResponseId === responseId;
                     return (
                       <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
                         <div className="mb-1 flex items-center justify-between">
                           <p className="text-base font-medium">Question {response.question_number || response.question_id}</p>
                         </div>
                         <p className="text-sm">{response.question_text || "--"}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
-                        {response.verbatim ? <p className="mt-1 text-sm text-muted-foreground">Verbatim: {response.verbatim}</p> : null}
+                        {canEditResponseAnswer(response) ? (
+                          <div className="mt-2">
+                            <label className="mb-1 block text-sm font-medium">Answer</label>
+                            <Input value={draft.answer_text} onChange={(event) => updateReviewDraft(responseId, { ...draft, answer_text: event.target.value })} />
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
+                        )}
+                        <div className="mt-2">
+                          <label className="mb-1 block text-sm font-medium">Verbatim</label>
+                          <Input value={draft.verbatim} onChange={(event) => updateReviewDraft(responseId, { ...draft, verbatim: event.target.value })} />
+                        </div>
+                        {canEditResponseActions(response) ? (
+                          <div className="mt-3 space-y-2 rounded-md border bg-muted/40 p-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm font-medium">Action Points</p>
+                              <Button type="button" size="sm" variant="outline" onClick={() => addReviewAction(responseId)}>Add Action</Button>
+                            </div>
+                            {(draft.actions || []).map((action, actionIndex) => (
+                              <div key={`${responseId}-action-${actionIndex}`} className="grid grid-cols-1 gap-2 rounded-md border bg-background p-3 md:grid-cols-2">
+                                <Input placeholder="Action required" value={action.action_required || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_required", event.target.value)} />
+                                <Input placeholder="Lead owner" value={action.action_owner || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_owner", event.target.value)} />
+                                <Select value={action.action_timeframe || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_timeframe", event.target.value)}>
+                                  <option value="">Action timeframe</option>
+                                  {ACTION_TIMEFRAME_OPTIONS.map((option) => (
+                                    <option key={`${responseId}-${actionIndex}-${option}`} value={option}>{option}</option>
+                                  ))}
+                                </Select>
+                                <Input placeholder="Support needed" value={action.action_support_needed || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_support_needed", event.target.value)} />
+                                <div className="md:col-span-2">
+                                  <Button type="button" size="sm" variant="destructive" onClick={() => removeReviewAction(responseId, actionIndex)}>Remove Action</Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="mt-3">
+                          <Button type="button" size="sm" variant="outline" onClick={() => saveReviewResponseEdits(response)} disabled={isSaving}>
+                            {isSaving ? "Saving..." : "Save Response Edit"}
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
@@ -2727,11 +2909,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 <Select value={surveyStatusFilter} onChange={(event) => setSurveyStatusFilter(event.target.value)}>
                   <option value="all">All Statuses</option>
                   <option value="Draft">Draft</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Rejected">Rejected</option>
-                  <option value="Needs Changes">Needs Changes</option>
-                </Select>
+                      <option value="Pending">Pending</option>
+                      <option value="Approved">Approved</option>
+                      <option value="Rejected">Rejected</option>
+                    </Select>
                 {isB2BPlatform ? (
                   <Select value={selectedSurveyBusiness} onChange={(event) => setSelectedSurveyBusiness(event.target.value)}>
                     <option value="">All Businesses</option>
@@ -3065,7 +3246,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
               </CardDescription>
               <CardDescription>
-                Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${selectedSurveyVisit.submitted_at}` : ""}
+                  Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${formatReadableDateTime(selectedSurveyVisit.submitted_at)}` : ""}
               </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -3565,6 +3746,82 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           </Card>
          )
         ) : null}
+
+       {location.pathname === "/executives" ? (
+         isB2BPlatform ? (
+          <>
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle>{selectedExecutive ? "Edit Account Executive" : "Add Account Executive"}</CardTitle>
+                {selectedExecutive ? (
+                  <Button type="button" variant="outline" size="sm" onClick={resetExecutiveForm}>Cancel Edit</Button>
+                ) : null}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Name</label>
+                    <Input value={executiveForm.name} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Executive name" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Email</label>
+                    <Input value={executiveForm.email} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, email: e.target.value }))} placeholder="Executive email" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" onClick={saveExecutive}>{selectedExecutive ? "Update Executive" : "Save Executive"}</Button>
+                  {selectedExecutive ? <Button type="button" variant="outline" onClick={resetExecutiveForm}>Cancel</Button> : null}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Account Executive Directory</CardTitle>
+                <Button type="button" variant="outline" size="sm" onClick={loadRepresentatives}>Refresh</Button>
+              </CardHeader>
+              <CardContent>
+                <Table className="min-w-[760px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {representatives.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={3}>No account executives found.</TableCell>
+                      </TableRow>
+                    ) : (
+                      representatives.map((executive) => (
+                        <TableRow key={executive.id}>
+                          <TableCell>{executive.name || "--"}</TableCell>
+                          <TableCell>{executive.email || "--"}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button type="button" variant="outline" size="sm" onClick={() => editExecutive(executive)}>Edit</Button>
+                              <Button type="button" variant="destructive" size="sm" onClick={() => deleteExecutive(executive)}>Delete</Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </>
+         ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Account Executives</CardTitle>
+              <CardDescription>Account executive management is currently available only for the B2B platform.</CardDescription>
+            </CardHeader>
+          </Card>
+         )
+       ) : null}
     </PageContainer>
   );
 }

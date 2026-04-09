@@ -55,3 +55,17 @@ def update_account_executive(
     db.commit()
     db.refresh(executive)
     return executive
+
+
+@router.delete("/{executive_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account_executive(
+    executive_id: int,
+    db: Session = Depends(get_db),
+    _user: CurrentUser = Depends(require_roles([ROLE_ADMIN])),
+):
+    executive = db.get(AccountExecutive, executive_id)
+    if not executive:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account executive not found")
+
+    db.delete(executive)
+    db.commit()

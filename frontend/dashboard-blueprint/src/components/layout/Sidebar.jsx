@@ -17,6 +17,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
      ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/surveys", label: "Surveys", icon: LayoutList }] : []),
      ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
      ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
+     ...(isB2BPlatform ? [{ to: "/executives", label: "Account Executives", icon: Building2 }] : []),
      ...(isMysteryShopperPlatform
        ? [
            { to: "/locations", label: "Locations", icon: Building2 },

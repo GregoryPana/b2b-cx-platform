@@ -33,6 +33,7 @@ from app.api.admin_dashboard import router as admin_dashboard_router
 
 # Analytics Imports
 from app.routers.analytics import router as analytics_router
+from app.routers.account_executives import router as account_executives_router
 
 # Test Imports
 from app.api.test import router as test_router
@@ -146,6 +147,7 @@ def create_app() -> FastAPI:
     
     # Analytics Routes (for comprehensive analytics)
     app.include_router(analytics_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
+    app.include_router(account_executives_router, dependencies=[Depends(require_roles(*B2B_ROLES))])
     
     # Test Routes (for debugging)
     app.include_router(test_router, tags=["test"])

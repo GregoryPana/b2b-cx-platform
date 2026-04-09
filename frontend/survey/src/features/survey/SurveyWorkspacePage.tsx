@@ -39,6 +39,12 @@ type Business = {
   active?: boolean;
 };
 
+type AccountExecutive = {
+  id: number;
+  name: string;
+  email?: string;
+};
+
 type Question = {
   id: number;
   question_text: string;
@@ -168,6 +174,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [accountExecutives, setAccountExecutives] = useState<AccountExecutive[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [draftVisits, setDraftVisits] = useState<DraftVisit[]>([]);
   const [visitId, setVisitId] = useState("");
@@ -289,8 +296,20 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       });
     };
 
+    const loadAccountExecutives = async () => {
+      const res = await fetch(`${API_BASE}/b2b/public/account-executives`, { headers });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to load account executives");
+        return;
+      }
+      const rows = Array.isArray(data) ? data : [];
+      setAccountExecutives(rows);
+    };
+
     loadBusinesses();
     loadQuestions();
+    loadAccountExecutives();
   }, [headers]);
 
   const loadDrafts = async () => {
@@ -764,14 +783,12 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                         </Card>
                       ) : (
                         plannedToday.map((draft) => {
-                          const id = draft.visit_id || draft.id || "";
                           return (
-                            <Card key={id}>
+                            <Card key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
                               <CardContent className="space-y-3 p-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
                                     <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
-                                    <p className="text-xs text-muted-foreground">Visit ID: {id || "--"}</p>
                                   </div>
                                   <Badge variant="secondary">{draft.status || "Draft"}</Badge>
                                 </div>
@@ -813,9 +830,8 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                             </TableRow>
                           ) : (
                             plannedToday.map((draft) => {
-                              const id = draft.visit_id || draft.id || "";
                               return (
-                                <TableRow key={id}>
+                                <TableRow key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
                                   <TableCell>{resolveBusinessName(draft)}</TableCell>
                                   <TableCell>{draft.visit_date || "--"}</TableCell>
                                   <TableCell>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</TableCell>
@@ -849,15 +865,13 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                         </Card>
                       ) : (
                         plannedUpcoming.map((draft) => {
-                          const id = draft.visit_id || draft.id || "";
                           const priority = draft.business_priority || "medium";
                           return (
-                            <Card key={id}>
+                            <Card key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
                               <CardContent className="space-y-3 p-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
                                     <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
-                                    <p className="text-xs text-muted-foreground">Visit ID: {id || "--"}</p>
                                   </div>
                                   <Badge variant={priority === "high" ? "destructive" : priority === "medium" ? "warning" : "success"}>{priority}</Badge>
                                 </div>
@@ -890,10 +904,9 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                             </TableRow>
                           ) : (
                             plannedUpcoming.map((draft) => {
-                              const id = draft.visit_id || draft.id || "";
                               const priority = draft.business_priority || "medium";
                               return (
-                                <TableRow key={id}>
+                                <TableRow key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
                                   <TableCell>{resolveBusinessName(draft)}</TableCell>
                                   <TableCell>{draft.visit_date || "--"}</TableCell>
                                   <TableCell><Badge variant={priority === "high" ? "destructive" : priority === "medium" ? "warning" : "success"}>{priority}</Badge></TableCell>
@@ -950,12 +963,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                     <Input value={newBusinessName} onChange={(event) => setNewBusinessName(event.target.value)} placeholder="Enter business name" />
                   </div>
                 ) : null}
-                {visitSource === "planned" ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-medium">Selected Planned Visit ID</label>
-                    <Input value={selectedDraftId} disabled placeholder="Choose from table above" />
-                  </div>
-                ) : null}
+                {visitSource === "planned" ? null : null}
                 <div>
                   <label className="mb-1 block text-sm font-medium">Visit Date</label>
                   <Input type="date" value={visitForm.visit_date} onChange={(event) => setVisitForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
@@ -970,11 +978,15 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                 </div>
                 <div className="md:col-span-2 lg:col-span-4">
                   <label className="mb-1 block text-sm font-medium">Account Executive</label>
-                  <Input
+                  <Select
                     value={visitForm.account_executive_name}
                     onChange={(event) => setVisitForm((prev) => ({ ...prev, account_executive_name: event.target.value }))}
-                    placeholder="Enter the account executive for this business"
-                  />
+                  >
+                    <option value="">Select account executive</option>
+                    {accountExecutives.map((executive) => (
+                      <option key={executive.id} value={executive.name}>{executive.name}</option>
+                    ))}
+                  </Select>
                 </div>
                 <div className="md:col-span-2 lg:col-span-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">

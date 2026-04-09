@@ -23,6 +23,7 @@ router = APIRouter(prefix="/dashboard-visits", tags=["dashboard-visits"])
 
 _visit_signature_columns_checked = False
 _visit_metadata_columns_checked = False
+_visit_edit_audit_columns_checked = False
 
 
 def has_table(db: Session, table_name: str) -> bool:
@@ -158,6 +159,43 @@ def ensure_visit_metadata_columns(db: Session) -> None:
     if not has_column(db, "visits", "account_executive_name"):
         db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS account_executive_name VARCHAR(255)"))
     _visit_metadata_columns_checked = True
+
+
+def ensure_visit_edit_audit_columns(db: Session) -> None:
+    global _visit_edit_audit_columns_checked
+    if _visit_edit_audit_columns_checked:
+        return
+    if not has_table(db, "visits"):
+        return
+    if not has_column(db, "visits", "edited_by_name"):
+        db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS edited_by_name VARCHAR(255)"))
+    if not has_column(db, "visits", "edited_by_email"):
+        db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS edited_by_email VARCHAR(255)"))
+    if not has_column(db, "visits", "edited_at"):
+        db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ"))
+    _visit_edit_audit_columns_checked = True
+
+
+def mark_visit_edited(db: Session, visit_id: str, current_user: object | None) -> None:
+    ensure_visit_edit_audit_columns(db)
+    if current_user is None:
+        return
+    db.execute(
+        text(
+            """
+            UPDATE visits
+            SET edited_by_name = :edited_by_name,
+                edited_by_email = :edited_by_email,
+                edited_at = NOW()
+            WHERE id = :visit_id
+            """
+        ),
+        {
+            "visit_id": visit_id,
+            "edited_by_name": getattr(current_user, "name", None),
+            "edited_by_email": getattr(current_user, "email", None) or getattr(current_user, "preferred_username", None),
+        },
+    )
 
 
 def normalize_team_member_names(values: list | None) -> list[str]:
@@ -955,10 +993,11 @@ def build_report_payload(
         if not effective_visit_id:
             raise HTTPException(status_code=400, detail="visit_id is required for survey report")
     elif normalized_report_type == "date":
-        if not report_date:
-            raise HTTPException(status_code=400, detail="report_date is required for date report")
-        effective_date_from = report_date
-        effective_date_to = report_date
+        if report_date:
+            effective_date_from = report_date
+            effective_date_to = report_date
+        elif not (effective_date_from or effective_date_to):
+            raise HTTPException(status_code=400, detail="report_date or date range is required for date report")
 
     where_parts = []
     params: dict = {}
@@ -1349,6 +1388,7 @@ def build_report_payload(
     selected_visit_info: dict | None = None
     if normalized_report_type == "survey" and effective_visit_id:
         ensure_visit_metadata_columns(db)
+        ensure_visit_edit_audit_columns(db)
         visit_info_row = db.execute(
             text(
                 """
@@ -1358,6 +1398,8 @@ def build_report_payload(
                     v.visit_date,
                     v.status,
                     v.account_executive_name,
+                    v.edited_by_name,
+                    v.edited_at,
                     u.name AS representative_name
                 FROM visits v
                 JOIN businesses b ON b.id = v.business_id
@@ -1375,6 +1417,8 @@ def build_report_payload(
                 "visit_date": visit_info_row["visit_date"].isoformat() if visit_info_row["visit_date"] else None,
                 "status": visit_info_row["status"],
                 "account_executive_name": visit_info_row["account_executive_name"],
+                "edited_by_name": visit_info_row["edited_by_name"],
+                "edited_at": visit_info_row["edited_at"].isoformat() if visit_info_row["edited_at"] else None,
                 "representative_name": visit_info_row["representative_name"],
                 "team_member_names": fetch_visit_team_members(db, effective_visit_id),
             }
@@ -2011,18 +2055,18 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   </div>
   <p>Survey Type: {filters.get('survey_type') or 'B2B'} | Date Range: {filters.get('date_from') or 'Any'} to {filters.get('date_to') or 'Any'} | Business ID: {filters.get('business_id') or 'All'}</p>
 
-  <div class=\"summary\">
+  {f'''<div class=\"summary\">
     <div class=\"card\"><div class=\"label\">Total Visits</div><div class=\"value\">{summary.get('total_visits', 0)}</div></div>
     <div class=\"card\"><div class=\"label\">Businesses Covered</div><div class=\"value\">{summary.get('total_businesses', 0)}</div></div>
-  </div>
+  </div>''' if not is_single_visit else ''}
 
-  <h2>{icon_target}{'Survey Scores' if is_single_visit else ('Lifetime KPIs' if report_type == 'lifetime' else 'Selected Scope KPIs')}</h2>
+  {f'''<h2>{icon_target}{'Lifetime KPIs' if report_type == 'lifetime' else 'Selected Scope KPIs'}</h2>
   <div class="summary">
-    <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">{'NPS Score' if is_single_visit else 'NPS'}</div><div class="value">{format_metric(single_scores.get('nps_raw_score')) if is_single_visit else format_metric((comparison.get('nps') or {}).get('selected'))}</div></div>
-    <div class="card">{icon_csat}<div class="label">{'CSAT Score' if is_single_visit else 'CSAT'}</div><div class="value">{format_metric(single_scores.get('csat_raw_score')) if is_single_visit else format_metric((comparison.get('csat') or {}).get('selected'), '%')}</div></div>
+    <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">NPS</div><div class="value">{format_metric((comparison.get('nps') or {}).get('selected'))}</div></div>
+    <div class="card">{icon_csat}<div class="label">CSAT</div><div class="value">{format_metric((comparison.get('csat') or {}).get('selected'), '%')}</div></div>
     <div class="card">{icon_handshake}<div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</div></div>
-    <div class="card">{icon_swords}<div class="label">Competitor Exposure</div><div class="value">{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</div></div>
-  </div>
+    <div class="card">{icon_swords}<div class="label">Competitive Exposure</div><div class="value">{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</div></div>
+  </div>''' if not is_single_visit else ''}
 
   {f'''<h2>{icon_globe}Overall Benchmark KPIs</h2>
   <div class="summary">
@@ -2082,7 +2126,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     <p>This report helps managers review daily survey execution quality, account coverage, and response health. Use the per-day and per-business tables to identify trends and follow-up priorities.</p>
   </div>
 
-  <h2>Visual Highlights</h2>
+  {f'''<h2>Visual Highlights</h2>
   <div class=\"viz-grid\">
     <div class=\"card\">
       <div class=\"label\">Visit Status Distribution</div>
@@ -2111,7 +2155,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       <tr><td>Overall Relationship Score</td><td>{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</td><td>{format_metric((comparison.get('relationship_score') or {}).get('overall'))}</td><td>Composite relationship strength score (0-100).</td></tr>
       <tr><td>Competitor Exposure</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>
     </tbody>
-  </table></div>''' if include_overall else ''}
+  </table></div>''' if include_overall and not is_single_visit else ''}
 
   {f'''<h2>Businesses with Pending Visits</h2>
   <div class="table-wrap"><table>
@@ -2147,30 +2191,31 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     <div class="card"><div class="label">Visit Date</div><div class="value">{selected_visit_info.get('visit_date') or '--'}</div></div>
     <div class="card"><div class="label">Account Executive</div><div class="value">{selected_visit_info.get('account_executive_name') or '--'}</div></div>
     <div class="card"><div class="label">Survey Team</div><div class="value">{', '.join(selected_visit_info.get('team_member_names') or []) or '--'}</div></div>
-  </div>
+  </div>''' if not is_single_visit else ''}
   <div class="explain">
     <p>Representative: {selected_visit_info.get('representative_name') or '--'}</p>
+    <p>Edited before review: {selected_visit_info.get('edited_by_name') or '--'} {f"({selected_visit_info.get('edited_at')})" if selected_visit_info.get('edited_at') else ''}</p>
   </div>
   <h2>Survey Responses and Verbatim</h2>
   <div class="viz-grid">{survey_detail_blocks or '<div class="card"><p class="label">No survey response details found.</p></div>'}</div>''' if report_type == 'survey' else ''}
 
-  <h2>Daily Analytics</h2>
+  {f'''<h2>Daily Analytics</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>Date</th><th>Visits</th><th>Average Score</th></tr></thead>
     <tbody>{daily_table or '<tr><td colspan="3">No data</td></tr>'}</tbody>
-  </table></div>
+  </table></div>''' if report_type != 'survey' else ''}
 
-  <h2>Business Analytics</h2>
+  {f'''<h2>Business Analytics</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>Business</th><th>Visits</th><th>Average Score</th><th>Latest Visit</th></tr></thead>
     <tbody>{business_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
-  </table></div>
+  </table></div>''' if report_type != 'survey' else ''}
 
-  <h2>Visit-Level Results</h2>
+  {f'''<h2>Visit-Level Results</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Average Score</th></tr></thead>
     <tbody>{visit_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
-   </table></div>
+   </table></div>''' if report_type != 'survey' else ''}
    <p class="label" style="margin-top:12px;font-size:12px;color:#64748b;">
      Note: Scoring ranges vary by question. Answers are displayed as "score / max" (e.g., 7 / 10 indicates a score of 7 out of a possible 10). Most questions use a 1-10 scale; NPS questions use 0-10.
    </p>
@@ -2497,6 +2542,9 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
                 v.status,
                 b.priority_level as business_priority,
                 v.account_executive_name,
+                v.edited_by_name,
+                v.edited_by_email,
+                v.edited_at,
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at
@@ -2638,7 +2686,13 @@ def create_response(visit_id: str, response_data: dict, db: Session = Depends(ge
 
 
 @router.put("/{visit_id}/responses/{response_id}")
-def update_response(visit_id: str, response_id: str, response_data: dict, db: Session = Depends(get_db)):
+def update_response(
+    visit_id: str,
+    response_id: str,
+    response_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Update a response for a visit."""
     try:
         response_table = get_response_table(db)
@@ -2696,6 +2750,8 @@ def update_response(visit_id: str, response_id: str, response_data: dict, db: Se
         else:
             raise HTTPException(status_code=500, detail="No response table found")
         
+        mark_visit_edited(db, visit_id, current_user)
+
         # Commit the transaction to save changes
         db.commit()
         
@@ -3037,9 +3093,12 @@ def get_visit_detail(
             "business_priority": visit_row[8],
             "account_executive_name": visit_row[9],
             "team_member_names": team_member_names,
-            "submitted_by_name": visit_row[10],
-            "submitted_by_email": visit_row[11],
-            "submitted_at": visit_row[12].isoformat() if visit_row[12] else None,
+            "edited_by_name": visit_row[10],
+            "edited_by_email": visit_row[11],
+            "edited_at": visit_row[12].isoformat() if visit_row[12] else None,
+            "submitted_by_name": visit_row[13],
+            "submitted_by_email": visit_row[14],
+            "submitted_at": visit_row[15].isoformat() if visit_row[15] else None,
             "mandatory_answered_count": mandatory_answered_count,
             "mandatory_total_count": mandatory_total_count,
             "is_started": len(responses) > 0,
