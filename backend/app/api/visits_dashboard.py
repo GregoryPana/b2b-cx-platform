@@ -2191,7 +2191,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     <div class="card"><div class="label">Visit Date</div><div class="value">{selected_visit_info.get('visit_date') or '--'}</div></div>
     <div class="card"><div class="label">Account Executive</div><div class="value">{selected_visit_info.get('account_executive_name') or '--'}</div></div>
     <div class="card"><div class="label">Survey Team</div><div class="value">{', '.join(selected_visit_info.get('team_member_names') or []) or '--'}</div></div>
-  </div>''' if not is_single_visit else ''}
+  </div>
   <div class="explain">
     <p>Representative: {selected_visit_info.get('representative_name') or '--'}</p>
     <p>Edited before review: {selected_visit_info.get('edited_by_name') or '--'} {f"({selected_visit_info.get('edited_at')})" if selected_visit_info.get('edited_at') else ''}</p>
