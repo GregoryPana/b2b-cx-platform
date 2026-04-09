@@ -1980,11 +1980,144 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     else:
         cw_logo = _svg_logo
 
+    summary_section = ""
+    if not is_single_visit:
+        summary_section = (
+            f'<div class="summary">'
+            f'<div class="card"><div class="label">Total Visits</div><div class="value">{summary.get("total_visits", 0)}</div></div>'
+            f'<div class="card"><div class="label">Businesses Covered</div><div class="value">{summary.get("total_businesses", 0)}</div></div>'
+            f'</div>'
+        )
+
+    selected_kpi_section = ""
+    if not is_single_visit:
+        selected_scope_title = "Lifetime KPIs" if report_type == "lifetime" else "Selected Scope KPIs"
+        selected_kpi_section = (
+            f'<h2>{icon_target}{selected_scope_title}</h2>'
+            f'<div class="summary">'
+            f'<div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">NPS</div><div class="value">{format_metric((comparison.get("nps") or {}).get("selected"))}</div></div>'
+            f'<div class="card">{icon_csat}<div class="label">CSAT</div><div class="value">{format_metric((comparison.get("csat") or {}).get("selected"), "%")}</div></div>'
+            f'<div class="card">{icon_handshake}<div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get("relationship_score") or {}).get("selected"))}</div></div>'
+            f'<div class="card">{icon_swords}<div class="label">Competitive Exposure</div><div class="value">{format_metric((comparison.get("competitor_exposure") or {}).get("selected"), "%")}</div></div>'
+            f'</div>'
+        )
+
+    overall_benchmark_section = ""
+    if include_overall:
+        overall_benchmark_section = (
+            f'<h2>{icon_globe}Overall Benchmark KPIs</h2>'
+            f'<div class="summary">'
+            f'<div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">NPS</div><div class="value">{format_metric((comparison.get("nps") or {}).get("overall"))}</div></div>'
+            f'<div class="card">{icon_csat}<div class="label">CSAT</div><div class="value">{format_metric((comparison.get("csat") or {}).get("overall"), "%")}</div></div>'
+            f'<div class="card">{icon_handshake}<div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get("relationship_score") or {}).get("overall"))}</div></div>'
+            f'<div class="card">{icon_swords}<div class="label">Competitive Exposure</div><div class="value">{format_metric((comparison.get("competitor_exposure") or {}).get("overall"), "%")}</div></div>'
+            f'</div>'
+        )
+
+    pie_section = ""
+    if not is_single_visit:
+        overall_nps_benchmark = f'<p class="label">Overall NPS Benchmark: {format_metric(nps_obj.get("overall"))}</p>' if include_overall else ""
+        overall_csat_benchmark = f'<p class="label">Overall CSAT Benchmark: {format_metric(csat_obj.get("overall"), "%")}</p>' if include_overall else ""
+        pie_section = (
+            f'<div class="mini-grid" style="margin-top:12px">'
+            f'<div class="card"><div class="label">NPS Distribution</div><div class="pie-wrap">{nps_pie_svg}<div>'
+            f'<p class="label">Promoters: {int(nps_breakdown.get("promoters") or 0)}</p>'
+            f'<p class="label">Passives: {int(nps_breakdown.get("passives") or 0)}</p>'
+            f'<p class="label">Detractors: {int(nps_breakdown.get("detractors") or 0)}</p>'
+            f'<p class="label" style="margin-top:8px">Selected NPS: {format_metric(nps_obj.get("selected"))}</p>'
+            f'{overall_nps_benchmark}'
+            f'</div></div></div>'
+            f'<div class="card"><div class="label">CSAT Distribution</div><div class="pie-wrap">{csat_pie_svg}<div>'
+            f'<p class="label">Very Satisfied: {int(csat_breakdown.get("very_satisfied") or 0)}</p>'
+            f'<p class="label">Satisfied: {int(csat_breakdown.get("satisfied") or 0)}</p>'
+            f'<p class="label">Neutral: {int(csat_breakdown.get("neutral") or 0)}</p>'
+            f'<p class="label">Dissatisfied: {int(csat_breakdown.get("dissatisfied") or 0)}</p>'
+            f'<p class="label">Very Dissatisfied: {int(csat_breakdown.get("very_dissatisfied") or 0)}</p>'
+            f'<p class="label" style="margin-top:8px">Selected CSAT: {format_metric(csat_obj.get("selected"), "%")}</p>'
+            f'{overall_csat_benchmark}'
+            f'</div></div></div>'
+            f'</div>'
+        )
+
+    if report_type == "action_points":
+        action_points_section = (
+            f'<h3>Outstanding Action Points</h3><div class="table-wrap"><table>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>'
+            f'<tbody>{action_rows_outstanding or "<tr><td colspan=\"6\">No outstanding action points.</td></tr>"}</tbody></table></div>'
+            f'<h3>Completed Action Points</h3><div class="table-wrap"><table>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>'
+            f'<tbody>{action_rows_completed or "<tr><td colspan=\"6\">No completed action points.</td></tr>"}</tbody></table></div>'
+        )
+    else:
+        action_points_section = (
+            f'<div class="table-wrap"><table>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th></tr></thead>'
+            f'<tbody>{action_rows or "<tr><td colspan=\"7\">No action points found for this report scope.</td></tr>"}</tbody></table></div>'
+        )
+
+    visual_highlights_section = ""
+    if not is_single_visit:
+        visual_highlights_section = (
+            f'<h2>Visual Highlights</h2><div class="viz-grid">'
+            f'<div class="card"><div class="label">Visit Status Distribution</div>{status_bars or "<p class=\"label\">No status data</p>"}'
+            f'<div class="legend"><span><i style="background:#22c55e"></i>Approved</span><span><i style="background:#f59e0b"></i>Pending</span><span><i style="background:#f97316"></i>Needs Changes</span><span><i style="background:#ef4444"></i>Rejected</span><span><i style="background:#94a3b8"></i>Draft</span></div></div>'
+            f'<div class="card"><div class="label">Visits per Business</div>{business_bars or "<p class=\"label\">No business data</p>"}<p class="label" style="margin-top:8px">Bars compare response volume across businesses in this report range.</p></div>'
+            f'</div>'
+        )
+
+    selected_vs_overall_section = ""
+    if include_overall and not is_single_visit:
+        selected_vs_overall_section = (
+            f'<h2>Selected vs Overall Comparison</h2><div class="table-wrap"><table>'
+            f'<thead><tr><th>Metric</th><th>Selected Scope</th><th>Overall Scope</th><th>Interpretation</th></tr></thead>'
+            f'<tbody>'
+            f'<tr><td>NPS</td><td>{format_metric((comparison.get("nps") or {}).get("selected"))}</td><td>{format_metric((comparison.get("nps") or {}).get("overall"))}</td><td>Higher is better. Positive means more promoters than detractors.</td></tr>'
+            f'<tr><td>CSAT</td><td>{format_metric((comparison.get("csat") or {}).get("selected"), "%")}</td><td>{format_metric((comparison.get("csat") or {}).get("overall"), "%")}</td><td>Higher means more satisfied accounts.</td></tr>'
+            f'<tr><td>Overall Relationship Score</td><td>{format_metric((comparison.get("relationship_score") or {}).get("selected"))}</td><td>{format_metric((comparison.get("relationship_score") or {}).get("overall"))}</td><td>Composite relationship strength score (0-100).</td></tr>'
+            f'<tr><td>Competitor Exposure</td><td>{format_metric((comparison.get("competitor_exposure") or {}).get("selected"), "%")}</td><td>{format_metric((comparison.get("competitor_exposure") or {}).get("overall"), "%")}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>'
+            f'</tbody></table></div>'
+        )
+
+    pending_visits_section = ""
+    if report_type == "lifetime" and (payload.get("pending_visits") or []):
+        pending_rows = "".join(
+            f"<tr><td>{v['business_name']}</td><td>{v['visit_date'] or '--'}</td><td>{v['status']}</td></tr>" for v in (payload.get("pending_visits") or [])
+        )
+        pending_visits_section = (
+            f'<h2>Businesses with Pending Visits</h2><div class="table-wrap"><table>'
+            f'<thead><tr><th>Business</th><th>Visit Date</th><th>Status</th></tr></thead>'
+            f'<tbody>{pending_rows or "<tr><td colspan=\"3\">No pending visits.</td></tr>"}</tbody></table></div>'
+        )
+
+    selected_survey_section = ""
+    if report_type == "survey":
+        edited_suffix = f" ({selected_visit_info.get('edited_at')})" if selected_visit_info.get("edited_at") else ""
+        selected_survey_section = (
+            f'<h2>Selected Survey Summary</h2>'
+            f'<div class="summary">'
+            f'<div class="card"><div class="label">Business</div><div class="value">{selected_visit_info.get("business_name") or "--"}</div></div>'
+            f'<div class="card"><div class="label">Visit Date</div><div class="value">{selected_visit_info.get("visit_date") or "--"}</div></div>'
+            f'<div class="card"><div class="label">Account Executive</div><div class="value">{selected_visit_info.get("account_executive_name") or "--"}</div></div>'
+            f'<div class="card"><div class="label">Survey Team</div><div class="value">{", ".join(selected_visit_info.get("team_member_names") or []) or "--"}</div></div>'
+            f'</div>'
+            f'<div class="explain"><p>Representative: {selected_visit_info.get("representative_name") or "--"}</p><p>Edited before review: {selected_visit_info.get("edited_by_name") or "--"}{edited_suffix}</p></div>'
+            f'<h2>Survey Responses and Verbatim</h2>'
+            f'<div class="viz-grid">{survey_detail_blocks or "<div class=\"card\"><p class=\"label\">No survey response details found.</p></div>"}</div>'
+        )
+
+    daily_analytics_section = ""
+    business_analytics_section = ""
+    visit_results_section = ""
+    if report_type != "survey":
+        daily_analytics_section = f'<h2>Daily Analytics</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Visits</th><th>Average Score</th></tr></thead><tbody>{daily_table or "<tr><td colspan=\"3\">No data</td></tr>"}</tbody></table></div>'
+        business_analytics_section = f'<h2>Business Analytics</h2><div class="table-wrap"><table><thead><tr><th>Business</th><th>Visits</th><th>Average Score</th><th>Latest Visit</th></tr></thead><tbody>{business_table or "<tr><td colspan=\"4\">No data</td></tr>"}</tbody></table></div>'
+        visit_results_section = f'<h2>Visit-Level Results</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Average Score</th></tr></thead><tbody>{visit_table or "<tr><td colspan=\"4\">No data</td></tr>"}</tbody></table></div>'
+
     return f"""
 <!doctype html>
 <html>
 <head>
-  <meta charset=\"utf-8\" />
+  <meta charset="utf-8" />
   <title>CWSCX Survey Report</title>
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; color: #0f172a; background:#f8fafc; line-height: 1.5; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; overflow-x: hidden; }}
@@ -2045,7 +2178,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   </style>
 </head>
 <body>
-  <div class=\"page\">
+  <div class="page">
   <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;border-bottom:3px solid #0056A1;padding-bottom:14px;">
     {cw_logo}
     <div>
@@ -2055,116 +2188,24 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   </div>
   <p>Survey Type: {filters.get('survey_type') or 'B2B'} | Date Range: {filters.get('date_from') or 'Any'} to {filters.get('date_to') or 'Any'} | Business ID: {filters.get('business_id') or 'All'}</p>
 
-  {f'''<div class=\"summary\">
-    <div class=\"card\"><div class=\"label\">Total Visits</div><div class=\"value\">{summary.get('total_visits', 0)}</div></div>
-    <div class=\"card\"><div class=\"label\">Businesses Covered</div><div class=\"value\">{summary.get('total_businesses', 0)}</div></div>
-  </div>''' if not is_single_visit else ''}
-
-  {f'''<h2>{icon_target}{'Lifetime KPIs' if report_type == 'lifetime' else 'Selected Scope KPIs'}</h2>
-  <div class="summary">
-    <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">NPS</div><div class="value">{format_metric((comparison.get('nps') or {}).get('selected'))}</div></div>
-    <div class="card">{icon_csat}<div class="label">CSAT</div><div class="value">{format_metric((comparison.get('csat') or {}).get('selected'), '%')}</div></div>
-    <div class="card">{icon_handshake}<div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</div></div>
-    <div class="card">{icon_swords}<div class="label">Competitive Exposure</div><div class="value">{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</div></div>
-  </div>''' if not is_single_visit else ''}
-
-  {f'''<h2>{icon_globe}Overall Benchmark KPIs</h2>
-  <div class="summary">
-    <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">NPS</div><div class="value">{format_metric((comparison.get("nps") or {}).get("overall"))}</div></div>
-    <div class="card">{icon_csat}<div class="label">CSAT</div><div class="value">{format_metric((comparison.get("csat") or {}).get("overall"), "%")}</div></div>
-    <div class="card">{icon_handshake}<div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get("relationship_score") or {}).get("overall"))}</div></div>
-    <div class="card">{icon_swords}<div class="label">Competitor Exposure</div><div class="value">{format_metric((comparison.get("competitor_exposure") or {}).get("overall"), "%")}</div></div>
-  </div>''' if include_overall else ''}
-
-  {"" if is_single_visit else f'''<div class="mini-grid" style="margin-top:12px">
-    <div class="card">
-      <div class="label">NPS Distribution</div>
-      <div class="pie-wrap">
-        {nps_pie_svg}
-        <div>
-          <p class="label">Promoters: {int(nps_breakdown.get('promoters') or 0)}</p>
-          <p class="label">Passives: {int(nps_breakdown.get('passives') or 0)}</p>
-          <p class="label">Detractors: {int(nps_breakdown.get('detractors') or 0)}</p>
-          <p class="label" style="margin-top:8px">Selected NPS: {format_metric(nps_obj.get('selected'))}</p>
-          {f'<p class="label">Overall NPS Benchmark: {format_metric(nps_obj.get("overall"))}</p>' if include_overall else ''}
-        </div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="label">CSAT Distribution</div>
-      <div class="pie-wrap">
-        {csat_pie_svg}
-        <div>
-          <p class="label">Very Satisfied: {int(csat_breakdown.get('very_satisfied') or 0)}</p>
-          <p class="label">Satisfied: {int(csat_breakdown.get('satisfied') or 0)}</p>
-          <p class="label">Neutral: {int(csat_breakdown.get('neutral') or 0)}</p>
-          <p class="label">Dissatisfied: {int(csat_breakdown.get('dissatisfied') or 0)}</p>
-          <p class="label">Very Dissatisfied: {int(csat_breakdown.get('very_dissatisfied') or 0)}</p>
-          <p class="label" style="margin-top:8px">Selected CSAT: {format_metric(csat_obj.get('selected'), '%')}</p>
-          {f'<p class="label">Overall CSAT Benchmark: {format_metric(csat_obj.get("overall"), "%")}</p>' if include_overall else ''}
-        </div>
-      </div>
-    </div>
-  </div>'''}
+  {summary_section}
+  {selected_kpi_section}
+  {overall_benchmark_section}
+  {pie_section}
 
   <h2>Action Points</h2>
-  {f'''<h3>Outstanding Action Points</h3>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
-    <tbody>{action_rows_outstanding or '<tr><td colspan="6">No outstanding action points.</td></tr>'}</tbody>
-  </table></div>
-  <h3>Completed Action Points</h3>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>
-    <tbody>{action_rows_completed or '<tr><td colspan="6">No completed action points.</td></tr>'}</tbody>
-  </table></div>''' if report_type == 'action_points' else f'''<div class="table-wrap"><table>
-    <thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th></tr></thead>
-    <tbody>{action_rows or '<tr><td colspan="7">No action points found for this report scope.</td></tr>'}</tbody>
-  </table></div>'''}
+  {action_points_section}
 
-  <div class=\"explain\">
+  <div class="explain">
     <p>This report helps managers review daily survey execution quality, account coverage, and response health. Use the per-day and per-business tables to identify trends and follow-up priorities.</p>
   </div>
 
-  {f'''<h2>Visual Highlights</h2>
-  <div class=\"viz-grid\">
-    <div class=\"card\">
-      <div class=\"label\">Visit Status Distribution</div>
-      {status_bars or '<p class="label">No status data</p>'}
-      <div class=\"legend\">
-        <span><i style=\"background:#22c55e\"></i>Approved</span>
-        <span><i style=\"background:#f59e0b\"></i>Pending</span>
-        <span><i style=\"background:#f97316\"></i>Needs Changes</span>
-        <span><i style=\"background:#ef4444\"></i>Rejected</span>
-        <span><i style=\"background:#94a3b8\"></i>Draft</span>
-      </div>
-    </div>
-    <div class=\"card\">
-      <div class=\"label\">Visits per Business</div>
-      {business_bars or '<p class="label">No business data</p>'}
-      <p class=\"label\" style=\"margin-top:8px\">Bars compare response volume across businesses in this report range.</p>
-    </div>
-  </div>
-
-  {f'''<h2>Selected vs Overall Comparison</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Metric</th><th>Selected Scope</th><th>Overall Scope</th><th>Interpretation</th></tr></thead>
-    <tbody>
-      <tr><td>NPS</td><td>{format_metric((comparison.get('nps') or {}).get('selected'))}</td><td>{format_metric((comparison.get('nps') or {}).get('overall'))}</td><td>Higher is better. Positive means more promoters than detractors.</td></tr>
-      <tr><td>CSAT</td><td>{format_metric((comparison.get('csat') or {}).get('selected'), '%')}</td><td>{format_metric((comparison.get('csat') or {}).get('overall'), '%')}</td><td>Higher means more satisfied accounts.</td></tr>
-      <tr><td>Overall Relationship Score</td><td>{format_metric((comparison.get('relationship_score') or {}).get('selected'))}</td><td>{format_metric((comparison.get('relationship_score') or {}).get('overall'))}</td><td>Composite relationship strength score (0-100).</td></tr>
-      <tr><td>Competitor Exposure</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('selected'), '%')}</td><td>{format_metric((comparison.get('competitor_exposure') or {}).get('overall'), '%')}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>
-    </tbody>
-  </table></div>''' if include_overall and not is_single_visit else ''}
-
-  {f'''<h2>Businesses with Pending Visits</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Business</th><th>Visit Date</th><th>Status</th></tr></thead>
-    <tbody>{''.join(f"<tr><td>{v['business_name']}</td><td>{v['visit_date'] or '--'}</td><td>{v['status']}</td></tr>" for v in (payload.get('pending_visits') or [])) or '<tr><td colspan="3">No pending visits.</td></tr>'}</tbody>
-  </table></div>''' if report_type == 'lifetime' and (payload.get('pending_visits') or []) else ''}
+  {visual_highlights_section}
+  {selected_vs_overall_section}
+  {pending_visits_section}
 
   <h2>Yes/No Question Comparison</h2>
-  <div class=\"viz-grid\">
+  <div class="viz-grid">
     {yes_no_cards or '<div class="card"><p class="label">No yes/no analytics in current scope.</p></div>'}
   </div>
 
@@ -2181,45 +2222,18 @@ def render_report_html(payload: dict, generated_by: str) -> str:
    </div>
 
    <h2>Category Question Details (Selected Scope)</h2>
-  <div class=\"viz-grid\">
+  <div class="viz-grid">
     {category_detail_blocks or '<div class="card"><p class="label">No category question details available.</p></div>'}
   </div>
 
-  {f'''<h2>Selected Survey Summary</h2>
-  <div class="summary">
-    <div class="card"><div class="label">Business</div><div class="value">{selected_visit_info.get('business_name') or '--'}</div></div>
-    <div class="card"><div class="label">Visit Date</div><div class="value">{selected_visit_info.get('visit_date') or '--'}</div></div>
-    <div class="card"><div class="label">Account Executive</div><div class="value">{selected_visit_info.get('account_executive_name') or '--'}</div></div>
-    <div class="card"><div class="label">Survey Team</div><div class="value">{', '.join(selected_visit_info.get('team_member_names') or []) or '--'}</div></div>
+  {selected_survey_section}
+  {daily_analytics_section}
+  {business_analytics_section}
+  {visit_results_section}
+  <p class="label" style="margin-top:12px;font-size:12px;color:#64748b;">
+    Note: Scoring ranges vary by question. Answers are displayed as "score / max" (e.g., 7 / 10 indicates a score of 7 out of a possible 10). Most questions use a 1-10 scale; NPS questions use 0-10.
+  </p>
   </div>
-  <div class="explain">
-    <p>Representative: {selected_visit_info.get('representative_name') or '--'}</p>
-    <p>Edited before review: {selected_visit_info.get('edited_by_name') or '--'} {f"({selected_visit_info.get('edited_at')})" if selected_visit_info.get('edited_at') else ''}</p>
-  </div>
-  <h2>Survey Responses and Verbatim</h2>
-  <div class="viz-grid">{survey_detail_blocks or '<div class="card"><p class="label">No survey response details found.</p></div>'}</div>''' if report_type == 'survey' else ''}
-
-  {f'''<h2>Daily Analytics</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Visits</th><th>Average Score</th></tr></thead>
-    <tbody>{daily_table or '<tr><td colspan="3">No data</td></tr>'}</tbody>
-  </table></div>''' if report_type != 'survey' else ''}
-
-  {f'''<h2>Business Analytics</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Business</th><th>Visits</th><th>Average Score</th><th>Latest Visit</th></tr></thead>
-    <tbody>{business_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
-  </table></div>''' if report_type != 'survey' else ''}
-
-  {f'''<h2>Visit-Level Results</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Average Score</th></tr></thead>
-    <tbody>{visit_table or '<tr><td colspan="4">No data</td></tr>'}</tbody>
-   </table></div>''' if report_type != 'survey' else ''}
-   <p class="label" style="margin-top:12px;font-size:12px;color:#64748b;">
-     Note: Scoring ranges vary by question. Answers are displayed as "score / max" (e.g., 7 / 10 indicates a score of 7 out of a possible 10). Most questions use a 1-10 scale; NPS questions use 0-10.
-   </p>
-   </div>
 </body>
 </html>
 """
