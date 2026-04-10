@@ -2641,7 +2641,12 @@ def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{visit_id}/responses")
-def create_response(visit_id: str, response_data: dict, db: Session = Depends(get_db)):
+def create_response(
+    visit_id: str,
+    response_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Create a response for a visit."""
     try:
         response_table = get_response_table(db)
@@ -2703,10 +2708,12 @@ def create_response(visit_id: str, response_data: dict, db: Session = Depends(ge
         else:
             payload["actions"] = response_data.get("actions", []) or []
         return payload
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error creating response: {e}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to create response")
+        raise HTTPException(status_code=500, detail=f"Failed to create response: {str(e)}")
 
 
 @router.put("/{visit_id}/responses/{response_id}")
@@ -2776,6 +2783,10 @@ def update_response(
         
         mark_visit_edited(db, visit_id, current_user)
 
+        mark_visit_edited(db, visit_id, current_user)
+
+        mark_visit_edited(db, visit_id, current_user)
+
         # Commit the transaction to save changes
         db.commit()
         
@@ -2797,10 +2808,12 @@ def update_response(
         else:
             payload["actions"] = response_data.get("actions", []) or []
         return payload
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error updating response: {e}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to update response")
+        raise HTTPException(status_code=500, detail=f"Failed to update response: {str(e)}")
 
 
 @router.put("/{visit_id}/submit")

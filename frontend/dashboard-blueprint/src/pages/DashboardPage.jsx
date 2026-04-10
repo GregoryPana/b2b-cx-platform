@@ -1082,6 +1082,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
   const canEditResponseAnswer = (response) => {
     const type = String(response?.question_type || "").toLowerCase();
+    if (!type) {
+      return response?.score == null;
+    }
     return type !== "score" && type !== "yes_no";
   };
 
@@ -2442,9 +2445,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 <Table className="min-w-[560px]">
                 <TableHeader>
                 <TableRow>
-                  <TableHead>Visit ID</TableHead>
                   <TableHead>Business</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead>Submitted By</TableHead>
+                  <TableHead>Account Executive</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -2452,7 +2456,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               <TableBody>
                 {pendingVisits.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5}>No pending visits in review queue.</TableCell>
+                    <TableCell colSpan={6}>No pending visits in review queue.</TableCell>
                   </TableRow>
                 ) : (
                   pendingVisits.map((visit) => {
@@ -2460,9 +2464,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                     const isLoading = reviewActionLoadingVisitId === visitId;
                     return (
                       <TableRow key={visitId}>
-                        <TableCell>{visitId}</TableCell>
                         <TableCell>{visit.business_name || "--"}</TableCell>
                         <TableCell>{visit.visit_date || "--"}</TableCell>
+                        <TableCell>{visit.submitted_by_name || visit.submitted_by_email || "--"}</TableCell>
+                        <TableCell>{visit.account_executive_name || "--"}</TableCell>
                         <TableCell><Badge variant="warning">{visit.status || "Pending"}</Badge></TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
