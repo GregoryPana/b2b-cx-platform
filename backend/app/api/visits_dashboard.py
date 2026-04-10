@@ -2040,28 +2040,33 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         )
 
     if report_type == "action_points":
+        no_outstanding_actions = '<tr><td colspan="6">No outstanding action points.</td></tr>'
+        no_completed_actions = '<tr><td colspan="6">No completed action points.</td></tr>'
         action_points_section = (
             f'<h3>Outstanding Action Points</h3><div class="table-wrap"><table>'
             f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>'
-            f'<tbody>{action_rows_outstanding or "<tr><td colspan=\"6\">No outstanding action points.</td></tr>"}</tbody></table></div>'
+            f'<tbody>{action_rows_outstanding or no_outstanding_actions}</tbody></table></div>'
             f'<h3>Completed Action Points</h3><div class="table-wrap"><table>'
             f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>'
-            f'<tbody>{action_rows_completed or "<tr><td colspan=\"6\">No completed action points.</td></tr>"}</tbody></table></div>'
+            f'<tbody>{action_rows_completed or no_completed_actions}</tbody></table></div>'
         )
     else:
+        no_action_points = '<tr><td colspan="7">No action points found for this report scope.</td></tr>'
         action_points_section = (
             f'<div class="table-wrap"><table>'
             f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th></tr></thead>'
-            f'<tbody>{action_rows or "<tr><td colspan=\"7\">No action points found for this report scope.</td></tr>"}</tbody></table></div>'
+            f'<tbody>{action_rows or no_action_points}</tbody></table></div>'
         )
 
     visual_highlights_section = ""
     if not is_single_visit:
+        no_status_data = '<p class="label">No status data</p>'
+        no_business_data = '<p class="label">No business data</p>'
         visual_highlights_section = (
             f'<h2>Visual Highlights</h2><div class="viz-grid">'
-            f'<div class="card"><div class="label">Visit Status Distribution</div>{status_bars or "<p class=\"label\">No status data</p>"}'
+            f'<div class="card"><div class="label">Visit Status Distribution</div>{status_bars or no_status_data}'
             f'<div class="legend"><span><i style="background:#22c55e"></i>Approved</span><span><i style="background:#f59e0b"></i>Pending</span><span><i style="background:#f97316"></i>Needs Changes</span><span><i style="background:#ef4444"></i>Rejected</span><span><i style="background:#94a3b8"></i>Draft</span></div></div>'
-            f'<div class="card"><div class="label">Visits per Business</div>{business_bars or "<p class=\"label\">No business data</p>"}<p class="label" style="margin-top:8px">Bars compare response volume across businesses in this report range.</p></div>'
+            f'<div class="card"><div class="label">Visits per Business</div>{business_bars or no_business_data}<p class="label" style="margin-top:8px">Bars compare response volume across businesses in this report range.</p></div>'
             f'</div>'
         )
 
@@ -2083,15 +2088,17 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         pending_rows = "".join(
             f"<tr><td>{v['business_name']}</td><td>{v['visit_date'] or '--'}</td><td>{v['status']}</td></tr>" for v in (payload.get("pending_visits") or [])
         )
+        no_pending_visits = '<tr><td colspan="3">No pending visits.</td></tr>'
         pending_visits_section = (
             f'<h2>Businesses with Pending Visits</h2><div class="table-wrap"><table>'
             f'<thead><tr><th>Business</th><th>Visit Date</th><th>Status</th></tr></thead>'
-            f'<tbody>{pending_rows or "<tr><td colspan=\"3\">No pending visits.</td></tr>"}</tbody></table></div>'
+            f'<tbody>{pending_rows or no_pending_visits}</tbody></table></div>'
         )
 
     selected_survey_section = ""
     if report_type == "survey":
         edited_suffix = f" ({selected_visit_info.get('edited_at')})" if selected_visit_info.get("edited_at") else ""
+        no_survey_details = '<div class="card"><p class="label">No survey response details found.</p></div>'
         selected_survey_section = (
             f'<h2>Selected Survey Summary</h2>'
             f'<div class="summary">'
@@ -2102,16 +2109,19 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f'</div>'
             f'<div class="explain"><p>Representative: {selected_visit_info.get("representative_name") or "--"}</p><p>Edited before review: {selected_visit_info.get("edited_by_name") or "--"}{edited_suffix}</p></div>'
             f'<h2>Survey Responses and Verbatim</h2>'
-            f'<div class="viz-grid">{survey_detail_blocks or "<div class=\"card\"><p class=\"label\">No survey response details found.</p></div>"}</div>'
+            f'<div class="viz-grid">{survey_detail_blocks or no_survey_details}</div>'
         )
 
     daily_analytics_section = ""
     business_analytics_section = ""
     visit_results_section = ""
     if report_type != "survey":
-        daily_analytics_section = f'<h2>Daily Analytics</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Visits</th><th>Average Score</th></tr></thead><tbody>{daily_table or "<tr><td colspan=\"3\">No data</td></tr>"}</tbody></table></div>'
-        business_analytics_section = f'<h2>Business Analytics</h2><div class="table-wrap"><table><thead><tr><th>Business</th><th>Visits</th><th>Average Score</th><th>Latest Visit</th></tr></thead><tbody>{business_table or "<tr><td colspan=\"4\">No data</td></tr>"}</tbody></table></div>'
-        visit_results_section = f'<h2>Visit-Level Results</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Average Score</th></tr></thead><tbody>{visit_table or "<tr><td colspan=\"4\">No data</td></tr>"}</tbody></table></div>'
+        no_daily_data = '<tr><td colspan="3">No data</td></tr>'
+        no_business_analytics = '<tr><td colspan="4">No data</td></tr>'
+        no_visit_results = '<tr><td colspan="4">No data</td></tr>'
+        daily_analytics_section = f'<h2>Daily Analytics</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Visits</th><th>Average Score</th></tr></thead><tbody>{daily_table or no_daily_data}</tbody></table></div>'
+        business_analytics_section = f'<h2>Business Analytics</h2><div class="table-wrap"><table><thead><tr><th>Business</th><th>Visits</th><th>Average Score</th><th>Latest Visit</th></tr></thead><tbody>{business_table or no_business_analytics}</tbody></table></div>'
+        visit_results_section = f'<h2>Visit-Level Results</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Business</th><th>Status</th><th>Average Score</th></tr></thead><tbody>{visit_table or no_visit_results}</tbody></table></div>'
 
     return f"""
 <!doctype html>
