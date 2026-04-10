@@ -641,7 +641,10 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     const mandatoryQuestions = visibleQuestions.filter((question) => question.is_mandatory);
     const unanswered = mandatoryQuestions.filter((question) => !responsesByQuestion[question.id]);
     if (unanswered.length > 0) {
-      setError(`Complete all required questions before submit (${unanswered.length} remaining).`);
+      const missingQuestionLabels = unanswered
+        .map((question) => `Q${question.question_number || question.id}`)
+        .join(", ");
+      setError(`Complete all required questions before submit. Missing: ${missingQuestionLabels}.`);
       return;
     }
 
@@ -1039,6 +1042,56 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                 </div>
               ) : (
                 <>
+                  <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                      <div className="md:col-span-2 lg:col-span-4">
+                        <label className="mb-1 block text-sm font-medium">Account Executive</label>
+                        <Select
+                          value={visitForm.account_executive_name}
+                          onChange={(event) => setVisitForm((prev) => ({ ...prev, account_executive_name: event.target.value }))}
+                        >
+                          <option value="">Select account executive</option>
+                          {accountExecutives.map((executive) => (
+                            <option key={executive.id} value={executive.name}>{executive.name}</option>
+                          ))}
+                        </Select>
+                      </div>
+                      <div className="md:col-span-2 lg:col-span-4 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <label className="block text-sm font-medium">Team Member Names</label>
+                            <p className="text-xs text-muted-foreground">Add every team member who took part in this survey for audit visibility.</p>
+                          </div>
+                          <Button type="button" size="sm" variant="outline" onClick={addVisitTeamMember}>
+                            Add Team Member
+                          </Button>
+                        </div>
+                        <div className="space-y-2">
+                          {visitForm.team_member_names.map((memberName, index) => (
+                            <div key={`active-team-member-${index}`} className="flex gap-2">
+                              <Input
+                                value={memberName}
+                                onChange={(event) => updateVisitTeamMember(index, event.target.value)}
+                                placeholder={`Team member ${index + 1}`}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => removeVisitTeamMember(index)}
+                                disabled={visitForm.team_member_names.length === 1 && !visitForm.team_member_names[0].trim()}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <Button type="button" variant="outline" onClick={handleCreateVisit} disabled={isCreatingVisit}>
+                      {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Visit Details
+                    </Button>
+                  </div>
+
                   <div className="flex flex-wrap gap-2">
                     {groupedQuestions.map((category) => (
                       <Button
