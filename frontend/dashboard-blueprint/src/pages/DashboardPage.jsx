@@ -2525,14 +2525,14 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                         {canEditResponseAnswer(response) ? (
                           <div className="mt-2">
                             <label className="mb-1 block text-sm font-medium">Answer</label>
-                            <Input value={draft.answer_text} onChange={(event) => updateReviewDraft(responseId, { ...draft, answer_text: event.target.value })} />
+                            <Textarea value={draft.answer_text} onChange={(event) => updateReviewDraft(responseId, { ...draft, answer_text: event.target.value })} />
                           </div>
                         ) : (
                           <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
                         )}
                         <div className="mt-2">
                           <label className="mb-1 block text-sm font-medium">Verbatim</label>
-                          <Input value={draft.verbatim} onChange={(event) => updateReviewDraft(responseId, { ...draft, verbatim: event.target.value })} />
+                          <Textarea value={draft.verbatim} onChange={(event) => updateReviewDraft(responseId, { ...draft, verbatim: event.target.value })} />
                         </div>
                         {canEditResponseActions(response) ? (
                           <div className="mt-3 space-y-2 rounded-md border bg-muted/40 p-3">
