@@ -597,6 +597,7 @@ def get_all_visits(
     try:
         ensure_visit_submission_columns(db)
         ensure_visit_metadata_columns(db)
+        ensure_visit_edit_audit_columns(db)
         # Build WHERE clause for filtering
         where_conditions = []
         params = {}
@@ -2998,6 +2999,9 @@ def get_visit_detail(
                 v.status,
                 b.priority_level as business_priority,
                 v.account_executive_name,
+                v.edited_by_name,
+                v.edited_by_email,
+                v.edited_at,
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at

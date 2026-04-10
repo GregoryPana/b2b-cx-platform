@@ -3711,32 +3711,90 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                        const query = status.toLowerCase();
                        return (business.name?.toLowerCase().includes(query) || business.location?.toLowerCase().includes(query));
                      })
-                     .map((business) => (
-                       <TableRow key={business.id} className={!business.location || !business.account_executive_id ? "bg-warning/10" : ""}>
-                         <TableCell>{business.name}</TableCell>
-                         <TableCell>{business.location || "--"}</TableCell>
-                         <TableCell>
-                           <Badge variant={business.priority_level === "high" ? "destructive" : business.priority_level === "low" ? "secondary" : "default"}>
-                             {business.priority_level || "medium"}
-                           </Badge>
-                         </TableCell>
-                          <TableCell>{representativeMap[business.account_executive_id] || "Unassigned"}</TableCell>
-                         <TableCell>
-                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${business.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
-                             {business.active ? "Active" : "Retired"}
-                           </span>
-                         </TableCell>
-                         <TableCell>
-                           <div className="flex gap-2">
-                             <Button type="button" variant="outline" size="sm" onClick={() => handleEditBusiness(business)}>Edit</Button>
-                             {business.active && (
-                               <Button type="button" variant="outline" size="sm" onClick={() => handleRetireBusiness(business)}>Retire</Button>
-                             )}
-                             <Button type="button" variant="destructive" size="sm" onClick={() => handleDeleteBusiness(business)}>Delete</Button>
-                           </div>
-                         </TableCell>
-                       </TableRow>
-                     ))}
+                      .map((business) => {
+                        const isEditing = selectedBusiness?.id === business.id;
+                        return (
+                          <TableRow key={business.id} className={!business.location || !business.account_executive_id ? "bg-warning/10" : ""}>
+                            <TableCell>
+                              {isEditing ? (
+                                <Input value={businessForm.name} onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))} />
+                              ) : business.name}
+                            </TableCell>
+                            <TableCell>
+                              {isEditing ? (
+                                <Input value={businessForm.location} onChange={(e) => setBusinessForm((prev) => ({ ...prev, location: e.target.value }))} />
+                              ) : (business.location || "--")}
+                            </TableCell>
+                            <TableCell>
+                              {isEditing ? (
+                                <Select value={businessForm.priority_level} onChange={(e) => setBusinessForm((prev) => ({ ...prev, priority_level: e.target.value }))}>
+                                  <option value="high">High</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="low">Low</option>
+                                </Select>
+                              ) : (
+                                <Badge variant={business.priority_level === "high" ? "destructive" : business.priority_level === "low" ? "secondary" : "default"}>
+                                  {business.priority_level || "medium"}
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {isEditing ? (
+                                <>
+                                  <Input
+                                    list={`account-executives-${business.id}`}
+                                    value={accountExecutiveQuery}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      setAccountExecutiveQuery(value);
+                                      const match = representatives.find((exec) => {
+                                        const label = exec.name || exec.full_name || exec.display_name || exec.email || "";
+                                        return label.toLowerCase() === value.toLowerCase();
+                                      });
+                                      setBusinessForm((prev) => ({ ...prev, account_executive_id: match ? String(match.id) : "" }));
+                                    }}
+                                  />
+                                  <datalist id={`account-executives-${business.id}`}>
+                                    {representatives.map((exec) => (
+                                      <option key={exec.id} value={exec.name || exec.full_name || exec.display_name || exec.email || "Unknown"} />
+                                    ))}
+                                  </datalist>
+                                </>
+                              ) : (representativeMap[business.account_executive_id] || "Unassigned")}
+                            </TableCell>
+                            <TableCell>
+                              {isEditing ? (
+                                <Select value={businessForm.active ? "active" : "inactive"} onChange={(e) => setBusinessForm((prev) => ({ ...prev, active: e.target.value === "active" }))}>
+                                  <option value="active">Active</option>
+                                  <option value="inactive">Inactive</option>
+                                </Select>
+                              ) : (
+                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${business.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
+                                  {business.active ? "Active" : "Retired"}
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                {isEditing ? (
+                                  <>
+                                    <Button type="button" size="sm" onClick={handleUpdateBusiness}>Save</Button>
+                                    <Button type="button" variant="outline" size="sm" onClick={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}>Cancel</Button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Button type="button" variant="outline" size="sm" onClick={() => handleEditBusiness(business)}>Edit</Button>
+                                    {business.active && (
+                                      <Button type="button" variant="outline" size="sm" onClick={() => handleRetireBusiness(business)}>Retire</Button>
+                                    )}
+                                    <Button type="button" variant="destructive" size="sm" onClick={() => handleDeleteBusiness(business)}>Delete</Button>
+                                  </>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                  </TableBody>
                </Table>
              </CardContent>
@@ -3799,20 +3857,40 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                       <TableRow>
                         <TableCell colSpan={3}>No account executives found.</TableCell>
                       </TableRow>
-                    ) : (
-                      representatives.map((executive) => (
-                        <TableRow key={executive.id}>
-                          <TableCell>{executive.name || "--"}</TableCell>
-                          <TableCell>{executive.email || "--"}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button type="button" variant="outline" size="sm" onClick={() => editExecutive(executive)}>Edit</Button>
-                              <Button type="button" variant="destructive" size="sm" onClick={() => deleteExecutive(executive)}>Delete</Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
+                     ) : (
+                       representatives.map((executive) => {
+                         const isEditing = selectedExecutive?.id === executive.id;
+                         return (
+                           <TableRow key={executive.id}>
+                             <TableCell>
+                               {isEditing ? (
+                                 <Input value={executiveForm.name} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, name: e.target.value }))} />
+                               ) : (executive.name || "--")}
+                             </TableCell>
+                             <TableCell>
+                               {isEditing ? (
+                                 <Input value={executiveForm.email} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, email: e.target.value }))} />
+                               ) : (executive.email || "--")}
+                             </TableCell>
+                             <TableCell>
+                               <div className="flex gap-2">
+                                 {isEditing ? (
+                                   <>
+                                     <Button type="button" size="sm" onClick={saveExecutive}>Save</Button>
+                                     <Button type="button" variant="outline" size="sm" onClick={resetExecutiveForm}>Cancel</Button>
+                                   </>
+                                 ) : (
+                                   <>
+                                     <Button type="button" variant="outline" size="sm" onClick={() => editExecutive(executive)}>Edit</Button>
+                                     <Button type="button" variant="destructive" size="sm" onClick={() => deleteExecutive(executive)}>Delete</Button>
+                                   </>
+                                 )}
+                               </div>
+                             </TableCell>
+                           </TableRow>
+                         );
+                       })
+                     )}
                   </TableBody>
                 </Table>
               </CardContent>

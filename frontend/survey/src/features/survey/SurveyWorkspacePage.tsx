@@ -552,42 +552,11 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     });
   };
 
-  const handleSaveQuestionResponse = async (question: Question) => {
-    if (!visitId) {
-      setError("Create or select a visit first.");
-      return;
-    }
-
-    const responseForm = responseDrafts[question.id] || { ...emptyDraft };
+  const buildResponsePayload = (question: Question, responseForm: ResponseDraft) => {
     const scoreNum = Number(responseForm.score);
-
-    if (question.input_type === "score") {
-      const min = question.score_min ?? 0;
-      const max = question.score_max ?? 10;
-      if (responseForm.score === "" || Number.isNaN(scoreNum) || scoreNum < min || scoreNum > max) {
-        setError(`Enter a valid score (${min}-${max}) for this question.`);
-        return;
-      }
-    }
-
-    if (question.input_type === "text" && question.is_mandatory && !responseForm.answer_text.trim()) {
-      setError("This text question requires an answer.");
-      return;
-    }
-
     const normalizedAnswerText = question.input_type === "yes_no"
       ? normalizeYesNo(responseForm.answer_text)
       : (responseForm.answer_text || "").trim();
-
-    if (question.input_type === "yes_no" && !["Y", "N"].includes(normalizedAnswerText)) {
-      setError("Select Yes or No.");
-      return;
-    }
-
-    if (question.input_type === "always_sometimes_never" && !["Always", "Sometimes", "Never"].includes(responseForm.answer_text || "")) {
-      setError("Select Always, Sometimes, or Never.");
-      return;
-    }
 
     const normalizedActions = (responseForm.actions || [])
       .map((action) => ({
@@ -598,37 +567,96 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       }))
       .filter((action) => action.action_required || action.action_owner || action.action_timeframe || action.action_support_needed);
 
+    return {
+      payload: {
+        question_id: Number(question.id),
+        score: question.input_type === "score" ? scoreNum : null,
+        answer_text: question.input_type === "score" ? null : normalizedAnswerText || null,
+        verbatim: responseForm.verbatim?.trim() || null,
+        actions: normalizedActions,
+      },
+      normalizedAnswerText,
+      normalizedActions,
+      scoreNum,
+    };
+  };
+
+  const validateResponseDraft = (question: Question, responseForm: ResponseDraft) => {
+    const { normalizedAnswerText, normalizedActions, scoreNum } = buildResponsePayload(question, responseForm);
+
+    if (question.input_type === "score") {
+      const min = question.score_min ?? 0;
+      const max = question.score_max ?? 10;
+      if (responseForm.score === "" || Number.isNaN(scoreNum) || scoreNum < min || scoreNum > max) {
+        return `Enter a valid score (${min}-${max}) for Q${question.question_number || question.id}.`;
+      }
+    }
+
+    if (question.input_type === "text" && question.is_mandatory && !responseForm.answer_text.trim()) {
+      return `Q${question.question_number || question.id} requires an answer.`;
+    }
+
+    if (question.input_type === "yes_no" && !["Y", "N"].includes(normalizedAnswerText)) {
+      return `Select Yes or No for Q${question.question_number || question.id}.`;
+    }
+
+    if (question.input_type === "always_sometimes_never" && !["Always", "Sometimes", "Never"].includes(responseForm.answer_text || "")) {
+      return `Select Always, Sometimes, or Never for Q${question.question_number || question.id}.`;
+    }
+
     if (normalizedActions.some((action) => !action.action_required || !action.action_owner || !action.action_timeframe)) {
-      setError("Each action needs Action Required, Lead Owner, and Action Time.");
-      return;
+      return `Each action for Q${question.question_number || question.id} needs Action Required, Lead Owner, and Action Time.`;
     }
 
     if (normalizedActions.some((action) => !ACTION_TIMEFRAME_OPTIONS.includes(action.action_timeframe))) {
-      setError("Action timeframe must be one of: <1 month, <3 months, <6 months, >6 months.");
-      return;
+      return `Action timeframe for Q${question.question_number || question.id} must be one of: <1 month, <3 months, <6 months, >6 months.`;
     }
 
-    setSavingQuestionId(question.id);
-    pushToast("info", `Saving response for Q${question.question_number || question.id}...`, 1400);
-    const payload = {
-      question_id: Number(question.id),
-      score: question.input_type === "score" ? scoreNum : null,
-      answer_text: question.input_type === "score" ? null : normalizedAnswerText || null,
-      verbatim: responseForm.verbatim?.trim() || null,
-      actions: normalizedActions,
-    };
+    return null;
+  };
+
+  const persistQuestionResponse = async (question: Question, options?: { silent?: boolean }) => {
+    if (!visitId) {
+      if (!options?.silent) setError("Create or select a visit first.");
+      return { ok: false, error: "Create or select a visit first." };
+    }
+
+    const responseForm = responseDrafts[question.id] || { ...emptyDraft };
+    const validationError = validateResponseDraft(question, responseForm);
+    if (validationError) {
+      if (!options?.silent) setError(validationError);
+      return { ok: false, error: validationError };
+    }
+
+    const { payload } = buildResponsePayload(question, responseForm);
     const existing = responsesByQuestion[question.id];
     const endpoint = existing
       ? `${API_BASE}/dashboard-visits/${visitId}/responses/${existing.response_id}?_cb=${Date.now()}`
       : `${API_BASE}/dashboard-visits/${visitId}/responses?_cb=${Date.now()}`;
     const method = existing ? "PUT" : "POST";
+
+    if (!options?.silent) {
+      setSavingQuestionId(question.id);
+      pushToast("info", `Saving response for Q${question.question_number || question.id}...`, 1400);
+    }
+
     const res = await fetch(endpoint, { method, headers, body: JSON.stringify(payload) });
     const data = await res.json();
-    setSavingQuestionId(null);
-    if (!res.ok) {
-      setError(data.detail || "Failed to save response");
-      return;
+    if (!options?.silent) {
+      setSavingQuestionId(null);
     }
+    if (!res.ok) {
+      const message = data.detail || "Failed to save response";
+      if (!options?.silent) setError(message);
+      return { ok: false, error: message };
+    }
+    return { ok: true, data };
+  };
+
+  const handleSaveQuestionResponse = async (question: Question) => {
+    const result = await persistQuestionResponse(question);
+    if (!result.ok) return;
+    const existing = responsesByQuestion[question.id];
     setMessage(existing ? "Response updated." : "Response saved.");
     await loadVisitResponses(visitId);
   };
@@ -638,8 +666,34 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       setError("Create a visit first.");
       return;
     }
+    const draftQuestions = visibleQuestions.filter((question) => {
+      const draft = responseDrafts[question.id] || emptyDraft;
+      const hasDraftContent = Boolean(
+        draft.score || draft.answer_text?.trim() || draft.verbatim?.trim() || (draft.actions || []).some((action) => action.action_required || action.action_owner || action.action_timeframe || action.action_support_needed)
+      );
+      if (!hasDraftContent) return false;
+      const existing = responsesByQuestion[question.id];
+      if (!existing) return true;
+      return (
+        String(existing.score ?? "") !== String(draft.score ?? "") ||
+        String(existing.answer_text || "") !== String(draft.answer_text || "") ||
+        String(existing.verbatim || "") !== String(draft.verbatim || "") ||
+        JSON.stringify(existing.actions || []) !== JSON.stringify(draft.actions || [])
+      );
+    });
+
+    for (const question of draftQuestions) {
+      const result = await persistQuestionResponse(question, { silent: true });
+      if (!result.ok) {
+        setError(result.error || `Failed to save Q${question.question_number || question.id} before submit.`);
+        return;
+      }
+    }
+
+    await loadVisitResponses(visitId);
+
     const mandatoryQuestions = visibleQuestions.filter((question) => question.is_mandatory);
-    const unanswered = mandatoryQuestions.filter((question) => !responsesByQuestion[question.id]);
+    const unanswered = mandatoryQuestions.filter((question) => !responsesByQuestion[question.id] && !responseDrafts[question.id]);
     if (unanswered.length > 0) {
       const missingQuestionLabels = unanswered
         .map((question) => `Q${question.question_number || question.id}`)
