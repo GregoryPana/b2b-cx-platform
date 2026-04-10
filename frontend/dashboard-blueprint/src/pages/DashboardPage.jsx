@@ -3610,89 +3610,28 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
        {location.pathname === "/businesses" ? (
          isB2BPlatform ? (
          <>
-           {/* Business Form */}
-           <Card ref={businessFormRef} className="mb-6">
-             <CardHeader>
-               <CardTitle>{selectedBusiness ? "Edit Business" : "Create Business"}</CardTitle>
-               {selectedBusiness && (
-                 <Button type="button" variant="outline" size="sm" onClick={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}>
-                   Cancel Edit
-                 </Button>
-               )}
-             </CardHeader>
-             <CardContent className="space-y-4">
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div>
-                   <label className="block text-sm font-medium mb-1">Business Name</label>
-                   <Input value={businessForm.name} onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Business name" />
-                 </div>
-                 <div>
-                   <label className="block text-sm font-medium mb-1">Location</label>
-                   <Input value={businessForm.location} onChange={(e) => setBusinessForm((prev) => ({ ...prev, location: e.target.value }))} placeholder="Location" />
-                 </div>
-                 <div>
-                   <label className="block text-sm font-medium mb-1">Priority</label>
-                   <Select value={businessForm.priority_level} onChange={(e) => setBusinessForm((prev) => ({ ...prev, priority_level: e.target.value }))}>
-                     <option value="high">High</option>
-                     <option value="medium">Medium</option>
-                     <option value="low">Low</option>
-                   </Select>
-                 </div>
-                 <div>
-                   <label className="block text-sm font-medium mb-1">Status</label>
-                   <Select value={businessForm.active ? "active" : "inactive"} onChange={(e) => setBusinessForm((prev) => ({ ...prev, active: e.target.value === "active" }))}>
-                     <option value="active">Active</option>
-                     <option value="inactive">Inactive</option>
-                   </Select>
-                 </div>
-                 <div className="md:col-span-2">
-                   <label className="block text-sm font-medium mb-1">Account Executive</label>
-                   <Input
-                     list="account-executives"
-                     value={accountExecutiveQuery}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setAccountExecutiveQuery(value);
-                        const match = representatives.find((exec) => {
-                          const label = exec.name || exec.full_name || exec.display_name || exec.email || "";
-                          return label.toLowerCase() === value.toLowerCase();
-                        });
-                        setBusinessForm((prev) => ({ ...prev, account_executive_id: match ? String(match.id) : "" }));
-                      }}
-                      placeholder="Start typing an executive"
-                    />
-                    <datalist id="account-executives">
-                      {representatives.map((exec) => (
-                        <option key={exec.id} value={exec.name || exec.full_name || exec.display_name || exec.email || "Unknown"} />
-                      ))}
-                    </datalist>
-                   <p className="text-xs text-muted-foreground mt-1">Select an executive from the list.</p>
-                 </div>
-               </div>
-               <div className="flex gap-2">
-                 <Button type="button" onClick={selectedBusiness ? handleUpdateBusiness : handleCreateBusiness}>
-                   {selectedBusiness ? "Update Business" : "Save Business"}
-                 </Button>
-                 {selectedBusiness && (
-                   <Button type="button" variant="outline" onClick={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}>
-                     Cancel
-                   </Button>
-                 )}
-               </div>
-               <p className="text-xs text-muted-foreground">Platform admins can create businesses and set priority.</p>
-             </CardContent>
-           </Card>
-
-           {/* Business Directory */}
            <Card>
-             <CardHeader>
-               <CardTitle>Business Directory</CardTitle>
-               <Button type="button" variant="outline" size="sm" onClick={loadBusinesses}>Refresh</Button>
-             </CardHeader>
-             <CardContent>
-               <div className="flex gap-2 mb-4">
-                 <Input placeholder="Filter by name or location" value={status} onChange={(e) => setStatus(e.target.value)} />
-               </div>
+              <CardHeader>
+                <CardTitle>Business Directory</CardTitle>
+                <Button type="button" variant="outline" size="sm" onClick={loadBusinesses}>Refresh</Button>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 flex items-center gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setSelectedBusiness({ id: "new" });
+                      setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" });
+                      setAccountExecutiveQuery("");
+                    }}
+                  >
+                    Add Business
+                  </Button>
+                  <p className="text-xs text-muted-foreground">Create and edit businesses inline within the table.</p>
+                </div>
+                <div className="flex gap-2 mb-4">
+                  <Input placeholder="Filter by name or location" value={status} onChange={(e) => setStatus(e.target.value)} />
+                </div>
                 <Table className="min-w-[860px]">
                  <TableHeader>
                    <TableRow>
@@ -3704,8 +3643,55 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                      <TableHead>Actions</TableHead>
                    </TableRow>
                  </TableHeader>
-                 <TableBody>
-                   {businesses
+                  <TableBody>
+                    {selectedBusiness?.id === "new" ? (
+                      <TableRow>
+                        <TableCell><Input value={businessForm.name} onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))} /></TableCell>
+                        <TableCell><Input value={businessForm.location} onChange={(e) => setBusinessForm((prev) => ({ ...prev, location: e.target.value }))} /></TableCell>
+                        <TableCell>
+                          <Select value={businessForm.priority_level} onChange={(e) => setBusinessForm((prev) => ({ ...prev, priority_level: e.target.value }))}>
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <>
+                            <Input
+                              list="account-executives-new"
+                              value={accountExecutiveQuery}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAccountExecutiveQuery(value);
+                                const match = representatives.find((exec) => {
+                                  const label = exec.name || exec.full_name || exec.display_name || exec.email || "";
+                                  return label.toLowerCase() === value.toLowerCase();
+                                });
+                                setBusinessForm((prev) => ({ ...prev, account_executive_id: match ? String(match.id) : "" }));
+                              }}
+                            />
+                            <datalist id="account-executives-new">
+                              {representatives.map((exec) => (
+                                <option key={exec.id} value={exec.name || exec.full_name || exec.display_name || exec.email || "Unknown"} />
+                              ))}
+                            </datalist>
+                          </>
+                        </TableCell>
+                        <TableCell>
+                          <Select value={businessForm.active ? "active" : "inactive"} onChange={(e) => setBusinessForm((prev) => ({ ...prev, active: e.target.value === "active" }))}>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button type="button" size="sm" onClick={handleCreateBusiness}>Save</Button>
+                            <Button type="button" variant="outline" size="sm" onClick={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}>Cancel</Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                    {businesses
                      .filter((business) => {
                        if (!status) return true;
                        const query = status.toLowerCase();
@@ -3813,37 +3799,24 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
        {location.pathname === "/executives" ? (
          isB2BPlatform ? (
           <>
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle>{selectedExecutive ? "Edit Account Executive" : "Add Account Executive"}</CardTitle>
-                {selectedExecutive ? (
-                  <Button type="button" variant="outline" size="sm" onClick={resetExecutiveForm}>Cancel Edit</Button>
-                ) : null}
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Name</label>
-                    <Input value={executiveForm.name} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Executive name" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Email</label>
-                    <Input value={executiveForm.email} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, email: e.target.value }))} placeholder="Executive email" />
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button type="button" onClick={saveExecutive}>{selectedExecutive ? "Update Executive" : "Save Executive"}</Button>
-                  {selectedExecutive ? <Button type="button" variant="outline" onClick={resetExecutiveForm}>Cancel</Button> : null}
-                </div>
-              </CardContent>
-            </Card>
-
             <Card>
               <CardHeader>
                 <CardTitle>Account Executive Directory</CardTitle>
                 <Button type="button" variant="outline" size="sm" onClick={loadRepresentatives}>Refresh</Button>
               </CardHeader>
               <CardContent>
+                <div className="mb-4 flex items-center gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setSelectedExecutive({ id: "new" });
+                      setExecutiveForm({ name: "", email: "" });
+                    }}
+                  >
+                    Add Account Executive
+                  </Button>
+                  <p className="text-xs text-muted-foreground">Create and edit account executives inline within the table.</p>
+                </div>
                 <Table className="min-w-[760px]">
                   <TableHeader>
                     <TableRow>
@@ -3853,6 +3826,18 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {selectedExecutive?.id === "new" ? (
+                      <TableRow>
+                        <TableCell><Input value={executiveForm.name} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, name: e.target.value }))} /></TableCell>
+                        <TableCell><Input value={executiveForm.email} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, email: e.target.value }))} /></TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button type="button" size="sm" onClick={saveExecutive}>Save</Button>
+                            <Button type="button" variant="outline" size="sm" onClick={resetExecutiveForm}>Cancel</Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
                     {representatives.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={3}>No account executives found.</TableCell>

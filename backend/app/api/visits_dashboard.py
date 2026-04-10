@@ -2975,6 +2975,7 @@ def get_visit_detail(
     try:
         ensure_visit_submission_columns(db)
         ensure_visit_metadata_columns(db)
+        ensure_visit_edit_audit_columns(db)
         print(f"DEBUG: Getting visit detail for visit_id: {visit_id}")
         has_question_number = has_column(db, "questions", "question_number")
         has_order_index = has_column(db, "questions", "order_index")
