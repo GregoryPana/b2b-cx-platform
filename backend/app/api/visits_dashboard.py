@@ -2580,7 +2580,7 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
             LEFT JOIN users u ON v.representative_id = u.id
             WHERE v.id = :visit_id
             """
-        ), {"visit_id": visit_id}).all()
+        ), {"visit_id": visit_id}).mappings().all()
         
         if not rows:
             raise HTTPException(status_code=404, detail="Visit not found after update")

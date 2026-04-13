@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-table": "^8.21.3",
     "@azure/msal-browser": "^3.20.0",
     "@azure/msal-react": "^2.1.0",
     "@hookform/resolvers": "^3.9.1",

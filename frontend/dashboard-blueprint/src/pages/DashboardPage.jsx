@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { cn } from "../lib/utils";
 import InstallationAnalyticsView from "../components/installation/InstallationAnalyticsView";
 import InstallationSurveyExplorer from "../components/installation/InstallationSurveyExplorer";
+import SurveysDataTable from "../components/b2b/SurveysDataTable";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
@@ -111,10 +112,6 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [surveyStatusFilter, setSurveyStatusFilter] = useState("all");
   const [selectedSurveyBusiness, setSelectedSurveyBusiness] = useState("");
   const [selectedSurveyLocation, setSelectedSurveyLocation] = useState("");
-  const [selectedSurveyAccountExecutive, setSelectedSurveyAccountExecutive] = useState("");
-  const [selectedSurveyDate, setSelectedSurveyDate] = useState("");
-  const [surveySortField, setSurveySortField] = useState("visit_date");
-  const [surveySortDirection, setSurveySortDirection] = useState("desc");
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [reportDateFrom, setReportDateFrom] = useState("");
   const [reportDateTo, setReportDateTo] = useState("");
@@ -1327,29 +1324,6 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     return grouped;
   }, [actionsBoardItems]);
 
-  const filteredSurveyResults = useMemo(() => {
-    const rows = [...surveyResults].filter((visit) => {
-      if (selectedSurveyAccountExecutive) {
-        const accountExecutive = String(visit.account_executive_name || "").toLowerCase();
-        if (!accountExecutive.includes(selectedSurveyAccountExecutive.toLowerCase())) {
-          return false;
-        }
-      }
-      if (selectedSurveyDate && String(visit.visit_date || "") !== selectedSurveyDate) {
-        return false;
-      }
-      return true;
-    });
-
-    rows.sort((a, b) => {
-      const direction = surveySortDirection === "asc" ? 1 : -1;
-      const valueA = String(a?.[surveySortField] ?? "");
-      const valueB = String(b?.[surveySortField] ?? "");
-      return valueA.localeCompare(valueB) * direction;
-    });
-
-    return rows;
-  }, [surveyResults, selectedSurveyAccountExecutive, selectedSurveyDate, surveySortField, surveySortDirection]);
 
   const categoryBreakdownData = useMemo(() => {
     const shouldUseTargetedBreakdown = selectedAnalyticsEntityIds.length > 0;
@@ -3199,93 +3173,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               <>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={loadSurveyResults}>Refresh</Button>
-                <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${filteredSurveyResults.length} results`}</span>
+                <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${surveyResults.length} results`}</span>
               </div>
 
-              <Table className="min-w-[720px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead colSpan={7}>
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
-                        <Input placeholder="Filter account executive" value={selectedSurveyAccountExecutive} onChange={(event) => setSelectedSurveyAccountExecutive(event.target.value)} />
-                        <Input type="date" value={selectedSurveyDate} onChange={(event) => setSelectedSurveyDate(event.target.value)} />
-                        <Select value={surveySortField} onChange={(event) => setSurveySortField(event.target.value)}>
-                          <option value="visit_date">Sort field: Date</option>
-                          <option value="business_name">Sort field: Business</option>
-                          <option value="status">Sort field: Status</option>
-                          <option value="account_executive_name">Sort field: Account Executive</option>
-                        </Select>
-                        <Select value={surveySortDirection} onChange={(event) => setSurveySortDirection(event.target.value)}>
-                          <option value="desc">Order: Descending</option>
-                          <option value="asc">Order: Ascending</option>
-                        </Select>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => {
-                            setSelectedSurveyAccountExecutive("");
-                            setSelectedSurveyDate("");
-                            setSurveySortField("visit_date");
-                            setSurveySortDirection("desc");
-                          }}
-                        >
-                          Clear Table Filters
-                        </Button>
-                      </div>
-                    </TableHead>
-                  </TableRow>
-                  <TableRow>
-                    <TableHead>{isMysteryShopperPlatform ? "Location" : "Business"}</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Account Executive</TableHead>
-                    <TableHead>Team Members</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Progress</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {!surveyLoading && filteredSurveyResults.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7}>No survey results found.</TableCell>
-                    </TableRow>
-                  ) : surveyLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={7}>Loading survey results...</TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredSurveyResults.map((visit) => (
-                      <TableRow key={visit.id}>
-                        <TableCell>{visit.business_name || "--"}</TableCell>
-                        <TableCell>{visit.visit_date || "--"}</TableCell>
-                        <TableCell>{visit.account_executive_name || "--"}</TableCell>
-                        <TableCell>{(visit.team_member_names || []).join(", ") || "--"}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              visit.status === "Approved"
-                                ? "success"
-                                : visit.status === "Pending" || visit.status === "Needs Changes"
-                                ? "warning"
-                                : visit.status === "Rejected"
-                                ? "destructive"
-                                : "secondary"
-                            }
-                          >
-                            {visit.status || "--"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{visit.mandatory_answered_count || 0}/{visit.mandatory_total_count || 0}</TableCell>
-                        <TableCell>
-                          <Button type="button" variant="outline" size="sm" onClick={() => loadSurveyVisitDetails(visit.id)}>
-                            View Details
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+              <SurveysDataTable
+                data={surveyResults}
+                loading={surveyLoading}
+                isMysteryShopperPlatform={isMysteryShopperPlatform}
+                onViewDetails={loadSurveyVisitDetails}
+              />
               </>
               ) : null}
             </CardContent>
