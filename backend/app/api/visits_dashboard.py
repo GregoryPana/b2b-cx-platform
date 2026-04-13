@@ -1392,17 +1392,19 @@ def build_report_payload(
     if normalized_report_type == "survey" and effective_visit_id:
         ensure_visit_metadata_columns(db)
         ensure_visit_edit_audit_columns(db)
+        report_edited_by_name_col = "v.edited_by_name" if has_column(db, "visits", "edited_by_name") else "NULL AS edited_by_name"
+        report_edited_at_col = "v.edited_at" if has_column(db, "visits", "edited_at") else "NULL AS edited_at"
         visit_info_row = db.execute(
             text(
-                """
+                f"""
                 SELECT
                     v.id,
                     b.name AS business_name,
                     v.visit_date,
                     v.status,
                     v.account_executive_name,
-                    v.edited_by_name,
-                    v.edited_at,
+                    {report_edited_by_name_col},
+                    {report_edited_at_col},
                     u.name AS representative_name
                 FROM visits v
                 JOIN businesses b ON b.id = v.business_id
