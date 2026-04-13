@@ -3197,39 +3197,43 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
               {location.pathname === "/surveys" ? (
               <>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-                <Input placeholder="Search account executive" value={selectedSurveyAccountExecutive} onChange={(event) => setSelectedSurveyAccountExecutive(event.target.value)} />
-                <Input type="date" value={selectedSurveyDate} onChange={(event) => setSelectedSurveyDate(event.target.value)} />
-                <Select value={surveySortField} onChange={(event) => setSurveySortField(event.target.value)}>
-                  <option value="visit_date">Sort by date</option>
-                  <option value="business_name">Sort by business</option>
-                  <option value="status">Sort by status</option>
-                  <option value="account_executive_name">Sort by account executive</option>
-                </Select>
-                <Select value={surveySortDirection} onChange={(event) => setSurveySortDirection(event.target.value)}>
-                  <option value="desc">Descending</option>
-                  <option value="asc">Ascending</option>
-                </Select>
-              </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={loadSurveyResults}>Refresh</Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    setSelectedSurveyAccountExecutive("");
-                    setSelectedSurveyDate("");
-                    setSurveySortField("visit_date");
-                    setSurveySortDirection("desc");
-                  }}
-                >
-                  Clear Local Filters
-                </Button>
                 <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${filteredSurveyResults.length} results`}</span>
               </div>
 
               <Table className="min-w-[720px]">
                 <TableHeader>
+                  <TableRow>
+                    <TableHead colSpan={7}>
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
+                        <Input placeholder="Filter account executive" value={selectedSurveyAccountExecutive} onChange={(event) => setSelectedSurveyAccountExecutive(event.target.value)} />
+                        <Input type="date" value={selectedSurveyDate} onChange={(event) => setSelectedSurveyDate(event.target.value)} />
+                        <Select value={surveySortField} onChange={(event) => setSurveySortField(event.target.value)}>
+                          <option value="visit_date">Sort field: Date</option>
+                          <option value="business_name">Sort field: Business</option>
+                          <option value="status">Sort field: Status</option>
+                          <option value="account_executive_name">Sort field: Account Executive</option>
+                        </Select>
+                        <Select value={surveySortDirection} onChange={(event) => setSurveySortDirection(event.target.value)}>
+                          <option value="desc">Order: Descending</option>
+                          <option value="asc">Order: Ascending</option>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => {
+                            setSelectedSurveyAccountExecutive("");
+                            setSelectedSurveyDate("");
+                            setSurveySortField("visit_date");
+                            setSurveySortDirection("desc");
+                          }}
+                        >
+                          Clear Table Filters
+                        </Button>
+                      </div>
+                    </TableHead>
+                  </TableRow>
                   <TableRow>
                     <TableHead>{isMysteryShopperPlatform ? "Location" : "Business"}</TableHead>
                     <TableHead>Date</TableHead>

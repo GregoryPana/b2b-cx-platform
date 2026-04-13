@@ -2965,7 +2965,7 @@ def request_changes(visit_id: str, changes_data: dict, db: Session = Depends(get
 
 @router.get("/{visit_id}")
 def get_visit_detail(
-    visit_id: str, 
+    visit_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2987,11 +2987,10 @@ def get_visit_detail(
             question_order_col = "q.order_index"
         else:
             question_order_col = "q.id"
-        
-        # Get visit details
-        visit_rows = db.execute(text(
+
+        visit_row = db.execute(text(
             """
-            SELECT 
+            SELECT
                 v.id,
                 v.business_id,
                 b.name as business_name,
@@ -3013,25 +3012,21 @@ def get_visit_detail(
             LEFT JOIN users u ON v.representative_id = u.id
             WHERE v.id = :visit_id
             """
-        ), {"visit_id": visit_id}).all()
-        
-        print(f"DEBUG: Found {len(visit_rows)} visit rows")
-        
-        if not visit_rows:
+        ), {"visit_id": visit_id}).mappings().first()
+
+        if not visit_row:
             print(f"DEBUG: Visit not found for ID: {visit_id}")
             raise HTTPException(status_code=404, detail="Visit not found")
-            
-        visit_row = visit_rows[0]
-        print(f"DEBUG: Visit found: {visit_row[2]}")
-        
+
+        print(f"DEBUG: Visit found: {visit_row['business_name']}")
+
         response_table = get_response_table(db)
         if not response_table:
             raise HTTPException(status_code=500, detail="No response table found")
 
-        # Get responses for this visit with correct question numbers
         response_rows = db.execute(text(
             f"""
-            SELECT 
+            SELECT
                 r.id,
                 r.question_id,
                 r.score,
@@ -3049,40 +3044,35 @@ def get_visit_detail(
             WHERE r.visit_id = :visit_id
             ORDER BY {question_order_col}
             """
-        ), {"visit_id": visit_id}).all()
-        
+        ), {"visit_id": visit_id}).mappings().all()
+
         print(f"DEBUG: Found {len(response_rows)} response rows")
-        
-        # Format responses with correct question numbers
+
         responses = []
         for row in response_rows:
-            # Parse actions if they exist
             actions = []
-            if row[5]:
+            if row["actions"]:
                 try:
                     import json
-                    actions = json.loads(row[5])
-                except:
+                    actions = json.loads(row["actions"])
+                except Exception:
                     actions = []
-            
+
             responses.append({
-                "response_id": row[0],
-                "question_id": row[1],
-                "question_number": row[8] if row[8] else row[1],  # Use question_number from questions table, fallback to question_id
-                "question_text": row[9],
-                "question_type": row[10],
-                "category": row[11] or "Uncategorized",
-                "score": row[2],
-                "answer_text": row[3],
-                "verbatim": row[4],
+                "response_id": row["id"],
+                "question_id": row["question_id"],
+                "question_number": row["question_number"] if row["question_number"] else row["question_id"],
+                "question_text": row["question_text"],
+                "question_type": row["input_type"],
+                "category": row["category"] or "Uncategorized",
+                "score": row["score"],
+                "answer_text": row["answer_text"],
+                "verbatim": row["verbatim"],
                 "actions": actions,
-                "created_at": row[6].isoformat() if row[6] else None,
-                "updated_at": row[7].isoformat() if row[7] else None
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
             })
-        
-        print(f"DEBUG: Formatted {len(responses)} responses")
-        
-        # Calculate mandatory answered/total counts, scoped to visit's survey_type_id
+
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         has_question_survey_type = has_column(db, "questions", "survey_type_id")
         if has_visit_survey_type and has_question_survey_type:
@@ -3120,38 +3110,34 @@ def get_visit_detail(
 
         mandatory_answered_count = int(mandatory_counts_row[0] or 0) if mandatory_counts_row else 0
         mandatory_total_count = int(mandatory_counts_row[1] or 0) if mandatory_counts_row else 0
-
-        print(f"DEBUG: Mandatory answered: {mandatory_answered_count}, Total mandatory: {mandatory_total_count}")
-        
         team_member_names = fetch_visit_team_members(db, visit_id)
 
         return {
-            "id": visit_row[0],
-            "business_id": visit_row[1],
-            "business_name": visit_row[2],
-            "representative_id": visit_row[3],
-            "representative_name": visit_row[4],
-            "visit_date": visit_row[5],
-            "visit_type": visit_row[6],
-            "status": visit_row[7],
-            "business_priority": visit_row[8],
-            "account_executive_name": visit_row[9],
+            "id": visit_row["id"],
+            "business_id": visit_row["business_id"],
+            "business_name": visit_row["business_name"],
+            "representative_id": visit_row["representative_id"],
+            "representative_name": visit_row["representative_name"],
+            "visit_date": visit_row["visit_date"],
+            "visit_type": visit_row["visit_type"],
+            "status": visit_row["status"],
+            "business_priority": visit_row["business_priority"],
+            "account_executive_name": visit_row["account_executive_name"],
             "team_member_names": team_member_names,
-            "edited_by_name": visit_row[10],
-            "edited_by_email": visit_row[11],
-            "edited_at": visit_row[12].isoformat() if visit_row[12] else None,
-            "submitted_by_name": visit_row[13],
-            "submitted_by_email": visit_row[14],
-            "submitted_at": visit_row[15].isoformat() if visit_row[15] else None,
+            "edited_by_name": visit_row["edited_by_name"],
+            "edited_by_email": visit_row["edited_by_email"],
+            "edited_at": visit_row["edited_at"].isoformat() if visit_row["edited_at"] else None,
+            "submitted_by_name": visit_row["submitted_by_name"],
+            "submitted_by_email": visit_row["submitted_by_email"],
+            "submitted_at": visit_row["submitted_at"].isoformat() if visit_row["submitted_at"] else None,
             "mandatory_answered_count": mandatory_answered_count,
             "mandatory_total_count": mandatory_total_count,
             "is_started": len(responses) > 0,
             "is_completed": mandatory_total_count > 0 and mandatory_answered_count >= mandatory_total_count,
-            "responses": responses
+            "responses": responses,
         }
-        
     except HTTPException:
         raise
     except Exception as e:
         print(f"Error getting visit detail: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get visit detail")
+        raise HTTPException(status_code=500, detail=f"Failed to get visit detail: {str(e)}")
