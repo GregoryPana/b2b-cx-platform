@@ -187,7 +187,7 @@ def create_installation_survey(
     worker_type = _normalize_worker_type(payload.job_done_by)
 
     if not inspector_name:
-        raise HTTPException(status_code=400, detail="Quality Assessor name is required")
+        raise HTTPException(status_code=400, detail="Quality Assurance Inspector name is required")
     if not work_order:
         raise HTTPException(status_code=400, detail="Work order is required")
     if not customer_name:
