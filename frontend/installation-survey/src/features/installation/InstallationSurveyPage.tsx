@@ -29,6 +29,7 @@ export default function InstallationSurveyPage({ headers }) {
 
   const [formData, setFormData] = useState({
     inspector_name: "",
+    work_order: "",
     customer_name: "",
     customer_type: "B2B",
     location: "",
@@ -70,6 +71,7 @@ export default function InstallationSurveyPage({ headers }) {
   const canSubmit = useMemo(() => {
     const requiredMeta =
       formData.inspector_name.trim() &&
+      formData.work_order.trim() &&
       formData.customer_name.trim() &&
       formData.location.trim() &&
       formData.date_work_done &&
@@ -108,6 +110,7 @@ export default function InstallationSurveyPage({ headers }) {
         },
         body: JSON.stringify({
           inspector_name: formData.inspector_name.trim(),
+          work_order: formData.work_order.trim(),
           customer_name: formData.customer_name.trim(),
           customer_type: formData.customer_type,
           location: formData.location.trim(),
@@ -128,6 +131,7 @@ export default function InstallationSurveyPage({ headers }) {
       setScoresByQuestion({});
       setFormData((prev) => ({
         ...prev,
+        work_order: "",
         customer_name: "",
         location: "",
         date_work_done: "",
@@ -143,7 +147,7 @@ export default function InstallationSurveyPage({ headers }) {
     <PageContainer>
       <div className="mb-8">
         <h1 className="text-4xl font-bold tracking-tight">Installation Assessment</h1>
-        <p className="text-muted-foreground mt-2">Complete the audit checklist and submit.</p>
+        <p className="text-muted-foreground mt-2">Complete the quality assessment checklist and submit.</p>
       </div>
 
       <form onSubmit={handleSubmit}>
@@ -151,8 +155,8 @@ export default function InstallationSurveyPage({ headers }) {
           <div className="lg:col-span-8">
             <Card>
               <CardHeader>
-                <CardTitle>Audit Details</CardTitle>
-                <CardDescription>Enter the installation audit metadata below.</CardDescription>
+                <CardTitle>Assessment Details</CardTitle>
+                <CardDescription>Enter the installation quality assessment details below.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {error && <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
@@ -165,8 +169,12 @@ export default function InstallationSurveyPage({ headers }) {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="inspector_name">Inspector/Auditor Name</Label>
+                    <Label htmlFor="inspector_name">Quality Assessor Name</Label>
                     <Input id="inspector_name" value={formData.inspector_name} onChange={(e) => updateForm("inspector_name", e.target.value)} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="work_order">Work Order</Label>
+                    <Input id="work_order" value={formData.work_order} onChange={(e) => updateForm("work_order", e.target.value)} required />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="customer_name">Customer Name</Label>
@@ -269,7 +277,7 @@ export default function InstallationSurveyPage({ headers }) {
                 </div>
                 <div className="rounded-md border p-3">
                   <p className="font-medium">3 to 4 - Pass (Needs Improvement)</p>
-                  <p className="text-muted-foreground">Minor issues. Auditor can correct small items and log feedback.</p>
+                  <p className="text-muted-foreground">Minor issues. Quality Assessor can correct small items and log feedback.</p>
                 </div>
                 <div className="rounded-md border p-3">
                   <p className="font-medium">2 - Fail (Rework Required)</p>

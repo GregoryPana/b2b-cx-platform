@@ -11,7 +11,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
    const items = [
      { to: "/", label: "Analytics", icon: ChartPie },
      ...(isB2BPlatform ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
-     ...(!isInstallationPlatform ? [{ to: "/trends", label: "Trends", icon: ChartLine }] : []),
+     ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/trends", label: "Trends", icon: ChartLine }] : []),
      ...(!isInstallationPlatform ? [{ to: "/review", label: "Review", icon: ScanEye }] : []),
      ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: MessageSquareWarning }] : []),
      ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/surveys", label: "Surveys", icon: LayoutList }] : []),

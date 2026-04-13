@@ -152,6 +152,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [installationSurveyFilters, setInstallationSurveyFilters] = useState({
     customer_name: "",
     inspector_name: "",
+    work_order: "",
     location: "",
     date_work_done: "",
     date_from: "",
@@ -175,6 +176,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
    const [installReportSurveyListLoading, setInstallReportSurveyListLoading] = useState(false);
    const [installReportLoading, setInstallReportLoading] = useState(false);
    const [installReportSending, setInstallReportSending] = useState(false);
+   const [installationTrendMonth, setInstallationTrendMonth] = useState("");
+   const [installationTrendCustomerType, setInstallationTrendCustomerType] = useState("");
+   const [installationTrendWorkerType, setInstallationTrendWorkerType] = useState("");
 
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -190,7 +194,21 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setInstallationAnalyticsLoading(true);
     setError("");
     try {
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/analytics`, { headers });
+      const params = new URLSearchParams();
+      if (installationTrendMonth) {
+        const [year, month] = installationTrendMonth.split("-");
+        if (year && month) {
+          const start = `${installationTrendMonth}-01`;
+          const endDate = new Date(Number(year), Number(month), 0);
+          const end = `${installationTrendMonth}-${String(endDate.getDate()).padStart(2, "0")}`;
+          params.set("date_from", start);
+          params.set("date_to", end);
+        }
+      }
+      if (installationTrendCustomerType) params.set("customer_type", installationTrendCustomerType);
+      if (installationTrendWorkerType) params.set("worker_type", installationTrendWorkerType);
+      const query = params.toString();
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/analytics${query ? `?${query}` : ""}`, { headers });
       if (!res.ok) {
         setError(data?.detail || "Failed to load installation analytics");
         setInstallationAnalytics(null);
@@ -203,7 +221,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     } finally {
       setInstallationAnalyticsLoading(false);
     }
-  }, [headers, fetchJsonSafe]);
+  }, [headers, fetchJsonSafe, installationTrendMonth, installationTrendCustomerType, installationTrendWorkerType]);
 
   const loadInstallationSurveys = useCallback(async () => {
     if (!isInstallationPlatform) return;
@@ -237,6 +255,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setInstallationSurveyFilters({
       customer_name: "",
       inspector_name: "",
+      work_order: "",
       location: "",
       date_work_done: "",
       date_from: "",
@@ -266,7 +285,6 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setError("");
     try {
       const params = new URLSearchParams();
-      // Optionally apply quick filters? For now load recent ones without filters, limit maybe 100
       const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys?${params.toString()}`, { headers });
       if (!res.ok) {
         setError(data?.detail || "Failed to load surveys for report");
@@ -2381,60 +2399,91 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       ) : null}
 
       {location.pathname === "/trends" ? (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Trend Explorer</CardTitle>
-              <CardDescription>Shows how the selected score changes over time so you can spot improvements or declines.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Select value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
-                {questionAverages.length === 0 ? <option value="">No questions available</option> : null}
-                {questionAverages.map((question) => (
-                  <option key={question.question_id} value={String(question.question_id)}>{question.question_text}</option>
-                ))}
-              </Select>
-              <div className="h-[420px]">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                  <LineChart data={trendData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="period" />
-                    <YAxis domain={[0, 10]} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          {isB2BPlatform ? (
+        isInstallationPlatform ? (
+          <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Account Executive Yes/No Performance</CardTitle>
-                <CardDescription>Shows the percentage of "Yes" answers for Questions 4 and 6 grouped by the account executive captured on each approved survey.</CardDescription>
+                <CardTitle>Installation Trends</CardTitle>
+                <CardDescription>Review installation performance by month, customer type, and worker type.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="h-[420px]">
-                  {accountExecutiveYesNoChartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                      <BarChart data={accountExecutiveYesNoChartData} margin={{ top: 8, right: 8, left: 8, bottom: 24 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="accountExecutive" interval={0} angle={-20} textAnchor="end" height={80} />
-                        <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
-                        <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Yes Rate"]} />
-                        <Bar dataKey="q4YesPercent" fill="#0ea5e9" name="Q4 Yes %" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="q6YesPercent" fill="#8b5cf6" name="Q6 Yes %" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No account executive yes/no data available.</div>
-                  )}
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <Input type="month" value={installationTrendMonth} onChange={(event) => setInstallationTrendMonth(event.target.value)} />
+                  <Select value={installationTrendCustomerType} onChange={(event) => setInstallationTrendCustomerType(event.target.value)}>
+                    <option value="">All customer types</option>
+                    <option value="B2B">B2B</option>
+                    <option value="B2C">B2C</option>
+                  </Select>
+                  <Select value={installationTrendWorkerType} onChange={(event) => setInstallationTrendWorkerType(event.target.value)}>
+                    <option value="">All worker types</option>
+                    <option value="Field Team">Field Team</option>
+                    <option value="Contractor">Contractor</option>
+                  </Select>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" onClick={loadInstallationAnalytics}>{installationAnalyticsLoading ? "Refreshing..." : "Refresh Trends"}</Button>
+                  <Button type="button" variant="ghost" onClick={() => { setInstallationTrendMonth(""); setInstallationTrendCustomerType(""); setInstallationTrendWorkerType(""); }}>Clear Filters</Button>
                 </div>
               </CardContent>
             </Card>
-          ) : null}
-        </div>
+            <InstallationAnalyticsView analytics={installationAnalytics} loading={installationAnalyticsLoading} onRefresh={loadInstallationAnalytics} />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Trend Explorer</CardTitle>
+                <CardDescription>Shows how the selected score changes over time so you can spot improvements or declines.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Select value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
+                  {questionAverages.length === 0 ? <option value="">No questions available</option> : null}
+                  {questionAverages.map((question) => (
+                    <option key={question.question_id} value={String(question.question_id)}>{question.question_text}</option>
+                  ))}
+                </Select>
+                <div className="h-[420px]">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
+                    <LineChart data={trendData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="period" />
+                      <YAxis domain={[0, 10]} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            {isB2BPlatform ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Account Executive Yes/No Performance</CardTitle>
+                  <CardDescription>Shows the percentage of "Yes" answers for Questions 4 and 6 grouped by the account executive captured on each approved survey.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[420px]">
+                    {accountExecutiveYesNoChartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
+                        <BarChart data={accountExecutiveYesNoChartData} margin={{ top: 8, right: 8, left: 8, bottom: 24 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="accountExecutive" interval={0} angle={-20} textAnchor="end" height={80} />
+                          <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                          <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Yes Rate"]} />
+                          <Bar dataKey="q4YesPercent" fill="#0ea5e9" name="Q4 Yes %" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="q6YesPercent" fill="#8b5cf6" name="Q6 Yes %" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No account executive yes/no data available.</div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
+        )
       ) : null}
 
       {location.pathname === "/review" ? (
@@ -2731,7 +2780,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                     <option value="">Select a survey</option>
                     {installReportSurveyList.map((survey) => (
                       <option key={survey.survey_id} value={survey.survey_id}>
-                        {survey.customer_name} | {survey.location} | {survey.date_work_done} (Score: {survey.overall_score?.toFixed(1)})
+                        {survey.work_order || survey.survey_id} | {survey.customer_name} | {survey.location} | {survey.date_work_done} (Score: {survey.overall_score?.toFixed(1)})
                       </option>
                     ))}
                   </Select>

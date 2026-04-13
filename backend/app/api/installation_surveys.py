@@ -83,6 +83,7 @@ class InstallationResponseInput(BaseModel):
 
 class InstallationSurveyCreateRequest(BaseModel):
     inspector_name: str
+    work_order: str
     customer_name: str
     customer_type: Literal["B2B", "B2C"]
     location: str
@@ -153,13 +154,16 @@ def create_installation_survey(
     current_user: AuthUser = Depends(get_current_user),
 ):
     inspector_name = payload.inspector_name.strip()
+    work_order = payload.work_order.strip()
     customer_name = payload.customer_name.strip()
     location = payload.location.strip()
     customer_type = _normalize_customer_type(payload.customer_type)
     worker_type = _normalize_worker_type(payload.job_done_by)
 
     if not inspector_name:
-        raise HTTPException(status_code=400, detail="Inspector/Auditor name is required")
+        raise HTTPException(status_code=400, detail="Quality Assessor name is required")
+    if not work_order:
+        raise HTTPException(status_code=400, detail="Work order is required")
     if not customer_name:
         raise HTTPException(status_code=400, detail="Customer name is required")
     if not location:
@@ -195,6 +199,7 @@ def create_installation_survey(
                 INSERT INTO installation_surveys (
                     id,
                     inspector_name,
+                    work_order,
                     customer_name,
                     customer_type,
                     location,
@@ -206,6 +211,7 @@ def create_installation_survey(
                 ) VALUES (
                     CAST(:id AS uuid),
                     :inspector_name,
+                    :work_order,
                     :customer_name,
                     :customer_type,
                     :location,
@@ -220,6 +226,7 @@ def create_installation_survey(
             {
                 "id": survey_id,
                 "inspector_name": inspector_name,
+                "work_order": work_order,
                 "customer_name": customer_name,
                 "customer_type": customer_type,
                 "location": location,
@@ -273,6 +280,7 @@ def create_installation_survey(
 def list_installation_surveys(
     customer_name: str | None = None,
     inspector_name: str | None = None,
+    work_order: str | None = None,
     location: str | None = None,
     date_work_done: str | None = None,
     date_from: str | None = None,
@@ -291,6 +299,9 @@ def list_installation_surveys(
         if inspector_name:
             where.append("LOWER(s.inspector_name) LIKE LOWER(:inspector_name)")
             params["inspector_name"] = f"%{inspector_name.strip()}%"
+        if work_order:
+            where.append("LOWER(s.work_order) LIKE LOWER(:work_order)")
+            params["work_order"] = f"%{work_order.strip()}%"
         if location:
             where.append("LOWER(s.location) LIKE LOWER(:location)")
             params["location"] = f"%{location.strip()}%"
@@ -321,6 +332,7 @@ def list_installation_surveys(
                 SELECT
                     s.id,
                     s.inspector_name,
+                    s.work_order,
                     s.customer_name,
                     s.customer_type,
                     s.location,
@@ -342,6 +354,7 @@ def list_installation_surveys(
             {
                 "survey_id": str(row["id"]),
                 "inspector_name": row["inspector_name"],
+                "work_order": row["work_order"],
                 "customer_name": row["customer_name"],
                 "customer_type": row["customer_type"],
                 "location": row["location"],
@@ -367,6 +380,7 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
                 SELECT
                     id,
                     inspector_name,
+                    work_order,
                     customer_name,
                     customer_type,
                     location,
@@ -406,6 +420,7 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
         return {
             "survey_id": str(survey["id"]),
             "inspector_name": survey["inspector_name"],
+            "work_order": survey["work_order"],
             "customer_name": survey["customer_name"],
             "customer_type": survey["customer_type"],
             "location": survey["location"],
@@ -435,6 +450,8 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
 def get_installation_analytics(
     date_from: str | None = None,
     date_to: str | None = None,
+    customer_type: str | None = None,
+    worker_type: str | None = None,
     db: Session = Depends(get_db),
 ):
     try:
@@ -446,6 +463,14 @@ def get_installation_analytics(
         if date_to:
             where.append("s.date_work_done <= :date_to")
             params["date_to"] = date_to
+        normalized_customer_type = _normalize_customer_type(customer_type)
+        if normalized_customer_type in ALLOWED_CUSTOMER_TYPES:
+            where.append("s.customer_type = :customer_type")
+            params["customer_type"] = normalized_customer_type
+        normalized_worker_type = _normalize_worker_type(worker_type)
+        if normalized_worker_type in ALLOWED_WORKER_TYPES:
+            where.append("s.job_done_by = :worker_type")
+            params["worker_type"] = normalized_worker_type
 
         where_sql = " AND ".join(where)
 

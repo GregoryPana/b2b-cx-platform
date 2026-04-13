@@ -21,7 +21,8 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
 
   const columns = useMemo(() => [
     { accessorKey: "customer_name", header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />, cell: ({ row }) => row.original.customer_name || "--" },
-    { accessorKey: "inspector_name", header: ({ column }) => <DataTableColumnHeader column={column} title="Inspector/Auditor" />, cell: ({ row }) => row.original.inspector_name || "--" },
+    { accessorKey: "inspector_name", header: ({ column }) => <DataTableColumnHeader column={column} title="Quality Assessor" />, cell: ({ row }) => row.original.inspector_name || "--" },
+    { accessorKey: "work_order", header: ({ column }) => <DataTableColumnHeader column={column} title="Work Order" />, cell: ({ row }) => row.original.work_order || "--" },
     { accessorKey: "location", header: ({ column }) => <DataTableColumnHeader column={column} title="Location" />, cell: ({ row }) => row.original.location || "--" },
     { accessorKey: "date_work_done", header: ({ column }) => <DataTableColumnHeader column={column} title="Date Work Done" />, cell: ({ row }) => row.original.date_work_done || "--" },
     { accessorKey: "customer_type", header: ({ column }) => <DataTableColumnHeader column={column} title="Customer Type" />, cell: ({ row }) => row.original.customer_type || "--" },
@@ -56,7 +57,8 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
             <Select value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
               <option value="customer_name">Filter by customer</option>
-              <option value="inspector_name">Filter by inspector</option>
+              <option value="inspector_name">Filter by quality assessor</option>
+              <option value="work_order">Filter by work order</option>
               <option value="location">Filter by location</option>
               <option value="date_work_done">Filter by date</option>
               <option value="customer_type">Filter by customer type</option>
