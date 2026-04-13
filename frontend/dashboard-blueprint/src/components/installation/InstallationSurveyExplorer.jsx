@@ -50,7 +50,7 @@ export default function InstallationSurveyExplorer({
           </CardHeader>
            <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Quality Assessor</p><p className="font-medium">{selectedSurvey.inspector_name || "--"}</p></div>
+              <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Quality Assurance Inspector</p><p className="font-medium">{selectedSurvey.inspector_name || "--"}</p></div>
               <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Work Order</p><p className="font-medium">{selectedSurvey.work_order || "--"}</p></div>
               <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Customer Name</p><p className="font-medium">{selectedSurvey.customer_name || "--"}</p></div>
               <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Location</p><p className="font-medium">{selectedSurvey.location || "--"}</p></div>

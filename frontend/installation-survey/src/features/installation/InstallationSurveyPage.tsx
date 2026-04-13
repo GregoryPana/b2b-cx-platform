@@ -169,7 +169,7 @@ export default function InstallationSurveyPage({ headers }) {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="inspector_name">Quality Assessor Name</Label>
+                    <Label htmlFor="inspector_name">Quality Assurance Inspector</Label>
                     <Input id="inspector_name" value={formData.inspector_name} onChange={(e) => updateForm("inspector_name", e.target.value)} required />
                   </div>
                   <div className="space-y-2">
@@ -277,7 +277,7 @@ export default function InstallationSurveyPage({ headers }) {
                 </div>
                 <div className="rounded-md border p-3">
                   <p className="font-medium">3 to 4 - Pass (Needs Improvement)</p>
-                  <p className="text-muted-foreground">Minor issues. Quality Assessor can correct small items and log feedback.</p>
+                  <p className="text-muted-foreground">Minor issues. Quality Assurance Inspector can correct small items and log feedback.</p>
                 </div>
                 <div className="rounded-md border p-3">
                   <p className="font-medium">2 - Fail (Rework Required)</p>

@@ -21,7 +21,7 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
 
   const columns = useMemo(() => [
     { accessorKey: "customer_name", header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />, cell: ({ row }) => row.original.customer_name || "--" },
-    { accessorKey: "inspector_name", header: ({ column }) => <DataTableColumnHeader column={column} title="Quality Assessor" />, cell: ({ row }) => row.original.inspector_name || "--" },
+    { accessorKey: "inspector_name", header: ({ column }) => <DataTableColumnHeader column={column} title="Quality Assurance Inspector" />, cell: ({ row }) => row.original.inspector_name || "--" },
     { accessorKey: "work_order", header: ({ column }) => <DataTableColumnHeader column={column} title="Work Order" />, cell: ({ row }) => row.original.work_order || "--" },
     { accessorKey: "location", header: ({ column }) => <DataTableColumnHeader column={column} title="Location" />, cell: ({ row }) => row.original.location || "--" },
     { accessorKey: "date_work_done", header: ({ column }) => <DataTableColumnHeader column={column} title="Date Work Done" />, cell: ({ row }) => row.original.date_work_done || "--" },
