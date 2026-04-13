@@ -111,6 +111,32 @@ def _to_float(value: Decimal | float | int | None) -> float | None:
     return round(float(value), 2)
 
 
+def _build_installation_where_clause(
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    customer_type: str | None = None,
+    worker_type: str | None = None,
+):
+    where = ["1=1"]
+    params: dict[str, object] = {}
+    if date_from:
+        where.append("s.date_work_done >= :date_from")
+        params["date_from"] = date_from
+    if date_to:
+        where.append("s.date_work_done <= :date_to")
+        params["date_to"] = date_to
+    normalized_customer_type = _normalize_customer_type(customer_type)
+    if normalized_customer_type in ALLOWED_CUSTOMER_TYPES:
+        where.append("s.customer_type = :customer_type")
+        params["customer_type"] = normalized_customer_type
+    normalized_worker_type = _normalize_worker_type(worker_type)
+    if normalized_worker_type in ALLOWED_WORKER_TYPES:
+        where.append("s.job_done_by = :worker_type")
+        params["worker_type"] = normalized_worker_type
+    return " AND ".join(where), params
+
+
 def _get_installation_questions(db: Session) -> list[dict]:
     try:
         rows = db.execute(
@@ -455,24 +481,12 @@ def get_installation_analytics(
     db: Session = Depends(get_db),
 ):
     try:
-        where = ["1=1"]
-        params: dict[str, object] = {}
-        if date_from:
-            where.append("s.date_work_done >= :date_from")
-            params["date_from"] = date_from
-        if date_to:
-            where.append("s.date_work_done <= :date_to")
-            params["date_to"] = date_to
-        normalized_customer_type = _normalize_customer_type(customer_type)
-        if normalized_customer_type in ALLOWED_CUSTOMER_TYPES:
-            where.append("s.customer_type = :customer_type")
-            params["customer_type"] = normalized_customer_type
-        normalized_worker_type = _normalize_worker_type(worker_type)
-        if normalized_worker_type in ALLOWED_WORKER_TYPES:
-            where.append("s.job_done_by = :worker_type")
-            params["worker_type"] = normalized_worker_type
-
-        where_sql = " AND ".join(where)
+        where_sql, params = _build_installation_where_clause(
+            date_from=date_from,
+            date_to=date_to,
+            customer_type=customer_type,
+            worker_type=worker_type,
+        )
 
         summary_row = db.execute(
             text(
@@ -672,6 +686,128 @@ def get_installation_analytics(
         raise HTTPException(status_code=500, detail=f"Failed to load installation analytics: {exc}")
 
 
+@router.get("/trends", dependencies=[Depends(require_roles(*INSTALL_ROLES))])
+def get_installation_trends(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    customer_type: str | None = None,
+    worker_type: str | None = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        where_sql, params = _build_installation_where_clause(
+            date_from=date_from,
+            date_to=date_to,
+            customer_type=customer_type,
+            worker_type=worker_type,
+        )
+
+        overall_rows = db.execute(
+            text(
+                f"""
+                SELECT
+                    date_trunc('month', s.date_work_done)::date AS period,
+                    AVG(s.overall_score)::numeric(10,2) AS average_score,
+                    COUNT(*) AS survey_count
+                FROM installation_surveys s
+                WHERE {where_sql}
+                GROUP BY date_trunc('month', s.date_work_done)
+                ORDER BY period
+                """
+            ),
+            params,
+        ).mappings().all()
+
+        question_rows = db.execute(
+            text(
+                f"""
+                SELECT
+                    date_trunc('month', s.date_work_done)::date AS period,
+                    r.question_number,
+                    q.question_text,
+                    AVG(r.score)::numeric(10,2) AS average_score
+                FROM installation_survey_responses r
+                JOIN installation_surveys s ON s.id = r.survey_id
+                JOIN installation_questions q ON q.question_number = r.question_number
+                WHERE {where_sql}
+                GROUP BY date_trunc('month', s.date_work_done), r.question_number, q.question_text
+                ORDER BY period, r.question_number
+                """
+            ),
+            params,
+        ).mappings().all()
+
+        customer_rows = db.execute(
+            text(
+                f"""
+                SELECT
+                    date_trunc('month', s.date_work_done)::date AS period,
+                    s.customer_type,
+                    AVG(s.overall_score)::numeric(10,2) AS average_score
+                FROM installation_surveys s
+                WHERE {where_sql}
+                GROUP BY date_trunc('month', s.date_work_done), s.customer_type
+                ORDER BY period, s.customer_type
+                """
+            ),
+            params,
+        ).mappings().all()
+
+        worker_rows = db.execute(
+            text(
+                f"""
+                SELECT
+                    date_trunc('month', s.date_work_done)::date AS period,
+                    s.job_done_by AS worker_type,
+                    AVG(s.overall_score)::numeric(10,2) AS average_score
+                FROM installation_surveys s
+                WHERE {where_sql}
+                GROUP BY date_trunc('month', s.date_work_done), s.job_done_by
+                ORDER BY period, s.job_done_by
+                """
+            ),
+            params,
+        ).mappings().all()
+
+        return {
+            "overall_trend": [
+                {
+                    "period": row["period"].isoformat() if row["period"] else None,
+                    "average_score": _to_float(row["average_score"]),
+                    "survey_count": int(row["survey_count"] or 0),
+                }
+                for row in overall_rows
+            ],
+            "question_trends": [
+                {
+                    "period": row["period"].isoformat() if row["period"] else None,
+                    "question_number": int(row["question_number"]),
+                    "question_text": row["question_text"],
+                    "average_score": _to_float(row["average_score"]),
+                }
+                for row in question_rows
+            ],
+            "customer_type_trends": [
+                {
+                    "period": row["period"].isoformat() if row["period"] else None,
+                    "customer_type": row["customer_type"],
+                    "average_score": _to_float(row["average_score"]),
+                }
+                for row in customer_rows
+            ],
+            "worker_type_trends": [
+                {
+                    "period": row["period"].isoformat() if row["period"] else None,
+                    "worker_type": row["worker_type"],
+                    "average_score": _to_float(row["average_score"]),
+                }
+                for row in worker_rows
+            ],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load installation trends: {exc}")
+
+
 class ReportEmailRequest(BaseModel):
     report_type: str
     date_from: str | None = None
@@ -807,7 +943,7 @@ def export_installation_report(
             survey = db.execute(
                 text(
                     """
-                    SELECT id, inspector_name, customer_name, customer_type, location, date_work_done, job_done_by, overall_score, created_at
+                    SELECT id, inspector_name, work_order, customer_name, customer_type, location, date_work_done, job_done_by, overall_score, created_at
                     FROM installation_surveys
                     WHERE id = CAST(:survey_id AS uuid)
                     """
@@ -832,6 +968,7 @@ def export_installation_report(
                 survey_detail = {
                     "survey_id": str(survey["id"]),
                     "inspector_name": survey["inspector_name"],
+                    "work_order": survey["work_order"],
                     "customer_name": survey["customer_name"],
                     "customer_type": survey["customer_type"],
                     "location": survey["location"],

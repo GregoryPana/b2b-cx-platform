@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { cn } from "../lib/utils";
 import InstallationAnalyticsView from "../components/installation/InstallationAnalyticsView";
 import InstallationSurveyExplorer from "../components/installation/InstallationSurveyExplorer";
+import InstallationTrendsView from "../components/installation/InstallationTrendsView";
 import SurveysDataTable from "../components/b2b/SurveysDataTable";
 import ReviewQueueDataTable from "../components/b2b/ReviewQueueDataTable";
 import PlannedVisitsDataTable from "../components/b2b/PlannedVisitsDataTable";
@@ -168,6 +169,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
    const [installReportType, setInstallReportType] = useState("lifetime");
    const [installReportDateFrom, setInstallReportDateFrom] = useState("");
    const [installReportDateTo, setInstallReportDateTo] = useState("");
+   const [installReportMonth, setInstallReportMonth] = useState("");
    const [installReportSurveyId, setInstallReportSurveyId] = useState("");
    const [installReportEmailTo, setInstallReportEmailTo] = useState("");
    const [installReportPreview, setInstallReportPreview] = useState(null);
@@ -179,6 +181,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
    const [installationTrendMonth, setInstallationTrendMonth] = useState("");
    const [installationTrendCustomerType, setInstallationTrendCustomerType] = useState("");
    const [installationTrendWorkerType, setInstallationTrendWorkerType] = useState("");
+   const [installationTrends, setInstallationTrends] = useState(null);
+   const [installationTrendsLoading, setInstallationTrendsLoading] = useState(false);
 
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -192,6 +196,25 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
   const loadInstallationAnalytics = useCallback(async () => {
     setInstallationAnalyticsLoading(true);
+    setError("");
+    try {
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/analytics`, { headers });
+      if (!res.ok) {
+        setError(data?.detail || "Failed to load installation analytics");
+        setInstallationAnalytics(null);
+        return;
+      }
+      setInstallationAnalytics(data || null);
+    } catch (err) {
+      setError("Failed to load installation analytics");
+      setInstallationAnalytics(null);
+    } finally {
+      setInstallationAnalyticsLoading(false);
+    }
+  }, [headers, fetchJsonSafe]);
+
+  const loadInstallationTrends = useCallback(async () => {
+    setInstallationTrendsLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
@@ -208,18 +231,18 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       if (installationTrendCustomerType) params.set("customer_type", installationTrendCustomerType);
       if (installationTrendWorkerType) params.set("worker_type", installationTrendWorkerType);
       const query = params.toString();
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/analytics${query ? `?${query}` : ""}`, { headers });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/trends${query ? `?${query}` : ""}`, { headers });
       if (!res.ok) {
-        setError(data?.detail || "Failed to load installation analytics");
-        setInstallationAnalytics(null);
+        setError(data?.detail || "Failed to load installation trends");
+        setInstallationTrends(null);
         return;
       }
-      setInstallationAnalytics(data || null);
+      setInstallationTrends(data || null);
     } catch (err) {
-      setError("Failed to load installation analytics");
-      setInstallationAnalytics(null);
+      setError("Failed to load installation trends");
+      setInstallationTrends(null);
     } finally {
-      setInstallationAnalyticsLoading(false);
+      setInstallationTrendsLoading(false);
     }
   }, [headers, fetchJsonSafe, installationTrendMonth, installationTrendCustomerType, installationTrendWorkerType]);
 
@@ -312,6 +335,16 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     try {
       const params = new URLSearchParams();
       params.set("report_type", installReportType);
+      if (installReportMonth) {
+        const [year, month] = installReportMonth.split("-");
+        if (year && month) {
+          const start = `${installReportMonth}-01`;
+          const endDate = new Date(Number(year), Number(month), 0);
+          const end = `${installReportMonth}-${String(endDate.getDate()).padStart(2, "0")}`;
+          params.set("date_from", start);
+          params.set("date_to", end);
+        }
+      }
       if (installReportDateFrom) params.set("date_from", installReportDateFrom);
       if (installReportDateTo) params.set("date_to", installReportDateTo);
       if (installReportSurveyId) params.set("survey_id", installReportSurveyId);
@@ -387,6 +420,14 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }
     loadInstallationAnalytics();
   }, [isInstallationPlatform, loadInstallationAnalytics]);
+
+  useEffect(() => {
+    if (!isInstallationPlatform || location.pathname !== "/trends") {
+      setInstallationTrends(null);
+      return;
+    }
+    loadInstallationTrends();
+  }, [isInstallationPlatform, location.pathname, loadInstallationTrends]);
 
   useEffect(() => {
     if (!isInstallationPlatform || location.pathname !== "/surveys") {
@@ -2404,15 +2445,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             <Card>
               <CardHeader>
                 <CardTitle>Installation Trends</CardTitle>
-                <CardDescription>Review installation performance by month, customer type, and worker type.</CardDescription>
+                <CardDescription>Track installation performance over time by month, customer type, worker type, and question.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                   <Input type="month" value={installationTrendMonth} onChange={(event) => setInstallationTrendMonth(event.target.value)} />
                   <Select value={installationTrendCustomerType} onChange={(event) => setInstallationTrendCustomerType(event.target.value)}>
                     <option value="">All customer types</option>
-                    <option value="B2B">B2B</option>
-                    <option value="B2C">B2C</option>
+                    <option value="B2B">B2B (Business/Corporate)</option>
+                    <option value="B2C">B2C (Residential)</option>
                   </Select>
                   <Select value={installationTrendWorkerType} onChange={(event) => setInstallationTrendWorkerType(event.target.value)}>
                     <option value="">All worker types</option>
@@ -2421,12 +2462,12 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   </Select>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={loadInstallationAnalytics}>{installationAnalyticsLoading ? "Refreshing..." : "Refresh Trends"}</Button>
+                  <Button type="button" variant="outline" onClick={loadInstallationTrends}>{installationTrendsLoading ? "Refreshing..." : "Refresh Trends"}</Button>
                   <Button type="button" variant="ghost" onClick={() => { setInstallationTrendMonth(""); setInstallationTrendCustomerType(""); setInstallationTrendWorkerType(""); }}>Clear Filters</Button>
                 </div>
               </CardContent>
             </Card>
-            <InstallationAnalyticsView analytics={installationAnalytics} loading={installationAnalyticsLoading} onRefresh={loadInstallationAnalytics} />
+            <InstallationTrendsView trends={installationTrends} loading={installationTrendsLoading} />
           </div>
         ) : (
           <div className="space-y-6">
@@ -2756,6 +2797,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               {installReportType === "lifetime" ? (
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Month (optional)</label>
+                    <Input type="month" value={installReportMonth} onChange={(e) => setInstallReportMonth(e.target.value)} />
+                  </div>
+                  <div>
                     <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date (optional)</label>
                     <Input type="date" value={installReportDateFrom} onChange={(e) => setInstallReportDateFrom(e.target.value)} />
                   </div>
@@ -2817,6 +2862,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 </Button>
                 <Button type="button" variant="ghost" onClick={() => {
                   setInstallReportType("lifetime");
+                  setInstallReportMonth("");
                   setInstallReportDateFrom("");
                   setInstallReportDateTo("");
                   setInstallReportSurveyId("");
