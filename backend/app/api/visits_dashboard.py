@@ -2992,7 +2992,7 @@ def get_visit_detail(
             question_order_col = "q.id"
 
         visit_row = db.execute(text(
-            """
+            f"""
             SELECT
                 v.id,
                 v.business_id,
@@ -3004,9 +3004,9 @@ def get_visit_detail(
                 v.status,
                 b.priority_level as business_priority,
                 v.account_executive_name,
-                    {edited_by_name_col},
-                    {edited_by_email_col},
-                    {edited_at_col},
+                {edited_by_name_col},
+                {edited_by_email_col},
+                {edited_at_col},
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at
