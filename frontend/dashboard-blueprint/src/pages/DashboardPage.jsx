@@ -13,6 +13,12 @@ import { cn } from "../lib/utils";
 import InstallationAnalyticsView from "../components/installation/InstallationAnalyticsView";
 import InstallationSurveyExplorer from "../components/installation/InstallationSurveyExplorer";
 import SurveysDataTable from "../components/b2b/SurveysDataTable";
+import ReviewQueueDataTable from "../components/b2b/ReviewQueueDataTable";
+import PlannedVisitsDataTable from "../components/b2b/PlannedVisitsDataTable";
+import BusinessesDataTable from "../components/b2b/BusinessesDataTable";
+import ExecutivesDataTable from "../components/b2b/ExecutivesDataTable";
+import ActionPointsDataTable from "../components/b2b/ActionPointsDataTable";
+import SimpleStatusDataTable from "../components/shared/SimpleStatusDataTable";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
@@ -2438,46 +2444,13 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             <CardDescription className="text-sm">These submitted visits are waiting for manager review. You can approve or reject each one.</CardDescription>
           </CardHeader>
           <CardContent>
-                <Table className="min-w-[560px]">
-                <TableHeader>
-                <TableRow>
-                  <TableHead>Business</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Submitted By</TableHead>
-                  <TableHead>Account Executive</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pendingVisits.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6}>No pending visits in review queue.</TableCell>
-                  </TableRow>
-                ) : (
-                  pendingVisits.map((visit) => {
-                    const visitId = String(visit.id || visit.visit_id || "");
-                    const isLoading = reviewActionLoadingVisitId === visitId;
-                    return (
-                      <TableRow key={visitId}>
-                        <TableCell>{visit.business_name || "--"}</TableCell>
-                        <TableCell>{visit.visit_date || "--"}</TableCell>
-                        <TableCell>{visit.submitted_by_name || visit.submitted_by_email || "--"}</TableCell>
-                        <TableCell>{visit.account_executive_name || "--"}</TableCell>
-                        <TableCell><Badge variant="warning">{visit.status || "Pending"}</Badge></TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            <Button type="button" size="sm" variant="outline" onClick={() => loadSurveyVisitDetails(visitId)} disabled={isLoading}>View</Button>
-                            <Button type="button" size="sm" onClick={() => handleReviewDecision(visit, "approve")} disabled={isLoading}>Approve</Button>
-                            <Button type="button" size="sm" variant="destructive" onClick={() => handleReviewDecision(visit, "reject")} disabled={isLoading}>Reject</Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
+            <ReviewQueueDataTable
+              data={pendingVisits}
+              loadingVisitId={reviewActionLoadingVisitId}
+              onView={loadSurveyVisitDetails}
+              onApprove={(visit) => handleReviewDecision(visit, "approve")}
+              onReject={(visit) => handleReviewDecision(visit, "reject")}
+            />
           </CardContent>
         </Card>
       ) : null}
@@ -2610,82 +2583,17 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 <div>
                   <Button type="button" variant="outline" onClick={loadPlannedVisits}>{plannedLoading ? "Refreshing..." : "Refresh"}</Button>
                 </div>
-                <Table className="min-w-[760px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Business</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Progress</TableHead>
-                      <TableHead>Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {!plannedLoading && plannedVisits.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={6}>No draft planned visits found.</TableCell>
-                      </TableRow>
-                    ) : plannedLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={6}>Loading draft planned visits...</TableCell>
-                      </TableRow>
-                    ) : (
-                      plannedVisits.map((visit) => (
-                        <TableRow key={visit.id || visit.visit_id}>
-                          <TableCell>{visit.business_name || "--"}</TableCell>
-                          <TableCell>
-                            {String(visit.id || visit.visit_id) === editingPlannedVisitId ? (
-                              <Input
-                                type="date"
-                                value={plannedEditForm.visit_date}
-                                onChange={(event) => setPlannedEditForm((prev) => ({ ...prev, visit_date: event.target.value }))}
-                              />
-                            ) : (
-                              visit.visit_date || "--"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {String(visit.id || visit.visit_id) === editingPlannedVisitId ? (
-                              <Select
-                                value={plannedEditForm.visit_type}
-                                onChange={(event) => setPlannedEditForm((prev) => ({ ...prev, visit_type: event.target.value }))}
-                              >
-                                <option value="Planned">Planned</option>
-                                <option value="Priority">Priority</option>
-                                <option value="Substitution">Substitution</option>
-                              </Select>
-                            ) : (
-                              visit.visit_type || "--"
-                            )}
-                          </TableCell>
-                          <TableCell><Badge variant="secondary">{visit.status || "Draft"}</Badge></TableCell>
-                          <TableCell>{visit.mandatory_answered_count || 0}/{visit.mandatory_total_count || 0}</TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-2">
-                              {String(visit.id || visit.visit_id) === editingPlannedVisitId ? (
-                                <>
-                                  <Button type="button" size="sm" onClick={() => savePlannedVisitEdit(visit.id || visit.visit_id)}>Save</Button>
-                                  <Button type="button" size="sm" variant="outline" onClick={cancelEditPlannedVisit}>Cancel</Button>
-                                </>
-                              ) : (
-                                <Button type="button" size="sm" variant="outline" onClick={() => startEditPlannedVisit(visit)}>Edit</Button>
-                              )}
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleDeletePlannedVisit(visit.id || visit.visit_id)}
-                              >
-                                Delete
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                <PlannedVisitsDataTable
+                  data={plannedVisits}
+                  loading={plannedLoading}
+                  editingVisitId={editingPlannedVisitId}
+                  editForm={plannedEditForm}
+                  onEditFormChange={setPlannedEditForm}
+                  onStartEdit={startEditPlannedVisit}
+                  onSaveEdit={savePlannedVisitEdit}
+                  onCancelEdit={cancelEditPlannedVisit}
+                  onDelete={handleDeletePlannedVisit}
+                />
               </CardContent>
             </Card>
           </div>
@@ -3369,48 +3277,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                             <h4 className="text-sm font-semibold">{businessName}</h4>
                             <Badge>{rows.length}</Badge>
                           </div>
-                          <Table className="min-w-[860px] table-resizable">
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Visit</TableHead>
-                                <TableHead>Date</TableHead>
-                                <TableHead>Question</TableHead>
-                                <TableHead>Action Required</TableHead>
-                                <TableHead>Lead Owner</TableHead>
-                                <TableHead>Timeline</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Support Needed</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {rows.map((row) => (
-                                <TableRow key={`${row.visit_id}-${row.question_id}-${row.action_required}-${row.action_owner}-${row.action_timeframe}`}>
-                                  <TableCell>{row.visit_id}</TableCell>
-                                  <TableCell>{row.visit_date || "--"}</TableCell>
-                                  <TableCell>
-                                    <div className="flex flex-col">
-                                      <span>Q{row.question_id}</span>
-                                      <span className="text-xs text-muted-foreground">{row.question_text || "--"}</span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>{row.action_required || "--"}</TableCell>
-                                  <TableCell>{row.action_owner || "--"}</TableCell>
-                                  <TableCell>{row.action_timeframe || "--"}</TableCell>
-                                  <TableCell>
-                                    <Select
-                                      value={row.action_status || "Outstanding"}
-                                      onChange={(event) => handleUpdateActionPointStatus(row, event.target.value)}
-                                    >
-                                      {actionsStatusOptions.map((option) => (
-                                        <option key={option} value={option}>{option}</option>
-                                      ))}
-                                    </Select>
-                                  </TableCell>
-                                  <TableCell>{row.action_support_needed || "--"}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+                          <ActionPointsDataTable data={rows} statusOptions={actionsStatusOptions} onStatusChange={handleUpdateActionPointStatus} />
                         </div>
                       ))}
                     </CardContent>
@@ -3446,41 +3313,13 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 </div>
               </div>
 
-              <Table className="min-w-[560px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {mysteryLocations.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3}>No locations added yet.</TableCell>
-                    </TableRow>
-                  ) : (
-                    mysteryLocations.map((locationItem) => (
-                      <TableRow key={locationItem.id}>
-                        <TableCell>{locationItem.name}</TableCell>
-                        <TableCell>
-                          <Badge variant={locationItem.active ? "success" : "secondary"}>{locationItem.active ? "Active" : "Inactive"}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            {locationItem.active ? (
-                              <Button type="button" variant="outline" size="sm" onClick={() => deactivateMysteryLocation(locationItem.id)}>Deactivate</Button>
-                            ) : (
-                              <Button type="button" variant="outline" size="sm" onClick={() => reactivateMysteryLocation(locationItem.id)}>Reactivate</Button>
-                            )}
-                            <Button type="button" variant="destructive" size="sm" onClick={() => deleteMysteryLocation(locationItem)}>Delete</Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+              <SimpleStatusDataTable
+                data={mysteryLocations}
+                entityLabel="Location"
+                onActivate={reactivateMysteryLocation}
+                onDeactivate={deactivateMysteryLocation}
+                onDelete={deleteMysteryLocation}
+              />
             </CardContent>
           </Card>
         ) : (
@@ -3507,41 +3346,13 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 <Button type="button" variant="outline" onClick={loadMysteryPurposes}>{mysteryPurposesLoading ? "Refreshing..." : "Refresh"}</Button>
               </div>
 
-              <Table className="min-w-[560px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Purpose</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {mysteryPurposes.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3}>No purposes configured yet.</TableCell>
-                    </TableRow>
-                  ) : (
-                    mysteryPurposes.map((purposeItem) => (
-                      <TableRow key={purposeItem.id}>
-                        <TableCell>{purposeItem.name}</TableCell>
-                        <TableCell>
-                          <Badge variant={purposeItem.active ? "success" : "secondary"}>{purposeItem.active ? "Active" : "Inactive"}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            {purposeItem.active ? (
-                              <Button type="button" variant="outline" size="sm" onClick={() => deactivateMysteryPurpose(purposeItem.id)}>Deactivate</Button>
-                            ) : (
-                              <Button type="button" variant="outline" size="sm" onClick={() => reactivateMysteryPurpose(purposeItem.id)}>Reactivate</Button>
-                            )}
-                            <Button type="button" variant="destructive" size="sm" onClick={() => deleteMysteryPurpose(purposeItem)}>Delete</Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+              <SimpleStatusDataTable
+                data={mysteryPurposes}
+                entityLabel="Purpose"
+                onActivate={reactivateMysteryPurpose}
+                onDeactivate={deactivateMysteryPurpose}
+                onDelete={deleteMysteryPurpose}
+              />
             </CardContent>
           </Card>
         ) : (
@@ -3557,181 +3368,34 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
        {location.pathname === "/businesses" ? (
          isB2BPlatform ? (
          <>
-           <Card>
+            <Card>
               <CardHeader>
                 <CardTitle>Business Directory</CardTitle>
                 <Button type="button" variant="outline" size="sm" onClick={loadBusinesses}>Refresh</Button>
               </CardHeader>
               <CardContent>
-                <div className="mb-4 flex items-center gap-2">
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setSelectedBusiness({ id: "new" });
-                      setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" });
-                      setAccountExecutiveQuery("");
-                    }}
-                  >
-                    Add Business
-                  </Button>
-                  <p className="text-xs text-muted-foreground">Create and edit businesses inline within the table.</p>
-                </div>
-                <div className="flex gap-2 mb-4">
-                  <Input placeholder="Filter by name or location" value={status} onChange={(e) => setStatus(e.target.value)} />
-                </div>
-                <Table className="min-w-[860px]">
-                 <TableHeader>
-                   <TableRow>
-                     <TableHead>Name</TableHead>
-                     <TableHead>Location</TableHead>
-                     <TableHead>Priority</TableHead>
-                     <TableHead>Account Executive</TableHead>
-                     <TableHead>Status</TableHead>
-                     <TableHead>Actions</TableHead>
-                   </TableRow>
-                 </TableHeader>
-                  <TableBody>
-                    {selectedBusiness?.id === "new" ? (
-                      <TableRow>
-                        <TableCell><Input value={businessForm.name} onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))} /></TableCell>
-                        <TableCell><Input value={businessForm.location} onChange={(e) => setBusinessForm((prev) => ({ ...prev, location: e.target.value }))} /></TableCell>
-                        <TableCell>
-                          <Select value={businessForm.priority_level} onChange={(e) => setBusinessForm((prev) => ({ ...prev, priority_level: e.target.value }))}>
-                            <option value="high">High</option>
-                            <option value="medium">Medium</option>
-                            <option value="low">Low</option>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <>
-                            <Input
-                              list="account-executives-new"
-                              value={accountExecutiveQuery}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                setAccountExecutiveQuery(value);
-                                const match = representatives.find((exec) => {
-                                  const label = exec.name || exec.full_name || exec.display_name || exec.email || "";
-                                  return label.toLowerCase() === value.toLowerCase();
-                                });
-                                setBusinessForm((prev) => ({ ...prev, account_executive_id: match ? String(match.id) : "" }));
-                              }}
-                            />
-                            <datalist id="account-executives-new">
-                              {representatives.map((exec) => (
-                                <option key={exec.id} value={exec.name || exec.full_name || exec.display_name || exec.email || "Unknown"} />
-                              ))}
-                            </datalist>
-                          </>
-                        </TableCell>
-                        <TableCell>
-                          <Select value={businessForm.active ? "active" : "inactive"} onChange={(e) => setBusinessForm((prev) => ({ ...prev, active: e.target.value === "active" }))}>
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button type="button" size="sm" onClick={handleCreateBusiness}>Save</Button>
-                            <Button type="button" variant="outline" size="sm" onClick={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}>Cancel</Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : null}
-                    {businesses
-                     .filter((business) => {
-                       if (!status) return true;
-                       const query = status.toLowerCase();
-                       return (business.name?.toLowerCase().includes(query) || business.location?.toLowerCase().includes(query));
-                     })
-                      .map((business) => {
-                        const isEditing = selectedBusiness?.id === business.id;
-                        return (
-                          <TableRow key={business.id} className={!business.location || !business.account_executive_id ? "bg-warning/10" : ""}>
-                            <TableCell>
-                              {isEditing ? (
-                                <Input value={businessForm.name} onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))} />
-                              ) : business.name}
-                            </TableCell>
-                            <TableCell>
-                              {isEditing ? (
-                                <Input value={businessForm.location} onChange={(e) => setBusinessForm((prev) => ({ ...prev, location: e.target.value }))} />
-                              ) : (business.location || "--")}
-                            </TableCell>
-                            <TableCell>
-                              {isEditing ? (
-                                <Select value={businessForm.priority_level} onChange={(e) => setBusinessForm((prev) => ({ ...prev, priority_level: e.target.value }))}>
-                                  <option value="high">High</option>
-                                  <option value="medium">Medium</option>
-                                  <option value="low">Low</option>
-                                </Select>
-                              ) : (
-                                <Badge variant={business.priority_level === "high" ? "destructive" : business.priority_level === "low" ? "secondary" : "default"}>
-                                  {business.priority_level || "medium"}
-                                </Badge>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {isEditing ? (
-                                <>
-                                  <Input
-                                    list={`account-executives-${business.id}`}
-                                    value={accountExecutiveQuery}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      setAccountExecutiveQuery(value);
-                                      const match = representatives.find((exec) => {
-                                        const label = exec.name || exec.full_name || exec.display_name || exec.email || "";
-                                        return label.toLowerCase() === value.toLowerCase();
-                                      });
-                                      setBusinessForm((prev) => ({ ...prev, account_executive_id: match ? String(match.id) : "" }));
-                                    }}
-                                  />
-                                  <datalist id={`account-executives-${business.id}`}>
-                                    {representatives.map((exec) => (
-                                      <option key={exec.id} value={exec.name || exec.full_name || exec.display_name || exec.email || "Unknown"} />
-                                    ))}
-                                  </datalist>
-                                </>
-                              ) : (representativeMap[business.account_executive_id] || "Unassigned")}
-                            </TableCell>
-                            <TableCell>
-                              {isEditing ? (
-                                <Select value={businessForm.active ? "active" : "inactive"} onChange={(e) => setBusinessForm((prev) => ({ ...prev, active: e.target.value === "active" }))}>
-                                  <option value="active">Active</option>
-                                  <option value="inactive">Inactive</option>
-                                </Select>
-                              ) : (
-                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${business.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
-                                  {business.active ? "Active" : "Retired"}
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                {isEditing ? (
-                                  <>
-                                    <Button type="button" size="sm" onClick={handleUpdateBusiness}>Save</Button>
-                                    <Button type="button" variant="outline" size="sm" onClick={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}>Cancel</Button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Button type="button" variant="outline" size="sm" onClick={() => handleEditBusiness(business)}>Edit</Button>
-                                    {business.active && (
-                                      <Button type="button" variant="outline" size="sm" onClick={() => handleRetireBusiness(business)}>Retire</Button>
-                                    )}
-                                    <Button type="button" variant="destructive" size="sm" onClick={() => handleDeleteBusiness(business)}>Delete</Button>
-                                  </>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                 </TableBody>
-               </Table>
-             </CardContent>
-           </Card>
+                <BusinessesDataTable
+                  data={businesses}
+                  representatives={representatives}
+                  representativeMap={representativeMap}
+                  selectedBusiness={selectedBusiness}
+                  businessForm={businessForm}
+                  setBusinessForm={setBusinessForm}
+                  accountExecutiveQuery={accountExecutiveQuery}
+                  setAccountExecutiveQuery={setAccountExecutiveQuery}
+                  onStartNew={() => {
+                    setSelectedBusiness({ id: "new" });
+                    setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" });
+                    setAccountExecutiveQuery("");
+                  }}
+                  onEdit={handleEditBusiness}
+                  onSave={selectedBusiness?.id === "new" ? handleCreateBusiness : handleUpdateBusiness}
+                  onCancel={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}
+                  onRetire={handleRetireBusiness}
+                  onDelete={handleDeleteBusiness}
+                />
+              </CardContent>
+            </Card>
          </>
          ) : (
           <Card>
@@ -3752,79 +3416,20 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 <Button type="button" variant="outline" size="sm" onClick={loadRepresentatives}>Refresh</Button>
               </CardHeader>
               <CardContent>
-                <div className="mb-4 flex items-center gap-2">
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setSelectedExecutive({ id: "new" });
-                      setExecutiveForm({ name: "", email: "" });
-                    }}
-                  >
-                    Add Account Executive
-                  </Button>
-                  <p className="text-xs text-muted-foreground">Create and edit account executives inline within the table.</p>
-                </div>
-                <Table className="min-w-[760px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedExecutive?.id === "new" ? (
-                      <TableRow>
-                        <TableCell><Input value={executiveForm.name} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, name: e.target.value }))} /></TableCell>
-                        <TableCell><Input value={executiveForm.email} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, email: e.target.value }))} /></TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button type="button" size="sm" onClick={saveExecutive}>Save</Button>
-                            <Button type="button" variant="outline" size="sm" onClick={resetExecutiveForm}>Cancel</Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : null}
-                    {representatives.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={3}>No account executives found.</TableCell>
-                      </TableRow>
-                     ) : (
-                       representatives.map((executive) => {
-                         const isEditing = selectedExecutive?.id === executive.id;
-                         return (
-                           <TableRow key={executive.id}>
-                             <TableCell>
-                               {isEditing ? (
-                                 <Input value={executiveForm.name} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, name: e.target.value }))} />
-                               ) : (executive.name || "--")}
-                             </TableCell>
-                             <TableCell>
-                               {isEditing ? (
-                                 <Input value={executiveForm.email} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, email: e.target.value }))} />
-                               ) : (executive.email || "--")}
-                             </TableCell>
-                             <TableCell>
-                               <div className="flex gap-2">
-                                 {isEditing ? (
-                                   <>
-                                     <Button type="button" size="sm" onClick={saveExecutive}>Save</Button>
-                                     <Button type="button" variant="outline" size="sm" onClick={resetExecutiveForm}>Cancel</Button>
-                                   </>
-                                 ) : (
-                                   <>
-                                     <Button type="button" variant="outline" size="sm" onClick={() => editExecutive(executive)}>Edit</Button>
-                                     <Button type="button" variant="destructive" size="sm" onClick={() => deleteExecutive(executive)}>Delete</Button>
-                                   </>
-                                 )}
-                               </div>
-                             </TableCell>
-                           </TableRow>
-                         );
-                       })
-                     )}
-                  </TableBody>
-                </Table>
+                <ExecutivesDataTable
+                  data={representatives}
+                  selectedExecutive={selectedExecutive}
+                  executiveForm={executiveForm}
+                  setExecutiveForm={setExecutiveForm}
+                  onStartNew={() => {
+                    setSelectedExecutive({ id: "new" });
+                    setExecutiveForm({ name: "", email: "" });
+                  }}
+                  onEdit={editExecutive}
+                  onSave={saveExecutive}
+                  onCancel={resetExecutiveForm}
+                  onDelete={deleteExecutive}
+                />
               </CardContent>
             </Card>
           </>
