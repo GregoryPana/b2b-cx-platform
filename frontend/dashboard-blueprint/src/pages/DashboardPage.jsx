@@ -58,7 +58,6 @@ async function fetchJsonSafe(url, options = {}, timeout = 15000) {
 
 export default function DashboardPage({ headers, activePlatform, onSessionExpired }) {
   const location = useLocation();
-  const businessFormRef = useRef(null);
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
@@ -112,6 +111,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [surveyStatusFilter, setSurveyStatusFilter] = useState("all");
   const [selectedSurveyBusiness, setSelectedSurveyBusiness] = useState("");
   const [selectedSurveyLocation, setSelectedSurveyLocation] = useState("");
+  const [selectedSurveyAccountExecutive, setSelectedSurveyAccountExecutive] = useState("");
+  const [selectedSurveyDate, setSelectedSurveyDate] = useState("");
+  const [surveySortField, setSurveySortField] = useState("visit_date");
+  const [surveySortDirection, setSurveySortDirection] = useState("desc");
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [reportDateFrom, setReportDateFrom] = useState("");
   const [reportDateTo, setReportDateTo] = useState("");
@@ -1178,7 +1181,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
    useEffect(() => {
      if (location.pathname !== "/surveys") return;
-     loadSurveyResults();
+    loadSurveyResults();
    }, [location.pathname, activePlatform, surveyStatusFilter, selectedSurveyBusiness, selectedSurveyLocation]);
 
    useEffect(() => {
@@ -1323,6 +1326,30 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     });
     return grouped;
   }, [actionsBoardItems]);
+
+  const filteredSurveyResults = useMemo(() => {
+    const rows = [...surveyResults].filter((visit) => {
+      if (selectedSurveyAccountExecutive) {
+        const accountExecutive = String(visit.account_executive_name || "").toLowerCase();
+        if (!accountExecutive.includes(selectedSurveyAccountExecutive.toLowerCase())) {
+          return false;
+        }
+      }
+      if (selectedSurveyDate && String(visit.visit_date || "") !== selectedSurveyDate) {
+        return false;
+      }
+      return true;
+    });
+
+    rows.sort((a, b) => {
+      const direction = surveySortDirection === "asc" ? 1 : -1;
+      const valueA = String(a?.[surveySortField] ?? "");
+      const valueB = String(b?.[surveySortField] ?? "");
+      return valueA.localeCompare(valueB) * direction;
+    });
+
+    return rows;
+  }, [surveyResults, selectedSurveyAccountExecutive, selectedSurveyDate, surveySortField, surveySortDirection]);
 
   const categoryBreakdownData = useMemo(() => {
     const shouldUseTargetedBreakdown = selectedAnalyticsEntityIds.length > 0;
@@ -1546,11 +1573,6 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setAccountExecutiveQuery(
       business.account_executive_id ? representativeMap[business.account_executive_id] || "" : ""
     );
-    businessFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setTimeout(() => {
-      const firstInput = businessFormRef.current?.querySelector("input");
-      firstInput?.focus();
-    }, 350);
   };
 
   const handleCreateBusiness = async () => {
@@ -3175,9 +3197,35 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
               {location.pathname === "/surveys" ? (
               <>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <Input placeholder="Search account executive" value={selectedSurveyAccountExecutive} onChange={(event) => setSelectedSurveyAccountExecutive(event.target.value)} />
+                <Input type="date" value={selectedSurveyDate} onChange={(event) => setSelectedSurveyDate(event.target.value)} />
+                <Select value={surveySortField} onChange={(event) => setSurveySortField(event.target.value)}>
+                  <option value="visit_date">Sort by date</option>
+                  <option value="business_name">Sort by business</option>
+                  <option value="status">Sort by status</option>
+                  <option value="account_executive_name">Sort by account executive</option>
+                </Select>
+                <Select value={surveySortDirection} onChange={(event) => setSurveySortDirection(event.target.value)}>
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
+                </Select>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={loadSurveyResults}>Refresh</Button>
-                <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${surveyResults.length} results`}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setSelectedSurveyAccountExecutive("");
+                    setSelectedSurveyDate("");
+                    setSurveySortField("visit_date");
+                    setSurveySortDirection("desc");
+                  }}
+                >
+                  Clear Local Filters
+                </Button>
+                <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${filteredSurveyResults.length} results`}</span>
               </div>
 
               <Table className="min-w-[720px]">
@@ -3185,30 +3233,29 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   <TableRow>
                     <TableHead>{isMysteryShopperPlatform ? "Location" : "Business"}</TableHead>
                     <TableHead>Date</TableHead>
+                    <TableHead>Account Executive</TableHead>
+                    <TableHead>Team Members</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Progress</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {!surveyLoading && surveyResults.length === 0 ? (
+                  {!surveyLoading && filteredSurveyResults.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5}>No survey results found.</TableCell>
+                      <TableCell colSpan={7}>No survey results found.</TableCell>
                     </TableRow>
                   ) : surveyLoading ? (
                     <TableRow>
-                      <TableCell colSpan={5}>Loading survey results...</TableCell>
+                      <TableCell colSpan={7}>Loading survey results...</TableCell>
                     </TableRow>
                   ) : (
-                    surveyResults.map((visit) => (
+                    filteredSurveyResults.map((visit) => (
                       <TableRow key={visit.id}>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span>{visit.business_name || "--"}</span>
-                            <span className="text-xs text-muted-foreground">Visit ID: {visit.id}</span>
-                          </div>
-                        </TableCell>
+                        <TableCell>{visit.business_name || "--"}</TableCell>
                         <TableCell>{visit.visit_date || "--"}</TableCell>
+                        <TableCell>{visit.account_executive_name || "--"}</TableCell>
+                        <TableCell>{(visit.team_member_names || []).join(", ") || "--"}</TableCell>
                         <TableCell>
                           <Badge
                             variant={

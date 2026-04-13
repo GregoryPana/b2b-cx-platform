@@ -673,8 +673,9 @@ def get_all_visits(
         # Fetch visits
         visits = []
         for row in result:
+            visit_id = row[0]
             visits.append({
-                "id": row[0],
+                "id": visit_id,
                 "business_id": row[1],
                 "business_name": row[2],
                 "representative_id": row[3],
@@ -684,6 +685,7 @@ def get_all_visits(
                 "status": row[7],
                 "business_priority": row[8],
                 "account_executive_name": row[9],
+                "team_member_names": fetch_visit_team_members(db, str(visit_id)),
                 "submitted_by_name": row[10],
                 "submitted_by_email": row[11],
                 "submitted_at": row[12].isoformat() if row[12] else None,
