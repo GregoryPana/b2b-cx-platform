@@ -2993,8 +2993,7 @@ def get_visit_detail(
         else:
             question_order_col = "q.id"
 
-        visit_row = db.execute(text(
-            f"""
+        visit_query = f"""
             SELECT
                 v.id,
                 v.business_id,
@@ -3016,8 +3015,8 @@ def get_visit_detail(
             JOIN businesses b ON v.business_id = b.id
             LEFT JOIN users u ON v.representative_id = u.id
             WHERE v.id = :visit_id
-            """
-        ), {"visit_id": visit_id}).mappings().first()
+        """
+        visit_row = db.execute(text(visit_query), {"visit_id": visit_id}).mappings().first()
 
         if not visit_row:
             print(f"DEBUG: Visit not found for ID: {visit_id}")
