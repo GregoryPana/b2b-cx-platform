@@ -1,3 +1,5 @@
+<!-- ARCHIVED: Historical/superseded document. See docs/ for current documentation. -->
+
 # Enterprise Platform Migration Checklist (Future Use)
 
 ## Planning and Design

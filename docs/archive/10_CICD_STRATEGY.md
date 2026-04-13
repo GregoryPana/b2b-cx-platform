@@ -1,3 +1,5 @@
+<!-- ARCHIVED: Historical/superseded document. See docs/ for current documentation. -->
+
 # CX Assessment Platform CI/CD Strategy
 
 ## Overview

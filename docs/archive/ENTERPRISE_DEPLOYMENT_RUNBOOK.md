@@ -1,3 +1,5 @@
+<!-- ARCHIVED: Historical/superseded document. See docs/ for current documentation. -->
+
 # CWSCX Enterprise Deployment Runbook (Artifact-Based)
 
 This is the canonical deployment guide for staging/prod-style rollout.

@@ -6,7 +6,7 @@ Implement the Mystery Shopper platform as a first-class program with:
 - Dashboard support in existing governance dashboard (`frontend/dashboard`)
 - Isolated users/access from B2B
 - Dedicated customer service centre location master managed by Admin
-- Full question framework from `questions mystery shopper.md`
+- Full question framework from `docs/reference/questions-mystery-shopper.md`
 
 ## Confirmed Product Decisions
 - Date completed report is auto-generated from current date using UTC+4 timezone.
@@ -64,7 +64,7 @@ Implement the Mystery Shopper platform as a first-class program with:
 - `nps` (0-10)
 
 ### Source of Truth
-- Seed all questions from `questions mystery shopper.md`.
+- Seed all questions from `docs/reference/questions-mystery-shopper.md`.
 - Persist per-question metadata:
   - `category`
   - `question_text`

@@ -157,7 +157,7 @@ Recommendation:
 
 ## 12) References
 
-- end-to-end flow: `docs/DEPLOYMENT_END_TO_END_GUIDE.md`
-- canonical runbook: `ENTERPRISE_DEPLOYMENT_RUNBOOK.md`
-- handover guide: `docs/HANDOVER_GUIDE.md`
+- end-to-end flow: `docs/deployment/DEPLOYMENT_END_TO_END_GUIDE.md`
+- canonical runbook: `docs/deployment/ENTERPRISE_DEPLOYMENT_RUNBOOK.md`
+- handover guide: `docs/operations/HANDOVER_GUIDE.md`
 - AI structuring source: `docs/AI_SKILL_DEPLOYMENT_SOURCE.md`

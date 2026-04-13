@@ -1,3 +1,5 @@
+<!-- ARCHIVED: Historical/superseded document. See docs/ for current documentation. -->
+
 # AI Prompt: Installation Assessment Implementation
 
 You are working in a fresh clone of this repository. You have no prior context outside the codebase itself.

@@ -1,3 +1,5 @@
+<!-- ARCHIVED: Historical/superseded document. See docs/ for current documentation. -->
+
 # 🔧 SURVEY RESPONSE SAVING - FINAL FIX
 
 ## 🎯 ISSUE RESOLVED

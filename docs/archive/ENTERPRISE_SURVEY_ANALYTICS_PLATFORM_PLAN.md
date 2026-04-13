@@ -1,3 +1,5 @@
+<!-- ARCHIVED: Historical/superseded document. See docs/ for current documentation. -->
+
 # Enterprise Survey Creation, Management, and Analytics Platform Plan
 
 ## Purpose

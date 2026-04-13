@@ -1,3 +1,5 @@
+<!-- ARCHIVED: Historical/superseded document. See docs/ for current documentation. -->
+
 # Prompt To Continue Deployment Work
 
 Use this prompt with me in the next step:

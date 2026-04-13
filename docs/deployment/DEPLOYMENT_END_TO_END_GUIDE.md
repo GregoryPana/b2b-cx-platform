@@ -148,7 +148,7 @@ It writes and reloads site config so routes map correctly:
 - `/dashboard/` -> dashboard dist
 - `/surveys/b2b/` -> B2B dist
 - `/surveys/installation/` -> installation dist
-- `/` -> mystery shopper dist
+- `/mystery-shopper/` -> mystery shopper dist
 
 ### Step H: Verify release
 
