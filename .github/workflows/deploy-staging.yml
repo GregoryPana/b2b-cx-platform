@@ -271,10 +271,18 @@ jobs:
           PREV_BUNDLE="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip 2>/dev/null | grep -v "${SAFE_RELEASE_ID}" | head -n1 || true)"
 
           deploy_release() {
-            bash scripts/linux/install_release_bundle.sh "${NEW_BUNDLE}"
+            ls -lt "${TARGET_ROOT}/releases" | head
+            LATEST_ZIP="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip | head -n1)"
+            echo "${LATEST_ZIP}"
+            unzip -l "${LATEST_ZIP}" | grep -E "dashboard/dist/assets/index|internal-surveys/b2b/dist/assets/index|internal-surveys/installation/dist/assets/index"
+            sudo bash scripts/linux/install_release_bundle.sh "${LATEST_ZIP}"
             bash scripts/linux/deploy_backend.sh
             bash scripts/linux/deploy_frontends.sh
             sudo bash scripts/linux/deploy_nginx.sh
+            ls -la "${TARGET_ROOT}/frontends-src/dashboard/dist/assets"
+            ls -la "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist/assets"
+            ls -la "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist/assets"
+            sudo nginx -t
             STAGING_BASE_URL="${STAGING_BASE_URL:-https://cwscx-tst01.cwsey.com}" bash scripts/linux/verify_staging.sh
           }
 

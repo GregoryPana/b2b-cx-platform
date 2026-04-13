@@ -5,6 +5,7 @@ import MainLayout from "./components/layout/MainLayout";
 import InstallationSurveyPage from "./features/installation/InstallationSurveyPage";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { Card, CardContent } from "./components/ui/card";
+import { Button } from "./components/ui/button";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const INSTALLATION_ALLOWED_ROLES = new Set(["INSTALL_ADMIN", "INSTALL_SURVEYOR", "CX_SUPER_ADMIN"]);
@@ -217,9 +218,9 @@ export default function App() {
               Your account is signed in, but it does not have an Installation Assessment role.
               Ask an administrator to assign `INSTALL_ADMIN`, `INSTALL_SURVEYOR`, or `CX_SUPER_ADMIN`.
             </p>
-            <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={handleLogout}>
+            <Button type="button" variant="outline" onClick={handleLogout}>
               Logout
-            </button>
+            </Button>
           </CardContent>
         </Card>
       </div>

@@ -2110,9 +2110,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               <CardContent className="space-y-2">
                 {categoryBreakdownData.map((item) => (
                   <div key={item.category} className="rounded-md bg-muted/60 p-2">
-                    <button
+                    <Button
                       type="button"
-                      className="flex w-full items-center justify-between gap-2 text-left"
+                      variant="ghost"
+                      className="h-auto w-full justify-between gap-2 px-2 py-1 text-left"
                       onClick={() => setExpandedCategory((prev) => (prev === item.category ? "" : item.category))}
                     >
                       <span className="text-sm font-medium">{item.category}</span>
@@ -2120,7 +2121,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                         <Badge>{Number(item.average_score || 0).toFixed(2)}</Badge>
                         {expandedCategory === item.category ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                       </span>
-                    </button>
+                    </Button>
                     {expandedCategory === item.category ? (
                       <div className="mt-2 rounded-md border bg-background p-2 text-sm">
                         {(categoryQuestions[item.category] || []).length === 0 ? (

@@ -1,5 +1,6 @@
 import { CircleHelp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 
 function Hint({ text }) {
@@ -74,9 +75,9 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
           <CardDescription>Average score is calculated as SUM(question scores) / 7 for each completed installation survey.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-2">
-          <button type="button" className="rounded-md border px-3 py-1.5 text-sm" onClick={onRefresh}>
+          <Button type="button" variant="outline" onClick={onRefresh}>
             {loading ? "Refreshing..." : "Refresh"}
-          </button>
+          </Button>
         </CardContent>
       </Card>
 

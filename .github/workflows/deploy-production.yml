@@ -91,7 +91,12 @@ jobs:
             mkdir -p "${TARGET_ROOT}/releases"
             cp -f /tmp/cwscx-release.zip "${TARGET_ROOT}/releases/cwscx-release-${TS}.zip"
 
-            bash scripts/linux/install_release_bundle.sh /tmp/cwscx-release.zip
+            ls -lt "${TARGET_ROOT}/releases" | head
+            LATEST_ZIP="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip | head -n1)"
+            echo "${LATEST_ZIP}"
+            unzip -l "${LATEST_ZIP}" | grep -E "dashboard/dist/assets/index|internal-surveys/b2b/dist/assets/index|internal-surveys/installation/dist/assets/index"
+
+            sudo bash scripts/linux/install_release_bundle.sh "${LATEST_ZIP}"
 
             if [[ -f docker-compose.yml ]]; then
               docker compose up -d
@@ -112,6 +117,10 @@ jobs:
             fi
 
             sudo bash scripts/linux/deploy_nginx.sh
+
+            ls -la "${TARGET_ROOT}/frontends-src/dashboard/dist/assets"
+            ls -la "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist/assets"
+            ls -la "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist/assets"
 
             curl -fsS http://127.0.0.1:8000/health
             sudo nginx -t
