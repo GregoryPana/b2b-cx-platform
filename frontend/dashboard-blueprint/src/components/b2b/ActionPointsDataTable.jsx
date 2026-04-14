@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -24,7 +24,6 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
   const [columnFilters, setColumnFilters] = useState([]);
   const [filterColumn, setFilterColumn] = useState("action_required");
   const [drafts, setDrafts] = useState({});
-  const draftsRef = useRef({});
 
   useEffect(() => {
     const next = {};
@@ -34,10 +33,6 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
     });
     setDrafts(next);
   }, [data]);
-
-  useEffect(() => {
-    draftsRef.current = drafts;
-  }, [drafts]);
 
   const updateDraft = useCallback((item, changes) => {
     const key = draftKey(item);
@@ -61,7 +56,7 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
       accessorKey: "action_status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => (
-        <Select value={(draftsRef.current[draftKey(row.original)] || {}).action_status || row.original.action_status || "Outstanding"} onChange={(event) => updateDraft(row.original, { action_status: event.target.value })}>
+        <Select value={(drafts[draftKey(row.original)] || {}).action_status || row.original.action_status || "Outstanding"} onChange={(event) => updateDraft(row.original, { action_status: event.target.value })}>
           {statusOptions.map((option) => <option key={`${row.original.visit_id}-${row.original.question_id}-${option}`} value={option}>{option}</option>)}
         </Select>
       ),
@@ -76,13 +71,13 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
       cell: ({ row }) => (
         <Textarea
           className="min-h-24 resize-y"
-          value={(draftsRef.current[draftKey(row.original)] || {}).action_comments ?? row.original.action_comments ?? ""}
+          value={(drafts[draftKey(row.original)] || {}).action_comments ?? row.original.action_comments ?? ""}
           onChange={(event) => updateDraft(row.original, { action_comments: event.target.value })}
         />
       ),
     },
-    { id: "save", header: "", cell: ({ row }) => <Button type="button" size="sm" variant="outline" onClick={() => onSaveActionPoint(row.original, draftsRef.current[draftKey(row.original)] || {})}>Save</Button>, enableSorting: false },
-  ], [onSaveActionPoint, statusOptions, updateDraft]);
+    { id: "save", header: "", cell: ({ row }) => <Button type="button" size="sm" variant="outline" onClick={() => onSaveActionPoint(row.original, drafts[draftKey(row.original)] || {})}>Save</Button>, enableSorting: false },
+  ], [drafts, onSaveActionPoint, statusOptions, updateDraft]);
 
   const table = useReactTable({
     data,
