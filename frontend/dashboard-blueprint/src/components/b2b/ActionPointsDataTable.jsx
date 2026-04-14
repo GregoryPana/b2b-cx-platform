@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-table";
 import { Select } from "../ui/select";
 import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
 import { Button } from "../ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
@@ -53,7 +54,7 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
     { accessorKey: "visit_id", header: ({ column }) => <DataTableColumnHeader column={column} title="Visit" />, cell: ({ row }) => row.original.visit_id },
     { accessorKey: "visit_date", header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />, cell: ({ row }) => row.original.visit_date || "--" },
     { accessorKey: "question_text", header: ({ column }) => <DataTableColumnHeader column={column} title="Question" />, cell: ({ row }) => row.original.question_text || "--" },
-    { accessorKey: "action_required", header: ({ column }) => <DataTableColumnHeader column={column} title="Action Required" />, cell: ({ row }) => row.original.action_required || "--" },
+    { accessorKey: "action_required", size: 320, minSize: 220, maxSize: 720, header: ({ column }) => <DataTableColumnHeader column={column} title="Action Required" />, cell: ({ row }) => row.original.action_required || "--" },
     { accessorKey: "action_owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Lead Owner" />, cell: ({ row }) => row.original.action_owner || "--" },
     { accessorKey: "action_timeframe", header: ({ column }) => <DataTableColumnHeader column={column} title="Timeline" />, cell: ({ row }) => row.original.action_timeframe || "--" },
     {
@@ -66,7 +67,20 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
       ),
     },
     { accessorKey: "action_support_needed", header: ({ column }) => <DataTableColumnHeader column={column} title="Support Needed" />, cell: ({ row }) => row.original.action_support_needed || "--" },
-    { accessorKey: "action_comments", header: ({ column }) => <DataTableColumnHeader column={column} title="Comments" />, cell: ({ row }) => <Input value={(draftsRef.current[draftKey(row.original)] || {}).action_comments ?? row.original.action_comments ?? ""} onChange={(event) => updateDraft(row.original, { action_comments: event.target.value })} /> },
+    {
+      accessorKey: "action_comments",
+      size: 320,
+      minSize: 220,
+      maxSize: 720,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Comments" />,
+      cell: ({ row }) => (
+        <Textarea
+          className="min-h-24 resize-y"
+          value={(draftsRef.current[draftKey(row.original)] || {}).action_comments ?? row.original.action_comments ?? ""}
+          onChange={(event) => updateDraft(row.original, { action_comments: event.target.value })}
+        />
+      ),
+    },
     { id: "save", header: "", cell: ({ row }) => <Button type="button" size="sm" variant="outline" onClick={() => onSaveActionPoint(row.original, draftsRef.current[draftKey(row.original)] || {})}>Save</Button>, enableSorting: false },
   ], [onSaveActionPoint, statusOptions, updateDraft]);
 
