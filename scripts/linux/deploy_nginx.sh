@@ -7,6 +7,8 @@ LINK_FILE="/etc/nginx/sites-enabled/cwscx-staging"
 SERVER_NAME="${SERVER_NAME:-cwscx-tst01.cwsey.com}"
 SSL_CERTIFICATE="${SSL_CERTIFICATE:-/etc/ssl/cwscx/cwscx.crt}"
 SSL_CERTIFICATE_KEY="${SSL_CERTIFICATE_KEY:-/etc/ssl/cwscx/cwscx.key}"
+PGADMIN_HOST="${PGADMIN_HOST:-127.0.0.1}"
+PGADMIN_PORT="${PGADMIN_PORT:-5051}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root (sudo bash scripts/linux/deploy_nginx.sh)"
@@ -34,6 +36,7 @@ cat >"${SITE_FILE}" <<EOF
 # - /dashboard/               -> Dashboard SPA (internal)
 # - /surveys/b2b/             -> B2B Surveys SPA (internal)
 # - /surveys/installation/    -> Installation Surveys SPA (internal)
+# - /pgadmin/                 -> pgAdmin (proxied container)
 # - /api/*                    -> FastAPI backend (http://127.0.0.1:8000)
 ####################################################################
 
@@ -112,6 +115,10 @@ server {
         return 301 /surveys/installation/;
     }
 
+    location = /pgadmin {
+        return 301 /pgadmin/;
+    }
+
     # Dashboard SPA
     location ^~ /dashboard/assets/ {
         alias /opt/cwscx/frontends-src/dashboard/dist/assets/;
@@ -182,6 +189,30 @@ server {
         add_header Cache-Control "no-store, no-cache, must-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header Expires "0" always;
+    }
+
+    # pgAdmin container
+    location /pgadmin/ {
+        proxy_pass http://${PGADMIN_HOST}:${PGADMIN_PORT};
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Script-Name /pgadmin;
+        proxy_set_header X-Scheme $scheme;
+
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_redirect off;
+
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        send_timeout 300s;
     }
 
     # Optional convenience redirect
