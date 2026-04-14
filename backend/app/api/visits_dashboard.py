@@ -57,7 +57,21 @@ def get_response_table(db: Session) -> str | None:
 
 
 ACTION_TIMEFRAME_OPTIONS = {"<1 month", "<3 months", "<6 months", ">6 months"}
-ACTION_STATUS_OPTIONS = {"Outstanding", "Completed"}
+ACTION_STATUS_OPTIONS = {"Outstanding", "In Progress", "Completed"}
+
+
+def normalize_business_type(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {"large_corporate", "large business/corporate", "large corporate", "high"}:
+        return "large_corporate"
+    if normalized in {"sme", "medium", "low"}:
+        return "sme"
+    return normalized or "sme"
+
+
+def business_type_label(value: str | None) -> str:
+    normalized = normalize_business_type(value)
+    return "Large Business/Corporate" if normalized == "large_corporate" else "SME"
 
 
 class ReportEmailRequest(BaseModel):
@@ -77,6 +91,7 @@ class ActionStatusUpdateRequest(BaseModel):
     response_id: int
     action_index: int
     status: str
+    comments: str | None = None
 
 
 def resolve_actor_user_id(db: Session, current_user: User) -> int:
@@ -336,6 +351,7 @@ def fetch_dashboard_actions(
                 action_item.value->>'action_owner' as action_owner,
                 action_item.value->>'action_timeframe' as action_timeframe,
                 action_item.value->>'action_support_needed' as action_support_needed,
+                action_item.value->>'action_comments' as action_comments,
                 COALESCE(NULLIF(action_item.value->>'action_status', ''), 'Outstanding') as action_status,
                 COALESCE(st.name, :fallback_survey_type) as survey_type
             FROM b2b_visit_responses r
@@ -371,6 +387,7 @@ def fetch_dashboard_actions(
                 r.action_owner,
                 r.action_timeframe,
                 r.action_support_needed,
+                NULL as action_comments,
                 'Outstanding' as action_status,
                 COALESCE(st.name, :fallback_survey_type) as survey_type
             FROM responses r
@@ -415,6 +432,7 @@ def fetch_dashboard_actions(
             "action_owner": row["action_owner"] or "",
             "action_timeframe": row["action_timeframe"] or "",
             "action_support_needed": row["action_support_needed"] or "",
+            "action_comments": row.get("action_comments") or "",
             "action_status": row.get("action_status") or "Outstanding",
         }
 
@@ -721,7 +739,7 @@ def get_actions_dashboard(
                 detail="Invalid timeline. Use one of: <1 month, <3 months, <6 months, >6 months",
             )
         if action_status and action_status not in ACTION_STATUS_OPTIONS:
-            raise HTTPException(status_code=400, detail="Invalid action_status. Use Outstanding or Completed")
+            raise HTTPException(status_code=400, detail="Invalid action_status. Use Outstanding, In Progress, or Completed")
 
         items = fetch_dashboard_actions(
             db=db,
@@ -776,10 +794,10 @@ def update_action_status(
     db: Session = Depends(get_db),
     _current_user: User = Depends(get_current_user),
 ):
-    """Update action point status (Outstanding/Completed) for JSON-based action items."""
+    """Update action point status/comments for JSON-based action items."""
     try:
         if request.status not in ACTION_STATUS_OPTIONS:
-            raise HTTPException(status_code=400, detail="Invalid status. Use Outstanding or Completed")
+            raise HTTPException(status_code=400, detail="Invalid status. Use Outstanding, In Progress, or Completed")
 
         response_table = get_response_table(db)
         if response_table != "b2b_visit_responses":
@@ -808,6 +826,7 @@ def update_action_status(
         if not isinstance(selected, dict):
             selected = {}
         selected["action_status"] = request.status
+        selected["action_comments"] = (request.comments or "").strip()
         actions[request.action_index] = selected
 
         db.execute(
@@ -821,6 +840,7 @@ def update_action_status(
             "response_id": request.response_id,
             "action_index": request.action_index,
             "action_status": request.status,
+            "action_comments": selected.get("action_comments") or "",
         }
     except HTTPException:
         raise
@@ -1352,7 +1372,7 @@ def build_report_payload(
         business_id=effective_business_id,
     )
 
-    # For action_points report, visit_id carries the status filter (Outstanding/Completed)
+    # For action_points report, visit_id carries the status filter (Outstanding/In Progress/Completed)
     action_status_filter = None
     if normalized_report_type == "action_points" and effective_visit_id and effective_visit_id in {"Outstanding", "Completed"}:
         action_status_filter = effective_visit_id
@@ -1589,16 +1609,17 @@ def render_report_html(payload: dict, generated_by: str) -> str:
                             f'<td>{item.get("action_owner") or "--"}</td>'
                             f'<td style="background:{tf_bg}">{tf}</td>'
                             f'<td>{item.get("action_support_needed") or "--"}</td>'
+                            f'<td>{item.get("action_comments") or "--"}</td>'
                             f'<td>{item.get("question_text") or "--"}</td>'
                             f'<td>{_answer_display(item)}</td>'
                             f'</tr>'
                         )
                 sections.append(
-                    f'<tr><td colspan="7" style="background:#f1f5f9;font-weight:600;padding:10px 12px;color:#0f172a;">{biz_name} ({len(biz_items)} action point{"s" if len(biz_items) != 1 else ""})</td></tr>'
+                    f'<tr><td colspan="8" style="background:#f1f5f9;font-weight:600;padding:10px 12px;color:#0f172a;">{biz_name} ({len(biz_items)} action point{"s" if len(biz_items) != 1 else ""})</td></tr>'
                     + "".join(rows)
                 )
             return f'''<div class="table-wrap"><table>
-                <thead><tr><th>Survey Date</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Linked Question</th><th>Answer</th></tr></thead>
+                <thead><tr><th>Survey Date</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th><th>Linked Question</th><th>Answer</th></tr></thead>
                 <tbody>{"".join(sections)}</tbody>
             </table></div>'''
 
@@ -1846,7 +1867,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
             f"<td>{item.get('action_required') or '--'}</td><td>{item.get('action_owner') or '--'}</td>"
             f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_status') or 'Outstanding'}</td>"
-            f"<td>{item.get('action_support_needed') or '--'}</td></tr>"
+            f"<td>{item.get('action_support_needed') or '--'}</td><td>{item.get('action_comments') or '--'}</td></tr>"
         )
         for item in action_points
     )
@@ -1855,7 +1876,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         (
             f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
             f"<td>{item.get('action_required') or '--'}</td><td>{item.get('action_owner') or '--'}</td>"
-            f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_support_needed') or '--'}</td></tr>"
+            f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_support_needed') or '--'}</td><td>{item.get('action_comments') or '--'}</td></tr>"
         )
         for item in action_points
         if item.get("action_status") != "Completed"
@@ -1865,7 +1886,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         (
             f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
             f"<td>{item.get('action_required') or '--'}</td><td>{item.get('action_owner') or '--'}</td>"
-            f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_support_needed') or '--'}</td></tr>"
+            f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_support_needed') or '--'}</td><td>{item.get('action_comments') or '--'}</td></tr>"
         )
         for item in action_points
         if item.get("action_status") == "Completed"
@@ -2045,21 +2066,21 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         )
 
     if report_type == "action_points":
-        no_outstanding_actions = '<tr><td colspan="6">No outstanding action points.</td></tr>'
-        no_completed_actions = '<tr><td colspan="6">No completed action points.</td></tr>'
+        no_outstanding_actions = '<tr><td colspan="7">No outstanding action points.</td></tr>'
+        no_completed_actions = '<tr><td colspan="7">No completed action points.</td></tr>'
         action_points_section = (
             f'<h3>Outstanding Action Points</h3><div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows_outstanding or no_outstanding_actions}</tbody></table></div>'
             f'<h3>Completed Action Points</h3><div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows_completed or no_completed_actions}</tbody></table></div>'
         )
     else:
-        no_action_points = '<tr><td colspan="7">No action points found for this report scope.</td></tr>'
+        no_action_points = '<tr><td colspan="8">No action points found for this report scope.</td></tr>'
         action_points_section = (
             f'<div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows or no_action_points}</tbody></table></div>'
         )
 

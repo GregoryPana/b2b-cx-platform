@@ -11,6 +11,13 @@ class BusinessService:
     """Service for B2B business operations."""
 
     @staticmethod
+    def normalize_business_type(value: str | None) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized in {"large_corporate", "large business/corporate", "large corporate", "high"}:
+            return "large_corporate"
+        return "sme"
+
+    @staticmethod
     def _business_row_to_dict(row) -> dict:
         return {
             "id": row[0],
@@ -32,10 +39,9 @@ class BusinessService:
                 FROM businesses
                 ORDER BY
                     CASE
-                        WHEN priority_level = 'high' THEN 0
-                        WHEN priority_level = 'medium' THEN 1
-                        WHEN priority_level = 'low' THEN 2
-                        ELSE 3
+                        WHEN priority_level IN ('large_corporate', 'high') THEN 0
+                        WHEN priority_level IN ('sme', 'medium', 'low') THEN 1
+                        ELSE 2
                     END,
                     name
                 """
@@ -74,7 +80,7 @@ class BusinessService:
                 "name": payload.get("name"),
                 "location": payload.get("location"),
                 "account_executive_id": payload.get("account_executive_id"),
-                "priority_level": payload.get("priority_level", "medium"),
+                "priority_level": BusinessService.normalize_business_type(payload.get("priority_level", "sme")),
                 "active": payload.get("active", True),
             },
         ).fetchone()
@@ -92,6 +98,8 @@ class BusinessService:
             )
 
         update_data = business_data.model_dump(exclude_unset=True)
+        if "priority_level" in update_data:
+            update_data["priority_level"] = BusinessService.normalize_business_type(update_data.get("priority_level"))
         if not update_data:
             return existing
 

@@ -35,7 +35,7 @@ type ApiHeaders = Record<string, string>;
 type Business = {
   id: number;
   name: string;
-  priority_level?: "high" | "medium" | "low";
+  priority_level?: "large_corporate" | "sme" | "high" | "medium" | "low";
   active?: boolean;
 };
 
@@ -63,7 +63,7 @@ type DraftVisit = {
   visit_id?: string;
   business_id: number;
   business_name?: string;
-  business_priority?: "high" | "medium" | "low";
+  business_priority?: "large_corporate" | "sme" | "high" | "medium" | "low";
   visit_date?: string;
   status?: string;
   mandatory_answered_count?: number;
@@ -79,6 +79,7 @@ type ActionItem = {
   action_owner: string;
   action_timeframe: string;
   action_support_needed: string;
+  action_comments?: string;
 };
 
 type ResponseRecord = {
@@ -164,6 +165,11 @@ function normalizeTeamMemberNames(values: string[]) {
     }
   });
   return normalized;
+}
+
+function businessTypeLabel(value?: string) {
+  const normalized = String(value || "").toLowerCase();
+  return normalized === "large_corporate" || normalized === "high" ? "Large Business/Corporate" : "SME";
 }
 
 export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspacePageProps) {
@@ -404,7 +410,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     const res = await fetch(`${API_BASE}/b2b/businesses`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ name, priority_level: "medium", active: true }),
+          body: JSON.stringify({ name, priority_level: "sme", active: true }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -523,7 +529,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
         ...prev,
         [questionId]: {
           ...current,
-          actions: [...(current.actions || []), { action_required: "", action_owner: "", action_timeframe: "", action_support_needed: "" }],
+          actions: [...(current.actions || []), { action_required: "", action_owner: "", action_timeframe: "", action_support_needed: "", action_comments: "" }],
         },
       };
     });
@@ -564,8 +570,9 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
         action_owner: action.action_owner?.trim() || "",
         action_timeframe: action.action_timeframe || "",
         action_support_needed: action.action_support_needed?.trim() || "",
+        action_comments: action.action_comments?.trim() || "",
       }))
-      .filter((action) => action.action_required || action.action_owner || action.action_timeframe || action.action_support_needed);
+      .filter((action) => action.action_required || action.action_owner || action.action_timeframe || action.action_support_needed || action.action_comments);
 
     return {
       payload: {
@@ -669,7 +676,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     const draftQuestions = visibleQuestions.filter((question) => {
       const draft = responseDrafts[question.id] || emptyDraft;
       const hasDraftContent = Boolean(
-        draft.score || draft.answer_text?.trim() || draft.verbatim?.trim() || (draft.actions || []).some((action) => action.action_required || action.action_owner || action.action_timeframe || action.action_support_needed)
+        draft.score || draft.answer_text?.trim() || draft.verbatim?.trim() || (draft.actions || []).some((action) => action.action_required || action.action_owner || action.action_timeframe || action.action_support_needed || action.action_comments)
       );
       if (!hasDraftContent) return false;
       const existing = responsesByQuestion[question.id];
@@ -726,7 +733,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
   }, []);
 
   const sortByPriority = (items: DraftVisit[]) => {
-    const rank = { high: 0, medium: 1, low: 2 };
+    const rank = { large_corporate: 0, high: 0, sme: 1, medium: 1, low: 1 };
     return [...items].sort((a, b) => {
       const aPriority = rank[a.business_priority || "low"] ?? 3;
       const bPriority = rank[b.business_priority || "low"] ?? 3;
@@ -922,7 +929,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                         </Card>
                       ) : (
                         plannedUpcoming.map((draft) => {
-                          const priority = draft.business_priority || "medium";
+                          const priority = draft.business_priority || "sme";
                           return (
                             <Card key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
                               <CardContent className="space-y-3 p-4">
@@ -930,7 +937,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                   <div>
                                     <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
                                   </div>
-                                  <Badge variant={priority === "high" ? "destructive" : priority === "medium" ? "warning" : "success"}>{priority}</Badge>
+                                  <Badge variant={businessTypeLabel(priority) === "Large Business/Corporate" ? "default" : "secondary"}>{businessTypeLabel(priority)}</Badge>
                                 </div>
                                 <div>
                                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date</p>
@@ -961,12 +968,12 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                             </TableRow>
                           ) : (
                             plannedUpcoming.map((draft) => {
-                              const priority = draft.business_priority || "medium";
+                              const priority = draft.business_priority || "sme";
                               return (
                                 <TableRow key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
                                   <TableCell>{resolveBusinessName(draft)}</TableCell>
                                   <TableCell>{draft.visit_date || "--"}</TableCell>
-                                  <TableCell><Badge variant={priority === "high" ? "destructive" : priority === "medium" ? "warning" : "success"}>{priority}</Badge></TableCell>
+                                  <TableCell><Badge variant={businessTypeLabel(priority) === "Large Business/Corporate" ? "default" : "secondary"}>{businessTypeLabel(priority)}</Badge></TableCell>
                                   <TableCell><Button size="sm" variant="outline" onClick={() => handleSelectPlannedVisit(draft)}>Open</Button></TableCell>
                                 </TableRow>
                               );
@@ -1256,6 +1263,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                             ))}
                                           </Select>
                                           <Input placeholder="Support needed" value={action.action_support_needed} onChange={(event) => updateActionItem(question.id, index, "action_support_needed", event.target.value)} />
+                                          <Input placeholder="Comments" value={action.action_comments || ""} onChange={(event) => updateActionItem(question.id, index, "action_comments", event.target.value)} />
                                           <div className="md:col-span-2">
                                             <Button size="sm" variant="destructive" onClick={() => removeActionItem(question.id, index)}>
                                               Remove Action

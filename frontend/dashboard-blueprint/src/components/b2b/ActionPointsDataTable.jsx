@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -9,14 +9,25 @@ import {
 } from "@tanstack/react-table";
 import { Select } from "../ui/select";
 import { Input } from "../ui/input";
+import { Button } from "../ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
 
-export default function ActionPointsDataTable({ data, statusOptions, onStatusChange }) {
+export default function ActionPointsDataTable({ data, statusOptions, onSaveActionPoint }) {
   const [sorting, setSorting] = useState([{ id: "visit_date", desc: true }]);
   const [columnFilters, setColumnFilters] = useState([]);
   const [filterColumn, setFilterColumn] = useState("action_required");
+  const [drafts, setDrafts] = useState({});
+
+  useEffect(() => {
+    const next = {};
+    data.forEach((item) => {
+      const key = `${item.response_id}-${item.action_index}`;
+      next[key] = { action_status: item.action_status || "Outstanding", action_comments: item.action_comments || "" };
+    });
+    setDrafts(next);
+  }, [data]);
 
   const columns = useMemo(() => [
     { accessorKey: "visit_id", header: ({ column }) => <DataTableColumnHeader column={column} title="Visit" />, cell: ({ row }) => row.original.visit_id },
@@ -29,13 +40,15 @@ export default function ActionPointsDataTable({ data, statusOptions, onStatusCha
       accessorKey: "action_status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => (
-        <Select value={row.original.action_status || "Outstanding"} onChange={(event) => onStatusChange(row.original, event.target.value)}>
+        <Select value={(drafts[`${row.original.response_id}-${row.original.action_index}`] || {}).action_status || row.original.action_status || "Outstanding"} onChange={(event) => setDrafts((prev) => ({ ...prev, [`${row.original.response_id}-${row.original.action_index}`]: { ...(prev[`${row.original.response_id}-${row.original.action_index}`] || {}), action_status: event.target.value } }))}>
           {statusOptions.map((option) => <option key={`${row.original.visit_id}-${row.original.question_id}-${option}`} value={option}>{option}</option>)}
         </Select>
       ),
     },
     { accessorKey: "action_support_needed", header: ({ column }) => <DataTableColumnHeader column={column} title="Support Needed" />, cell: ({ row }) => row.original.action_support_needed || "--" },
-  ], [onStatusChange, statusOptions]);
+    { accessorKey: "action_comments", header: ({ column }) => <DataTableColumnHeader column={column} title="Comments" />, cell: ({ row }) => <Input value={(drafts[`${row.original.response_id}-${row.original.action_index}`] || {}).action_comments ?? row.original.action_comments ?? ""} onChange={(event) => setDrafts((prev) => ({ ...prev, [`${row.original.response_id}-${row.original.action_index}`]: { ...(prev[`${row.original.response_id}-${row.original.action_index}`] || {}), action_comments: event.target.value } }))} /> },
+    { id: "save", header: "", cell: ({ row }) => <Button type="button" size="sm" variant="outline" onClick={() => onSaveActionPoint(row.original, drafts[`${row.original.response_id}-${row.original.action_index}`] || {})}>Save</Button>, enableSorting: false },
+  ], [drafts, onSaveActionPoint, statusOptions]);
 
   const table = useReactTable({
     data,
@@ -43,6 +56,8 @@ export default function ActionPointsDataTable({ data, statusOptions, onStatusCha
     state: { sorting, columnFilters },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    columnResizeMode: "onChange",
+    defaultColumn: { minSize: 120, size: 180, maxSize: 560 },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -63,6 +78,7 @@ export default function ActionPointsDataTable({ data, statusOptions, onStatusCha
               <option value="action_required">Filter by action</option>
               <option value="action_owner">Filter by owner</option>
               <option value="action_status">Filter by status</option>
+              <option value="action_comments">Filter by comments</option>
             </Select>
             <Input value={activeFilterValue} onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)} className="md:max-w-sm" />
           </div>
@@ -71,14 +87,14 @@ export default function ActionPointsDataTable({ data, statusOptions, onStatusCha
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => <TableHead key={header.id}>{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}</TableHead>)}
+                {headerGroup.headers.map((header) => <TableHead key={header.id} className="relative" style={{ width: header.getSize() }}>{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanResize() ? <div onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()} className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none touch-none" /> : null}</TableHead>)}
               </TableRow>
             ))}
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.length ? table.getRowModel().rows.map((row) => (
               <TableRow key={row.id}>
-                {row.getVisibleCells().map((cell) => <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>)}
+                {row.getVisibleCells().map((cell) => <TableCell key={cell.id} className="align-top whitespace-normal break-words" style={{ width: cell.column.getSize(), maxWidth: cell.column.getSize() }}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>)}
               </TableRow>
             )) : <TableRow><TableCell colSpan={columns.length}>No action points found.</TableCell></TableRow>}
           </TableBody>

@@ -17,6 +17,13 @@ import sqlite3
 router = APIRouter()
 
 
+def normalize_business_type(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {"large_corporate", "large business/corporate", "large corporate", "high"}:
+        return "large_corporate"
+    return "sme"
+
+
 DEFAULT_SURVEY_TYPES = [
     {"code": "B2B", "name": "B2B", "description": "Business-to-Business survey"},
     {"code": "INSTALLATION", "name": "Installation Assessment", "description": "Installation assessment survey"},
@@ -389,7 +396,7 @@ async def create_business(
             {
                 "name": business_data.get("name"),
                 "location": business_data.get("location", ""),
-                "priority_level": business_data.get("priority_level", "medium"),
+                "priority_level": normalize_business_type(business_data.get("priority_level", "sme")),
                 "active": True,
                 "account_executive_id": business_data.get("account_executive_id")
             }
@@ -401,7 +408,7 @@ async def create_business(
             "id": result.lastrowid if hasattr(result, 'lastrowid') else result[0],
             "name": business_data.get("name"),
             "location": business_data.get("location", ""),
-            "priority_level": business_data.get("priority_level", "medium"),
+            "priority_level": normalize_business_type(business_data.get("priority_level", "sme")),
             "active": True,
             "account_executive_id": business_data.get("account_executive_id")
         }
@@ -433,7 +440,7 @@ async def update_business(
                 "business_id": business_id,
                 "name": business_data.get("name"),
                 "location": business_data.get("location"),
-                "priority_level": business_data.get("priority_level"),
+                "priority_level": normalize_business_type(business_data.get("priority_level")) if business_data.get("priority_level") is not None else None,
                 "active": business_data.get("active"),
                 "account_executive_id": business_data.get("account_executive_id")
             }
@@ -491,10 +498,12 @@ async def get_survey_businesses(
                 WHERE b.active = true
                 ORDER BY
                     CASE b.priority_level
+                        WHEN 'large_corporate' THEN 1
                         WHEN 'high' THEN 1
+                        WHEN 'sme' THEN 2
                         WHEN 'medium' THEN 2
-                        WHEN 'low' THEN 3
-                        ELSE 4
+                        WHEN 'low' THEN 2
+                        ELSE 3
                     END,
                     b.name
                 """
@@ -537,10 +546,12 @@ async def get_survey_businesses(
             WHERE b.active = 1
             ORDER BY
                 CASE b.priority_level
+                    WHEN 'large_corporate' THEN 1
                     WHEN 'high' THEN 1
+                    WHEN 'sme' THEN 2
                     WHEN 'medium' THEN 2
-                    WHEN 'low' THEN 3
-                    ELSE 4
+                    WHEN 'low' THEN 2
+                    ELSE 3
                 END,
                 b.name
             '''

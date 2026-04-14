@@ -31,6 +31,10 @@ export default function BusinessesDataTable({
   onRetire,
   onDelete,
 }) {
+  const businessTypeLabel = (value) => {
+    const normalized = String(value || "").toLowerCase();
+    return normalized === "large_corporate" || normalized === "high" ? "Large Business/Corporate" : "SME";
+  };
   const [sorting, setSorting] = useState([{ id: "name", desc: false }]);
   const [columnFilters, setColumnFilters] = useState([]);
   const [filterColumn, setFilterColumn] = useState("name");
@@ -56,19 +60,18 @@ export default function BusinessesDataTable({
     },
     {
       accessorKey: "priority_level",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Priority" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Business Type" />,
       cell: ({ row }) => {
         const business = row.original;
         const isEditing = selectedBusiness?.id === business.id;
         return isEditing ? (
           <Select value={businessForm.priority_level} onChange={(e) => setBusinessForm((prev) => ({ ...prev, priority_level: e.target.value }))}>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
+            <option value="large_corporate">Large Business/Corporate</option>
+            <option value="sme">SME</option>
           </Select>
         ) : (
-          <Badge variant={business.priority_level === "high" ? "destructive" : business.priority_level === "low" ? "secondary" : "default"}>
-            {business.priority_level || "medium"}
+          <Badge variant={businessTypeLabel(business.priority_level) === "Large Business/Corporate" ? "default" : "secondary"}>
+            {businessTypeLabel(business.priority_level)}
           </Badge>
         );
       },
@@ -168,6 +171,8 @@ export default function BusinessesDataTable({
     state: { sorting, columnFilters },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    columnResizeMode: "onChange",
+    defaultColumn: { minSize: 120, size: 180, maxSize: 540 },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -184,7 +189,7 @@ export default function BusinessesDataTable({
             <Select value={filterColumn} onChange={(e) => setFilterColumn(e.target.value)} className="md:w-[220px]">
               <option value="name">Filter by name</option>
               <option value="location">Filter by location</option>
-              <option value="priority_level">Filter by priority</option>
+              <option value="priority_level">Filter by business type</option>
               <option value="account_executive_id">Filter by account executive</option>
               <option value="active">Filter by status</option>
             </Select>
@@ -200,7 +205,10 @@ export default function BusinessesDataTable({
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}</TableHead>
+                  <TableHead key={header.id} className="relative" style={{ width: header.getSize() }}>
+                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    {header.column.getCanResize() ? <div onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()} className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none touch-none" /> : null}
+                  </TableHead>
                 ))}
               </TableRow>
             ))}
@@ -210,7 +218,7 @@ export default function BusinessesDataTable({
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id} className={!row.original.location || !row.original.account_executive_id ? "bg-warning/10" : ""}>
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                    <TableCell key={cell.id} className="align-top whitespace-normal break-words" style={{ width: cell.column.getSize(), maxWidth: cell.column.getSize() }}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
                   ))}
                 </TableRow>
               ))

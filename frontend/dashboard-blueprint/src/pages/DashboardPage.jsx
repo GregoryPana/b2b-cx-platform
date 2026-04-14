@@ -85,7 +85,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [businessForm, setBusinessForm] = useState({
     name: "",
     location: "",
-    priority_level: "medium",
+    priority_level: "sme",
     active: true,
     account_executive_id: ""
   });
@@ -103,7 +103,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [actionsBoardSummary, setActionsBoardSummary] = useState(null);
   const [actionsBoardLoading, setActionsBoardLoading] = useState(false);
   const [actionsTimelineOptions, setActionsTimelineOptions] = useState(ACTION_TIMEFRAME_OPTIONS);
-  const [actionsStatusOptions, setActionsStatusOptions] = useState(["Outstanding", "Completed"]);
+  const [actionsStatusOptions, setActionsStatusOptions] = useState(["Outstanding", "In Progress", "Completed"]);
   const [actionsFilters, setActionsFilters] = useState({
     lead_owner: "",
     support: "",
@@ -931,14 +931,14 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       setActionsStatusOptions(
         Array.isArray(data?.status_options) && data.status_options.length > 0
           ? data.status_options
-          : ["Outstanding", "Completed"]
+          : ["Outstanding", "In Progress", "Completed"]
       );
     } finally {
       setActionsBoardLoading(false);
     }
   }, [activePlatform, actionsFilters, fetchJsonSafe, headers, isB2BPlatform]);
 
-  const handleUpdateActionPointStatus = useCallback(async (item, nextStatus) => {
+  const handleUpdateActionPointStatus = useCallback(async (item, draft = {}) => {
     const rid = Number(item?.response_id);
     const aidx = Number(item?.action_index ?? 0);
     if (!Number.isFinite(rid) || rid <= 0) {
@@ -952,7 +952,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     const payload = {
       response_id: rid,
       action_index: aidx,
-      status: nextStatus,
+      status: draft.action_status || item.action_status || "Outstanding",
+      comments: draft.action_comments ?? item.action_comments ?? "",
     };
     const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/actions/status`, {
       method: "PUT",
@@ -969,11 +970,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }
     setActionsBoardItems((prev) => prev.map((row) => {
       if (row.response_id === item.response_id && Number(row.action_index || 0) === Number(item.action_index || 0)) {
-        return { ...row, action_status: nextStatus };
+        return { ...row, action_status: payload.status, action_comments: payload.comments };
       }
       return row;
     }));
-    setMessage("Action point status updated.");
+    setMessage("Action point updated.");
   }, [fetchJsonSafe, headers]);
 
   const loadPlannedVisits = async () => {
@@ -1177,7 +1178,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       ...current,
       actions: [
         ...(Array.isArray(current.actions) ? current.actions : []),
-        { action_required: "", action_owner: "", action_timeframe: "", action_support_needed: "" },
+        { action_required: "", action_owner: "", action_timeframe: "", action_support_needed: "", action_comments: "" },
       ],
     }));
   };
@@ -1605,7 +1606,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setBusinessForm({
       name: business.name,
       location: business.location || "",
-      priority_level: business.priority_level || "medium",
+      priority_level: business.priority_level || "sme",
       active: business.active,
       account_executive_id: business.account_executive_id ? String(business.account_executive_id) : ""
     });
@@ -1639,7 +1640,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       setError(data.detail || "Failed to create business");
       return;
     }
-    setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" });
+    setBusinessForm({ name: "", location: "", priority_level: "sme", active: true, account_executive_id: "" });
     setAccountExecutiveQuery("");
     setMessage(`Business created: ${data.name}`);
     await loadBusinesses();
@@ -1669,7 +1670,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }
     setMessage(`Business updated: ${data.name}`);
     setSelectedBusiness(null);
-    setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" });
+    setBusinessForm({ name: "", location: "", priority_level: "sme", active: true, account_executive_id: "" });
     setAccountExecutiveQuery("");
     await loadBusinesses();
   };
@@ -2610,7 +2611,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                                     <option key={`${responseId}-${actionIndex}-${option}`} value={option}>{option}</option>
                                   ))}
                                 </Select>
-                                <Input placeholder="Support needed" value={action.action_support_needed || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_support_needed", event.target.value)} />
+                                  <Input placeholder="Support needed" value={action.action_support_needed || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_support_needed", event.target.value)} />
+                                  <Input placeholder="Comments" value={action.action_comments || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_comments", event.target.value)} />
                                 <div className="md:col-span-2">
                                   <Button type="button" size="sm" variant="destructive" onClick={() => removeReviewAction(responseId, actionIndex)}>Remove Action</Button>
                                 </div>
@@ -2822,14 +2824,14 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                       {installReportSurveyListLoading ? "Loading..." : `${installReportSurveyList.length} surveys available`}
                     </span>
                   </div>
-                  <Select value={installReportSurveyId} onChange={(e) => setInstallReportSurveyId(e.target.value)}>
-                    <option value="">Select a survey</option>
-                    {installReportSurveyList.map((survey) => (
-                      <option key={survey.survey_id} value={survey.survey_id}>
-                        {survey.work_order || survey.survey_id} | {survey.customer_name} | {survey.location} | {survey.date_work_done} (Score: {survey.overall_score?.toFixed(1)})
-                      </option>
-                    ))}
-                  </Select>
+                    <Select value={installReportSurveyId} onChange={(e) => setInstallReportSurveyId(e.target.value)}>
+                      <option value="">Select a survey</option>
+                      {installReportSurveyList.map((survey) => (
+                        <option key={survey.survey_id} value={survey.survey_id}>
+                        {`${survey.work_order ? `Work Order ${survey.work_order}` : "Work Order not captured"} | ${survey.customer_name || "Unknown customer"} | ${survey.location || "Unknown location"} | ${survey.date_work_done || "No date"} | Avg ${survey.overall_score?.toFixed(1) ?? "--"}`}
+                        </option>
+                      ))}
+                    </Select>
                 </div>
               ) : null}
             </section>
@@ -3094,8 +3096,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                       <label className="text-xs font-medium text-muted-foreground mb-1 block">Status</label>
                       <Select value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)}>
                         <option value="">All action points</option>
-                        <option value="Outstanding">Outstanding only</option>
-                        <option value="Completed">Completed only</option>
+                          <option value="Outstanding">Outstanding only</option>
+                          <option value="In Progress">In Progress only</option>
+                          <option value="Completed">Completed only</option>
                       </Select>
                     </div>
                   </div>
@@ -3373,7 +3376,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                             <h4 className="text-sm font-semibold">{businessName}</h4>
                             <Badge>{rows.length}</Badge>
                           </div>
-                          <ActionPointsDataTable data={rows} statusOptions={actionsStatusOptions} onStatusChange={handleUpdateActionPointStatus} />
+                          <ActionPointsDataTable data={rows} statusOptions={actionsStatusOptions} onSaveActionPoint={handleUpdateActionPointStatus} />
                         </div>
                       ))}
                     </CardContent>
@@ -3481,12 +3484,12 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   setAccountExecutiveQuery={setAccountExecutiveQuery}
                   onStartNew={() => {
                     setSelectedBusiness({ id: "new" });
-                    setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" });
+                      setBusinessForm({ name: "", location: "", priority_level: "sme", active: true, account_executive_id: "" });
                     setAccountExecutiveQuery("");
                   }}
                   onEdit={handleEditBusiness}
                   onSave={selectedBusiness?.id === "new" ? handleCreateBusiness : handleUpdateBusiness}
-                  onCancel={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "medium", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}
+                  onCancel={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "sme", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}
                   onRetire={handleRetireBusiness}
                   onDelete={handleDeleteBusiness}
                 />

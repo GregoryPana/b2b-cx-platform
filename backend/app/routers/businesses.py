@@ -11,6 +11,13 @@ from app.schemas.business import BusinessCreate, BusinessOut, BusinessUpdate
 router = APIRouter(prefix="/businesses", tags=["businesses"])
 
 
+def normalize_business_type(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {"large_corporate", "large business/corporate", "large corporate", "high"}:
+        return "large_corporate"
+    return "sme"
+
+
 @router.get("", response_model=list[BusinessOut])
 def list_businesses(
     db: Session = Depends(get_db),
@@ -19,10 +26,9 @@ def list_businesses(
     ),
 ):
     priority_order = case(
-        (Business.priority_level == "high", 0),
-        (Business.priority_level == "medium", 1),
-        (Business.priority_level == "low", 2),
-        else_=3,
+        (Business.priority_level.in_(["large_corporate", "high"]), 0),
+        (Business.priority_level.in_(["sme", "medium", "low"]), 1),
+        else_=2,
     )
     return db.scalars(select(Business).order_by(priority_order, Business.name)).all()
 
@@ -33,7 +39,9 @@ def create_business(
     db: Session = Depends(get_db),
     _user: CurrentUser = Depends(require_roles([ROLE_ADMIN, ROLE_MANAGER, ROLE_REPRESENTATIVE])),
 ):
-    business = Business(**payload.model_dump())
+    data = payload.model_dump()
+    data["priority_level"] = normalize_business_type(data.get("priority_level"))
+    business = Business(**data)
     db.add(business)
     db.commit()
     db.refresh(business)
@@ -52,6 +60,8 @@ def update_business(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business not found")
 
     for field, value in payload.model_dump(exclude_unset=True).items():
+        if field == "priority_level":
+            value = normalize_business_type(value)
         setattr(business, field, value)
 
     db.commit()
