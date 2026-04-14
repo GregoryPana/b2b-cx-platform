@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -14,20 +14,40 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
 
+function draftKey(item) {
+  return `${item.response_id}-${item.action_index}`;
+}
+
 export default function ActionPointsDataTable({ data, statusOptions, onSaveActionPoint }) {
   const [sorting, setSorting] = useState([{ id: "visit_date", desc: true }]);
   const [columnFilters, setColumnFilters] = useState([]);
   const [filterColumn, setFilterColumn] = useState("action_required");
   const [drafts, setDrafts] = useState({});
+  const draftsRef = useRef({});
 
   useEffect(() => {
     const next = {};
     data.forEach((item) => {
-      const key = `${item.response_id}-${item.action_index}`;
+      const key = draftKey(item);
       next[key] = { action_status: item.action_status || "Outstanding", action_comments: item.action_comments || "" };
     });
     setDrafts(next);
   }, [data]);
+
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
+
+  const updateDraft = useCallback((item, changes) => {
+    const key = draftKey(item);
+    setDrafts((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] || {}),
+        ...changes,
+      },
+    }));
+  }, []);
 
   const columns = useMemo(() => [
     { accessorKey: "visit_id", header: ({ column }) => <DataTableColumnHeader column={column} title="Visit" />, cell: ({ row }) => row.original.visit_id },
@@ -40,15 +60,15 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
       accessorKey: "action_status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => (
-        <Select value={(drafts[`${row.original.response_id}-${row.original.action_index}`] || {}).action_status || row.original.action_status || "Outstanding"} onChange={(event) => setDrafts((prev) => ({ ...prev, [`${row.original.response_id}-${row.original.action_index}`]: { ...(prev[`${row.original.response_id}-${row.original.action_index}`] || {}), action_status: event.target.value } }))}>
+        <Select value={(draftsRef.current[draftKey(row.original)] || {}).action_status || row.original.action_status || "Outstanding"} onChange={(event) => updateDraft(row.original, { action_status: event.target.value })}>
           {statusOptions.map((option) => <option key={`${row.original.visit_id}-${row.original.question_id}-${option}`} value={option}>{option}</option>)}
         </Select>
       ),
     },
     { accessorKey: "action_support_needed", header: ({ column }) => <DataTableColumnHeader column={column} title="Support Needed" />, cell: ({ row }) => row.original.action_support_needed || "--" },
-    { accessorKey: "action_comments", header: ({ column }) => <DataTableColumnHeader column={column} title="Comments" />, cell: ({ row }) => <Input value={(drafts[`${row.original.response_id}-${row.original.action_index}`] || {}).action_comments ?? row.original.action_comments ?? ""} onChange={(event) => setDrafts((prev) => ({ ...prev, [`${row.original.response_id}-${row.original.action_index}`]: { ...(prev[`${row.original.response_id}-${row.original.action_index}`] || {}), action_comments: event.target.value } }))} /> },
-    { id: "save", header: "", cell: ({ row }) => <Button type="button" size="sm" variant="outline" onClick={() => onSaveActionPoint(row.original, drafts[`${row.original.response_id}-${row.original.action_index}`] || {})}>Save</Button>, enableSorting: false },
-  ], [drafts, onSaveActionPoint, statusOptions]);
+    { accessorKey: "action_comments", header: ({ column }) => <DataTableColumnHeader column={column} title="Comments" />, cell: ({ row }) => <Input value={(draftsRef.current[draftKey(row.original)] || {}).action_comments ?? row.original.action_comments ?? ""} onChange={(event) => updateDraft(row.original, { action_comments: event.target.value })} /> },
+    { id: "save", header: "", cell: ({ row }) => <Button type="button" size="sm" variant="outline" onClick={() => onSaveActionPoint(row.original, draftsRef.current[draftKey(row.original)] || {})}>Save</Button>, enableSorting: false },
+  ], [onSaveActionPoint, statusOptions, updateDraft]);
 
   const table = useReactTable({
     data,

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
+import { Textarea } from "../components/ui/textarea";
 import { cn } from "../lib/utils";
 import InstallationAnalyticsView from "../components/installation/InstallationAnalyticsView";
 import InstallationSurveyExplorer from "../components/installation/InstallationSurveyExplorer";
@@ -45,6 +46,12 @@ const COLORS = {
   dissatisfied: "#fb7185",
   very_dissatisfied: "#ef4444",
 };
+
+function normalizeBusinessPriorityLevel(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized === "large_corporate" || normalized === "high") return "large_corporate";
+  return "sme";
+}
 
 async function fetchJsonSafe(url, options = {}, timeout = 15000) {
   const controller = new AbortController();
@@ -970,7 +977,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }
     setActionsBoardItems((prev) => prev.map((row) => {
       if (row.response_id === item.response_id && Number(row.action_index || 0) === Number(item.action_index || 0)) {
-        return { ...row, action_status: payload.status, action_comments: payload.comments };
+        return {
+          ...row,
+          action_status: data?.action_status || payload.status,
+          action_comments: data?.action_comments ?? payload.comments,
+        };
       }
       return row;
     }));
@@ -1606,7 +1617,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setBusinessForm({
       name: business.name,
       location: business.location || "",
-      priority_level: business.priority_level || "sme",
+      priority_level: normalizeBusinessPriorityLevel(business.priority_level),
       active: business.active,
       account_executive_id: business.account_executive_id ? String(business.account_executive_id) : ""
     });
@@ -1626,7 +1637,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     const payload = {
       name: businessForm.name.trim(),
       location: businessForm.location.trim() || null,
-      priority_level: businessForm.priority_level,
+      priority_level: normalizeBusinessPriorityLevel(businessForm.priority_level),
       active: businessForm.active,
       account_executive_id: businessForm.account_executive_id ? Number(businessForm.account_executive_id) : null
     };
@@ -1654,7 +1665,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     const payload = {
       name: businessForm.name.trim(),
       location: businessForm.location.trim() || null,
-      priority_level: businessForm.priority_level,
+      priority_level: normalizeBusinessPriorityLevel(businessForm.priority_level),
       active: businessForm.active,
       account_executive_id: businessForm.account_executive_id ? Number(businessForm.account_executive_id) : null
     };
