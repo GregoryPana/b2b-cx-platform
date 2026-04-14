@@ -176,40 +176,54 @@ def ensure_visit_metadata_columns(db: Session) -> None:
     _visit_metadata_columns_checked = True
 
 
-def ensure_visit_edit_audit_columns(db: Session) -> None:
+def ensure_visit_edit_audit_columns(db: Session) -> tuple[bool, bool, bool]:
     global _visit_edit_audit_columns_checked
-    if _visit_edit_audit_columns_checked:
-        return
     if not has_table(db, "visits"):
-        return
-    if not has_column(db, "visits", "edited_by_name"):
-        db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS edited_by_name VARCHAR(255)"))
-    if not has_column(db, "visits", "edited_by_email"):
-        db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS edited_by_email VARCHAR(255)"))
-    if not has_column(db, "visits", "edited_at"):
-        db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ"))
-    _visit_edit_audit_columns_checked = True
+        return False, False, False
+    if not _visit_edit_audit_columns_checked:
+        if not has_column(db, "visits", "edited_by_name"):
+            db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS edited_by_name VARCHAR(255)"))
+        if not has_column(db, "visits", "edited_by_email"):
+            db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS edited_by_email VARCHAR(255)"))
+        if not has_column(db, "visits", "edited_at"):
+            db.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ"))
+        _visit_edit_audit_columns_checked = True
+
+    has_name = has_column(db, "visits", "edited_by_name")
+    has_email = has_column(db, "visits", "edited_by_email")
+    has_timestamp = has_column(db, "visits", "edited_at")
+    return has_name, has_email, has_timestamp
 
 
 def mark_visit_edited(db: Session, visit_id: str, current_user: object | None) -> None:
-    ensure_visit_edit_audit_columns(db)
+    has_name, has_email, has_timestamp = ensure_visit_edit_audit_columns(db)
     if current_user is None:
         return
+
+    assignments: list[str] = []
+    params = {"visit_id": visit_id}
+
+    if has_name:
+        assignments.append("edited_by_name = :edited_by_name")
+        params["edited_by_name"] = getattr(current_user, "name", None)
+    if has_email:
+        assignments.append("edited_by_email = :edited_by_email")
+        params["edited_by_email"] = getattr(current_user, "email", None) or getattr(current_user, "preferred_username", None)
+    if has_timestamp:
+        assignments.append("edited_at = NOW()")
+
+    if not assignments:
+        return
+
     db.execute(
         text(
             """
             UPDATE visits
-            SET edited_by_name = :edited_by_name,
-                edited_by_email = :edited_by_email,
-                edited_at = NOW()
+            SET {assignments}
             WHERE id = :visit_id
-            """
+            """.format(assignments=",\n                ".join(assignments))
         ),
-        {
-            "visit_id": visit_id,
-            "edited_by_name": getattr(current_user, "name", None),
-            "edited_by_email": getattr(current_user, "email", None) or getattr(current_user, "preferred_username", None),
-        },
+        params,
     )
 
 
@@ -2807,10 +2821,6 @@ def update_response(
         else:
             raise HTTPException(status_code=500, detail="No response table found")
         
-        mark_visit_edited(db, visit_id, current_user)
-
-        mark_visit_edited(db, visit_id, current_user)
-
         mark_visit_edited(db, visit_id, current_user)
 
         # Commit the transaction to save changes
