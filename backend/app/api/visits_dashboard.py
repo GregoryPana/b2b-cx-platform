@@ -241,6 +241,20 @@ def normalize_team_member_names(values: list | None) -> list[str]:
     return normalized
 
 
+def normalize_actions_value(value: object) -> list:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
 def sync_visit_team_members(db: Session, visit_id: str, team_member_names: list[str] | None) -> None:
     if not has_table(db, "meeting_attendees"):
         return
@@ -2744,7 +2758,7 @@ def create_response(
             "verbatim": row[4],
         }
         if response_table == "b2b_visit_responses":
-            payload["actions"] = json.loads(row[5]) if row[5] else []
+            payload["actions"] = normalize_actions_value(row[5])
         else:
             payload["actions"] = response_data.get("actions", []) or []
         return payload
@@ -2840,7 +2854,7 @@ def update_response(
             "verbatim": row[4],
         }
         if response_table == "b2b_visit_responses":
-            payload["actions"] = json.loads(row[5]) if row[5] else []
+            payload["actions"] = normalize_actions_value(row[5])
         else:
             payload["actions"] = response_data.get("actions", []) or []
         return payload
