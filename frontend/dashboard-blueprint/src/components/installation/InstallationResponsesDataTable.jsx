@@ -12,24 +12,27 @@ import { Select } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
+import { DataTableViewOptions } from "../ui/data-table-view-options";
 
 export default function InstallationResponsesDataTable({ responses }) {
   const [sorting, setSorting] = useState([{ id: "question_number", desc: false }]);
   const [columnFilters, setColumnFilters] = useState([]);
+  const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("question_text");
 
   const columns = useMemo(() => [
-    { accessorKey: "question_number", header: ({ column }) => <DataTableColumnHeader column={column} title="Question #" />, cell: ({ row }) => `Q${row.original.question_number}` },
-    { accessorKey: "question_text", header: ({ column }) => <DataTableColumnHeader column={column} title="Question" />, cell: ({ row }) => row.original.question_text || "--" },
-    { accessorKey: "score", header: ({ column }) => <DataTableColumnHeader column={column} title="Score (1-5)" />, cell: ({ row }) => row.original.score },
+    { accessorKey: "question_number", headerTitle: "Question #", header: ({ column }) => <DataTableColumnHeader column={column} title="Question #" />, cell: ({ row }) => `Q${row.original.question_number}` },
+    { accessorKey: "question_text", headerTitle: "Question", header: ({ column }) => <DataTableColumnHeader column={column} title="Question" />, cell: ({ row }) => row.original.question_text || "--" },
+    { accessorKey: "score", headerTitle: "Score (1-5)", header: ({ column }) => <DataTableColumnHeader column={column} title="Score (1-5)" />, cell: ({ row }) => row.original.score },
   ], []);
 
   const table = useReactTable({
     data: responses,
     columns,
-    state: { sorting, columnFilters },
+    state: { sorting, columnFilters, columnVisibility },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
     defaultColumn: { minSize: 120, size: 220, maxSize: 700 },
     getCoreRowModel: getCoreRowModel(),
@@ -52,9 +55,12 @@ export default function InstallationResponsesDataTable({ responses }) {
             </Select>
             <Input value={activeFilterValue} onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)} className="md:max-w-sm" />
           </div>
-          <Select value={`${table.getState().pagination.pageSize}`} onChange={(event) => table.setPageSize(Number(event.target.value))} className="md:w-[120px]">
-            {[7, 10, 20].map((size) => <option key={size} value={`${size}`}>{size} rows</option>)}
-          </Select>
+          <div className="flex gap-2">
+            <DataTableViewOptions table={table} />
+            <Select value={`${table.getState().pagination.pageSize}`} onChange={(event) => table.setPageSize(Number(event.target.value))} className="md:w-[120px]">
+              {[7, 10, 20].map((size) => <option key={size} value={`${size}`}>{size} rows</option>)}
+            </Select>
+          </div>
         </div>
         <Table>
           <TableHeader>
@@ -74,7 +80,7 @@ export default function InstallationResponsesDataTable({ responses }) {
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={columns.length}>No responses found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No responses found.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

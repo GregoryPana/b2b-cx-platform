@@ -14,6 +14,7 @@ import { Select } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
+import { DataTableViewOptions } from "../ui/data-table-view-options";
 
 export default function BusinessesDataTable({
   data,
@@ -37,11 +38,13 @@ export default function BusinessesDataTable({
   };
   const [sorting, setSorting] = useState([{ id: "name", desc: false }]);
   const [columnFilters, setColumnFilters] = useState([]);
+  const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("name");
 
   const columns = useMemo(() => [
     {
       accessorKey: "name",
+      headerTitle: "Name",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
       cell: ({ row }) => {
         const business = row.original;
@@ -51,6 +54,7 @@ export default function BusinessesDataTable({
     },
     {
       accessorKey: "location",
+      headerTitle: "Location",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Location" />,
       cell: ({ row }) => {
         const business = row.original;
@@ -60,6 +64,7 @@ export default function BusinessesDataTable({
     },
     {
       accessorKey: "priority_level",
+      headerTitle: "Business Type",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Business Type" />,
       cell: ({ row }) => {
         const business = row.original;
@@ -78,6 +83,7 @@ export default function BusinessesDataTable({
     },
     {
       accessorKey: "account_executive_id",
+      headerTitle: "Account Executive",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Account Executive" />,
       cell: ({ row }) => {
         const business = row.original;
@@ -110,6 +116,7 @@ export default function BusinessesDataTable({
     },
     {
       accessorKey: "active",
+      headerTitle: "Status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => {
         const business = row.original;
@@ -130,6 +137,7 @@ export default function BusinessesDataTable({
     },
     {
       id: "actions",
+      headerTitle: "Actions",
       header: "Actions",
       cell: ({ row }) => {
         const business = row.original;
@@ -152,6 +160,7 @@ export default function BusinessesDataTable({
         );
       },
       enableSorting: false,
+      enableHiding: false,
     },
   ], [accountExecutiveQuery, businessForm, onCancel, onDelete, onEdit, onRetire, onSave, representativeMap, representatives, selectedBusiness, setAccountExecutiveQuery, setBusinessForm]);
 
@@ -168,9 +177,10 @@ export default function BusinessesDataTable({
   const table = useReactTable({
     data: tableData,
     columns,
-    state: { sorting, columnFilters },
+    state: { sorting, columnFilters, columnVisibility },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
     defaultColumn: { minSize: 120, size: 180, maxSize: 540 },
     getCoreRowModel: getCoreRowModel(),
@@ -197,7 +207,8 @@ export default function BusinessesDataTable({
           </div>
           <div className="flex gap-2">
             <Button type="button" onClick={onStartNew}>Add Business</Button>
-            <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setSorting([{ id: "name", desc: false }]); setFilterColumn("name"); }}>Reset Table</Button>
+            <DataTableViewOptions table={table} />
+            <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setColumnVisibility({}); setSorting([{ id: "name", desc: false }]); setFilterColumn("name"); }}>Reset Table</Button>
           </div>
         </div>
         <Table>
@@ -223,7 +234,7 @@ export default function BusinessesDataTable({
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={columns.length}>No businesses found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No businesses found.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

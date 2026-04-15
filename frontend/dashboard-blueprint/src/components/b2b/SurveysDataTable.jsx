@@ -14,30 +14,36 @@ import { Select } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
+import { DataTableViewOptions } from "../ui/data-table-view-options";
 
 export default function SurveysDataTable({ data, loading, isMysteryShopperPlatform, onViewDetails }) {
   const [sorting, setSorting] = useState([{ id: "visit_date", desc: true }]);
   const [columnFilters, setColumnFilters] = useState([]);
+  const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("account_executive_name");
 
   const columns = useMemo(() => [
     {
       accessorKey: "business_name",
+      headerTitle: isMysteryShopperPlatform ? "Location" : "Business",
       header: ({ column }) => <DataTableColumnHeader column={column} title={isMysteryShopperPlatform ? "Location" : "Business"} />,
       cell: ({ row }) => row.original.business_name || "--",
     },
     {
       accessorKey: "visit_date",
+      headerTitle: "Date",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
       cell: ({ row }) => row.original.visit_date || "--",
     },
     {
       accessorKey: "account_executive_name",
+      headerTitle: "Account Executive",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Account Executive" />,
       cell: ({ row }) => row.original.account_executive_name || "--",
     },
     {
       accessorKey: "team_member_names",
+      headerTitle: "Team Members",
       header: "Team Members",
       cell: ({ row }) => (row.original.team_member_names || []).join(", ") || "--",
       enableSorting: false,
@@ -45,6 +51,7 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
     },
     {
       accessorKey: "status",
+      headerTitle: "Status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => (
         <Badge
@@ -64,12 +71,14 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
     },
     {
       id: "progress",
+      headerTitle: "Progress",
       header: "Progress",
       cell: ({ row }) => `${row.original.mandatory_answered_count || 0}/${row.original.mandatory_total_count || 0}`,
       enableSorting: false,
     },
     {
       id: "actions",
+      headerTitle: "Action",
       header: "Action",
       cell: ({ row }) => (
         <Button type="button" variant="outline" size="sm" onClick={() => onViewDetails(row.original.id)}>
@@ -77,15 +86,17 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
         </Button>
       ),
       enableSorting: false,
+      enableHiding: false,
     },
   ], [isMysteryShopperPlatform, onViewDetails]);
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, columnFilters },
+    state: { sorting, columnFilters, columnVisibility },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
     defaultColumn: { minSize: 120, size: 180, maxSize: 520 },
     getCoreRowModel: getCoreRowModel(),
@@ -116,17 +127,21 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
               className="md:max-w-sm"
             />
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setColumnFilters([]);
-              setSorting([{ id: "visit_date", desc: true }]);
-              setFilterColumn("account_executive_name");
-            }}
-          >
-            Reset Table
-          </Button>
+          <div className="flex gap-2">
+            <DataTableViewOptions table={table} />
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setColumnFilters([]);
+                setColumnVisibility({});
+                setSorting([{ id: "visit_date", desc: true }]);
+                setFilterColumn("account_executive_name");
+              }}
+            >
+              Reset Table
+            </Button>
+          </div>
         </div>
 
         <Table>
@@ -151,7 +166,7 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={columns.length}>Loading survey results...</TableCell>
+                <TableCell colSpan={table.getVisibleLeafColumns().length}>Loading survey results...</TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
@@ -165,8 +180,8 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length}>No survey results found.</TableCell>
-              </TableRow>
+                  <TableCell colSpan={table.getVisibleLeafColumns().length}>No survey results found.</TableCell>
+                </TableRow>
             )}
           </TableBody>
         </Table>

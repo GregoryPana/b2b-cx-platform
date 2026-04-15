@@ -14,6 +14,7 @@ import { Select } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
+import { DataTableViewOptions } from "../ui/data-table-view-options";
 
 export default function PlannedVisitsDataTable({
   data,
@@ -28,16 +29,19 @@ export default function PlannedVisitsDataTable({
 }) {
   const [sorting, setSorting] = useState([{ id: "visit_date", desc: false }]);
   const [columnFilters, setColumnFilters] = useState([]);
+  const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("business_name");
 
   const columns = useMemo(() => [
     {
       accessorKey: "business_name",
+      headerTitle: "Business",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Business" />,
       cell: ({ row }) => row.original.business_name || "--",
     },
     {
       accessorKey: "visit_date",
+      headerTitle: "Date",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
       cell: ({ row }) => {
         const visit = row.original;
@@ -49,6 +53,7 @@ export default function PlannedVisitsDataTable({
     },
     {
       accessorKey: "visit_type",
+      headerTitle: "Type",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
       cell: ({ row }) => {
         const visit = row.original;
@@ -64,17 +69,20 @@ export default function PlannedVisitsDataTable({
     },
     {
       accessorKey: "status",
+      headerTitle: "Status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => <Badge variant="secondary">{row.original.status || "Draft"}</Badge>,
     },
     {
       id: "progress",
+      headerTitle: "Progress",
       header: "Progress",
       cell: ({ row }) => `${row.original.mandatory_answered_count || 0}/${row.original.mandatory_total_count || 0}`,
       enableSorting: false,
     },
     {
       id: "actions",
+      headerTitle: "Actions",
       header: "Actions",
       cell: ({ row }) => {
         const visit = row.original;
@@ -95,15 +103,17 @@ export default function PlannedVisitsDataTable({
         );
       },
       enableSorting: false,
+      enableHiding: false,
     },
   ], [editForm, editingVisitId, onCancelEdit, onDelete, onEditFormChange, onSaveEdit, onStartEdit]);
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, columnFilters },
+    state: { sorting, columnFilters, columnVisibility },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
     defaultColumn: { minSize: 120, size: 170, maxSize: 520 },
     getCoreRowModel: getCoreRowModel(),
@@ -127,9 +137,12 @@ export default function PlannedVisitsDataTable({
             </Select>
             <Input type={filterColumn === "visit_date" ? "date" : "text"} value={activeFilterValue} onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)} className="md:max-w-sm" />
           </div>
-          <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setSorting([{ id: "visit_date", desc: false }]); setFilterColumn("business_name"); }}>
-            Reset Table
-          </Button>
+          <div className="flex gap-2">
+            <DataTableViewOptions table={table} />
+            <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setColumnVisibility({}); setSorting([{ id: "visit_date", desc: false }]); setFilterColumn("business_name"); }}>
+              Reset Table
+            </Button>
+          </div>
         </div>
         <Table>
           <TableHeader>
@@ -146,7 +159,7 @@ export default function PlannedVisitsDataTable({
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={columns.length}>Loading draft planned visits...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>Loading draft planned visits...</TableCell></TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id}>
@@ -156,7 +169,7 @@ export default function PlannedVisitsDataTable({
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={columns.length}>No draft planned visits found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No draft planned visits found.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

@@ -13,35 +13,40 @@ import { Select } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
+import { DataTableViewOptions } from "../ui/data-table-view-options";
 
 export default function InstallationSurveysDataTable({ data, loading, onView }) {
   const [sorting, setSorting] = useState([{ id: "date_work_done", desc: true }]);
   const [columnFilters, setColumnFilters] = useState([]);
+  const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("customer_name");
 
   const columns = useMemo(() => [
-    { accessorKey: "customer_name", header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />, cell: ({ row }) => row.original.customer_name || "--" },
-    { accessorKey: "inspector_name", header: ({ column }) => <DataTableColumnHeader column={column} title="Quality Assurance Inspector" />, cell: ({ row }) => row.original.inspector_name || "--" },
-    { accessorKey: "work_order", header: ({ column }) => <DataTableColumnHeader column={column} title="Work Order" />, cell: ({ row }) => row.original.work_order || "--" },
-    { accessorKey: "location", header: ({ column }) => <DataTableColumnHeader column={column} title="Location" />, cell: ({ row }) => row.original.location || "--" },
-    { accessorKey: "date_work_done", header: ({ column }) => <DataTableColumnHeader column={column} title="Date Work Done" />, cell: ({ row }) => row.original.date_work_done || "--" },
-    { accessorKey: "customer_type", header: ({ column }) => <DataTableColumnHeader column={column} title="Customer Type" />, cell: ({ row }) => row.original.customer_type || "--" },
-    { accessorKey: "job_done_by", header: ({ column }) => <DataTableColumnHeader column={column} title="Worker Type" />, cell: ({ row }) => row.original.job_done_by || "--" },
-    { accessorKey: "overall_score", header: ({ column }) => <DataTableColumnHeader column={column} title="Average" />, cell: ({ row }) => row.original.overall_score != null ? Number(row.original.overall_score).toFixed(2) : "--" },
+    { accessorKey: "customer_name", headerTitle: "Customer", header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />, cell: ({ row }) => row.original.customer_name || "--" },
+    { accessorKey: "inspector_name", headerTitle: "Quality Assurance Inspector", header: ({ column }) => <DataTableColumnHeader column={column} title="Quality Assurance Inspector" />, cell: ({ row }) => row.original.inspector_name || "--" },
+    { accessorKey: "work_order", headerTitle: "Work Order", header: ({ column }) => <DataTableColumnHeader column={column} title="Work Order" />, cell: ({ row }) => row.original.work_order || "--" },
+    { accessorKey: "location", headerTitle: "Location", header: ({ column }) => <DataTableColumnHeader column={column} title="Location" />, cell: ({ row }) => row.original.location || "--" },
+    { accessorKey: "date_work_done", headerTitle: "Date Work Done", header: ({ column }) => <DataTableColumnHeader column={column} title="Date Work Done" />, cell: ({ row }) => row.original.date_work_done || "--" },
+    { accessorKey: "customer_type", headerTitle: "Customer Type", header: ({ column }) => <DataTableColumnHeader column={column} title="Customer Type" />, cell: ({ row }) => row.original.customer_type || "--" },
+    { accessorKey: "job_done_by", headerTitle: "Worker Type", header: ({ column }) => <DataTableColumnHeader column={column} title="Worker Type" />, cell: ({ row }) => row.original.job_done_by || "--" },
+    { accessorKey: "overall_score", headerTitle: "Average", header: ({ column }) => <DataTableColumnHeader column={column} title="Average" />, cell: ({ row }) => row.original.overall_score != null ? Number(row.original.overall_score).toFixed(2) : "--" },
     {
       id: "actions",
+      headerTitle: "Action",
       header: "Action",
       cell: ({ row }) => <Button type="button" variant="outline" size="sm" onClick={() => onView(row.original.survey_id)}>View</Button>,
       enableSorting: false,
+      enableHiding: false,
     },
   ], [onView]);
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, columnFilters },
+    state: { sorting, columnFilters, columnVisibility },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
     defaultColumn: { minSize: 120, size: 180, maxSize: 520 },
     getCoreRowModel: getCoreRowModel(),
@@ -73,9 +78,12 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
               className="md:max-w-sm"
             />
           </div>
-          <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setSorting([{ id: "date_work_done", desc: true }]); setFilterColumn("customer_name"); }}>
-            Reset Table
-          </Button>
+          <div className="flex gap-2">
+            <DataTableViewOptions table={table} />
+            <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setColumnVisibility({}); setSorting([{ id: "date_work_done", desc: true }]); setFilterColumn("customer_name"); }}>
+              Reset Table
+            </Button>
+          </div>
         </div>
         <Table>
           <TableHeader>
@@ -89,7 +97,7 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={columns.length}>Loading installation surveys...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>Loading installation surveys...</TableCell></TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id}>
@@ -99,7 +107,7 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={columns.length}>No installation surveys found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No installation surveys found.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

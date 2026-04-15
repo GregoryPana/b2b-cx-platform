@@ -13,15 +13,18 @@ import { Select } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
+import { DataTableViewOptions } from "../ui/data-table-view-options";
 
 export default function ExecutivesDataTable({ data, selectedExecutive, executiveForm, setExecutiveForm, onStartNew, onEdit, onSave, onCancel, onDelete }) {
   const [sorting, setSorting] = useState([{ id: "name", desc: false }]);
   const [columnFilters, setColumnFilters] = useState([]);
+  const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("name");
 
   const columns = useMemo(() => [
     {
       accessorKey: "name",
+      headerTitle: "Name",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
       cell: ({ row }) => {
         const executive = row.original;
@@ -31,6 +34,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
     },
     {
       accessorKey: "email",
+      headerTitle: "Email",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Email" />,
       cell: ({ row }) => {
         const executive = row.original;
@@ -40,6 +44,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
     },
     {
       id: "actions",
+      headerTitle: "Actions",
       header: "Actions",
       cell: ({ row }) => {
         const executive = row.original;
@@ -61,6 +66,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
         );
       },
       enableSorting: false,
+      enableHiding: false,
     },
   ], [executiveForm, onCancel, onDelete, onEdit, onSave, selectedExecutive, setExecutiveForm]);
 
@@ -74,9 +80,10 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
   const table = useReactTable({
     data: tableData,
     columns,
-    state: { sorting, columnFilters },
+    state: { sorting, columnFilters, columnVisibility },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
     defaultColumn: { minSize: 120, size: 180, maxSize: 520 },
     getCoreRowModel: getCoreRowModel(),
@@ -100,7 +107,8 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
           </div>
           <div className="flex gap-2">
             <Button type="button" onClick={onStartNew}>Add Account Executive</Button>
-            <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setSorting([{ id: "name", desc: false }]); setFilterColumn("name"); }}>Reset Table</Button>
+            <DataTableViewOptions table={table} />
+            <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setColumnVisibility({}); setSorting([{ id: "name", desc: false }]); setFilterColumn("name"); }}>Reset Table</Button>
           </div>
         </div>
         <Table>
@@ -126,7 +134,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={columns.length}>No account executives found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No account executives found.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

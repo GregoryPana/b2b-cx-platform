@@ -14,40 +14,48 @@ import { Select } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
+import { DataTableViewOptions } from "../ui/data-table-view-options";
 
 export default function ReviewQueueDataTable({ data, onView, onApprove, onReject, loadingVisitId }) {
   const [sorting, setSorting] = useState([{ id: "visit_date", desc: true }]);
   const [columnFilters, setColumnFilters] = useState([]);
+  const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("business_name");
 
   const columns = useMemo(() => [
     {
       accessorKey: "business_name",
+      headerTitle: "Business",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Business" />,
       cell: ({ row }) => row.original.business_name || "--",
     },
     {
       accessorKey: "visit_date",
+      headerTitle: "Date",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
       cell: ({ row }) => row.original.visit_date || "--",
     },
     {
       accessorKey: "submitted_by_name",
+      headerTitle: "Submitted By",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Submitted By" />,
       cell: ({ row }) => row.original.submitted_by_name || row.original.submitted_by_email || "--",
     },
     {
       accessorKey: "account_executive_name",
+      headerTitle: "Account Executive",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Account Executive" />,
       cell: ({ row }) => row.original.account_executive_name || "--",
     },
     {
       accessorKey: "status",
+      headerTitle: "Status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => <Badge variant="warning">{row.original.status || "Pending"}</Badge>,
     },
     {
       id: "actions",
+      headerTitle: "Actions",
       header: "Actions",
       cell: ({ row }) => {
         const visit = row.original;
@@ -62,15 +70,17 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
         );
       },
       enableSorting: false,
+      enableHiding: false,
     },
   ], [loadingVisitId, onApprove, onReject, onView]);
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, columnFilters },
+    state: { sorting, columnFilters, columnVisibility },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
     defaultColumn: { minSize: 120, size: 180, maxSize: 520 },
     getCoreRowModel: getCoreRowModel(),
@@ -101,9 +111,12 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
               className="md:max-w-sm"
             />
           </div>
-          <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setSorting([{ id: "visit_date", desc: true }]); setFilterColumn("business_name"); }}>
-            Reset Table
-          </Button>
+          <div className="flex gap-2">
+            <DataTableViewOptions table={table} />
+            <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setColumnVisibility({}); setSorting([{ id: "visit_date", desc: true }]); setFilterColumn("business_name"); }}>
+              Reset Table
+            </Button>
+          </div>
         </div>
         <Table>
           <TableHeader>
@@ -129,8 +142,8 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length}>No pending visits in review queue.</TableCell>
-              </TableRow>
+                  <TableCell colSpan={table.getVisibleLeafColumns().length}>No pending visits in review queue.</TableCell>
+                </TableRow>
             )}
           </TableBody>
         </Table>
