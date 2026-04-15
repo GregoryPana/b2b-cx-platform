@@ -37,8 +37,8 @@ def _has_column(bind, table_name: str, column_name: str) -> bool:
     return any(column["name"] == column_name for column in inspector.get_columns(table_name))
 
 
-def _set_question_position(bind, question_key: str, position: int, has_question_number: bool) -> None:
-    if has_question_number:
+def _set_question_position(bind, question_key: str, position: int, has_question_number: bool, has_order_index: bool) -> None:
+    if has_question_number and has_order_index:
         bind.execute(
             sa.text(
                 """
@@ -52,16 +52,31 @@ def _set_question_position(bind, question_key: str, position: int, has_question_
         )
         return
 
-    bind.execute(
-        sa.text(
-            """
-            UPDATE questions
-            SET order_index = :position
-            WHERE question_key = :question_key
-            """
-        ),
-        {"position": position, "question_key": question_key},
-    )
+    if has_question_number:
+        bind.execute(
+            sa.text(
+                """
+                UPDATE questions
+                SET question_number = :position
+                WHERE question_key = :question_key
+                """
+            ),
+            {"position": position, "question_key": question_key},
+        )
+        return
+
+    if has_order_index:
+        bind.execute(
+            sa.text(
+                """
+                UPDATE questions
+                SET order_index = :position
+                WHERE question_key = :question_key
+                """
+            ),
+            {"position": position, "question_key": question_key},
+        )
+        return
 
 
 def upgrade() -> None:
@@ -70,9 +85,10 @@ def upgrade() -> None:
         return
 
     has_question_number = _has_column(bind, "questions", "question_number")
+    has_order_index = _has_column(bind, "questions", "order_index")
 
     for offset, question_key in enumerate(SHIFTED_KEYS, start=19):
-        _set_question_position(bind, question_key, offset, has_question_number)
+        _set_question_position(bind, question_key, offset, has_question_number, has_order_index)
 
     existing = bind.execute(
         sa.text("SELECT id FROM questions WHERE question_key = :question_key LIMIT 1"),
@@ -80,18 +96,22 @@ def upgrade() -> None:
     ).scalar()
 
     if existing:
-        update_sql = """
-            UPDATE questions
-            SET category = :category,
-                question_text = :question_text,
-                input_type = :input_type,
-                choices = CAST(:choices AS json),
-                helper_text = :helper_text,
-                is_mandatory = true,
-                order_index = 18
-        """
+        update_fields = [
+            "category = :category",
+            "question_text = :question_text",
+            "input_type = :input_type",
+            "choices = CAST(:choices AS json)",
+            "helper_text = :helper_text",
+            "is_mandatory = true",
+        ]
+        if has_order_index:
+            update_fields.append("order_index = 18")
         if has_question_number:
-            update_sql += ", question_number = 18"
+            update_fields.append("question_number = 18")
+        update_sql = f"""
+            UPDATE questions
+            SET {', '.join(update_fields)}
+        """
         update_sql += " WHERE question_key = :question_key"
         bind.execute(
             sa.text(update_sql),
@@ -119,7 +139,6 @@ def upgrade() -> None:
         "choices",
         "helper_text",
         "is_mandatory",
-        "order_index",
     ]
     insert_values = [
         ":survey_type_id",
@@ -130,7 +149,6 @@ def upgrade() -> None:
         "CAST(:choices AS json)",
         ":helper_text",
         "true",
-        ":order_index",
     ]
     params = {
         "survey_type_id": survey_type_id,
@@ -140,12 +158,15 @@ def upgrade() -> None:
         "input_type": "yes_no",
         "choices": '["Y", "N"]',
         "helper_text": "Select Y or N",
-        "order_index": 18,
     }
     if has_question_number:
         insert_columns.insert(1, "question_number")
         insert_values.insert(1, ":question_number")
         params["question_number"] = 18
+    if has_order_index:
+        insert_columns.append("order_index")
+        insert_values.append(":order_index")
+        params["order_index"] = 18
 
     bind.execute(
         sa.text(
@@ -164,8 +185,9 @@ def downgrade() -> None:
         return
 
     has_question_number = _has_column(bind, "questions", "question_number")
+    has_order_index = _has_column(bind, "questions", "order_index")
 
     bind.execute(sa.text("DELETE FROM questions WHERE question_key = :question_key"), {"question_key": NEW_KEY})
 
     for offset, question_key in enumerate(SHIFTED_KEYS, start=18):
-        _set_question_position(bind, question_key, offset, has_question_number)
+        _set_question_position(bind, question_key, offset, has_question_number, has_order_index)
