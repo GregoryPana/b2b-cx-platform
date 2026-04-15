@@ -292,27 +292,28 @@ MOCK_QUESTIONS = [
     {
         "id": 18,
         "category": "Category 4: Competitive & Portfolio Intelligence",
-        "question_text": "Which product would you want us to review to bring you to CWS?",
-        "question_type": "text",
+        "question_text": "Would you consider taking this service with CWS?",
+        "question_type": "choice",
         "min_score": 0,
         "max_score": 0,
-        "order": 18
+        "order": 18,
+        "choices": ["Yes", "No"]
     },
-    
-    # Category 5: Growth & Expansion
     {
         "id": 19,
-        "category": "Category 5: Growth & Expansion",
-        "question_text": "New Telecommunications, or Digital Transformation requirements over next 6 to 12 months.",
+        "category": "Category 4: Competitive & Portfolio Intelligence",
+        "question_text": "Which product would you want us to review to bring you to CWS?",
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
         "order": 19
     },
+    
+    # Category 5: Growth & Expansion
     {
         "id": 20,
         "category": "Category 5: Growth & Expansion",
-        "question_text": "Types of products and services required for any expansion in 6 to 12 months.",
+        "question_text": "New Telecommunications, or Digital Transformation requirements over next 6 to 12 months.",
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
@@ -321,7 +322,7 @@ MOCK_QUESTIONS = [
     {
         "id": 21,
         "category": "Category 5: Growth & Expansion",
-        "question_text": "What kinds of expansions in next 6-12 months.",
+        "question_text": "Types of products and services required for any expansion in 6 to 12 months.",
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
@@ -330,31 +331,40 @@ MOCK_QUESTIONS = [
     {
         "id": 22,
         "category": "Category 5: Growth & Expansion",
-        "question_text": "What do you want to see more of from us?",
+        "question_text": "What kinds of expansions in next 6-12 months.",
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
         "order": 22
     },
+    {
+        "id": 23,
+        "category": "Category 5: Growth & Expansion",
+        "question_text": "What do you want to see more of from us?",
+        "question_type": "text",
+        "min_score": 0,
+        "max_score": 0,
+        "order": 23
+    },
     
     # Category 6: Advocacy
     {
-        "id": 23,
+        "id": 24,
         "category": "Category 6: Advocacy",
         "question_text": "NPS on a scale of 0 to 10, how much would you recommend us? 10 be very highly. 0 not at all.",
         "question_type": "score",
         "min_score": 0,
         "max_score": 10,
-        "order": 23
+        "order": 24
     },
     {
-        "id": 24,
+        "id": 25,
         "category": "Category 6: Advocacy",
         "question_text": "Any further comments from Customer.",
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 24
+        "order": 25
     }
 ]
 

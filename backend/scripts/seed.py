@@ -172,12 +172,22 @@ QUESTION_BLUEPRINT = [
         "order_index": 17,
     },
     {
+        "question_key": "q18_competitor_service_with_cws",
+        "category": "Category 4: Competitive & Portfolio Intelligence",
+        "question_text": "Would you consider taking this service with CWS?",
+        "input_type": "yes_no",
+        "choices": ["Y", "N"],
+        "helper_text": "Select Y or N",
+        "is_mandatory": True,
+        "order_index": 18,
+    },
+    {
         "question_key": "q18_product_review_needed",
         "category": "Category 4: Competitive & Portfolio Intelligence",
         "question_text": "Which product would you want us to review to bring you to CWS?.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 18,
+        "order_index": 19,
     },
     {
         "question_key": "q19_new_requirements",
@@ -185,7 +195,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "Do you have any new Telecommunications, or Digital Transformation requirements over next 6 to 12 months.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 19,
+        "order_index": 20,
     },
     {
         "question_key": "q20_expansion_services_required",
@@ -193,7 +203,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "Types of products and services are required for any expansion in 6 to 12 months.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 21,
+        "order_index": 22,
     },
     {
         "question_key": "q21_expansion_types",
@@ -201,7 +211,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "What kinds of expansions are you plannning for in the next 6-12 months.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 20,
+        "order_index": 21,
     },
     {
         "question_key": "q22_more_from_us",
@@ -209,7 +219,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "What do you want to see more of from us?.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 22,
+        "order_index": 23,
     },
     {
         "question_key": "q23_nps",
@@ -220,7 +230,7 @@ QUESTION_BLUEPRINT = [
         "score_max": 10,
         "is_nps": True,
         "is_mandatory": True,
-        "order_index": 23,
+        "order_index": 24,
     },
     {
         "question_key": "q24_comments",
@@ -228,7 +238,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "Any further comments from Customer.",
         "input_type": "text",
         "is_mandatory": False,
-        "order_index": 24,
+        "order_index": 25,
     },
 ]
 

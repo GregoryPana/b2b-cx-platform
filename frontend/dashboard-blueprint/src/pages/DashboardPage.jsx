@@ -1562,6 +1562,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         number: 16,
         text: "Do you have other products and services from other service providers? (Yes or No)",
       },
+      {
+        key: "q18_competitor_service_with_cws",
+        number: 18,
+        text: "Would you consider taking this service with CWS?",
+      },
     ];
 
     return requiredQuestions.map((required) => {

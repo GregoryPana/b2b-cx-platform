@@ -28,6 +28,7 @@ const QUESTION_CATEGORY_ORDER = [
 
 const Q16_KEY = "q16_other_provider_products";
 const Q17_KEY = "q17_competitor_products_services";
+const Q18_KEY = "q18_competitor_service_with_cws";
 const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
 
 type ApiHeaders = Record<string, string>;
@@ -222,7 +223,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     const q16Question = questions.find((q) => q.question_key === Q16_KEY);
     const q16Answer = q16Question ? responseDrafts[q16Question.id]?.answer_text || responsesByQuestion[q16Question.id]?.answer_text || "" : "";
     const q16IsYes = normalizeYesNo(q16Answer) === "Y";
-    return questions.filter((q) => q.question_key !== Q17_KEY || q16IsYes);
+    return questions.filter((q) => (q.question_key !== Q17_KEY && q.question_key !== Q18_KEY) || q16IsYes);
   }, [questions, responseDrafts, responsesByQuestion]);
 
   const groupedQuestions = useMemo(() => {

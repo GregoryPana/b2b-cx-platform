@@ -1280,7 +1280,7 @@ def build_report_payload(
 
     filtered_yes_no_items = list(filtered_yes_no.get("items") or [])
     overall_yes_no_by_question = {int(item.get("question_number") or item.get("question_id") or 0): item for item in list(overall_yes_no.get("items") or [])}
-    priority_yes_no_questions = {4, 6, 9, 16}
+    priority_yes_no_questions = {4, 6, 9, 16, 18}
     focused_yes_no = [
         item for item in filtered_yes_no_items if int(item.get("question_number") or item.get("question_id") or 0) in priority_yes_no_questions
     ]
