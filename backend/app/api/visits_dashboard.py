@@ -88,7 +88,7 @@ class ReportEmailRequest(BaseModel):
 
 
 class ActionStatusUpdateRequest(BaseModel):
-    response_id: int
+    response_id: str
     action_index: int
     status: str
     comments: str | None = None
@@ -450,7 +450,7 @@ def fetch_dashboard_actions(
             "business_id": row["business_id"],
             "business_name": row["business_name"],
             "survey_type": row["survey_type"],
-            "response_id": int(response_id),
+            "response_id": str(response_id),
             "question_id": row["question_id"],
             "question_text": row["question_text"],
             "question_score": row.get("score"),
@@ -832,8 +832,8 @@ def update_action_status(
             raise HTTPException(status_code=400, detail="Action status updates are supported for B2B responses only")
 
         row = db.execute(
-            text("SELECT actions FROM b2b_visit_responses WHERE id = :response_id"),
-            {"response_id": request.response_id},
+            text("SELECT actions FROM b2b_visit_responses WHERE CAST(id AS TEXT) = :response_id"),
+            {"response_id": str(request.response_id)},
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Response not found")
@@ -858,8 +858,8 @@ def update_action_status(
         actions[request.action_index] = selected
 
         db.execute(
-            text("UPDATE b2b_visit_responses SET actions = CAST(:actions AS jsonb) WHERE id = :response_id"),
-            {"response_id": request.response_id, "actions": json.dumps(actions)},
+            text("UPDATE b2b_visit_responses SET actions = CAST(:actions AS jsonb) WHERE CAST(id AS TEXT) = :response_id"),
+            {"response_id": str(request.response_id), "actions": json.dumps(actions)},
         )
         db.commit()
 

@@ -946,9 +946,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   }, [activePlatform, actionsFilters, fetchJsonSafe, headers, isB2BPlatform]);
 
   const handleUpdateActionPointStatus = useCallback(async (item, draft = {}) => {
-    const rid = Number(item?.response_id);
+    const rid = String(item?.response_id || "").trim();
     const aidx = Number(item?.action_index ?? 0);
-    if (!Number.isFinite(rid) || rid <= 0) {
+    if (!rid) {
       setError("Action point cannot be updated: response_id is missing or invalid.");
       return;
     }
