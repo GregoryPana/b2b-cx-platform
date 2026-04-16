@@ -292,7 +292,10 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
         setError(data.detail || "Failed to load questions");
         return;
       }
-      const rows = Array.isArray(data) ? data : [];
+      const rows = (Array.isArray(data) ? data : []).map((question: Question & { order_index?: number; order?: number }) => ({
+        ...question,
+        question_number: question.question_number ?? question.order_index ?? question.order ?? question.id,
+      }));
       setQuestions(rows);
       setResponseDrafts((prev) => {
         const next = { ...prev };

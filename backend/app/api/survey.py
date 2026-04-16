@@ -53,6 +53,11 @@ def has_column(db: Session, table_name: str, column_name: str) -> bool:
     ), {"table_name": table_name, "column_name": column_name}).scalar())
 
 
+def is_b2b_survey_type(value: str | None) -> bool:
+    normalized = (value or "B2B").strip().lower().replace(" ", "")
+    return normalized in {"b2b", "businesstobusiness"}
+
+
 @router.get("/survey-types")
 async def get_survey_types(db: Session = Depends(get_db)):
     """List available survey types.
@@ -614,16 +619,19 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
         where_clause = ""
 
         if has_survey_types and has_question_survey_type:
-            join_clause = "JOIN survey_types st ON q.survey_type_id = st.id"
+            join_clause = "LEFT JOIN survey_types st ON q.survey_type_id = st.id"
             code_filter = "lower(st.name) = lower(:survey_type)"
             if has_survey_type_code:
                 code_filter = "lower(st.code) = lower(:survey_type)"
+            include_untyped_questions = is_b2b_survey_type(normalized_survey_type)
+            null_survey_type_clause = "OR q.survey_type_id IS NULL" if include_untyped_questions else ""
             where_clause = """
                 WHERE
                     lower(st.name) = lower(:survey_type)
                     OR {code_filter}
                     OR replace(lower(st.name), ' ', '') = replace(lower(:survey_type), ' ', '')
-            """.format(code_filter=code_filter)
+                    {null_survey_type_clause}
+            """.format(code_filter=code_filter, null_survey_type_clause=null_survey_type_clause)
         else:
             survey_type_select = "NULL"
 
@@ -678,6 +686,7 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
             questions.append({
                 "id": row[0],
                 "survey_type_id": row[1],
+                "question_number": row[2],
                 "order_index": row[2],  # question_number
                 "question_text": row[3],
                 "category": row[4],

@@ -79,6 +79,31 @@ def _set_question_position(bind, question_key: str, position: int, has_question_
         return
 
 
+def _resolve_b2b_survey_type_id(bind) -> int | None:
+    survey_type_id = bind.execute(
+        sa.text("SELECT survey_type_id FROM questions WHERE question_key = 'q16_other_provider_products' LIMIT 1")
+    ).scalar()
+    if survey_type_id is not None:
+        return survey_type_id
+
+    if not _has_table(bind, "survey_types"):
+        return None
+
+    has_code = _has_column(bind, "survey_types", "code")
+    survey_type_id = bind.execute(
+        sa.text(
+            """
+            SELECT id
+            FROM survey_types
+            WHERE lower(name) = 'b2b'
+            {code_filter}
+            LIMIT 1
+            """.format(code_filter="OR lower(code) = 'b2b'" if has_code else "")
+        )
+    ).scalar()
+    return survey_type_id
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     if not _has_table(bind, "questions"):
@@ -89,6 +114,8 @@ def upgrade() -> None:
 
     for offset, question_key in enumerate(SHIFTED_KEYS, start=19):
         _set_question_position(bind, question_key, offset, has_question_number, has_order_index)
+
+    survey_type_id = _resolve_b2b_survey_type_id(bind)
 
     existing = bind.execute(
         sa.text("SELECT id FROM questions WHERE question_key = :question_key LIMIT 1"),
@@ -108,6 +135,8 @@ def upgrade() -> None:
             update_fields.append("order_index = 18")
         if has_question_number:
             update_fields.append("question_number = 18")
+        if survey_type_id is not None and _has_column(bind, "questions", "survey_type_id"):
+            update_fields.append("survey_type_id = :survey_type_id")
         update_sql = f"""
             UPDATE questions
             SET {', '.join(update_fields)}
@@ -122,16 +151,12 @@ def upgrade() -> None:
                 "input_type": "yes_no",
                 "choices": '["Y", "N"]',
                 "helper_text": "Select Y or N",
+                "survey_type_id": survey_type_id,
             },
         )
         return
 
-    survey_type_id = bind.execute(
-        sa.text("SELECT survey_type_id FROM questions WHERE question_key = 'q16_other_provider_products' LIMIT 1")
-    ).scalar()
-
     insert_columns = [
-        "survey_type_id",
         "category",
         "question_key",
         "question_text",
@@ -141,7 +166,6 @@ def upgrade() -> None:
         "is_mandatory",
     ]
     insert_values = [
-        ":survey_type_id",
         ":category",
         ":question_key",
         ":question_text",
@@ -151,7 +175,6 @@ def upgrade() -> None:
         "true",
     ]
     params = {
-        "survey_type_id": survey_type_id,
         "category": "Category 4: Competitive & Portfolio Intelligence",
         "question_key": NEW_KEY,
         "question_text": "Would you consider taking this service with CWS?",
@@ -159,6 +182,10 @@ def upgrade() -> None:
         "choices": '["Y", "N"]',
         "helper_text": "Select Y or N",
     }
+    if survey_type_id is not None and _has_column(bind, "questions", "survey_type_id"):
+        insert_columns.insert(0, "survey_type_id")
+        insert_values.insert(0, ":survey_type_id")
+        params["survey_type_id"] = survey_type_id
     if has_question_number:
         insert_columns.insert(1, "question_number")
         insert_values.insert(1, ":question_number")
