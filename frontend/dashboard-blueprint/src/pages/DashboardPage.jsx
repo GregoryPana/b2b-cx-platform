@@ -2088,7 +2088,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            <Card className="lg:col-span-8">
+            <Card className="min-w-0 lg:col-span-8">
                 <CardHeader>
                   <CardTitle>Question Trend</CardTitle>
                 <Select value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
@@ -2100,7 +2100,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   ))}
                 </Select>
               </CardHeader>
-              <CardContent className="h-[360px]">
+              <CardContent className="min-w-0 h-[360px]">
                 {trendData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                   <LineChart data={trendData}>
@@ -2117,7 +2117,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               </CardContent>
             </Card>
 
-            <Card className="lg:col-span-4">
+            <Card className="min-w-0 lg:col-span-4">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   Category Breakdown
@@ -2163,7 +2163,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           {/* Detailed NPS and CSAT Section */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 mt-6">
             {/* NPS Card */}
-            <Card className="lg:col-span-6">
+            <Card className="min-w-0 lg:col-span-6">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   NPS Survey
@@ -2179,7 +2179,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                     {analytics?.nps?.nps ?? "--"}
                   </div>
                   
-                  <div className="w-full h-64">
+                  <div className="min-w-0 w-full h-64">
                     {npsPieData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <PieChart>
@@ -2223,7 +2223,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             </Card>
 
             {/* CSAT Card */}
-            <Card className="lg:col-span-6">
+            <Card className="min-w-0 lg:col-span-6">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   Customer Satisfaction
@@ -2239,7 +2239,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                     {analytics?.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "--"}%
                   </div>
                   
-                  <div className="w-full h-64">
+                  <div className="min-w-0 w-full h-64">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <PieChart>
                         <Pie
@@ -2289,7 +2289,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
           {isB2BPlatform ? (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 mt-6">
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     Overall Relationship Score
@@ -2299,7 +2299,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-4xl font-semibold">{analytics?.relationship_score?.score?.toFixed?.(1) ?? "--"}</div>
-                  <div className="h-48">
+                  <div className="min-w-0 h-48">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <BarChart data={relationshipGraphData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" />
@@ -2322,7 +2322,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   </div>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     Competitive Exposure
@@ -2332,7 +2332,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-4xl font-semibold">{analytics?.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</div>
-                  <div className="h-48">
+                  <div className="min-w-0 h-48">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <BarChart data={competitorGraphData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" />
@@ -2370,10 +2370,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               <CardContent>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   {yesNoQuestionCards.map((item) => (
-                    <div key={item.key} className="rounded-lg border bg-muted/30 p-4">
+                      <div key={item.key} className="min-w-0 rounded-lg border bg-muted/30 p-4">
                       <p className="text-sm font-semibold">{item.label}</p>
                       <p className="mt-1 text-sm text-muted-foreground">{item.question_text}</p>
-                      <div className="mt-3 h-56">
+                       <div className="min-w-0 mt-3 h-56">
                         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                           <PieChart>
                             <Pie
@@ -2460,7 +2460,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       {location.pathname === "/trends" ? (
         isInstallationPlatform ? (
           <div className="space-y-6">
-            <Card>
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle>Installation Trends</CardTitle>
                 <CardDescription>Track installation performance over time by month, customer type, worker type, and question.</CardDescription>
@@ -2501,7 +2501,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                     <option key={question.question_id} value={String(question.question_id)}>{question.question_text}</option>
                   ))}
                 </Select>
-                <div className="h-[420px]">
+                <div className="min-w-0 h-[420px]">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                     <LineChart data={trendData}>
                       <CartesianGrid strokeDasharray="3 3" />
@@ -2516,13 +2516,13 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             </Card>
 
             {isB2BPlatform ? (
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle>Account Executive Yes/No Performance</CardTitle>
                   <CardDescription>Shows the percentage of "Yes" answers for Questions 4 and 6 grouped by the account executive captured on each approved survey.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="h-[420px]">
+                  <div className="min-w-0 h-[420px]">
                     {accountExecutiveYesNoChartData.length > 0 ? (
                       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                         <BarChart data={accountExecutiveYesNoChartData} margin={{ top: 8, right: 8, left: 8, bottom: 24 }}>

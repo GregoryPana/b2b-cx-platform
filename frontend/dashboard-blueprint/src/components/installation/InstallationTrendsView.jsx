@@ -35,12 +35,12 @@ export default function InstallationTrendsView({ trends, loading }) {
 
   return (
     <div className="space-y-6">
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Overall Score Trend</CardTitle>
           <CardDescription>Average installation assessment score over time, grouped by month.</CardDescription>
         </CardHeader>
-        <CardContent className="h-[360px]">
+        <CardContent className="min-w-0 h-[360px]">
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
             <LineChart data={overallTrend}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -54,12 +54,12 @@ export default function InstallationTrendsView({ trends, loading }) {
       </Card>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Customer Type Trends</CardTitle>
             <CardDescription>Monthly average score trend for B2B and B2C installation surveys.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[360px]">
+          <CardContent className="min-w-0 h-[360px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <LineChart data={customerTrend}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -74,12 +74,12 @@ export default function InstallationTrendsView({ trends, loading }) {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Worker Type Trends</CardTitle>
             <CardDescription>Monthly average score trend for Field Team and Contractor work.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[360px]">
+          <CardContent className="min-w-0 h-[360px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <LineChart data={workerTrend}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -95,12 +95,12 @@ export default function InstallationTrendsView({ trends, loading }) {
         </Card>
       </div>
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Question Trends</CardTitle>
           <CardDescription>Monthly average score trend for each installation assessment question.</CardDescription>
         </CardHeader>
-        <CardContent className="h-[420px]">
+        <CardContent className="min-w-0 h-[420px]">
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
             <LineChart data={questionTrend}>
               <CartesianGrid strokeDasharray="3 3" />

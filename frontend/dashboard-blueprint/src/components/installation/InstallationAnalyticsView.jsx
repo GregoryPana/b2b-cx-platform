@@ -93,14 +93,14 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Average by Customer Type
               <Hint text="Compares survey quality averages for B2B vs B2C customers." />
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-72">
+          <CardContent className="min-w-0 h-72">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <BarChart data={customerChartData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -113,14 +113,14 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Average by Worker Type
               <Hint text="Compares installation quality between Field Team and Contractor work." />
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-72">
+          <CardContent className="min-w-0 h-72">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <BarChart data={workerChartData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -135,14 +135,14 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
       </div>
 
        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Average by Question
               <Hint text="Shows which technical checkpoints are strongest or weakest across all submitted installation surveys." />
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-72">
+          <CardContent className="min-w-0 h-72">
             {questionChartData.length ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                 <BarChart data={questionChartData}>
@@ -165,14 +165,14 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Average by Category
               <Hint text="Shows average scores for each of the 4 inspection categories: Technical Performance, Physical Routing, Safety & Infrastructure, and Site Cleanliness." />
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-72">
+          <CardContent className="min-w-0 h-72">
             {categoryChartData.length ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                 <BarChart data={categoryChartData} layout="vertical">
