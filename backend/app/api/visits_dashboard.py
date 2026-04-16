@@ -2062,28 +2062,42 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f'</div>'
         )
 
+    selected_kpi_values = {
+        "nps": (comparison.get("nps") or {}).get("selected"),
+        "csat": (comparison.get("csat") or {}).get("selected"),
+        "relationship_score": (comparison.get("relationship_score") or {}).get("selected"),
+        "competitor_exposure": (comparison.get("competitor_exposure") or {}).get("selected"),
+    }
+    has_selected_kpis = any(value is not None for value in selected_kpi_values.values())
     selected_kpi_section = ""
-    if not is_single_visit:
+    if has_selected_kpis:
         selected_scope_title = "Lifetime KPIs" if report_type == "lifetime" else "Selected Scope KPIs"
         selected_kpi_section = (
             f'<h2>{icon_target}{selected_scope_title}</h2>'
             f'<div class="summary">'
-            f'{render_kpi_card("nps", "NPS", (comparison.get("nps") or {}).get("selected"), icon_html=icon_nps)}'
-            f'{render_kpi_card("csat", "CSAT", (comparison.get("csat") or {}).get("selected"), suffix="%", icon_html=icon_csat)}'
-            f'{render_kpi_card("relationship_score", "Relationship Score", (comparison.get("relationship_score") or {}).get("selected"), icon_html=icon_handshake)}'
-            f'{render_kpi_card("competitor_exposure", "Competitive Exposure", (comparison.get("competitor_exposure") or {}).get("selected"), suffix="%", icon_html=icon_swords)}'
+            f'{render_kpi_card("nps", "NPS", selected_kpi_values["nps"], icon_html=icon_nps)}'
+            f'{render_kpi_card("csat", "CSAT", selected_kpi_values["csat"], suffix="%", icon_html=icon_csat)}'
+            f'{render_kpi_card("relationship_score", "Relationship Score", selected_kpi_values["relationship_score"], icon_html=icon_handshake)}'
+            f'{render_kpi_card("competitor_exposure", "Competitive Exposure", selected_kpi_values["competitor_exposure"], suffix="%", icon_html=icon_swords)}'
             f'</div>'
         )
 
+    overall_kpi_values = {
+        "nps": (comparison.get("nps") or {}).get("overall"),
+        "csat": (comparison.get("csat") or {}).get("overall"),
+        "relationship_score": (comparison.get("relationship_score") or {}).get("overall"),
+        "competitor_exposure": (comparison.get("competitor_exposure") or {}).get("overall"),
+    }
+    has_overall_kpis = any(value is not None for value in overall_kpi_values.values())
     overall_benchmark_section = ""
-    if include_overall:
+    if include_overall and has_overall_kpis:
         overall_benchmark_section = (
             f'<h2>{icon_globe}Overall Benchmark KPIs</h2>'
             f'<div class="summary">'
-            f'{render_kpi_card("nps", "NPS", (comparison.get("nps") or {}).get("overall"), icon_html=icon_nps)}'
-            f'{render_kpi_card("csat", "CSAT", (comparison.get("csat") or {}).get("overall"), suffix="%", icon_html=icon_csat)}'
-            f'{render_kpi_card("relationship_score", "Relationship Score", (comparison.get("relationship_score") or {}).get("overall"), icon_html=icon_handshake)}'
-            f'{render_kpi_card("competitor_exposure", "Competitive Exposure", (comparison.get("competitor_exposure") or {}).get("overall"), suffix="%", icon_html=icon_swords)}'
+            f'{render_kpi_card("nps", "NPS", overall_kpi_values["nps"], icon_html=icon_nps)}'
+            f'{render_kpi_card("csat", "CSAT", overall_kpi_values["csat"], suffix="%", icon_html=icon_csat)}'
+            f'{render_kpi_card("relationship_score", "Relationship Score", overall_kpi_values["relationship_score"], icon_html=icon_handshake)}'
+            f'{render_kpi_card("competitor_exposure", "Competitive Exposure", overall_kpi_values["competitor_exposure"], suffix="%", icon_html=icon_swords)}'
             f'</div>'
         )
 
