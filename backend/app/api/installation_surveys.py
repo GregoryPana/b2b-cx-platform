@@ -17,6 +17,7 @@ from email.mime.text import MIMEText
 from ..core.auth.dependencies import INSTALL_ROLES, get_current_user, require_roles
 from ..core.auth.entra import AuthUser
 from ..core.database import get_db
+from ..core.traffic_light import get_installation_metric_grade
 
 router = APIRouter(prefix="/installation", tags=["installation"])
 
@@ -1165,14 +1166,22 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
 
     def score_color_install(avg):
         """Return color for installation score (1-5 scale)."""
-        try:
-            a = float(avg)
-            if a >= 4.5: return "#22c55e"
-            if a >= 3.5: return "#84cc16"
-            if a >= 2.5: return "#f59e0b"
-            return "#ef4444"
-        except:
-            return None
+        return get_installation_metric_grade(avg).get("text")
+
+    def find_average(items: list[dict], key: str, target: str):
+        for item in items:
+            if item.get(key) == target:
+                return item.get("average_score")
+        return None
+
+    def stat_card(title: str, value, grade_value=None) -> str:
+        grade = get_installation_metric_grade(grade_value if grade_value is not None else value)
+        return (
+            f"<div class='stat-card' style='border-color:{grade['border']};background:{grade['background']};'>"
+            f"<div class='stat-card-top'><div class='stat-title'>{title}</div><div class='stat-pill' style='border-color:{grade['border']};color:{grade['text']};background:{grade['background']};'>{grade['label']}</div></div>"
+            f"<div class='stat-value' style='color:{grade['text']};'>{number(value)}</div>"
+            f"</div>"
+        )
 
     # Build question scores table rows
     question_rows_html = ""
@@ -1197,7 +1206,8 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
     # Build category table rows (without response count)
     category_rows_html = ""
     for cat in category_averages:
-        category_rows_html += f"<tr><td class='py-1 px-2'>{cat['category']}</td><td class='text-center'>{number(cat['average_score'])}</td></tr>"
+        grade = get_installation_metric_grade(cat.get("average_score"))
+        category_rows_html += f"<tr><td class='py-1 px-2'>{cat['category']}</td><td class='text-center' style='color:{grade['text']};font-weight:600'>{number(cat['average_score'])}</td></tr>"
 
     # Generate horizontal bar visualization for category averages
     category_bars_html = ""
@@ -1229,8 +1239,10 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
     th {{ background: #f1f5f9; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }}
     .stat-card {{ border: 1px solid #e2e8f0; padding: 1rem; border-radius: 6px; }}
+    .stat-card-top {{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }}
     .stat-title {{ font-size: 0.8rem; color: #64748b; text-transform: uppercase; }}
     .stat-value {{ font-size: 1.5rem; font-weight: 700; color: #0f766e; }}
+    .stat-pill {{ display:inline-flex; align-items:center; border:1px solid #e2e8f0; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:600; white-space:nowrap; }}
     .bar-row {{ display: grid; grid-template-columns: 180px 1fr 60px; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }}
     .bar-label {{ color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
     .bar-track {{ height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }}
@@ -1245,13 +1257,14 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
 
     if survey_detail:
         s = survey_detail
+        survey_grade = get_installation_metric_grade(s.get("overall_score"))
         html += f"""
         <h2>Survey Detail Report</h2>
         <div class='grid'>
-          <div class='stat-card'><div class='stat-title'>Customer</div><div class='stat-value'>{s['customer_name']}</div></div>
-          <div class='stat-card'><div class='stat-title'>Location</div><div class='stat-value'>{s['location']}</div></div>
-          <div class='stat-card'><div class='stat-title'>Date Work Done</div><div class='stat-value'>{s['date_work_done']}</div></div>
-          <div class='stat-card'><div class='stat-title'>Overall Score</div><div class='stat-value'>{number(s['overall_score'])}</div></div>
+          <div class='stat-card'><div class='stat-title'>Customer</div><div class='stat-value' style='color:#0f172a'>{s['customer_name']}</div></div>
+          <div class='stat-card'><div class='stat-title'>Location</div><div class='stat-value' style='color:#0f172a'>{s['location']}</div></div>
+          <div class='stat-card'><div class='stat-title'>Date Work Done</div><div class='stat-value' style='color:#0f172a'>{s['date_work_done']}</div></div>
+          <div class='stat-card' style='border-color:{survey_grade['border']};background:{survey_grade['background']};'><div class='stat-card-top'><div class='stat-title'>Overall Score</div><div class='stat-pill' style='border-color:{survey_grade['border']};color:{survey_grade['text']};background:{survey_grade['background']};'>{survey_grade['label']}</div></div><div class='stat-value' style='color:{survey_grade['text']}'>{number(s['overall_score'])}</div></div>
         </div>
         <p><strong>Inspector/Auditor:</strong> {s['inspector_name']}</p>
         <p><strong>Customer Type:</strong> {s['customer_type']}</p>
@@ -1263,18 +1276,26 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
         </table>
         """
     else:
+        avg_b2b = find_average(customer_type_averages, "customer_type", "B2B")
+        avg_b2c = find_average(customer_type_averages, "customer_type", "B2C")
+        avg_field_team = find_average(worker_type_averages, "worker_type", "Field Team")
+        avg_contractor = find_average(worker_type_averages, "worker_type", "Contractor")
         html += f"""
         <h2>Lifetime Analytics Report</h2>
         <div class='grid'>
-          <div class='stat-card'><div class='stat-title'>Total Surveys</div><div class='stat-value'>{total_surveys}</div></div>
-          <div class='stat-card'><div class='stat-title'>Overall Average</div><div class='stat-value'>{number(overall_avg)}</div></div>
+          <div class='stat-card'><div class='stat-title'>Total Surveys</div><div class='stat-value' style='color:#0f172a'>{total_surveys}</div></div>
+          {stat_card('Overall Average', overall_avg)}
+          {stat_card('B2B Average', avg_b2b)}
+          {stat_card('B2C Average', avg_b2c)}
+          {stat_card('Field Team Average', avg_field_team)}
+          {stat_card('Contractor Average', avg_contractor)}
         </div>
 
         <h3>Customer Type Averages</h3>
         <table>
           <thead><tr><th>Customer Type</th><th>Average Score</th><th>Survey Count</th></tr></thead>
           <tbody>
-            {"".join(f"<tr><td>{ct['customer_type']}</td><td class='text-center'>{number(ct['average_score'])}</td><td class='text-center'>{ct['survey_count']}</td></tr>" for ct in customer_type_averages)}
+            {"".join(f"<tr><td>{ct['customer_type']}</td><td class='text-center' style='color:{get_installation_metric_grade(ct.get('average_score'))['text']};font-weight:600'>{number(ct['average_score'])}</td><td class='text-center'>{ct['survey_count']}</td></tr>" for ct in customer_type_averages)}
           </tbody>
         </table>
 
@@ -1282,7 +1303,7 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
         <table>
           <thead><tr><th>Worker Type</th><th>Average Score</th><th>Survey Count</th></tr></thead>
           <tbody>
-            {"".join(f"<tr><td>{wt['worker_type']}</td><td class='text-center'>{number(wt['average_score'])}</td><td class='text-center'>{wt['survey_count']}</td></tr>" for wt in worker_type_averages)}
+            {"".join(f"<tr><td>{wt['worker_type']}</td><td class='text-center' style='color:{get_installation_metric_grade(wt.get('average_score'))['text']};font-weight:600'>{number(wt['average_score'])}</td><td class='text-center'>{wt['survey_count']}</td></tr>" for wt in worker_type_averages)}
           </tbody>
         </table>
 
@@ -1308,7 +1329,7 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
         <table>
           <thead><tr><th>Month</th><th>Average Score</th><th>Survey Count</th></tr></thead>
           <tbody>
-            {"".join(f"<tr><td>{format_period(t['period'])}</td><td class='text-center'>{number(t['average_score'])}</td><td class='text-center'>{t['survey_count']}</td></tr>" for t in monthly_trend)}
+            {"".join(f"<tr><td>{format_period(t['period'])}</td><td class='text-center' style='color:{get_installation_metric_grade(t.get('average_score'))['text']};font-weight:600'>{number(t['average_score'])}</td><td class='text-center'>{t['survey_count']}</td></tr>" for t in monthly_trend)}
           </tbody>
         </table>
         """

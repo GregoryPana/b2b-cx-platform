@@ -17,6 +17,7 @@ from pydantic import BaseModel, EmailStr
 from ..core.database import get_db
 from ..core.auth.dependencies import get_current_user, require_role
 from ..core.models import User
+from ..core.traffic_light import get_b2b_metric_grade
 from ..routers.analytics import get_comprehensive_analytics, get_question_averages, get_yes_no_question_analytics
 
 router = APIRouter(prefix="/dashboard-visits", tags=["dashboard-visits"])
@@ -1583,6 +1584,24 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         except Exception:
             return f"{value}{suffix}"
 
+    def format_metric_html(metric: str, value, suffix: str = ""):
+        grade = get_b2b_metric_grade(metric, value)
+        return f"<span style='color:{grade['text']};font-weight:700'>{format_metric(value, suffix)}</span>"
+
+    def render_kpi_card(metric: str, label: str, value, *, suffix: str = "", icon_html: str = "") -> str:
+        grade = get_b2b_metric_grade(metric, value)
+        icon_block = f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:4px;'>{icon_html}</div>" if icon_html else ""
+        return (
+            f"<div class='card' style='border-color:{grade['border']};background:{grade['background']};'>"
+            f"{icon_block}"
+            f"<div style='display:flex;align-items:flex-start;justify-content:space-between;gap:8px;'>"
+            f"<div class='label' style='color:{grade['muted_text']}'>{label}</div>"
+            f"<span class='kpi-pill' style='border-color:{grade['border']};color:{grade['text']};background:{grade['background']};'>{grade['label']}</span>"
+            f"</div>"
+            f"<div class='value' style='color:{grade['text']}'>{format_metric(value, suffix)}</div>"
+            f"</div>"
+        )
+
     if report_type == "action_points":
         from collections import OrderedDict
         from itertools import groupby
@@ -2049,10 +2068,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         selected_kpi_section = (
             f'<h2>{icon_target}{selected_scope_title}</h2>'
             f'<div class="summary">'
-            f'<div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">NPS</div><div class="value">{format_metric((comparison.get("nps") or {}).get("selected"))}</div></div>'
-            f'<div class="card">{icon_csat}<div class="label">CSAT</div><div class="value">{format_metric((comparison.get("csat") or {}).get("selected"), "%")}</div></div>'
-            f'<div class="card">{icon_handshake}<div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get("relationship_score") or {}).get("selected"))}</div></div>'
-            f'<div class="card">{icon_swords}<div class="label">Competitive Exposure</div><div class="value">{format_metric((comparison.get("competitor_exposure") or {}).get("selected"), "%")}</div></div>'
+            f'{render_kpi_card("nps", "NPS", (comparison.get("nps") or {}).get("selected"), icon_html=icon_nps)}'
+            f'{render_kpi_card("csat", "CSAT", (comparison.get("csat") or {}).get("selected"), suffix="%", icon_html=icon_csat)}'
+            f'{render_kpi_card("relationship_score", "Relationship Score", (comparison.get("relationship_score") or {}).get("selected"), icon_html=icon_handshake)}'
+            f'{render_kpi_card("competitor_exposure", "Competitive Exposure", (comparison.get("competitor_exposure") or {}).get("selected"), suffix="%", icon_html=icon_swords)}'
             f'</div>'
         )
 
@@ -2061,10 +2080,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         overall_benchmark_section = (
             f'<h2>{icon_globe}Overall Benchmark KPIs</h2>'
             f'<div class="summary">'
-            f'<div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">{icon_nps}</div><div class="label">NPS</div><div class="value">{format_metric((comparison.get("nps") or {}).get("overall"))}</div></div>'
-            f'<div class="card">{icon_csat}<div class="label">CSAT</div><div class="value">{format_metric((comparison.get("csat") or {}).get("overall"), "%")}</div></div>'
-            f'<div class="card">{icon_handshake}<div class="label">Relationship Score</div><div class="value">{format_metric((comparison.get("relationship_score") or {}).get("overall"))}</div></div>'
-            f'<div class="card">{icon_swords}<div class="label">Competitive Exposure</div><div class="value">{format_metric((comparison.get("competitor_exposure") or {}).get("overall"), "%")}</div></div>'
+            f'{render_kpi_card("nps", "NPS", (comparison.get("nps") or {}).get("overall"), icon_html=icon_nps)}'
+            f'{render_kpi_card("csat", "CSAT", (comparison.get("csat") or {}).get("overall"), suffix="%", icon_html=icon_csat)}'
+            f'{render_kpi_card("relationship_score", "Relationship Score", (comparison.get("relationship_score") or {}).get("overall"), icon_html=icon_handshake)}'
+            f'{render_kpi_card("competitor_exposure", "Competitive Exposure", (comparison.get("competitor_exposure") or {}).get("overall"), suffix="%", icon_html=icon_swords)}'
             f'</div>'
         )
 
@@ -2130,10 +2149,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f'<h2>Selected vs Overall Comparison</h2><div class="table-wrap"><table>'
             f'<thead><tr><th>Metric</th><th>Selected Scope</th><th>Overall Scope</th><th>Interpretation</th></tr></thead>'
             f'<tbody>'
-            f'<tr><td>NPS</td><td>{format_metric((comparison.get("nps") or {}).get("selected"))}</td><td>{format_metric((comparison.get("nps") or {}).get("overall"))}</td><td>Higher is better. Positive means more promoters than detractors.</td></tr>'
-            f'<tr><td>CSAT</td><td>{format_metric((comparison.get("csat") or {}).get("selected"), "%")}</td><td>{format_metric((comparison.get("csat") or {}).get("overall"), "%")}</td><td>Higher means more satisfied accounts.</td></tr>'
-            f'<tr><td>Overall Relationship Score</td><td>{format_metric((comparison.get("relationship_score") or {}).get("selected"))}</td><td>{format_metric((comparison.get("relationship_score") or {}).get("overall"))}</td><td>Composite relationship strength score (0-100).</td></tr>'
-            f'<tr><td>Competitor Exposure</td><td>{format_metric((comparison.get("competitor_exposure") or {}).get("selected"), "%")}</td><td>{format_metric((comparison.get("competitor_exposure") or {}).get("overall"), "%")}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>'
+            f'<tr><td>NPS</td><td>{format_metric_html("nps", (comparison.get("nps") or {}).get("selected"))}</td><td>{format_metric_html("nps", (comparison.get("nps") or {}).get("overall"))}</td><td>Higher is better. Positive means more promoters than detractors.</td></tr>'
+            f'<tr><td>CSAT</td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("selected"), "%")}</td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("overall"), "%")}</td><td>Higher means more satisfied accounts.</td></tr>'
+            f'<tr><td>Overall Relationship Score</td><td>{format_metric_html("relationship_score", (comparison.get("relationship_score") or {}).get("selected"))}</td><td>{format_metric_html("relationship_score", (comparison.get("relationship_score") or {}).get("overall"))}</td><td>Composite relationship strength score (0-100).</td></tr>'
+            f'<tr><td>Competitor Exposure</td><td>{format_metric_html("competitor_exposure", (comparison.get("competitor_exposure") or {}).get("selected"), "%")}</td><td>{format_metric_html("competitor_exposure", (comparison.get("competitor_exposure") or {}).get("overall"), "%")}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>'
             f'</tbody></table></div>'
         )
 
@@ -2193,6 +2212,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     .card {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; background: #f9fafb; margin-bottom: 4px; }}
     .label {{ font-size: 12px; color: #64748b; font-weight: 500; }}
     .value {{ font-size: 20px; font-weight: 700; color: #0f172a; line-height: 1.2; }}
+    .kpi-pill {{ display:inline-flex; align-items:center; border:1px solid #e2e8f0; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:600; white-space:nowrap; }}
     table {{ width: 100%; border-collapse: collapse; margin-top: 10px; word-wrap: break-word; }}
     th, td {{ border: 1px solid #e5e7eb; padding: 10px 12px; font-size: 13px; text-align: left; color: #334155; }}
     th {{ background: #f1f5f9; font-weight: 600; color: #1e293b; }}

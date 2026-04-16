@@ -10,7 +10,7 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Textarea } from "../components/ui/textarea";
-import { cn } from "../lib/utils";
+import { cn, getTrafficLightMetric } from "../lib/utils";
 import InstallationAnalyticsView from "../components/installation/InstallationAnalyticsView";
 import InstallationSurveyExplorer from "../components/installation/InstallationSurveyExplorer";
 import InstallationTrendsView from "../components/installation/InstallationTrendsView";
@@ -1287,23 +1287,47 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
    const analyticsCards = [
      ...(isMysteryShopperPlatform
-       ? [
-           { title: "Total Responses", value: analytics?.nps?.total_responses ?? 0 },
-           { title: "Draft Visits", value: analytics?.visits?.draft ?? 0 },
-           { title: "Pending Visits", value: analytics?.visits?.pending ?? 0 },
-           { title: "Review Queue", value: pendingVisits.length },
-         ]
-       : [
-           { title: "NPS", value: analytics?.nps?.nps ?? "--" },
-           { title: "CSAT", value: `${analytics?.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "--"}%` },
-         ]),
+        ? [
+            { title: "Total Responses", value: analytics?.nps?.total_responses ?? 0 },
+            { title: "Draft Visits", value: analytics?.visits?.draft ?? 0 },
+            { title: "Pending Visits", value: analytics?.visits?.pending ?? 0 },
+            { title: "Review Queue", value: pendingVisits.length },
+          ]
+        : [
+            { title: "NPS", value: analytics?.nps?.nps ?? "--", numericValue: analytics?.nps?.nps, metric: "b2b_nps" },
+            { title: "CSAT", value: `${analytics?.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "--"}%`, numericValue: analytics?.customer_satisfaction?.csat_score, metric: "b2b_csat" },
+          ]),
      ...(isB2BPlatform && !isMysteryShopperPlatform
-       ? [
-           { title: "Relationship Score", value: analytics?.relationship_score?.score?.toFixed?.(1) ?? "--" },
-           { title: "Competitive Exposure", value: `${analytics?.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "--"}%` }
-         ]
-       : []),
-    ];
+        ? [
+            { title: "Relationship Score", value: analytics?.relationship_score?.score?.toFixed?.(1) ?? "--", numericValue: analytics?.relationship_score?.score, metric: "b2b_relationship" },
+            { title: "Competitive Exposure", value: `${analytics?.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "--"}%`, numericValue: analytics?.competitive_exposure?.exposure_rate, metric: "b2b_competitive_exposure" }
+          ]
+        : []),
+     ];
+
+   const reportMetricCards = [
+     { title: "Selected NPS", value: reportPreview?.analytics_comparison?.nps?.selected ?? "--", metric: "b2b_nps" },
+     ...(reportType === "lifetime" ? [{ title: "Overall NPS", value: reportPreview?.analytics_comparison?.nps?.overall ?? "--", metric: "b2b_nps" }] : []),
+     { title: "Selected CSAT", value: `${reportPreview?.analytics_comparison?.csat?.selected?.toFixed?.(1) ?? "--"}%`, metric: "b2b_csat" },
+     ...(reportType === "lifetime" ? [{ title: "Overall CSAT", value: `${reportPreview?.analytics_comparison?.csat?.overall?.toFixed?.(1) ?? "--"}%`, metric: "b2b_csat" }] : []),
+     { title: "Selected Relationship", value: reportPreview?.analytics_comparison?.relationship_score?.selected?.toFixed?.(1) ?? "--", metric: "b2b_relationship" },
+     ...(reportType === "lifetime" ? [{ title: "Overall Relationship", value: reportPreview?.analytics_comparison?.relationship_score?.overall?.toFixed?.(1) ?? "--", metric: "b2b_relationship" }] : []),
+     { title: "Selected Competitive Exposure", value: `${reportPreview?.analytics_comparison?.competitor_exposure?.selected?.toFixed?.(1) ?? "--"}%`, metric: "b2b_competitive_exposure" },
+     ...(reportType === "lifetime" ? [{ title: "Overall Competitive Exposure", value: `${reportPreview?.analytics_comparison?.competitor_exposure?.overall?.toFixed?.(1) ?? "--"}%`, metric: "b2b_competitive_exposure" }] : []),
+   ];
+
+   const installPreviewAverage = (items, key, target) => {
+     const match = (Array.isArray(items) ? items : []).find((item) => item[key] === target);
+     return match?.average_score ?? null;
+   };
+
+   const installationReportMetricCards = [
+     { title: "Overall Average", value: installReportPreview?.summary?.overall_average_score?.toFixed?.(2) ?? "--", metric: "installation_average" },
+     { title: "B2B Average", value: installPreviewAverage(installReportPreview?.customer_type_averages, "customer_type", "B2B")?.toFixed?.(2) ?? "--", metric: "installation_average" },
+     { title: "B2C Average", value: installPreviewAverage(installReportPreview?.customer_type_averages, "customer_type", "B2C")?.toFixed?.(2) ?? "--", metric: "installation_average" },
+     { title: "Field Team Average", value: installPreviewAverage(installReportPreview?.worker_type_averages, "worker_type", "Field Team")?.toFixed?.(2) ?? "--", metric: "installation_average" },
+     { title: "Contractor Average", value: installPreviewAverage(installReportPreview?.worker_type_averages, "worker_type", "Contractor")?.toFixed?.(2) ?? "--", metric: "installation_average" },
+   ];
 
    // Prepare NPS pie data
    const npsPieData = useMemo(() => {
@@ -2077,14 +2101,19 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           ) : null}
 
           <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {analyticsCards.map((card) => (
-              <Card key={card.title} className="transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+            {analyticsCards.map((card) => {
+              const grade = getTrafficLightMetric(card.metric, card.numericValue ?? card.value);
+              return (
+              <Card key={card.title} className={cn("transition-all duration-200 hover:-translate-y-1 hover:shadow-lg", card.metric ? grade.card : "")}>
                 <CardHeader className="pb-2">
-                  <CardDescription>{card.title}</CardDescription>
-                  <CardTitle className="text-3xl">{card.value}</CardTitle>
+                  <div className="flex items-start justify-between gap-3">
+                    <CardDescription>{card.title}</CardDescription>
+                    {card.metric ? <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", grade.badge)}>{grade.label}</span> : null}
+                  </div>
+                  <CardTitle className={cn("text-3xl", card.metric ? grade.value : "")}>{card.value}</CardTitle>
                 </CardHeader>
               </Card>
-            ))}
+            );})}
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -2175,7 +2204,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col items-center">
-                  <div className="text-6xl font-bold mb-4" style={{ color: "hsl(var(--primary))" }}>
+                  <div className={cn("mb-4 text-6xl font-bold", getTrafficLightMetric("b2b_nps", analytics?.nps?.nps).value)}>
                     {analytics?.nps?.nps ?? "--"}
                   </div>
                   
@@ -2235,7 +2264,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col items-center">
-                  <div className="text-6xl font-bold mb-4" style={{ color: "hsl(var(--primary))" }}>
+                  <div className={cn("mb-4 text-6xl font-bold", getTrafficLightMetric("b2b_csat", analytics?.customer_satisfaction?.csat_score).value)}>
                     {analytics?.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "--"}%
                   </div>
                   
@@ -2289,7 +2318,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
           {isB2BPlatform ? (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 mt-6">
-              <Card className="min-w-0">
+              <Card className={cn("min-w-0", getTrafficLightMetric("b2b_relationship", analytics?.relationship_score?.score).card)}>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     Overall Relationship Score
@@ -2298,7 +2327,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   <CardDescription>A simple 0-100 score that summarizes relationship quality from key relationship questions. Higher means a stronger relationship.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="text-4xl font-semibold">{analytics?.relationship_score?.score?.toFixed?.(1) ?? "--"}</div>
+                  <div className={cn("text-4xl font-semibold", getTrafficLightMetric("b2b_relationship", analytics?.relationship_score?.score).value)}>{analytics?.relationship_score?.score?.toFixed?.(1) ?? "--"}</div>
                   <div className="min-w-0 h-48">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <BarChart data={relationshipGraphData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
@@ -2322,7 +2351,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   </div>
                 </CardContent>
               </Card>
-              <Card className="min-w-0">
+              <Card className={cn("min-w-0", getTrafficLightMetric("b2b_competitive_exposure", analytics?.competitive_exposure?.exposure_rate).card)}>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     Competitive Exposure
@@ -2331,7 +2360,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   <CardDescription>Shows how many customers also use competitor services. Lower is better for retention.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="text-4xl font-semibold">{analytics?.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</div>
+                  <div className={cn("text-4xl font-semibold", getTrafficLightMetric("b2b_competitive_exposure", analytics?.competitive_exposure?.exposure_rate).value)}>{analytics?.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</div>
                   <div className="min-w-0 h-48">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <BarChart data={competitorGraphData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
@@ -2896,11 +2925,22 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                   <p className="text-sm font-semibold">Report Preview Summary</p>
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
                     <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Total Surveys</p><p className="text-lg font-semibold">{installReportPreview.summary?.total_surveys ?? 0}</p></div>
-                    <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall Average</p><p className="text-lg font-semibold">{installReportPreview.summary?.overall_average_score?.toFixed(2) ?? "--"}</p></div>
                     <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Categories</p><p className="text-lg font-semibold">{installReportPreview.category_averages?.length ?? 0}</p></div>
                     {installReportPreview.survey_detail && (
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Survey Score</p><p className="text-lg font-semibold">{installReportPreview.survey_detail?.overall_score?.toFixed(2) ?? "--"}</p></div>
+                      <div className={cn("rounded-md border p-2", getTrafficLightMetric("installation_average", installReportPreview.survey_detail?.overall_score).card)}><p className="text-xs text-muted-foreground">Survey Score</p><p className={cn("text-lg font-semibold", getTrafficLightMetric("installation_average", installReportPreview.survey_detail?.overall_score).value)}>{installReportPreview.survey_detail?.overall_score?.toFixed(2) ?? "--"}</p></div>
                     )}
+                    {installationReportMetricCards.filter((card) => card.value !== "--").map((card) => {
+                      const grade = getTrafficLightMetric(card.metric, card.value);
+                      return (
+                        <div key={card.title} className={cn("rounded-md border p-2", grade.card)}>
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-xs text-muted-foreground">{card.title}</p>
+                            <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", grade.badge)}>{grade.label}</span>
+                          </div>
+                          <p className={cn("text-lg font-semibold", grade.value)}>{card.value}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                   <p className="text-xs text-muted-foreground">Scoring Range: {installReportPreview.scoring_range || "1-5"}</p>
                   {installReportPreviewHtml ? (
@@ -3173,12 +3213,20 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Visits</p><p className="text-lg font-semibold">{reportPreview.summary?.total_visits ?? 0}</p></div>
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Businesses</p><p className="text-lg font-semibold">{reportPreview.summary?.total_businesses ?? 0}</p></div>
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Selected NPS</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.nps?.selected ?? "--"}</p></div>
-                      {reportType === "lifetime" ? <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall NPS</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.nps?.overall ?? "--"}</p></div> : null}
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Selected CSAT</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.csat?.selected?.toFixed?.(1) ?? "--"}%</p></div>
-                      {reportType === "lifetime" ? <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Overall CSAT</p><p className="text-lg font-semibold">{reportPreview.analytics_comparison?.csat?.overall?.toFixed?.(1) ?? "--"}%</p></div> : null}
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Outstanding Action Points</p><p className="text-lg font-semibold">{(reportPreview.action_points || []).filter((item) => item.action_status !== "Completed").length}</p></div>
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Completed Action Points</p><p className="text-lg font-semibold">{(reportPreview.action_points || []).filter((item) => item.action_status === "Completed").length}</p></div>
+                      {reportMetricCards.filter((card) => card.value !== "--" && card.value !== "--%").map((card) => {
+                        const grade = getTrafficLightMetric(card.metric, card.value);
+                        return (
+                          <div key={card.title} className={cn("rounded-md border p-2", grade.card)}>
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-xs text-muted-foreground">{card.title}</p>
+                              <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", grade.badge)}>{grade.label}</span>
+                            </div>
+                            <p className={cn("text-lg font-semibold", grade.value)}>{card.value}</p>
+                          </div>
+                        );
+                      })}
                     </div>
                     <p className="text-xs text-muted-foreground">Includes executive metrics (NPS, CSAT, Relationship, Competitor Exposure), selected-vs-overall comparison, and yes/no analytics in a visual report format.</p>
                     {reportPreviewHtml ? (

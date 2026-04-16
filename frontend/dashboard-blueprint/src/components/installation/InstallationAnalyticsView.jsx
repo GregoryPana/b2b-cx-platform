@@ -2,6 +2,7 @@ import { CircleHelp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import { cn, getTrafficLightMetric } from "../../lib/utils";
 
 function Hint({ text }) {
   return (
@@ -60,11 +61,11 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
 
   const cards = [
     { title: "Total Surveys", value: analytics?.summary?.total_surveys ?? 0 },
-    { title: "Overall Average", value: overallAverage != null ? Number(overallAverage).toFixed(2) : "--" },
-    { title: "B2B Average", value: avgB2B != null ? Number(avgB2B).toFixed(2) : "--" },
-    { title: "B2C Average", value: avgB2C != null ? Number(avgB2C).toFixed(2) : "--" },
-    { title: "Field Team Average", value: avgFieldTeam != null ? Number(avgFieldTeam).toFixed(2) : "--" },
-    { title: "Contractor Average", value: avgContractor != null ? Number(avgContractor).toFixed(2) : "--" },
+    { title: "Overall Average", value: overallAverage != null ? Number(overallAverage).toFixed(2) : "--", numericValue: overallAverage, metric: "installation_average" },
+    { title: "B2B Average", value: avgB2B != null ? Number(avgB2B).toFixed(2) : "--", numericValue: avgB2B, metric: "installation_average" },
+    { title: "B2C Average", value: avgB2C != null ? Number(avgB2C).toFixed(2) : "--", numericValue: avgB2C, metric: "installation_average" },
+    { title: "Field Team Average", value: avgFieldTeam != null ? Number(avgFieldTeam).toFixed(2) : "--", numericValue: avgFieldTeam, metric: "installation_average" },
+    { title: "Contractor Average", value: avgContractor != null ? Number(avgContractor).toFixed(2) : "--", numericValue: avgContractor, metric: "installation_average" },
   ];
 
   return (
@@ -81,15 +82,20 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {cards.map((card) => (
-          <Card key={card.title}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {cards.map((card) => {
+          const grade = getTrafficLightMetric(card.metric, card.numericValue ?? card.value);
+          return (
+          <Card key={card.title} className={cn(card.metric ? grade.card : "")}>
             <CardHeader className="pb-2">
-              <CardDescription>{card.title}</CardDescription>
-              <CardTitle className="text-3xl">{card.value}</CardTitle>
+              <div className="flex items-start justify-between gap-3">
+                <CardDescription>{card.title}</CardDescription>
+                {card.metric ? <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", grade.badge)}>{grade.label}</span> : null}
+              </div>
+              <CardTitle className={cn("text-3xl", card.metric ? grade.value : "")}>{card.value}</CardTitle>
             </CardHeader>
           </Card>
-        ))}
+        );})}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
