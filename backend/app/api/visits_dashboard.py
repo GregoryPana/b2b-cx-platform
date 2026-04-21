@@ -1590,13 +1590,13 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 
     def render_kpi_card(metric: str, label: str, value, *, suffix: str = "", icon_html: str = "") -> str:
         grade = get_b2b_metric_grade(metric, value)
-        icon_block = f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:4px;'>{icon_html}</div>" if icon_html else ""
+        icon_block = f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:4px;color:{grade['accent']};'>{icon_html}</div>" if icon_html else ""
         return (
-            f"<div class='card' style='border-color:{grade['border']};background:{grade['background']};'>"
+            f"<div class='card kpi-card' style='border-color:{grade['border']};background:{grade['background']};border-left:8px solid {grade['accent']};'>"
             f"{icon_block}"
             f"<div style='display:flex;align-items:flex-start;justify-content:space-between;gap:8px;'>"
             f"<div class='label' style='color:{grade['muted_text']}'>{label}</div>"
-            f"<span class='kpi-pill' style='border-color:{grade['border']};color:{grade['text']};background:{grade['background']};'>{grade['label']}</span>"
+            f"<span class='kpi-pill' style='border-color:{grade['accent']};color:{grade['badge_text']};background:{grade['accent']};'>{grade['label']}</span>"
             f"</div>"
             f"<div class='value' style='color:{grade['text']}'>{format_metric(value, suffix)}</div>"
             f"</div>"

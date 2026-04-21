@@ -8,6 +8,8 @@ TRAFFIC_LIGHT_STYLES = {
         "border": "#86efac",
         "text": "#166534",
         "muted_text": "#166534",
+        "accent": "#16a34a",
+        "badge_text": "#ffffff",
     },
     "warning": {
         "label": "Watch",
@@ -15,6 +17,8 @@ TRAFFIC_LIGHT_STYLES = {
         "border": "#fcd34d",
         "text": "#b45309",
         "muted_text": "#92400e",
+        "accent": "#f59e0b",
+        "badge_text": "#111827",
     },
     "bad": {
         "label": "Needs attention",
@@ -22,6 +26,8 @@ TRAFFIC_LIGHT_STYLES = {
         "border": "#fda4af",
         "text": "#be123c",
         "muted_text": "#9f1239",
+        "accent": "#e11d48",
+        "badge_text": "#ffffff",
     },
     "neutral": {
         "label": "No data",
@@ -29,6 +35,8 @@ TRAFFIC_LIGHT_STYLES = {
         "border": "#cbd5e1",
         "text": "#0f172a",
         "muted_text": "#475569",
+        "accent": "#64748b",
+        "badge_text": "#ffffff",
     },
 }
 
