@@ -80,11 +80,16 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
   const table = useReactTable({
     data: tableData,
     columns,
-    state: { sorting, columnFilters, columnVisibility },
+    state: {
+      sorting: selectedExecutive?.id ? [] : sorting,
+      columnFilters,
+      columnVisibility,
+    },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
+    getRowId: (row) => String(row.id),
     defaultColumn: { minSize: 120, size: 180, maxSize: 520 },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
