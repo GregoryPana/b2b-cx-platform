@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -90,7 +91,13 @@ class InstallationSurveyCreateRequest(BaseModel):
     location: str
     date_work_done: date
     job_done_by: str
+    contractor_name: str | None = None
+    field_team_members: list[str] = Field(default_factory=list)
     responses: list[InstallationResponseInput]
+
+
+class InstallationContractorCreateRequest(BaseModel):
+    name: str
 
 
 def _normalize_worker_type(value: str | None) -> str:
@@ -106,10 +113,151 @@ def _normalize_customer_type(value: str | None) -> str:
     return (value or "").strip().upper()
 
 
+def _normalize_optional_name(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    return normalized or None
+
+
+def _normalize_field_team_members(values: list[str] | None) -> list[str]:
+    members: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values or []:
+        normalized = (raw_value or "").strip()
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        members.append(normalized)
+        if len(members) >= 5:
+            break
+    return members
+
+
+def _read_field_team_members(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return _normalize_field_team_members(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return _normalize_field_team_members(parsed)
+        except Exception:
+            return []
+    return []
+
+
 def _to_float(value: Decimal | float | int | None) -> float | None:
     if value is None:
         return None
     return round(float(value), 2)
+
+
+def _contractor_exists(db: Session, contractor_name: str) -> bool:
+    row = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM installation_contractors
+            WHERE active = true
+              AND lower(name) = lower(:name)
+            LIMIT 1
+            """
+        ),
+        {"name": contractor_name},
+    ).scalar()
+    return bool(row)
+
+
+@router.get("/contractors", dependencies=[Depends(require_roles(*INSTALL_ROLES))])
+def list_installation_contractors(
+    q: str | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    try:
+        effective_limit = max(1, min(limit, 100))
+        query = (q or "").strip()
+        params: dict[str, object] = {"limit": effective_limit}
+        where_clause = "WHERE active = true"
+        if query:
+            where_clause += " AND lower(name) LIKE lower(:query)"
+            params["query"] = f"%{query}%"
+
+        rows = db.execute(
+            text(
+                f"""
+                SELECT id, name, created_at
+                FROM installation_contractors
+                {where_clause}
+                ORDER BY name ASC
+                LIMIT :limit
+                """
+            ),
+            params,
+        ).mappings().all()
+
+        return [
+            {
+                "id": int(row["id"]),
+                "name": row["name"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            }
+            for row in rows
+        ]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load installation contractors: {exc}")
+
+
+@router.post("/contractors", dependencies=[Depends(require_roles(*INSTALL_ROLES))])
+def create_installation_contractor(
+    payload: InstallationContractorCreateRequest,
+    db: Session = Depends(get_db),
+):
+    contractor_name = (payload.name or "").strip()
+    if not contractor_name:
+        raise HTTPException(status_code=400, detail="Contractor name is required")
+
+    try:
+        row = db.execute(
+            text(
+                """
+                INSERT INTO installation_contractors (name, active)
+                VALUES (:name, true)
+                ON CONFLICT DO NOTHING
+                RETURNING id, name, created_at
+                """
+            ),
+            {"name": contractor_name},
+        ).mappings().first()
+
+        if not row:
+            row = db.execute(
+                text(
+                    """
+                    SELECT id, name, created_at
+                    FROM installation_contractors
+                    WHERE lower(name) = lower(:name)
+                    LIMIT 1
+                    """
+                ),
+                {"name": contractor_name},
+            ).mappings().first()
+
+        db.commit()
+
+        return {
+            "id": int(row["id"]),
+            "name": row["name"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "message": "Contractor created",
+        }
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create contractor: {exc}")
 
 
 def _build_installation_where_clause(
@@ -186,6 +334,8 @@ def create_installation_survey(
     location = payload.location.strip()
     customer_type = _normalize_customer_type(payload.customer_type)
     worker_type = _normalize_worker_type(payload.job_done_by)
+    contractor_name = _normalize_optional_name(payload.contractor_name)
+    field_team_members = _normalize_field_team_members(payload.field_team_members)
 
     if not inspector_name:
         raise HTTPException(status_code=400, detail="Quality Assurance Inspector name is required")
@@ -199,6 +349,19 @@ def create_installation_survey(
         raise HTTPException(status_code=400, detail="customer_type must be B2B or B2C")
     if worker_type not in ALLOWED_WORKER_TYPES:
         raise HTTPException(status_code=400, detail="job_done_by must be Field Team or Contractor")
+
+    if worker_type == "Contractor":
+        if not contractor_name:
+            raise HTTPException(status_code=400, detail="Contractor name is required when job_done_by is Contractor")
+        if not _contractor_exists(db, contractor_name):
+            raise HTTPException(status_code=400, detail="Selected contractor does not exist. Please add it in Contractors first.")
+        field_team_members = []
+    else:
+        contractor_name = None
+        if len(field_team_members) == 0:
+            raise HTTPException(status_code=400, detail="At least one field team member name is required when job_done_by is Field Team")
+        if len(field_team_members) > 5:
+            raise HTTPException(status_code=400, detail="A maximum of 5 field team member names is allowed")
 
     questions = _get_installation_questions(db)
     if not questions:
@@ -232,6 +395,8 @@ def create_installation_survey(
                     location,
                     date_work_done,
                     job_done_by,
+                    contractor_name,
+                    field_team_members,
                     overall_score,
                     created_by_name,
                     created_by_email
@@ -244,6 +409,8 @@ def create_installation_survey(
                     :location,
                     :date_work_done,
                     :job_done_by,
+                    :contractor_name,
+                    CAST(:field_team_members AS jsonb),
                     :overall_score,
                     :created_by_name,
                     :created_by_email
@@ -259,6 +426,8 @@ def create_installation_survey(
                 "location": location,
                 "date_work_done": payload.date_work_done,
                 "job_done_by": worker_type,
+                "contractor_name": contractor_name,
+                "field_team_members": json.dumps(field_team_members),
                 "overall_score": overall_score,
                 "created_by_name": created_by_name,
                 "created_by_email": created_by_email,
@@ -365,6 +534,8 @@ def list_installation_surveys(
                     s.location,
                     s.date_work_done,
                     s.job_done_by,
+                    s.contractor_name,
+                    s.field_team_members,
                     s.overall_score,
                     s.created_by_name,
                     s.created_by_email,
@@ -387,6 +558,8 @@ def list_installation_surveys(
                 "location": row["location"],
                 "date_work_done": row["date_work_done"].isoformat() if row["date_work_done"] else None,
                 "job_done_by": row["job_done_by"],
+                "contractor_name": row["contractor_name"],
+                "field_team_members": _read_field_team_members(row["field_team_members"]),
                 "overall_score": _to_float(row["overall_score"]),
                 "created_by_name": row["created_by_name"],
                 "created_by_email": row["created_by_email"],
@@ -413,6 +586,8 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
                     location,
                     date_work_done,
                     job_done_by,
+                    contractor_name,
+                    field_team_members,
                     overall_score,
                     created_by_name,
                     created_by_email,
@@ -453,6 +628,8 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
             "location": survey["location"],
             "date_work_done": survey["date_work_done"].isoformat() if survey["date_work_done"] else None,
             "job_done_by": survey["job_done_by"],
+            "contractor_name": survey["contractor_name"],
+            "field_team_members": _read_field_team_members(survey["field_team_members"]),
             "overall_score": _to_float(survey["overall_score"]),
             "created_by_name": survey["created_by_name"],
             "created_by_email": survey["created_by_email"],
@@ -532,7 +709,26 @@ def get_installation_analytics(
             ),
             params,
         ).mappings().all()
+
         worker_map = {row["worker_type"]: row for row in worker_rows}
+
+        contractor_rows = db.execute(
+            text(
+                f"""
+                SELECT
+                    s.contractor_name,
+                    COUNT(*) AS survey_count,
+                    AVG(s.overall_score)::numeric(10,2) AS average_score
+                FROM installation_surveys s
+                WHERE {where_sql}
+                  AND s.job_done_by = 'Contractor'
+                  AND COALESCE(s.contractor_name, '') <> ''
+                GROUP BY s.contractor_name
+                ORDER BY average_score DESC NULLS LAST, survey_count DESC, s.contractor_name ASC
+                """
+            ),
+            params,
+        ).mappings().all()
 
         question_rows = db.execute(
             text(
@@ -671,6 +867,14 @@ def get_installation_analytics(
             },
             "customer_type_averages": customer_type_averages,
             "worker_type_averages": worker_type_averages,
+            "contractor_breakdown": [
+                {
+                    "contractor_name": row["contractor_name"],
+                    "survey_count": int(row["survey_count"] or 0),
+                    "average_score": _to_float(row["average_score"]),
+                }
+                for row in contractor_rows
+            ],
             "category_averages": category_averages,
             "question_averages": question_averages,
             "monthly_trend": [
@@ -880,6 +1084,24 @@ def export_installation_report(
             params,
         ).mappings().all()
 
+        contractor_rows = db.execute(
+            text(
+                f"""
+                SELECT
+                    s.contractor_name,
+                    COUNT(*) AS survey_count,
+                    AVG(s.overall_score)::numeric(10,2) AS average_score
+                FROM installation_surveys s
+                WHERE {where_sql}
+                  AND s.job_done_by = 'Contractor'
+                  AND COALESCE(s.contractor_name, '') <> ''
+                GROUP BY s.contractor_name
+                ORDER BY average_score DESC NULLS LAST, survey_count DESC, s.contractor_name ASC
+                """
+            ),
+            params,
+        ).mappings().all()
+
         # Category averages
         category_rows = db.execute(
             text(
@@ -944,7 +1166,7 @@ def export_installation_report(
             survey = db.execute(
                 text(
                     """
-                    SELECT id, inspector_name, work_order, customer_name, customer_type, location, date_work_done, job_done_by, overall_score, created_at
+                    SELECT id, inspector_name, work_order, customer_name, customer_type, location, date_work_done, job_done_by, contractor_name, field_team_members, overall_score, created_at
                     FROM installation_surveys
                     WHERE id = CAST(:survey_id AS uuid)
                     """
@@ -975,6 +1197,8 @@ def export_installation_report(
                     "location": survey["location"],
                     "date_work_done": survey["date_work_done"].isoformat() if survey["date_work_done"] else None,
                     "job_done_by": survey["job_done_by"],
+                    "contractor_name": survey["contractor_name"],
+                    "field_team_members": _read_field_team_members(survey["field_team_members"]),
                     "overall_score": _to_float(survey["overall_score"]),
                     "created_at": survey["created_at"].isoformat() if survey["created_at"] else None,
                     "responses": [
@@ -1009,6 +1233,14 @@ def export_installation_report(
                     "average_score": _to_float(row["average_score"]),
                 }
                 for row in worker_rows
+            ],
+            "contractor_breakdown": [
+                {
+                    "contractor_name": row["contractor_name"],
+                    "survey_count": int(row["survey_count"]),
+                    "average_score": _to_float(row["average_score"]),
+                }
+                for row in contractor_rows
             ],
             "category_averages": [
                 {
@@ -1090,7 +1322,8 @@ def email_installation_report(
     )
 
     # Render HTML
-    report_html = render_installation_report_html(payload, getattr(current_user, "name", "Unknown User"))
+    report_payload = payload.get("report") if isinstance(payload, dict) else payload
+    report_html = render_installation_report_html(report_payload or {}, getattr(current_user, "name", "Unknown User"))
 
     subject = request.subject or "Installation Assessment Report"
     message = MIMEMultipart("alternative")
@@ -1141,6 +1374,7 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
 
     customer_type_averages = payload.get("customer_type_averages", [])
     worker_type_averages = payload.get("worker_type_averages", [])
+    contractor_breakdown = payload.get("contractor_breakdown", [])
     category_averages = payload.get("category_averages", [])
     question_averages = payload.get("question_averages", [])
     monthly_trend = payload.get("monthly_trend", [])
@@ -1258,6 +1492,7 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
     if survey_detail:
         s = survey_detail
         survey_grade = get_installation_metric_grade(s.get("overall_score"))
+        member_names = ", ".join(_read_field_team_members(s.get("field_team_members")))
         html += f"""
         <h2>Survey Detail Report</h2>
         <div class='grid'>
@@ -1269,6 +1504,8 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
         <p><strong>Inspector/Auditor:</strong> {s['inspector_name']}</p>
         <p><strong>Customer Type:</strong> {s['customer_type']}</p>
         <p><strong>Worker Type:</strong> {s['job_done_by']}</p>
+        <p><strong>Contractor Name:</strong> {s.get('contractor_name') or '--'}</p>
+        <p><strong>Field Team Members:</strong> {member_names or '--'}</p>
         <h3>Question Scores (Range: {scoring_range})</h3>
         <table>
           <thead><tr><th>Question</th><th>Score</th><th>Range</th></tr></thead>
@@ -1304,6 +1541,14 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
           <thead><tr><th>Worker Type</th><th>Average Score</th><th>Survey Count</th></tr></thead>
           <tbody>
             {"".join(f"<tr><td>{wt['worker_type']}</td><td class='text-center' style='color:{get_installation_metric_grade(wt.get('average_score'))['text']};font-weight:600'>{number(wt['average_score'])}</td><td class='text-center'>{wt['survey_count']}</td></tr>" for wt in worker_type_averages)}
+          </tbody>
+        </table>
+
+        <h3>Contractor Breakdown</h3>
+        <table>
+          <thead><tr><th>Contractor</th><th>Average Score</th><th>Survey Count</th></tr></thead>
+          <tbody>
+            {"".join(f"<tr><td>{row['contractor_name']}</td><td class='text-center' style='color:{get_installation_metric_grade(row.get('average_score'))['text']};font-weight:600'>{number(row['average_score'])}</td><td class='text-center'>{row['survey_count']}</td></tr>" for row in contractor_breakdown) or "<tr><td colspan='3'>No contractor survey data for selected scope.</td></tr>"}
           </tbody>
         </table>
 

@@ -21,6 +21,8 @@ function scoreBandLabel(value) {
 
 export default function InstallationSurveyPage({ headers }) {
   const [questions, setQuestions] = useState([]);
+  const [contractors, setContractors] = useState([]);
+  const [loadingContractors, setLoadingContractors] = useState(false);
   const [scoresByQuestion, setScoresByQuestion] = useState({});
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -35,7 +37,25 @@ export default function InstallationSurveyPage({ headers }) {
     location: "",
     date_work_done: "",
     job_done_by: "Field Team",
+    contractor_name: "",
+    field_team_members: [""],
   });
+
+  const loadContractors = async (query = "") => {
+    setLoadingContractors(true);
+    try {
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      const res = await fetch(`${API_BASE}/installation/contractors${params.toString() ? `?${params.toString()}` : ""}`, { headers });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || "Failed to load contractors");
+      setContractors(Array.isArray(data) ? data : []);
+    } catch {
+      setContractors([]);
+    } finally {
+      setLoadingContractors(false);
+    }
+  };
 
   useEffect(() => {
     const loadQuestions = async () => {
@@ -53,6 +73,7 @@ export default function InstallationSurveyPage({ headers }) {
       }
     };
     loadQuestions();
+    loadContractors();
   }, [headers]);
 
   const answeredCount = useMemo(() => {
@@ -69,6 +90,12 @@ export default function InstallationSurveyPage({ headers }) {
   }, [questions, scoresByQuestion]);
 
   const canSubmit = useMemo(() => {
+    const cleanedFieldTeamMembers = (formData.field_team_members || []).map((member) => member.trim()).filter(Boolean);
+    const workerSpecificValid =
+      formData.job_done_by === "Contractor"
+        ? Boolean(formData.contractor_name.trim())
+        : cleanedFieldTeamMembers.length > 0 && cleanedFieldTeamMembers.length <= 5;
+
     const requiredMeta =
       formData.inspector_name.trim() &&
       formData.work_order.trim() &&
@@ -76,7 +103,8 @@ export default function InstallationSurveyPage({ headers }) {
       formData.location.trim() &&
       formData.date_work_done &&
       CUSTOMER_TYPES.includes(formData.customer_type) &&
-      WORKER_TYPES.includes(formData.job_done_by);
+      WORKER_TYPES.includes(formData.job_done_by) &&
+      workerSpecificValid;
     return Boolean(requiredMeta && questions.length > 0 && answeredCount === questions.length && !submitting);
   }, [answeredCount, formData, questions.length, submitting]);
 
@@ -116,6 +144,11 @@ export default function InstallationSurveyPage({ headers }) {
           location: formData.location.trim(),
           date_work_done: formData.date_work_done,
           job_done_by: formData.job_done_by,
+          contractor_name: formData.job_done_by === "Contractor" ? formData.contractor_name.trim() : null,
+          field_team_members:
+            formData.job_done_by === "Field Team"
+              ? (formData.field_team_members || []).map((member) => member.trim()).filter(Boolean).slice(0, 5)
+              : [],
           responses,
         }),
       });
@@ -135,6 +168,8 @@ export default function InstallationSurveyPage({ headers }) {
         customer_name: "",
         location: "",
         date_work_done: "",
+        contractor_name: "",
+        field_team_members: [""],
       }));
     } catch (err) {
       setError(err.message);
@@ -213,13 +248,97 @@ export default function InstallationSurveyPage({ headers }) {
                           type="button"
                           variant={formData.job_done_by === type ? "default" : "outline"}
                           size="sm"
-                          onClick={() => updateForm("job_done_by", type)}
+                          onClick={() =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              job_done_by: type,
+                              contractor_name: type === "Contractor" ? prev.contractor_name : "",
+                              field_team_members: type === "Field Team" ? (prev.field_team_members?.length ? prev.field_team_members : [""]) : [""],
+                            }))
+                          }
                         >
                           {type}
                         </Button>
                       ))}
                     </div>
                   </div>
+                  {formData.job_done_by === "Contractor" ? (
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="contractor_name">Contractor Name</Label>
+                      <Input
+                        id="contractor_name"
+                        list="contractor-options"
+                        value={formData.contractor_name}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          updateForm("contractor_name", value);
+                          loadContractors(value);
+                        }}
+                        placeholder="Search/select contractor"
+                        required
+                      />
+                      <datalist id="contractor-options">
+                        {contractors.map((contractor) => (
+                          <option key={contractor.id} value={contractor.name} />
+                        ))}
+                      </datalist>
+                      <p className="text-xs text-muted-foreground">
+                        {loadingContractors ? "Searching contractors..." : "Select an existing contractor from the managed list."}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 md:col-span-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Field Team Members (up to 5)</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={(formData.field_team_members || []).length >= 5}
+                          onClick={() =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              field_team_members: [...(prev.field_team_members || []), ""].slice(0, 5),
+                            }))
+                          }
+                        >
+                          Add Member
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        {(formData.field_team_members || []).map((memberName, index) => (
+                          <div key={`member-${index}`} className="flex items-center gap-2">
+                            <Input
+                              value={memberName}
+                              onChange={(event) =>
+                                setFormData((prev) => {
+                                  const nextMembers = [...(prev.field_team_members || [])];
+                                  nextMembers[index] = event.target.value;
+                                  return { ...prev, field_team_members: nextMembers.slice(0, 5) };
+                                })
+                              }
+                              placeholder={`Member ${index + 1} name`}
+                              required={index === 0}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={(formData.field_team_members || []).length <= 1}
+                              onClick={() =>
+                                setFormData((prev) => {
+                                  const nextMembers = (prev.field_team_members || []).filter((_, itemIndex) => itemIndex !== index);
+                                  return { ...prev, field_team_members: nextMembers.length ? nextMembers : [""] };
+                                })
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

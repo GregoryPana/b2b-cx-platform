@@ -29,6 +29,8 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
     { accessorKey: "date_work_done", headerTitle: "Date Work Done", header: ({ column }) => <DataTableColumnHeader column={column} title="Date Work Done" />, cell: ({ row }) => row.original.date_work_done || "--" },
     { accessorKey: "customer_type", headerTitle: "Customer Type", header: ({ column }) => <DataTableColumnHeader column={column} title="Customer Type" />, cell: ({ row }) => row.original.customer_type || "--" },
     { accessorKey: "job_done_by", headerTitle: "Worker Type", header: ({ column }) => <DataTableColumnHeader column={column} title="Worker Type" />, cell: ({ row }) => row.original.job_done_by || "--" },
+    { accessorKey: "contractor_name", headerTitle: "Contractor", header: ({ column }) => <DataTableColumnHeader column={column} title="Contractor" />, cell: ({ row }) => row.original.contractor_name || "--" },
+    { accessorKey: "field_team_members", headerTitle: "Field Team Members", header: ({ column }) => <DataTableColumnHeader column={column} title="Field Team Members" />, cell: ({ row }) => Array.isArray(row.original.field_team_members) && row.original.field_team_members.length ? row.original.field_team_members.join(", ") : "--" },
     { accessorKey: "overall_score", headerTitle: "Average", header: ({ column }) => <DataTableColumnHeader column={column} title="Average" />, cell: ({ row }) => row.original.overall_score != null ? Number(row.original.overall_score).toFixed(2) : "--" },
     {
       id: "actions",
@@ -70,6 +72,8 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
               <option value="date_work_done">Filter by date</option>
               <option value="customer_type">Filter by customer type</option>
               <option value="job_done_by">Filter by worker type</option>
+              <option value="contractor_name">Filter by contractor</option>
+              <option value="field_team_members">Filter by team member</option>
             </Select>
             <Input
               type={filterColumn === "date_work_done" ? "date" : "text"}

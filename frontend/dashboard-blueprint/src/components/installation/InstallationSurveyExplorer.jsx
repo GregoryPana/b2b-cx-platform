@@ -56,6 +56,8 @@ export default function InstallationSurveyExplorer({
               <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Location</p><p className="font-medium">{selectedSurvey.location || "--"}</p></div>
               <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Customer Type</p><p className="font-medium">{selectedSurvey.customer_type || "--"}</p></div>
               <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Worker Type</p><p className="font-medium">{selectedSurvey.job_done_by || "--"}</p></div>
+              <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Contractor Name</p><p className="font-medium">{selectedSurvey.contractor_name || "--"}</p></div>
+              <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Field Team Members</p><p className="font-medium">{Array.isArray(selectedSurvey.field_team_members) && selectedSurvey.field_team_members.length ? selectedSurvey.field_team_members.join(", ") : "--"}</p></div>
               <div className="rounded border p-3"><p className="text-xs text-muted-foreground">Date Work Done</p><p className="font-medium">{selectedSurvey.date_work_done || "--"}</p></div>
             </div>
 

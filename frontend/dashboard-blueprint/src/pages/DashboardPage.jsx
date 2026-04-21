@@ -190,6 +190,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
    const [installationTrendWorkerType, setInstallationTrendWorkerType] = useState("");
    const [installationTrends, setInstallationTrends] = useState(null);
    const [installationTrendsLoading, setInstallationTrendsLoading] = useState(false);
+   const [installationContractorQuery, setInstallationContractorQuery] = useState("");
+   const [installationContractors, setInstallationContractors] = useState([]);
+   const [installationContractorsLoading, setInstallationContractorsLoading] = useState(false);
+   const [newInstallationContractorName, setNewInstallationContractorName] = useState("");
+   const [installationContractorSaving, setInstallationContractorSaving] = useState(false);
 
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -276,6 +281,56 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       setInstallationSurveysLoading(false);
     }
   }, [isInstallationPlatform, installationSurveyFilters, headers, fetchJsonSafe]);
+
+  const loadInstallationContractors = useCallback(async (query = installationContractorQuery) => {
+    if (!isInstallationPlatform) return;
+    setInstallationContractorsLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      if ((query || "").trim()) params.set("q", query.trim());
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/contractors${params.toString() ? `?${params.toString()}` : ""}`, { headers });
+      if (!res.ok) {
+        setError(data?.detail || "Failed to load contractors");
+        setInstallationContractors([]);
+        return;
+      }
+      setInstallationContractors(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError("Failed to load contractors");
+      setInstallationContractors([]);
+    } finally {
+      setInstallationContractorsLoading(false);
+    }
+  }, [isInstallationPlatform, installationContractorQuery, headers, fetchJsonSafe]);
+
+  const createInstallationContractor = useCallback(async () => {
+    const trimmedName = newInstallationContractorName.trim();
+    if (!trimmedName) {
+      setError("Contractor name is required");
+      return;
+    }
+    setInstallationContractorSaving(true);
+    setError("");
+    try {
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/contractors`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmedName }),
+      });
+      if (!res.ok) {
+        setError(data?.detail || "Failed to create contractor");
+        return;
+      }
+      setNewInstallationContractorName("");
+      pushToast("success", `Contractor '${trimmedName}' saved`);
+      loadInstallationContractors(installationContractorQuery);
+    } catch (err) {
+      setError("Failed to create contractor");
+    } finally {
+      setInstallationContractorSaving(false);
+    }
+  }, [newInstallationContractorName, installationContractorQuery, headers, fetchJsonSafe, pushToast, loadInstallationContractors]);
 
   const handleInstallationFilterChange = useCallback((key, value) => {
     setInstallationSurveyFilters((prev) => ({ ...prev, [key]: value }));
@@ -442,6 +497,13 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }
     loadInstallationSurveys();
    }, [isInstallationPlatform, location.pathname, loadInstallationSurveys]);
+
+   useEffect(() => {
+     if (!isInstallationPlatform || location.pathname !== "/contractors") {
+       return;
+     }
+     loadInstallationContractors();
+   }, [isInstallationPlatform, location.pathname, loadInstallationContractors]);
 
    // Load installation report survey list when on reports page and report type is 'survey'
    useEffect(() => {
@@ -2757,6 +2819,86 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           selectedSurvey={selectedInstallationSurvey}
           onCloseDetails={() => setSelectedInstallationSurvey(null)}
         />
+      ) : null}
+
+      {location.pathname === "/contractors" && isInstallationPlatform ? (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl font-semibold tracking-tight">Contractor Directory</CardTitle>
+              <CardDescription>Create and search contractor names used by installation surveys.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                <Input
+                  value={newInstallationContractorName}
+                  onChange={(event) => setNewInstallationContractorName(event.target.value)}
+                  placeholder="Enter contractor name"
+                />
+                <Button type="button" onClick={createInstallationContractor} disabled={installationContractorSaving}>
+                  {installationContractorSaving ? "Saving..." : "Add Contractor"}
+                </Button>
+              </div>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                <Input
+                  value={installationContractorQuery}
+                  onChange={(event) => setInstallationContractorQuery(event.target.value)}
+                  placeholder="Search contractors"
+                />
+                <Button type="button" variant="outline" onClick={() => loadInstallationContractors(installationContractorQuery)}>
+                  {installationContractorsLoading ? "Searching..." : "Search"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setInstallationContractorQuery("");
+                    loadInstallationContractors("");
+                  }}
+                >
+                  Clear
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Available Contractors</CardTitle>
+              <CardDescription>{installationContractorsLoading ? "Loading..." : `${installationContractors.length} contractor${installationContractors.length === 1 ? "" : "s"}`}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Created</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {installationContractorsLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={2}>Loading contractors...</TableCell>
+                      </TableRow>
+                    ) : installationContractors.length ? (
+                      installationContractors.map((contractor) => (
+                        <TableRow key={contractor.id}>
+                          <TableCell>{contractor.name}</TableCell>
+                          <TableCell>{contractor.created_at ? contractor.created_at.slice(0, 10) : "--"}</TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={2}>No contractors found.</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       ) : null}
 
       {location.pathname === "/reports" && isInstallationPlatform ? (
