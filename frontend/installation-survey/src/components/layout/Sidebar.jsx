@@ -1,4 +1,4 @@
-import { ClipboardCheck, LogOut, Menu, X } from "lucide-react";
+import { BookOpen, ClipboardCheck, LogOut, Menu, X } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
@@ -6,6 +6,7 @@ import { cn } from "../../lib/utils";
 export default function Sidebar({ collapsed, mobileOpen, onToggle, onCloseMobile, onLogout, userEmail }) {
   const items = [
     { to: "/", label: "Assessment", icon: ClipboardCheck },
+    { to: "/user-guide", label: "User Guide", icon: BookOpen },
   ];
 
   return (

@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Building2, CalendarDays, ChartLine, ChartPie, FileChartLine, LayoutList, LogOut, Menu, MessageSquareWarning, ScanEye, X } from "lucide-react";
+import { ArrowLeftRight, BookOpen, Building2, CalendarDays, ChartLine, ChartPie, FileChartLine, LayoutList, LogOut, Menu, MessageSquareWarning, ScanEye, X } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
@@ -16,6 +16,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
      ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: MessageSquareWarning }] : []),
       ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/surveys", label: "Surveys", icon: LayoutList }] : []),
       ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
+      ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/user-guide", label: "User Guide", icon: BookOpen }] : []),
       ...(isInstallationPlatform ? [{ to: "/contractors", label: "Contractors", icon: Building2 }] : []),
       ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
      ...(isB2BPlatform ? [{ to: "/executives", label: "Account Executives", icon: Building2 }] : []),

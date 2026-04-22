@@ -14,6 +14,7 @@ import { cn, getTrafficLightMetric } from "../lib/utils";
 import InstallationAnalyticsView from "../components/installation/InstallationAnalyticsView";
 import InstallationSurveyExplorer from "../components/installation/InstallationSurveyExplorer";
 import InstallationTrendsView from "../components/installation/InstallationTrendsView";
+import PlatformUserGuidePage from "../components/user-guide/PlatformUserGuidePage";
 import SurveysDataTable from "../components/b2b/SurveysDataTable";
 import ReviewQueueDataTable from "../components/b2b/ReviewQueueDataTable";
 import PlannedVisitsDataTable from "../components/b2b/PlannedVisitsDataTable";
@@ -2899,6 +2900,16 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             </CardContent>
           </Card>
         </div>
+      ) : null}
+
+      {location.pathname === "/user-guide" ? (
+        isB2BPlatform ? (
+          <PlatformUserGuidePage platform="b2b" />
+        ) : isInstallationPlatform ? (
+          <PlatformUserGuidePage platform="installation" />
+        ) : (
+          <PlatformUserGuidePage platform="unsupported" />
+        )
       ) : null}
 
       {location.pathname === "/reports" && isInstallationPlatform ? (

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import InstallationSurveyPage from "./features/installation/InstallationSurveyPage";
+import UserGuidePage from "./features/user-guide/UserGuidePage";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
@@ -233,7 +235,11 @@ export default function App() {
         <div className="border-b bg-warning/20 px-4 py-2 text-sm text-warning-foreground">{authProfileError}</div>
       ) : null}
       <MainLayout onLogout={handleLogout} userName={userName} userEmail={userEmail} statusText={statusText}>
-        <InstallationSurveyPage headers={headers} />
+        <Routes>
+          <Route path="/" element={<InstallationSurveyPage headers={headers} />} />
+          <Route path="/user-guide" element={<UserGuidePage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </MainLayout>
     </>
   );

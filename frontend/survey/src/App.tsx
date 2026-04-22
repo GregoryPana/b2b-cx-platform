@@ -4,6 +4,7 @@ import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import SurveyWorkspacePage from "./features/survey/SurveyWorkspacePage";
+import UserGuidePage from "./features/user-guide/UserGuidePage";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
 
@@ -110,6 +111,7 @@ export default function App() {
       <Routes>
         <Route path="/planned" element={<SurveyWorkspacePage headers={headers} userId={userId} role={role} />} />
         <Route path="/survey" element={<SurveyWorkspacePage headers={headers} userId={userId} role={role} />} />
+        <Route path="/user-guide" element={<UserGuidePage />} />
         <Route path="/" element={<Navigate to="/planned" replace />} />
         <Route path="*" element={<Navigate to="/planned" replace />} />
       </Routes>

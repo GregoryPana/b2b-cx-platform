@@ -92,6 +92,7 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
         <Route path="/actions" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="/surveys" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="/reports" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/user-guide" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="/contractors" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="/businesses" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="/executives" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
