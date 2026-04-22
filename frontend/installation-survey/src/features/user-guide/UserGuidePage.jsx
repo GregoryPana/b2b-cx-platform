@@ -1,6 +1,8 @@
 import PageContainer from "../../components/layout/PageContainer";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 
+const GUIDE_BASE = `${import.meta.env.BASE_URL}guides/installation-assessment/`;
+
 const sections = [
   {
     title: "Getting Access",
@@ -11,8 +13,8 @@ const sections = [
       "Confirm the assessment page loads successfully.",
     ],
     images: [
-      { src: "/guides/installation-assessment/security-warning.png", alt: "Security warning page" },
-      { src: "/guides/installation-assessment/login.png", alt: "Installation survey login" },
+      { src: `${GUIDE_BASE}security-warning.png`, alt: "Security warning page" },
+      { src: `${GUIDE_BASE}login.png`, alt: "Installation survey login" },
     ],
   },
   {
@@ -23,9 +25,9 @@ const sections = [
       "Complete the installation details before scoring questions.",
     ],
     images: [
-      { src: "/guides/installation-assessment/new-vs-draft.png", alt: "New versus draft" },
-      { src: "/guides/installation-assessment/draft-dropdown.png", alt: "Draft dropdown" },
-      { src: "/guides/installation-assessment/details-form.png", alt: "Installation details form" },
+      { src: `${GUIDE_BASE}new-vs-draft.png`, alt: "New versus draft" },
+      { src: `${GUIDE_BASE}draft-dropdown.png`, alt: "Draft dropdown" },
+      { src: `${GUIDE_BASE}details-form.png`, alt: "Installation details form" },
     ],
   },
   {
@@ -36,9 +38,9 @@ const sections = [
       "Confirm worker details such as contractor or field team members before submission.",
     ],
     images: [
-      { src: "/guides/installation-assessment/category-tabs.png", alt: "Category tabs" },
-      { src: "/guides/installation-assessment/score-buttons.png", alt: "Score buttons" },
-      { src: "/guides/installation-assessment/progress.png", alt: "Progress section" },
+      { src: `${GUIDE_BASE}category-tabs.png`, alt: "Category tabs" },
+      { src: `${GUIDE_BASE}score-buttons.png`, alt: "Score buttons" },
+      { src: `${GUIDE_BASE}progress.png`, alt: "Progress section" },
     ],
   },
   {
@@ -49,9 +51,9 @@ const sections = [
       "Submit when all required details and scores are complete.",
     ],
     images: [
-      { src: "/guides/installation-assessment/save-draft.png", alt: "Save draft" },
-      { src: "/guides/installation-assessment/delete-draft.png", alt: "Delete draft" },
-      { src: "/guides/installation-assessment/submit-button.png", alt: "Submit assessment" },
+      { src: `${GUIDE_BASE}save-draft.png`, alt: "Save draft" },
+      { src: `${GUIDE_BASE}delete-draft.png`, alt: "Delete draft" },
+      { src: `${GUIDE_BASE}submit-button.png`, alt: "Submit assessment" },
     ],
   },
 ];

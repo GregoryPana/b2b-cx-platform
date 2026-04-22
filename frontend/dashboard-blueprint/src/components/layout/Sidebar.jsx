@@ -8,25 +8,25 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
   const isInstallationPlatform = normalizedPlatform.includes("installation");
-   const items = [
-     { to: "/", label: "Analytics", icon: ChartPie },
-     ...(isB2BPlatform ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
-     ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/trends", label: "Trends", icon: ChartLine }] : []),
-     ...(!isInstallationPlatform ? [{ to: "/review", label: "Review", icon: ScanEye }] : []),
-     ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: MessageSquareWarning }] : []),
+    const items = [
+      { to: "/", label: "Analytics", icon: ChartPie },
+      ...(isB2BPlatform ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
+      ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/trends", label: "Trends", icon: ChartLine }] : []),
+      ...(!isInstallationPlatform ? [{ to: "/review", label: "Review", icon: ScanEye }] : []),
+      ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: MessageSquareWarning }] : []),
       ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/surveys", label: "Surveys", icon: LayoutList }] : []),
       ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
-      ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/user-guide", label: "User Guide", icon: BookOpen }] : []),
       ...(isInstallationPlatform ? [{ to: "/contractors", label: "Contractors", icon: Building2 }] : []),
       ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
-     ...(isB2BPlatform ? [{ to: "/executives", label: "Account Executives", icon: Building2 }] : []),
-     ...(isMysteryShopperPlatform
-       ? [
-           { to: "/locations", label: "Locations", icon: Building2 },
-           { to: "/purposes", label: "Purposes", icon: FileChartLine },
-         ]
-       : []),
-   ];
+      ...(isB2BPlatform ? [{ to: "/executives", label: "Account Executives", icon: Building2 }] : []),
+      ...(isMysteryShopperPlatform
+        ? [
+            { to: "/locations", label: "Locations", icon: Building2 },
+            { to: "/purposes", label: "Purposes", icon: FileChartLine },
+          ]
+        : []),
+      ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/user-guide", label: "User Guide", icon: BookOpen }] : []),
+    ];
 
   return (
     <>

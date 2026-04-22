@@ -1,5 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 
+const guideAssetBase = (path) => `${import.meta.env.BASE_URL}guides/${path}`;
+
 const GUIDE_CONTENT = {
   b2b: {
     title: "Dashboard User Guide: B2B Platform",
@@ -13,7 +15,7 @@ const GUIDE_CONTENT = {
           "Confirm the Analytics page loads with B2B metrics.",
         ],
         images: [
-          { src: "/guides/dashboard-b2b/analytics.png", alt: "B2B analytics landing" },
+          { src: guideAssetBase("dashboard-b2b/analytics.png"), alt: "B2B analytics landing" },
         ],
       },
       {
@@ -25,10 +27,10 @@ const GUIDE_CONTENT = {
           "Use Survey Results to inspect submitted records.",
         ],
         images: [
-          { src: "/guides/dashboard-b2b/review-queue.png", alt: "B2B review queue" },
-          { src: "/guides/dashboard-b2b/business-directory.png", alt: "B2B business directory" },
-          { src: "/guides/dashboard-b2b/planned-visits.png", alt: "B2B planned visits" },
-          { src: "/guides/dashboard-b2b/survey-results.png", alt: "B2B survey results" },
+          { src: guideAssetBase("dashboard-b2b/review-queue.png"), alt: "B2B review queue" },
+          { src: guideAssetBase("dashboard-b2b/business-directory.png"), alt: "B2B business directory" },
+          { src: guideAssetBase("dashboard-b2b/planned-visits.png"), alt: "B2B planned visits" },
+          { src: guideAssetBase("dashboard-b2b/survey-results.png"), alt: "B2B survey results" },
         ],
       },
     ],
@@ -45,7 +47,7 @@ const GUIDE_CONTENT = {
           "Confirm the installation analytics landing page loads.",
         ],
         images: [
-          { src: "/guides/dashboard-installation/landing.png", alt: "Installation dashboard landing" },
+          { src: guideAssetBase("dashboard-installation/landing.png"), alt: "Installation dashboard landing" },
         ],
       },
       {
@@ -57,8 +59,8 @@ const GUIDE_CONTENT = {
           "Use Contractors to maintain the contractor directory used in the survey app.",
         ],
         images: [
-          { src: "/guides/dashboard-installation/overview.png", alt: "Installation dashboard overview" },
-          { src: "/guides/dashboard-installation/modules.png", alt: "Installation dashboard modules" },
+          { src: guideAssetBase("dashboard-installation/overview.png"), alt: "Installation dashboard overview" },
+          { src: guideAssetBase("dashboard-installation/modules.png"), alt: "Installation dashboard modules" },
         ],
       },
     ],

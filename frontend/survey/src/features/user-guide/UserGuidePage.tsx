@@ -1,6 +1,8 @@
 import PageContainer from "../../components/layout/PageContainer";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 
+const GUIDE_BASE = `${import.meta.env.BASE_URL}guides/b2b-survey/`;
+
 const sections = [
   {
     title: "Getting Access",
@@ -11,8 +13,8 @@ const sections = [
       "Confirm the Planned Visits page has loaded.",
     ],
     images: [
-      { src: "/guides/b2b-survey/landing.png", alt: "B2B survey landing" },
-      { src: "/guides/b2b-survey/planned-visits-list.png", alt: "B2B planned visits list" },
+      { src: `${GUIDE_BASE}landing.png`, alt: "B2B survey landing" },
+      { src: `${GUIDE_BASE}planned-visits-list.png`, alt: "B2B planned visits list" },
     ],
   },
   {
@@ -23,9 +25,9 @@ const sections = [
       "Complete the survey details before answering categories.",
     ],
     images: [
-      { src: "/guides/b2b-survey/open-survey-action.png", alt: "Open survey action" },
-      { src: "/guides/b2b-survey/new-vs-draft.png", alt: "New versus draft selector" },
-      { src: "/guides/b2b-survey/survey-details.png", alt: "Survey details form" },
+      { src: `${GUIDE_BASE}open-survey-action.png`, alt: "Open survey action" },
+      { src: `${GUIDE_BASE}new-vs-draft.png`, alt: "New versus draft selector" },
+      { src: `${GUIDE_BASE}survey-details.png`, alt: "Survey details form" },
     ],
   },
   {
@@ -36,8 +38,8 @@ const sections = [
       "Add notes where extra context is needed.",
     ],
     images: [
-      { src: "/guides/b2b-survey/category-question-area.png", alt: "Category question area" },
-      { src: "/guides/b2b-survey/progress-tracker.png", alt: "Progress tracker" },
+      { src: `${GUIDE_BASE}category-question-area.png`, alt: "Category question area" },
+      { src: `${GUIDE_BASE}progress-tracker.png`, alt: "Progress tracker" },
     ],
   },
   {
@@ -47,8 +49,8 @@ const sections = [
       "Submit only after all required items are complete.",
     ],
     images: [
-      { src: "/guides/b2b-survey/save-draft-button.png", alt: "Save draft button" },
-      { src: "/guides/b2b-survey/submit-button.png", alt: "Submit button" },
+      { src: `${GUIDE_BASE}save-draft-button.png`, alt: "Save draft button" },
+      { src: `${GUIDE_BASE}submit-button.png`, alt: "Submit button" },
     ],
   },
 ];
