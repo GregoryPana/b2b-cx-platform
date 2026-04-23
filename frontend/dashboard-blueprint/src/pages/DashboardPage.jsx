@@ -72,6 +72,40 @@ async function fetchJsonSafe(url, options = {}, timeout = 15000) {
   }
 }
 
+function formatApiError(detail, fallback = "Unexpected error") {
+  if (detail == null || detail === "") return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const joined = detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          const loc = Array.isArray(item.loc) ? item.loc.join(".") : "";
+          const msg = typeof item.msg === "string" ? item.msg : "";
+          if (loc && msg) return `${loc}: ${msg}`;
+          if (msg) return msg;
+        }
+        try {
+          return JSON.stringify(item);
+        } catch {
+          return String(item);
+        }
+      })
+      .filter(Boolean)
+      .join("; ");
+    return joined || fallback;
+  }
+  if (typeof detail === "object") {
+    if (typeof detail.msg === "string" && detail.msg) return detail.msg;
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return fallback;
+    }
+  }
+  return String(detail);
+}
+
 export default function DashboardPage({ headers, activePlatform, onSessionExpired }) {
   const location = useLocation();
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
@@ -101,6 +135,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const errorText = useMemo(() => formatApiError(error, ""), [error]);
   const [selectedAnalyticsBusinessIds, setSelectedAnalyticsBusinessIds] = useState([]);
   const [analyticsBusinessSearch, setAnalyticsBusinessSearch] = useState("");
   const [surveyResults, setSurveyResults] = useState([]);
@@ -1849,7 +1884,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       setError("Account executive name and email are required.");
       return;
     }
-    const isEdit = Boolean(selectedExecutive?.id);
+    const isEdit = Boolean(selectedExecutive?.id && selectedExecutive.id !== "new");
     const url = isEdit ? `${API_BASE}/account-executives/${selectedExecutive.id}` : `${API_BASE}/account-executives`;
     const method = isEdit ? "PUT" : "POST";
     const { res, data } = await fetchJsonSafe(url, {
@@ -1858,7 +1893,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       body: JSON.stringify({ name: executiveForm.name.trim(), email: executiveForm.email.trim() }),
     });
     if (!res.ok) {
-      setError(data?.detail || `Failed to ${isEdit ? "update" : "create"} account executive`);
+      setError(formatApiError(data?.detail, `Failed to ${isEdit ? "update" : "create"} account executive`));
       return;
     }
     setMessage(`Account executive ${isEdit ? "updated" : "created"}.`);
@@ -1875,7 +1910,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     if (!window.confirm(`Delete account executive "${executive.name}"?`)) return;
     const { res, data } = await fetchJsonSafe(`${API_BASE}/account-executives/${executive.id}`, { method: "DELETE", headers });
     if (!res.ok) {
-      setError(data?.detail || "Failed to delete account executive");
+      setError(formatApiError(data?.detail, "Failed to delete account executive"));
       return;
     }
     setMessage(`Account executive deleted: ${executive.name}`);
@@ -2069,9 +2104,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         ))}
       </div>
       {/* Error display */}
-      {error && (
+      {errorText && (
         <div className="mb-4 p-4 border border-destructive/50 bg-destructive/10 text-destructive rounded">
-          {error}
+          {errorText}
         </div>
       )}
 
