@@ -16,6 +16,7 @@ const sections = [
     notes: [
       "Wait for the page to finish loading before you start entering information.",
       "If access fails, contact your administrator instead of trying to work around the login process.",
+      "Use the clipboard icon for Assessment and the book icon for User Guide.",
     ],
     images: [
       { src: `${GUIDE_BASE}security-warning.png`, alt: "Security warning page" },
@@ -33,6 +34,7 @@ const sections = [
     notes: [
       "If you pick the wrong draft, you may continue the wrong job record.",
       "Check the work order and customer details before moving on.",
+      "The Assessment page is the clipboard-icon page in the left menu.",
     ],
     images: [
       { src: `${GUIDE_BASE}new-vs-draft.png`, alt: "New versus draft" },
@@ -52,6 +54,7 @@ const sections = [
       "Use the full 1 to 5 scale carefully and consistently.",
       "Make sure the correct worker type is selected so reporting is accurate later.",
       "If Contractor is selected, use the correct contractor name from the list.",
+      "The details section, category scoring area, progress section, and submit controls all work together on the same Assessment page.",
     ],
     images: [
       { src: `${GUIDE_BASE}category-tabs.png`, alt: "Category tabs" },
@@ -70,6 +73,7 @@ const sections = [
     notes: [
       "Deleting a draft removes unfinished work, so do this only when you are certain.",
       "Before submitting, check the work order, customer, worker details, and progress one last time.",
+      "The save draft and submit actions are on the same Assessment page, below the scoring area.",
     ],
     images: [
       { src: `${GUIDE_BASE}save-draft.png`, alt: "Save draft" },
@@ -88,6 +92,7 @@ const sections = [
     notes: [
       "This guide is meant to support live work, not only training.",
       "If you are unsure what a button does, use the guide first before trying random options.",
+      "The User Guide page is the book-icon page in the left menu.",
     ],
     images: [],
   },

@@ -16,6 +16,7 @@ const sections = [
     notes: [
       "If the page does not load correctly, refresh once before trying again.",
       "If you cannot sign in, stop and contact your administrator instead of using someone else’s account.",
+      "Use the calendar icon for Planned Visits, the clipboard icon for Survey, and the book icon for User Guide.",
     ],
     images: [
       { src: `${GUIDE_BASE}landing.png`, alt: "B2B survey landing" },
@@ -33,6 +34,7 @@ const sections = [
     notes: [
       "Always check the business and date before opening the survey.",
       "If you already started the same visit earlier, continue the draft instead of starting again.",
+      "The Planned Visits page is the calendar-icon page in the left menu.",
     ],
     images: [
       { src: `${GUIDE_BASE}open-survey-action.png`, alt: "Open survey action" },
@@ -52,6 +54,7 @@ const sections = [
       "Read each question fully before answering.",
       "Do not rely on memory if you can confirm the correct answer first.",
       "Use the progress section to find missing work before you try to submit.",
+      "The Survey page is the clipboard-icon page in the left menu.",
     ],
     images: [
       { src: `${GUIDE_BASE}category-question-area.png`, alt: "Category question area" },
@@ -85,6 +88,7 @@ const sections = [
     notes: [
       "You can return to the survey pages using the left menu at any time.",
       "This page is designed for quick reminders, not only for first-time training.",
+      "The User Guide page is the book-icon page in the left menu.",
     ],
     images: [],
   },

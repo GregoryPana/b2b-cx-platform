@@ -68,6 +68,8 @@ This order helps you move from summary to detail.
 
 ## 4) Page: Analytics
 
+**Menu icon:** Chart / Analytics icon (`ChartPie`)
+
 This page gives you the main picture of installation quality.
 
 ### What this page is for
@@ -110,6 +112,8 @@ Then review the charts below to understand which areas or contractor groups may 
 
 ## 5) Page: Trends
 
+**Menu icon:** Trend icon (`ChartLine`)
+
 This page shows how average scores change over time.
 
 ### What this page is for
@@ -124,6 +128,8 @@ Do not judge a trend from one point only. Look at the full line or grouped patte
 ---
 
 ## 6) Page: Surveys
+
+**Menu icon:** List icon (`LayoutList`)
 
 This page helps you find individual assessments and review them in detail.
 
@@ -140,6 +146,25 @@ This page helps you find individual assessments and review them in detail.
 3. Open the required survey.
 4. Review the details, scores, contractor name, or field team member names.
 
+### Main table structure
+
+The surveys table usually includes columns such as:
+
+- customer
+- inspector
+- work order
+- location
+- customer type
+- worker type
+- contractor name
+- field team members
+- average score
+- actions
+
+### What the actions do
+
+- **View**: open the full survey detail and question breakdown
+
 ### Why this matters
 
 This page helps you move from summary reporting to the exact record behind the numbers.
@@ -147,6 +172,8 @@ This page helps you move from summary reporting to the exact record behind the n
 ---
 
 ## 7) Page: Reports
+
+**Menu icon:** Report icon (`FileChartLine`)
 
 This page is used to create a report view of installation results.
 
@@ -163,6 +190,8 @@ Always preview the report before sending it. This helps you confirm the date ran
 ---
 
 ## 8) Page: Contractors
+
+**Menu icon:** Building icon (`Building2`)
 
 This page manages the contractor names available in the installation survey app.
 
@@ -183,6 +212,19 @@ If contractor names are entered inconsistently, the analytics can become split a
 3. If the contractor already exists, use the existing name.
 4. If it does not exist, add it once with the correct spelling.
 
+### Main table structure
+
+The contractors page usually shows:
+
+- the contractor name
+- created date
+
+### What the user can do here
+
+- add a contractor name
+- search the contractor list
+- use the page to keep contractor naming consistent for later analytics and reports
+
 ### Good habit
 
 Before creating a new contractor, search carefully to avoid duplicates.
@@ -194,6 +236,8 @@ Before creating a new contractor, search carefully to avoid duplicates.
 ---
 
 ## 9) Page: User Guide
+
+**Menu icon:** Book icon (`BookOpen`)
 
 This page gives users help inside the system.
 

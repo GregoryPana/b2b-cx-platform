@@ -84,6 +84,8 @@ Following this order helps prevent missed steps.
 
 ## 5) Page: Start (New or Draft)
 
+**Menu icon:** Clipboard / assessment icon (`ClipboardCheck`)
+
 This is where you decide whether you are beginning a new assessment or returning to work you already saved.
 
 ### What this page is for
@@ -126,6 +128,8 @@ If you choose the wrong draft, you may continue the wrong assessment. Always che
 
 ## 6) Page: Assessment Details
 
+**Menu icon:** Clipboard / assessment icon (`ClipboardCheck`)
+
 This section tells the system what installation job you are scoring.
 
 ### What this section is for
@@ -167,6 +171,8 @@ These details are used later in reporting and analytics. If the wrong worker det
 
 ## 7) Page: Scoring The Assessment
 
+**Menu icon:** Clipboard / assessment icon (`ClipboardCheck`)
+
 This is the main working area where you inspect and score the job.
 
 ### How scoring works
@@ -189,6 +195,18 @@ The system uses your answers to calculate the overall assessment result.
 5. Continue until the whole category is complete.
 6. Move to the next category.
 7. Repeat until all categories are finished.
+
+### Main areas on this page
+
+The assessment page normally includes:
+
+- details section at the top
+- worker type selection
+- contractor or field team details
+- category scoring area
+- progress section
+- save draft button
+- submit button
 
 ### Understanding categories
 
@@ -296,6 +314,11 @@ Use the left menu to move between:
 
 - **Assessment**
 - **User Guide**
+
+### Menu icons to help identify pages
+
+- **Assessment**: clipboard / assessment icon
+- **User Guide**: book icon
 
 If you feel unsure, open the **User Guide** page without leaving the system.
 

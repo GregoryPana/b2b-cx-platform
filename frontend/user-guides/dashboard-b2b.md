@@ -70,6 +70,8 @@ This order helps you move from overview to detail.
 
 ## 4) Page: Analytics
 
+**Menu icon:** Chart / Analytics icon (`ChartPie`)
+
 This is the main overview page.
 
 ### What this page is for
@@ -116,6 +118,8 @@ Do not react to one card only. Always look at the supporting tables and charts u
 
 ## 5) Page: Review
 
+**Menu icon:** Review icon (`ScanEye`)
+
 This page is used to process submitted surveys that are waiting for a decision.
 
 ### What this page is for
@@ -161,6 +165,8 @@ Read the survey slowly before taking action. Do not approve just to clear the qu
 
 ## 6) Page: Businesses
 
+**Menu icon:** Building icon (`Building2`)
+
 This page holds the business master list used by the B2B platform.
 
 ### What this page is for
@@ -181,6 +187,33 @@ If the business list is wrong, users may choose the wrong business in the survey
 4. If it does not exist, add a new business.
 5. Confirm the account executive assignment is correct.
 
+### Main table structure
+
+The business table normally includes these columns:
+
+- **Name**: the business name used across the system
+- **Location**: where the business is based or visited
+- **Business Type**: the selected business category
+- **Account Executive**: the person responsible for the account
+- **Status**: whether the business is active or retired
+- **Actions**: the buttons available for that business row
+
+### What each action does
+
+- **Edit**: changes the details of an existing business record
+- **Retire**: removes the business from normal active use while keeping its stored records and history
+- **Delete**: permanently removes the business and related data, but only when the system allows safe deletion
+
+### Why users create businesses here
+
+Businesses created on this page are used in other parts of the system.
+
+For example:
+
+- planned visits can be assigned to the business
+- survey users can choose or work against the business being visited
+- analytics and reports can group results by business
+
 ### What you can do
 
 - keep the business directory accurate
@@ -200,6 +233,8 @@ If the business list is wrong, users may choose the wrong business in the survey
 
 ## 7) Page: Planned Visits
 
+**Menu icon:** Calendar icon (`CalendarDays`)
+
 This page is used to prepare future survey work.
 
 ### What this page is for
@@ -215,6 +250,26 @@ This page is used to prepare future survey work.
 3. Choose the visit date.
 4. Choose the visit type if needed.
 5. Save the planned visit.
+
+### Main table structure
+
+The planned visits table usually includes columns such as:
+
+- **Business**
+- **Date**
+- **Type**
+- **Status**
+- **Progress**
+- **Actions**
+
+### What the actions do
+
+- **Edit**: change the visit date or visit type
+- **Delete**: remove the draft planned visit from the list
+
+### Why this page matters to survey users
+
+The planned visits page controls what survey work appears for survey users later. If the visit is wrong here, the survey user may start the wrong record.
 
 ### What you can do
 
@@ -237,6 +292,8 @@ Keep planned visits accurate. Survey users depend on this list to find the corre
 ---
 
 ## 8) Page: Survey Results
+
+**Menu icon:** List icon (`LayoutList`)
 
 This page helps you find and inspect submitted survey records.
 
@@ -270,6 +327,8 @@ This page helps you find and inspect submitted survey records.
 
 ## 9) Page: Reports
 
+**Menu icon:** Report icon (`FileChartLine`)
+
 This page is used when you need a report view rather than a screen view.
 
 ### What this page is for
@@ -278,6 +337,14 @@ This page is used when you need a report view rather than a screen view.
 - reviewing summary information before sending
 - emailing report output where allowed
 
+### Typical actions on this page
+
+- choose report type
+- choose date or survey scope
+- preview the report before download or email
+- download the HTML version
+- send the report by email where configured
+
 ### Good habit
 
 Always preview a report before sending it, especially if the report is for management or an external audience.
@@ -285,6 +352,8 @@ Always preview a report before sending it, especially if the report is for manag
 ---
 
 ## 10) Page: Trends
+
+**Menu icon:** Trend icon (`ChartLine`)
 
 This page helps you understand how results change over time.
 
@@ -313,6 +382,8 @@ Use Trends together with Analytics. Analytics shows the current picture. Trends 
 
 ## 11) Page: Action Points
 
+**Menu icon:** Warning / action icon (`MessageSquareWarning`)
+
 This page is used to follow up on issues that were identified in survey responses or during review.
 
 ### What this page is for
@@ -320,6 +391,25 @@ This page is used to follow up on issues that were identified in survey response
 - checking what actions are still outstanding
 - updating action status
 - tracking comments and follow-up progress
+
+### Main table structure
+
+The table typically includes information such as:
+
+- visit or survey reference
+- question or issue source
+- action required
+- owner
+- timeframe
+- status
+- comments
+
+### What the user can change here
+
+- action status
+- comments
+
+This allows the page to act as a practical follow-up tracker rather than just a view-only report.
 
 ### What you can do
 
@@ -339,12 +429,27 @@ Keep comments brief and useful. Someone else should be able to understand the cu
 
 ## 12) Page: Account Executives
 
+**Menu icon:** Building icon (`Building2`)
+
 This page helps keep the account executive directory clean and usable.
 
 ### What this page is for
 
 - creating account executive records
 - updating names and email addresses
+
+### Main table structure
+
+The account executive table usually includes:
+
+- **Name**
+- **Email**
+- **Actions**
+
+### What the actions do
+
+- **Edit**: update the name or email address
+- **Delete**: permanently remove the account executive record if it is no longer needed
 
 ### Why this matters
 
@@ -353,6 +458,8 @@ Account executive information appears in business records, survey records, and r
 ---
 
 ## 13) Page: User Guide
+
+**Menu icon:** Book icon (`BookOpen`)
 
 This page gives users help inside the system.
 

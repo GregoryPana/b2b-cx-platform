@@ -87,6 +87,8 @@ If you follow this order, the system will feel much easier to use.
 
 ## 5) Page: Planned Visits
 
+**Menu icon:** Calendar icon (`CalendarDays`)
+
 This page helps you find the visit you are supposed to work on.
 
 ### What this page is for
@@ -127,6 +129,8 @@ Always double-check the business and date before opening a survey. This helps pr
 
 ## 6) Page: Survey Workspace
 
+**Menu icon:** Clipboard / survey icon (`ClipboardCheck`)
+
 This is the main page where the real work happens.
 
 ### What this page is for
@@ -136,6 +140,17 @@ This is the main page where the real work happens.
 - entering top-level visit details
 - answering survey questions
 - tracking progress to completion
+
+### Main areas on this page
+
+The survey workspace normally includes:
+
+- **New / Draft selector**
+- **Survey details section**
+- **Category question area**
+- **Progress tracker**
+- **Save Draft button**
+- **Submit button**
 
 ### Step by step
 
@@ -268,6 +283,12 @@ For normal work, the most important pages are:
 - **Planned Visits**
 - **Survey**
 - **User Guide**
+
+### Menu icons to help you identify pages
+
+- **Planned Visits**: calendar icon
+- **Survey**: clipboard / survey icon
+- **User Guide**: book icon
 
 ### Best way to move around
 
