@@ -32,6 +32,16 @@ export default function PlannedVisitsDataTable({
   const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("business_name");
 
+  const tableMeta = useMemo(() => ({
+    editingVisitId,
+    editForm,
+    onEditFormChange,
+    onStartEdit,
+    onSaveEdit,
+    onCancelEdit,
+    onDelete,
+  }), [editForm, editingVisitId, onCancelEdit, onDelete, onEditFormChange, onSaveEdit, onStartEdit]);
+
   const columns = useMemo(() => [
     {
       accessorKey: "business_name",
@@ -43,11 +53,13 @@ export default function PlannedVisitsDataTable({
       accessorKey: "visit_date",
       headerTitle: "Date",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const visit = row.original;
         const visitKey = String(visit.id || visit.visit_id);
-        return visitKey === editingVisitId ? (
-          <Input type="date" value={editForm.visit_date} onChange={(event) => onEditFormChange({ ...editForm, visit_date: event.target.value })} />
+        const isEditing = visitKey === table.options.meta?.editingVisitId;
+        const form = table.options.meta?.editForm;
+        return isEditing ? (
+          <Input type="date" value={form?.visit_date || ""} onChange={(event) => table.options.meta?.onEditFormChange({ ...form, visit_date: event.target.value })} />
         ) : (visit.visit_date || "--");
       },
     },
@@ -55,11 +67,13 @@ export default function PlannedVisitsDataTable({
       accessorKey: "visit_type",
       headerTitle: "Type",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const visit = row.original;
         const visitKey = String(visit.id || visit.visit_id);
-        return visitKey === editingVisitId ? (
-          <Select value={editForm.visit_type} onChange={(event) => onEditFormChange({ ...editForm, visit_type: event.target.value })}>
+        const isEditing = visitKey === table.options.meta?.editingVisitId;
+        const form = table.options.meta?.editForm;
+        return isEditing ? (
+          <Select value={form?.visit_type || "Planned"} onChange={(event) => table.options.meta?.onEditFormChange({ ...form, visit_type: event.target.value })}>
             <option value="Planned">Planned</option>
             <option value="Priority">Priority</option>
             <option value="Substitution">Substitution</option>
@@ -84,28 +98,28 @@ export default function PlannedVisitsDataTable({
       id: "actions",
       headerTitle: "Actions",
       header: "Actions",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const visit = row.original;
         const visitKey = String(visit.id || visit.visit_id);
-        const isEditing = visitKey === editingVisitId;
+        const isEditing = visitKey === table.options.meta?.editingVisitId;
         return (
           <div className="flex flex-wrap gap-2">
             {isEditing ? (
               <>
-                <Button type="button" size="sm" onClick={() => onSaveEdit(visit.id || visit.visit_id)}>Save</Button>
-                <Button type="button" size="sm" variant="outline" onClick={onCancelEdit}>Cancel</Button>
+                <Button type="button" size="sm" onClick={() => table.options.meta?.onSaveEdit(visit.id || visit.visit_id)}>Save</Button>
+                <Button type="button" size="sm" variant="outline" onClick={table.options.meta?.onCancelEdit}>Cancel</Button>
               </>
             ) : (
-              <Button type="button" size="sm" variant="outline" onClick={() => onStartEdit(visit)}>Edit</Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => table.options.meta?.onStartEdit(visit)}>Edit</Button>
             )}
-            <Button type="button" size="sm" variant="destructive" onClick={() => onDelete(visit.id || visit.visit_id)}>Delete</Button>
+            <Button type="button" size="sm" variant="destructive" onClick={() => table.options.meta?.onDelete(visit.id || visit.visit_id)}>Delete</Button>
           </div>
         );
       },
       enableSorting: false,
       enableHiding: false,
     },
-  ], [editForm, editingVisitId, onCancelEdit, onDelete, onEditFormChange, onSaveEdit, onStartEdit]);
+  ], [tableMeta]);
 
   const table = useReactTable({
     data,
@@ -115,6 +129,7 @@ export default function PlannedVisitsDataTable({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
+    meta: tableMeta,
     defaultColumn: { minSize: 120, size: 170, maxSize: 520 },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),

@@ -21,46 +21,59 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
   const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("name");
   const disabledSorting = useMemo(() => [], []);
+  const selectedExecutiveId = selectedExecutive?.id ?? null;
+
+  const tableMeta = useMemo(() => ({
+    selectedExecutiveId,
+    executiveForm,
+    setExecutiveForm,
+    onEdit,
+    onSave,
+    onCancel,
+    onDelete,
+  }), [onCancel, onDelete, onEdit, onSave, selectedExecutiveId, executiveForm, setExecutiveForm]);
 
   const columns = useMemo(() => [
     {
       accessorKey: "name",
       headerTitle: "Name",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const executive = row.original;
-        const isEditing = selectedExecutive?.id === executive.id;
-        return isEditing ? <Input value={executiveForm.name} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, name: e.target.value }))} /> : (executive.name || "--");
+        const isEditing = table.options.meta?.selectedExecutiveId === executive.id;
+        const form = table.options.meta?.executiveForm;
+        return isEditing ? <Input value={form?.name || ""} onChange={(e) => table.options.meta?.setExecutiveForm((prev) => ({ ...prev, name: e.target.value }))} /> : (executive.name || "--");
       },
     },
     {
       accessorKey: "email",
       headerTitle: "Email",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Email" />,
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const executive = row.original;
-        const isEditing = selectedExecutive?.id === executive.id;
-        return isEditing ? <Input value={executiveForm.email} onChange={(e) => setExecutiveForm((prev) => ({ ...prev, email: e.target.value }))} /> : (executive.email || "--");
+        const isEditing = table.options.meta?.selectedExecutiveId === executive.id;
+        const form = table.options.meta?.executiveForm;
+        return isEditing ? <Input value={form?.email || ""} onChange={(e) => table.options.meta?.setExecutiveForm((prev) => ({ ...prev, email: e.target.value }))} /> : (executive.email || "--");
       },
     },
     {
       id: "actions",
       headerTitle: "Actions",
       header: "Actions",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const executive = row.original;
-        const isEditing = selectedExecutive?.id === executive.id;
+        const isEditing = table.options.meta?.selectedExecutiveId === executive.id;
         return (
           <div className="flex gap-2">
             {isEditing ? (
               <>
-                <Button type="button" size="sm" onClick={onSave}>Save</Button>
-                <Button type="button" variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+                <Button type="button" size="sm" onClick={table.options.meta?.onSave}>Save</Button>
+                <Button type="button" variant="outline" size="sm" onClick={table.options.meta?.onCancel}>Cancel</Button>
               </>
             ) : (
               <>
-                <Button type="button" variant="outline" size="sm" onClick={() => onEdit(executive)}>Edit</Button>
-                <Button type="button" variant="destructive" size="sm" onClick={() => onDelete(executive)}>Delete</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => table.options.meta?.onEdit(executive)}>Edit</Button>
+                <Button type="button" variant="destructive" size="sm" onClick={() => table.options.meta?.onDelete(executive)}>Delete</Button>
               </>
             )}
           </div>
@@ -69,7 +82,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
       enableSorting: false,
       enableHiding: false,
     },
-  ], [executiveForm, onCancel, onDelete, onEdit, onSave, selectedExecutive, setExecutiveForm]);
+  ], [tableMeta]);
 
   const tableData = useMemo(() => {
     if (selectedExecutive?.id === "new") {
@@ -82,7 +95,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
     data: tableData,
     columns,
     state: {
-      sorting: selectedExecutive?.id ? disabledSorting : sorting,
+      sorting: selectedExecutiveId ? disabledSorting : sorting,
       columnFilters,
       columnVisibility,
     },
@@ -90,6 +103,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
+    meta: tableMeta,
     getRowId: (row) => String(row.id),
     defaultColumn: { minSize: 120, size: 180, maxSize: 520 },
     getCoreRowModel: getCoreRowModel(),

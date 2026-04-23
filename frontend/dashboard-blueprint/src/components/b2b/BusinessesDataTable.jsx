@@ -41,37 +41,69 @@ export default function BusinessesDataTable({
   const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("name");
   const disabledSorting = useMemo(() => [], []);
+  const selectedBusinessId = selectedBusiness?.id ?? null;
+
+  const tableMeta = useMemo(() => ({
+    selectedBusinessId,
+    businessForm,
+    setBusinessForm,
+    accountExecutiveQuery,
+    setAccountExecutiveQuery,
+    representatives,
+    representativeMap,
+    onEdit,
+    onSave,
+    onCancel,
+    onRetire,
+    onDelete,
+  }), [
+    accountExecutiveQuery,
+    businessForm,
+    onCancel,
+    onDelete,
+    onEdit,
+    onRetire,
+    onSave,
+    representativeMap,
+    representatives,
+    selectedBusinessId,
+    setAccountExecutiveQuery,
+    setBusinessForm,
+  ]);
 
   const columns = useMemo(() => [
     {
       accessorKey: "name",
       headerTitle: "Name",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const business = row.original;
-        const isEditing = selectedBusiness?.id === business.id;
-        return isEditing ? <Input value={businessForm.name} onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))} /> : business.name;
+        const isEditing = table.options.meta?.selectedBusinessId === business.id;
+        const form = table.options.meta?.businessForm;
+        return isEditing ? <Input value={form?.name || ""} onChange={(e) => table.options.meta?.setBusinessForm((prev) => ({ ...prev, name: e.target.value }))} /> : business.name;
       },
     },
     {
       accessorKey: "location",
       headerTitle: "Location",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Location" />,
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const business = row.original;
-        const isEditing = selectedBusiness?.id === business.id;
-        return isEditing ? <Input value={businessForm.location} onChange={(e) => setBusinessForm((prev) => ({ ...prev, location: e.target.value }))} /> : (business.location || "--");
+        const isEditing = table.options.meta?.selectedBusinessId === business.id;
+        const form = table.options.meta?.businessForm;
+        return isEditing ? <Input value={form?.location || ""} onChange={(e) => table.options.meta?.setBusinessForm((prev) => ({ ...prev, location: e.target.value }))} /> : (business.location || "--");
       },
     },
     {
       accessorKey: "priority_level",
       headerTitle: "Business Type",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Business Type" />,
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const business = row.original;
-        const isEditing = selectedBusiness?.id === business.id;
+        const isEditing = table.options.meta?.selectedBusinessId === business.id;
+        const form = table.options.meta?.businessForm;
         return isEditing ? (
-          <Select value={businessForm.priority_level} onChange={(e) => setBusinessForm((prev) => ({ ...prev, priority_level: e.target.value }))}>
+          <Select value={form?.priority_level || "sme"} onChange={(e) => table.options.meta?.setBusinessForm((prev) => ({ ...prev, priority_level: e.target.value }))}>
             <option value="large_corporate">Large Business/Corporate</option>
             <option value="sme">SME</option>
           </Select>
@@ -86,44 +118,48 @@ export default function BusinessesDataTable({
       accessorKey: "account_executive_id",
       headerTitle: "Account Executive",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Account Executive" />,
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const business = row.original;
-        const isEditing = selectedBusiness?.id === business.id;
+        const isEditing = table.options.meta?.selectedBusinessId === business.id;
+        const form = table.options.meta?.businessForm;
+        const reps = table.options.meta?.representatives || [];
+        const query = table.options.meta?.accountExecutiveQuery || "";
         return isEditing ? (
           <>
             <Input
               list={`account-executives-${business.id}`}
-              value={accountExecutiveQuery}
+              value={query}
               onChange={(e) => {
                 const value = e.target.value;
-                setAccountExecutiveQuery(value);
-                const match = representatives.find((exec) => {
+                table.options.meta?.setAccountExecutiveQuery(value);
+                const match = reps.find((exec) => {
                   const label = exec.name || exec.full_name || exec.display_name || exec.email || "";
                   return label.toLowerCase() === value.toLowerCase();
                 });
-                setBusinessForm((prev) => ({ ...prev, account_executive_id: match ? String(match.id) : "" }));
+                table.options.meta?.setBusinessForm((prev) => ({ ...prev, account_executive_id: match ? String(match.id) : "" }));
               }}
             />
             <datalist id={`account-executives-${business.id}`}>
-              {representatives.map((exec) => (
+              {reps.map((exec) => (
                 <option key={exec.id} value={exec.name || exec.full_name || exec.display_name || exec.email || "Unknown"} />
               ))}
             </datalist>
           </>
-        ) : (representativeMap[business.account_executive_id] || "Unassigned");
+        ) : (table.options.meta?.representativeMap?.[business.account_executive_id] || "Unassigned");
       },
-      sortingFn: (rowA, rowB) => String(representativeMap[rowA.original.account_executive_id] || "").localeCompare(String(representativeMap[rowB.original.account_executive_id] || "")),
-      filterFn: (row, _id, value) => String(representativeMap[row.original.account_executive_id] || "").toLowerCase().includes(String(value || "").toLowerCase()),
+      sortingFn: (rowA, rowB) => String(tableMeta.representativeMap[rowA.original.account_executive_id] || "").localeCompare(String(tableMeta.representativeMap[rowB.original.account_executive_id] || "")),
+      filterFn: (row, _id, value) => String(tableMeta.representativeMap[row.original.account_executive_id] || "").toLowerCase().includes(String(value || "").toLowerCase()),
     },
     {
       accessorKey: "active",
       headerTitle: "Status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const business = row.original;
-        const isEditing = selectedBusiness?.id === business.id;
+        const isEditing = table.options.meta?.selectedBusinessId === business.id;
+        const form = table.options.meta?.businessForm;
         return isEditing ? (
-          <Select value={businessForm.active ? "active" : "inactive"} onChange={(e) => setBusinessForm((prev) => ({ ...prev, active: e.target.value === "active" }))}>
+          <Select value={form?.active ? "active" : "inactive"} onChange={(e) => table.options.meta?.setBusinessForm((prev) => ({ ...prev, active: e.target.value === "active" }))}>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </Select>
@@ -140,21 +176,21 @@ export default function BusinessesDataTable({
       id: "actions",
       headerTitle: "Actions",
       header: "Actions",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
         const business = row.original;
-        const isEditing = selectedBusiness?.id === business.id;
+        const isEditing = table.options.meta?.selectedBusinessId === business.id;
         return (
           <div className="flex gap-2">
             {isEditing ? (
               <>
-                <Button type="button" size="sm" onClick={onSave}>Save</Button>
-                <Button type="button" variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+                <Button type="button" size="sm" onClick={table.options.meta?.onSave}>Save</Button>
+                <Button type="button" variant="outline" size="sm" onClick={table.options.meta?.onCancel}>Cancel</Button>
               </>
             ) : (
               <>
-                <Button type="button" variant="outline" size="sm" onClick={() => onEdit(business)}>Edit</Button>
-                {business.active ? <Button type="button" variant="outline" size="sm" onClick={() => onRetire(business)}>Retire</Button> : null}
-                <Button type="button" variant="destructive" size="sm" onClick={() => onDelete(business)}>Delete</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => table.options.meta?.onEdit(business)}>Edit</Button>
+                {business.active ? <Button type="button" variant="outline" size="sm" onClick={() => table.options.meta?.onRetire(business)}>Retire</Button> : null}
+                <Button type="button" variant="destructive" size="sm" onClick={() => table.options.meta?.onDelete(business)}>Delete</Button>
               </>
             )}
           </div>
@@ -163,7 +199,7 @@ export default function BusinessesDataTable({
       enableSorting: false,
       enableHiding: false,
     },
-  ], [accountExecutiveQuery, businessForm, onCancel, onDelete, onEdit, onRetire, onSave, representativeMap, representatives, selectedBusiness, setAccountExecutiveQuery, setBusinessForm]);
+  ], [tableMeta]);
 
   const tableData = useMemo(() => {
     if (selectedBusiness?.id === "new") {
@@ -179,7 +215,7 @@ export default function BusinessesDataTable({
     data: tableData,
     columns,
     state: {
-      sorting: selectedBusiness?.id ? disabledSorting : sorting,
+      sorting: selectedBusinessId ? disabledSorting : sorting,
       columnFilters,
       columnVisibility,
     },
@@ -187,6 +223,7 @@ export default function BusinessesDataTable({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: "onChange",
+    meta: tableMeta,
     getRowId: (row) => String(row.id),
     defaultColumn: { minSize: 120, size: 180, maxSize: 540 },
     getCoreRowModel: getCoreRowModel(),
