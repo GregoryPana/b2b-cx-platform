@@ -20,6 +20,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
   const [columnFilters, setColumnFilters] = useState([]);
   const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("name");
+  const disabledSorting = useMemo(() => [], []);
 
   const columns = useMemo(() => [
     {
@@ -81,7 +82,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
     data: tableData,
     columns,
     state: {
-      sorting: selectedExecutive?.id ? [] : sorting,
+      sorting: selectedExecutive?.id ? disabledSorting : sorting,
       columnFilters,
       columnVisibility,
     },

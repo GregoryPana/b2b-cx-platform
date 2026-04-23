@@ -40,6 +40,7 @@ export default function BusinessesDataTable({
   const [columnFilters, setColumnFilters] = useState([]);
   const [columnVisibility, setColumnVisibility] = useState({});
   const [filterColumn, setFilterColumn] = useState("name");
+  const disabledSorting = useMemo(() => [], []);
 
   const columns = useMemo(() => [
     {
@@ -178,7 +179,7 @@ export default function BusinessesDataTable({
     data: tableData,
     columns,
     state: {
-      sorting: selectedBusiness?.id ? [] : sorting,
+      sorting: selectedBusiness?.id ? disabledSorting : sorting,
       columnFilters,
       columnVisibility,
     },
