@@ -82,7 +82,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
       enableSorting: false,
       enableHiding: false,
     },
-  ], [tableMeta]);
+  ], []);
 
   const tableData = useMemo(() => {
     if (selectedExecutive?.id === "new") {

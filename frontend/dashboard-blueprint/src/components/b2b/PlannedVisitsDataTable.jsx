@@ -119,7 +119,7 @@ export default function PlannedVisitsDataTable({
       enableSorting: false,
       enableHiding: false,
     },
-  ], [tableMeta]);
+  ], []);
 
   const table = useReactTable({
     data,

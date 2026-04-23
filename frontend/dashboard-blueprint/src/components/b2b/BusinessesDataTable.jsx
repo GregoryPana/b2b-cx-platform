@@ -147,8 +147,8 @@ export default function BusinessesDataTable({
           </>
         ) : (table.options.meta?.representativeMap?.[business.account_executive_id] || "Unassigned");
       },
-      sortingFn: (rowA, rowB) => String(tableMeta.representativeMap[rowA.original.account_executive_id] || "").localeCompare(String(tableMeta.representativeMap[rowB.original.account_executive_id] || "")),
-      filterFn: (row, _id, value) => String(tableMeta.representativeMap[row.original.account_executive_id] || "").toLowerCase().includes(String(value || "").toLowerCase()),
+      sortingFn: (rowA, rowB) => String(representativeMap[rowA.original.account_executive_id] || "").localeCompare(String(representativeMap[rowB.original.account_executive_id] || "")),
+      filterFn: (row, _id, value) => String(representativeMap[row.original.account_executive_id] || "").toLowerCase().includes(String(value || "").toLowerCase()),
     },
     {
       accessorKey: "active",
@@ -199,7 +199,7 @@ export default function BusinessesDataTable({
       enableSorting: false,
       enableHiding: false,
     },
-  ], [tableMeta]);
+  ], [representativeMap]);
 
   const tableData = useMemo(() => {
     if (selectedBusiness?.id === "new") {
