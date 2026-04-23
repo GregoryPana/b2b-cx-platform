@@ -156,7 +156,44 @@ def _to_float(value: Decimal | float | int | None) -> float | None:
     return round(float(value), 2)
 
 
+def _has_table(db: Session, table_name: str) -> bool:
+    return bool(
+        db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = :table_name
+                LIMIT 1
+                """
+            ),
+            {"table_name": table_name},
+        ).scalar()
+    )
+
+
+def _has_column(db: Session, table_name: str, column_name: str) -> bool:
+    return bool(
+        db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = :table_name
+                  AND column_name = :column_name
+                LIMIT 1
+                """
+            ),
+            {"table_name": table_name, "column_name": column_name},
+        ).scalar()
+    )
+
+
 def _contractor_exists(db: Session, contractor_name: str) -> bool:
+    if not _has_table(db, "installation_contractors"):
+        return False
     row = db.execute(
         text(
             """
@@ -179,6 +216,8 @@ def list_installation_contractors(
     db: Session = Depends(get_db),
 ):
     try:
+        if not _has_table(db, "installation_contractors"):
+            return []
         effective_limit = max(1, min(limit, 100))
         query = (q or "").strip()
         params: dict[str, object] = {"limit": effective_limit}
@@ -220,6 +259,8 @@ def create_installation_contractor(
     contractor_name = (payload.name or "").strip()
     if not contractor_name:
         raise HTTPException(status_code=400, detail="Contractor name is required")
+    if not _has_table(db, "installation_contractors"):
+        raise HTTPException(status_code=400, detail="Contractor directory is not available until the latest installation migration is applied")
 
     try:
         row = db.execute(
@@ -486,6 +527,8 @@ def list_installation_surveys(
     db: Session = Depends(get_db),
 ):
     try:
+        has_contractor_name = _has_column(db, "installation_surveys", "contractor_name")
+        has_field_team_members = _has_column(db, "installation_surveys", "field_team_members")
         where = ["1=1"]
         params: dict[str, object] = {}
 
@@ -534,8 +577,8 @@ def list_installation_surveys(
                     s.location,
                     s.date_work_done,
                     s.job_done_by,
-                    s.contractor_name,
-                    s.field_team_members,
+                    {contractor_name_select},
+                    {field_team_members_select},
                     s.overall_score,
                     s.created_by_name,
                     s.created_by_email,
@@ -544,6 +587,10 @@ def list_installation_surveys(
                 WHERE {' AND '.join(where)}
                 ORDER BY s.date_work_done DESC, s.created_at DESC
                 """
+                .format(
+                    contractor_name_select="s.contractor_name" if has_contractor_name else "NULL AS contractor_name",
+                    field_team_members_select="s.field_team_members" if has_field_team_members else "'[]'::jsonb AS field_team_members",
+                )
             ),
             params,
         ).mappings().all()
@@ -574,6 +621,8 @@ def list_installation_surveys(
 @router.get("/surveys/{survey_id}", dependencies=[Depends(require_roles(*INSTALL_ROLES))])
 def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)):
     try:
+        has_contractor_name = _has_column(db, "installation_surveys", "contractor_name")
+        has_field_team_members = _has_column(db, "installation_surveys", "field_team_members")
         survey = db.execute(
             text(
                 """
@@ -586,8 +635,8 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
                     location,
                     date_work_done,
                     job_done_by,
-                    contractor_name,
-                    field_team_members,
+                    {contractor_name_select},
+                    {field_team_members_select},
                     overall_score,
                     created_by_name,
                     created_by_email,
@@ -595,6 +644,10 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
                 FROM installation_surveys
                 WHERE id = CAST(:survey_id AS uuid)
                 """
+                .format(
+                    contractor_name_select="contractor_name" if has_contractor_name else "NULL AS contractor_name",
+                    field_team_members_select="field_team_members" if has_field_team_members else "'[]'::jsonb AS field_team_members",
+                )
             ),
             {"survey_id": survey_id},
         ).mappings().first()
@@ -659,6 +712,7 @@ def get_installation_analytics(
     db: Session = Depends(get_db),
 ):
     try:
+        has_contractor_name = _has_column(db, "installation_surveys", "contractor_name")
         where_sql, params = _build_installation_where_clause(
             date_from=date_from,
             date_to=date_to,
@@ -712,23 +766,25 @@ def get_installation_analytics(
 
         worker_map = {row["worker_type"]: row for row in worker_rows}
 
-        contractor_rows = db.execute(
-            text(
-                f"""
-                SELECT
-                    s.contractor_name,
-                    COUNT(*) AS survey_count,
-                    AVG(s.overall_score)::numeric(10,2) AS average_score
-                FROM installation_surveys s
-                WHERE {where_sql}
-                  AND s.job_done_by = 'Contractor'
-                  AND COALESCE(s.contractor_name, '') <> ''
-                GROUP BY s.contractor_name
-                ORDER BY average_score DESC NULLS LAST, survey_count DESC, s.contractor_name ASC
-                """
-            ),
-            params,
-        ).mappings().all()
+        contractor_rows = []
+        if has_contractor_name:
+            contractor_rows = db.execute(
+                text(
+                    f"""
+                    SELECT
+                        s.contractor_name,
+                        COUNT(*) AS survey_count,
+                        AVG(s.overall_score)::numeric(10,2) AS average_score
+                    FROM installation_surveys s
+                    WHERE {where_sql}
+                      AND s.job_done_by = 'Contractor'
+                      AND COALESCE(s.contractor_name, '') <> ''
+                    GROUP BY s.contractor_name
+                    ORDER BY average_score DESC NULLS LAST, survey_count DESC, s.contractor_name ASC
+                    """
+                ),
+                params,
+            ).mappings().all()
 
         question_rows = db.execute(
             text(
@@ -1033,6 +1089,8 @@ def export_installation_report(
     current_user: AuthUser = Depends(get_current_user),
 ):
     try:
+        has_contractor_name = _has_column(db, "installation_surveys", "contractor_name")
+        has_field_team_members = _has_column(db, "installation_surveys", "field_team_members")
         # Build payload data
         where = ["1=1"]
         params: dict[str, object] = {}
@@ -1084,23 +1142,25 @@ def export_installation_report(
             params,
         ).mappings().all()
 
-        contractor_rows = db.execute(
-            text(
-                f"""
-                SELECT
-                    s.contractor_name,
-                    COUNT(*) AS survey_count,
-                    AVG(s.overall_score)::numeric(10,2) AS average_score
-                FROM installation_surveys s
-                WHERE {where_sql}
-                  AND s.job_done_by = 'Contractor'
-                  AND COALESCE(s.contractor_name, '') <> ''
-                GROUP BY s.contractor_name
-                ORDER BY average_score DESC NULLS LAST, survey_count DESC, s.contractor_name ASC
-                """
-            ),
-            params,
-        ).mappings().all()
+        contractor_rows = []
+        if has_contractor_name:
+            contractor_rows = db.execute(
+                text(
+                    f"""
+                    SELECT
+                        s.contractor_name,
+                        COUNT(*) AS survey_count,
+                        AVG(s.overall_score)::numeric(10,2) AS average_score
+                    FROM installation_surveys s
+                    WHERE {where_sql}
+                      AND s.job_done_by = 'Contractor'
+                      AND COALESCE(s.contractor_name, '') <> ''
+                    GROUP BY s.contractor_name
+                    ORDER BY average_score DESC NULLS LAST, survey_count DESC, s.contractor_name ASC
+                    """
+                ),
+                params,
+            ).mappings().all()
 
         # Category averages
         category_rows = db.execute(
@@ -1166,10 +1226,14 @@ def export_installation_report(
             survey = db.execute(
                 text(
                     """
-                    SELECT id, inspector_name, work_order, customer_name, customer_type, location, date_work_done, job_done_by, contractor_name, field_team_members, overall_score, created_at
+                    SELECT id, inspector_name, work_order, customer_name, customer_type, location, date_work_done, job_done_by, {contractor_name_select}, {field_team_members_select}, overall_score, created_at
                     FROM installation_surveys
                     WHERE id = CAST(:survey_id AS uuid)
                     """
+                    .format(
+                        contractor_name_select="contractor_name" if has_contractor_name else "NULL AS contractor_name",
+                        field_team_members_select="field_team_members" if has_field_team_members else "'[]'::jsonb AS field_team_members",
+                    )
                 ),
                 {"survey_id": survey_id},
             ).mappings().first()

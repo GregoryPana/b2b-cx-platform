@@ -77,6 +77,20 @@ const sections = [
       { src: `${GUIDE_BASE}submit-button.png`, alt: "Submit assessment" },
     ],
   },
+  {
+    title: "Using The User Guide Page",
+    summary: "Open the guide whenever you need help understanding what the page is for or what to do next.",
+    steps: [
+      "Open User Guide from the left menu.",
+      "Read the section that matches the part of the assessment you are using.",
+      "Return to the assessment page from the left menu when you are ready to continue.",
+    ],
+    notes: [
+      "This guide is meant to support live work, not only training.",
+      "If you are unsure what a button does, use the guide first before trying random options.",
+    ],
+    images: [],
+  },
 ];
 
 export default function UserGuidePage() {
@@ -110,14 +124,16 @@ export default function UserGuidePage() {
                   ))}
                 </ul>
               </div>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {section.images.map((image) => (
-                  <figure key={image.src} className="space-y-2 rounded-md border p-3">
-                    <img src={image.src} alt={image.alt} className="w-full rounded border object-contain" />
-                    <figcaption className="text-xs text-muted-foreground">{image.alt}</figcaption>
-                  </figure>
-                ))}
-              </div>
+              {section.images.length ? (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  {section.images.map((image) => (
+                    <figure key={image.src} className="space-y-2 rounded-md border p-3">
+                      <img src={image.src} alt={image.alt} className="w-full rounded border object-contain" />
+                      <figcaption className="text-xs text-muted-foreground">{image.alt}</figcaption>
+                    </figure>
+                  ))}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         ))}

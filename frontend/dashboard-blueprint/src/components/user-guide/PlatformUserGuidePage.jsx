@@ -44,6 +44,22 @@ const GUIDE_CONTENT = {
           { src: guideAssetBase("dashboard-b2b/survey-results.png"), alt: "B2B survey results" },
         ],
       },
+      {
+        title: "Other B2B Pages You Can Use",
+        summary: "The rest of the B2B dashboard pages support detailed monitoring, follow-up, setup, and self-help.",
+        steps: [
+          "Use Trends to understand how results move over time.",
+          "Use Action Points to track follow-up work and update statuses.",
+          "Use Reports to preview and send formal outputs.",
+          "Use Account Executives to maintain the executive directory.",
+          "Use User Guide when you need help understanding the system.",
+        ],
+        notes: [
+          "You do not need to use every page every day. Start with the page that matches your task.",
+          "If you are reviewing performance, begin with Analytics or Trends. If you are maintaining data, begin with Businesses, Executives, or Planned Visits.",
+        ],
+        images: [],
+      },
     ],
   },
   installation: {
@@ -84,6 +100,21 @@ const GUIDE_CONTENT = {
           { src: guideAssetBase("dashboard-installation/overview.png"), alt: "Installation dashboard overview" },
           { src: guideAssetBase("dashboard-installation/modules.png"), alt: "Installation dashboard modules" },
         ],
+      },
+      {
+        title: "Other Installation Pages You Can Use",
+        summary: "The installation dashboard pages work together to help you move from summary information to detailed records and reporting.",
+        steps: [
+          "Use Surveys to inspect one submitted assessment in detail.",
+          "Use Reports to preview and send report output.",
+          "Use Contractors to maintain the contractor list used by the survey app.",
+          "Use User Guide whenever you need help while working.",
+        ],
+        notes: [
+          "If a score looks unusual, use Surveys to inspect the exact assessment behind it.",
+          "If contractor reporting looks split across similar names, review the Contractors page.",
+        ],
+        images: [],
       },
     ],
   },
@@ -132,14 +163,16 @@ export default function PlatformUserGuidePage({ platform }) {
                 ))}
               </ul>
             </div>
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              {section.images.map((image) => (
-                <figure key={image.src} className="space-y-2 rounded-md border p-3">
-                  <img src={image.src} alt={image.alt} className="w-full rounded border object-contain" />
-                  <figcaption className="text-xs text-muted-foreground">{image.alt}</figcaption>
-                </figure>
-              ))}
-            </div>
+            {section.images.length ? (
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {section.images.map((image) => (
+                  <figure key={image.src} className="space-y-2 rounded-md border p-3">
+                    <img src={image.src} alt={image.alt} className="w-full rounded border object-contain" />
+                    <figcaption className="text-xs text-muted-foreground">{image.alt}</figcaption>
+                  </figure>
+                ))}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ))}

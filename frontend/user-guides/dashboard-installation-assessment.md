@@ -193,7 +193,24 @@ Before creating a new contractor, search carefully to avoid duplicates.
 
 ---
 
-## 9) Navigation Tips
+## 9) Page: User Guide
+
+This page gives users help inside the system.
+
+### What this page is for
+
+- helping new users understand each dashboard page
+- showing screenshots and simple guidance
+- reducing mistakes during normal use
+
+### What you can do
+
+- open help from inside the dashboard
+- compare the live screen with the screenshots and notes
+
+---
+
+## 10) Navigation Tips
 
 Use the left menu to move between pages.
 
@@ -208,7 +225,7 @@ The easiest order is:
 
 ---
 
-## 10) Common Mistakes To Avoid
+## 11) Common Mistakes To Avoid
 
 - creating duplicate contractor names
 - reading averages without checking the detailed records behind them
@@ -217,7 +234,7 @@ The easiest order is:
 
 ---
 
-## 11) Common Situations
+## 12) Common Situations
 
 - **You cannot find a contractor in the survey app**
   - Add it in the dashboard contractor directory first.
@@ -233,7 +250,7 @@ The easiest order is:
 
 ---
 
-## 12) Getting Help
+## 13) Getting Help
 
 If something goes wrong:
 

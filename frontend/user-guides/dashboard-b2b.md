@@ -284,7 +284,60 @@ Always preview a report before sending it, especially if the report is for manag
 
 ---
 
-## 10) Page: Account Executives
+## 10) Page: Trends
+
+This page helps you understand how results change over time.
+
+### What this page is for
+
+- checking whether performance is improving or declining
+- spotting unusual drops or spikes
+- reviewing changes across selected questions or yes/no analytics
+
+### What you can do
+
+- inspect score movement over time
+- compare periods visually
+- use trends to support decisions made from the Analytics page
+
+### What you cannot do
+
+- change source survey data from this page
+- use one short trend alone to explain the full business situation
+
+### Good habit
+
+Use Trends together with Analytics. Analytics shows the current picture. Trends help explain how the picture changed.
+
+---
+
+## 11) Page: Action Points
+
+This page is used to follow up on issues that were identified in survey responses or during review.
+
+### What this page is for
+
+- checking what actions are still outstanding
+- updating action status
+- tracking comments and follow-up progress
+
+### What you can do
+
+- move actions between statuses such as Outstanding, In Progress, and Completed
+- add or update comments
+- review ownership and timelines
+
+### What you cannot do
+
+- treat an action as complete without checking the work has actually been done
+
+### Good habit
+
+Keep comments brief and useful. Someone else should be able to understand the current state of the action just by reading the status and latest comment.
+
+---
+
+## 12) Page: Account Executives
 
 This page helps keep the account executive directory clean and usable.
 
@@ -299,14 +352,37 @@ Account executive information appears in business records, survey records, and r
 
 ---
 
-## 11) Navigation Tips
+## 13) Page: User Guide
+
+This page gives users help inside the system.
+
+### What this page is for
+
+- helping new users understand how to move around the system
+- showing screenshots and simple explanations
+- reducing mistakes during day-to-day use
+
+### What you can do
+
+- open help without leaving the dashboard
+- use the screenshots as a visual reference
+
+### Good habit
+
+When training a new user, open the User Guide page side by side with the real working page so they can compare the live screen with the instructions.
+
+---
+
+## 14) Navigation Tips
 
 Use the left menu to move between dashboard pages.
 
 The easiest way to work is:
 
 - **Analytics** for overview
+- **Trends** for time-based movement
 - **Review** for decisions
+- **Action Points** for follow-up work
 - **Businesses** and **Account Executives** for setup
 - **Planned Visits** for scheduling
 - **Surveys** and **Reports** for detailed checking
@@ -314,7 +390,7 @@ The easiest way to work is:
 
 ---
 
-## 12) Common Mistakes To Avoid
+## 15) Common Mistakes To Avoid
 
 - approving a survey without reviewing it properly
 - creating duplicate businesses
@@ -324,7 +400,7 @@ The easiest way to work is:
 
 ---
 
-## 13) Common Situations
+## 16) Common Situations
 
 - **No data shown**
   - Clear filters and reapply them one by one.
@@ -340,7 +416,7 @@ The easiest way to work is:
 
 ---
 
-## 14) Getting Help
+## 17) Getting Help
 
 If something goes wrong:
 
