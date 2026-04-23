@@ -533,24 +533,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     </details>
   );
 
-  const mysteryLocationMap = useMemo(() => {
-    return mysteryLocations.reduce((acc, item) => {
-      acc[item.id] = item;
-      return acc;
-    }, {});
-  }, [mysteryLocations]);
-
   const selectedAnalyticsEntityIds = useMemo(() => {
     if (isB2BPlatform) {
       return selectedAnalyticsBusinessIds;
     }
     if (isMysteryShopperPlatform) {
-      return selectedAnalyticsLocationIds
-        .map((locationId) => mysteryLocationMap[locationId]?.business_id)
-        .filter(Boolean);
+      return selectedAnalyticsLocationIds;
     }
     return [];
-  }, [isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsBusinessIds, selectedAnalyticsLocationIds, mysteryLocationMap]);
+  }, [isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsBusinessIds, selectedAnalyticsLocationIds]);
 
    // Reset selected question when platform changes
    useEffect(() => {
@@ -563,11 +554,14 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
      if (!activePlatform || isInstallationPlatform) return;
      const load = async () => {
        setError("");
-       const params = new URLSearchParams();
-       params.set("survey_type", activePlatform);
-       if (selectedAnalyticsEntityIds.length > 0) {
-         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
-       }
+        const params = new URLSearchParams();
+        params.set("survey_type", activePlatform);
+        if (selectedAnalyticsEntityIds.length > 0) {
+          params.set(
+            isMysteryShopperPlatform ? "mystery_location_ids" : "business_ids",
+            selectedAnalyticsEntityIds.join(",")
+          );
+        }
        params.set("_cb", Date.now().toString());
        const queryString = `?${params.toString()}`;
 
@@ -607,7 +601,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
        }
      };
      load();
-   }, [activePlatform, isInstallationPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
    // Load yes/no question analytics
     useEffect(() => {
@@ -657,12 +651,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
    // Load question averages for drilldown table
    useEffect(() => {
      if (!activePlatform || isInstallationPlatform) return;
-     const load = async () => {
-       const params = new URLSearchParams({ survey_type: activePlatform });
-       if (selectedAnalyticsEntityIds.length > 0) {
-         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
-       }
-       const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
+      const load = async () => {
+        const params = new URLSearchParams({ survey_type: activePlatform });
+        if (selectedAnalyticsEntityIds.length > 0) {
+          params.set(
+            isMysteryShopperPlatform ? "mystery_location_ids" : "business_ids",
+            selectedAnalyticsEntityIds.join(",")
+          );
+        }
+        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
        if (!res.ok) return;
        const values = Array.isArray(data?.items) ? data.items : [];
        setQuestionAverages(values);
@@ -676,23 +673,26 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
        }
      };
      load();
-    }, [activePlatform, isInstallationPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
    // Load question trend data
    useEffect(() => {
      if (!selectedQuestionId || !activePlatform) return;
-     const load = async () => {
-       const params = new URLSearchParams({ survey_type: activePlatform, interval: "week" });
-       if (selectedAnalyticsEntityIds.length > 0) {
-         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
-       }
-       const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/${selectedQuestionId}/trend?${params.toString()}`, { headers });
+      const load = async () => {
+        const params = new URLSearchParams({ survey_type: activePlatform, interval: "week" });
+        if (selectedAnalyticsEntityIds.length > 0) {
+          params.set(
+            isMysteryShopperPlatform ? "mystery_location_ids" : "business_ids",
+            selectedAnalyticsEntityIds.join(",")
+          );
+        }
+        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/${selectedQuestionId}/trend?${params.toString()}`, { headers });
        if (!res.ok) return;
        const rows = Array.isArray(data?.points) ? data.points : [];
        setTrendData(rows.map((row) => ({ period: row.period_label || row.period, average: Number(row.average_score || 0) })));
      };
      load();
-   }, [activePlatform, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [activePlatform, isMysteryShopperPlatform, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
   const loadPendingVisits = useCallback(async () => {
     const params = new URLSearchParams();

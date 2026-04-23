@@ -487,7 +487,7 @@ def _ensure_mystery_shopper_schema(db: Session) -> int:
         CREATE TABLE IF NOT EXISTS mystery_shopper_locations (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255) NOT NULL UNIQUE,
-            business_id INTEGER NOT NULL REFERENCES businesses(id),
+            business_id INTEGER,
             active BOOLEAN NOT NULL DEFAULT TRUE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -499,7 +499,7 @@ def _ensure_mystery_shopper_schema(db: Session) -> int:
         """
         CREATE TABLE IF NOT EXISTS mystery_shopper_assessments (
             id SERIAL PRIMARY KEY,
-            visit_id UUID NOT NULL UNIQUE REFERENCES visits(id),
+            visit_id UUID NOT NULL UNIQUE,
             location_id INTEGER NOT NULL REFERENCES mystery_shopper_locations(id),
             visit_time VARCHAR(20) NOT NULL,
             purpose_of_visit VARCHAR(120) NOT NULL,
@@ -524,6 +524,12 @@ def _ensure_mystery_shopper_schema(db: Session) -> int:
         )
         """
     ))
+
+    db.execute(text("ALTER TABLE mystery_shopper_locations ADD COLUMN IF NOT EXISTS business_id INTEGER"))
+    db.execute(text("ALTER TABLE mystery_shopper_locations ALTER COLUMN business_id DROP NOT NULL"))
+    db.execute(text("ALTER TABLE mystery_shopper_locations DROP CONSTRAINT IF EXISTS mystery_shopper_locations_business_id_fkey"))
+    db.execute(text("ALTER TABLE mystery_shopper_assessments DROP CONSTRAINT IF EXISTS mystery_shopper_assessments_visit_id_fkey"))
+    db.execute(text("ALTER TABLE visits ALTER COLUMN business_id DROP NOT NULL"))
 
     db.execute(text(
         """
@@ -564,6 +570,23 @@ def _ensure_mystery_shopper_schema(db: Session) -> int:
 
     if not survey_type_id:
         raise HTTPException(status_code=500, detail="Failed to initialize Mystery Shopper survey type")
+
+    db.execute(
+        text(
+            """
+            UPDATE visits v
+            SET business_id = NULL
+            WHERE v.survey_type_id = :survey_type_id
+              AND v.business_id IS NOT NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM mystery_shopper_assessments msa
+                  WHERE msa.visit_id = v.id
+              )
+            """
+        ),
+        {"survey_type_id": survey_type_id},
+    )
 
     has_order_index = _has_column(db, "questions", "order_index")
 
@@ -726,49 +749,19 @@ async def create_location(payload: LocationCreate, db: Session = Depends(get_db)
     if existing:
         raise HTTPException(status_code=400, detail="Location already exists")
 
-    has_priority_level = _has_column(db, "businesses", "priority_level")
-    has_priority_flag = _has_column(db, "businesses", "priority_flag")
-
-    if has_priority_level:
-        business_insert_sql = text(
-            """
-            INSERT INTO businesses (name, location, account_executive_id, priority_level, active)
-            VALUES (:name, :name, NULL, 'medium', TRUE)
-            RETURNING id
-            """
-        )
-    elif has_priority_flag:
-        business_insert_sql = text(
-            """
-            INSERT INTO businesses (name, location, account_executive_id, priority_flag, active)
-            VALUES (:name, :name, NULL, FALSE, TRUE)
-            RETURNING id
-            """
-        )
-    else:
-        business_insert_sql = text(
-            """
-            INSERT INTO businesses (name, location, account_executive_id, active)
-            VALUES (:name, :name, NULL, TRUE)
-            RETURNING id
-            """
-        )
-
-    business_id = db.execute(business_insert_sql, {"name": name}).scalar()
-
     location_id = db.execute(
         text(
             """
             INSERT INTO mystery_shopper_locations (name, business_id, active)
-            VALUES (:name, :business_id, TRUE)
+            VALUES (:name, NULL, TRUE)
             RETURNING id
             """
         ),
-        {"name": name, "business_id": business_id},
+        {"name": name},
     ).scalar()
 
     db.commit()
-    return {"id": location_id, "name": name, "business_id": business_id, "active": True}
+    return {"id": location_id, "name": name, "business_id": None, "active": True}
 
 
 @router.put("/locations/{location_id}")
@@ -804,17 +797,6 @@ async def update_location(location_id: int, payload: LocationUpdate, db: Session
         {"id": location_id, "name": next_name, "active": next_active},
     )
 
-    db.execute(
-        text(
-            """
-            UPDATE businesses
-            SET name = :name, location = :name, active = :active
-            WHERE id = :business_id
-            """
-        ),
-        {"business_id": row[2], "name": next_name, "active": next_active},
-    )
-
     db.commit()
     return {"id": location_id, "name": next_name, "business_id": row[2], "active": next_active}
 
@@ -846,24 +828,9 @@ async def purge_location(location_id: int, db: Session = Depends(get_db)):
             detail="Location has related assessments. Deactivate instead of deleting.",
         )
 
-    visit_count = db.execute(
-        text("SELECT COUNT(*) FROM visits WHERE business_id = :business_id"),
-        {"business_id": row[2]},
-    ).scalar()
-    if visit_count and int(visit_count) > 0:
-        raise HTTPException(
-            status_code=409,
-            detail="Location has related visits. Deactivate instead of deleting.",
-        )
-
     db.execute(
         text("DELETE FROM mystery_shopper_locations WHERE id = :id"),
         {"id": location_id},
-    )
-
-    db.execute(
-        text("DELETE FROM businesses WHERE id = :business_id"),
-        {"business_id": row[2]},
     )
 
     db.commit()
@@ -1061,7 +1028,7 @@ async def create_mystery_visit(
         raise HTTPException(status_code=400, detail="Purpose of visit is not an active configured option")
 
     location_row = db.execute(
-        text("SELECT business_id, active FROM mystery_shopper_locations WHERE id = :id"),
+        text("SELECT id, active FROM mystery_shopper_locations WHERE id = :id"),
         {"id": payload.location_id},
     ).fetchone()
     if not location_row:
@@ -1072,17 +1039,18 @@ async def create_mystery_visit(
     existing_visit = db.execute(
         text(
             """
-            SELECT id
-            FROM visits
-            WHERE business_id = :business_id
-              AND visit_date = :visit_date
-              AND survey_type_id = :survey_type_id
-              AND status = 'Draft'
+            SELECT v.id
+            FROM visits v
+            JOIN mystery_shopper_assessments msa ON msa.visit_id = v.id
+            WHERE msa.location_id = :location_id
+              AND v.visit_date = :visit_date
+              AND v.survey_type_id = :survey_type_id
+              AND v.status = 'Draft'
             LIMIT 1
             """
         ),
         {
-            "business_id": location_row[0],
+            "location_id": payload.location_id,
             "visit_date": payload.visit_date,
             "survey_type_id": survey_type_id,
         },
@@ -1099,14 +1067,13 @@ async def create_mystery_visit(
                 visit_date, visit_type, status, survey_type_id
             )
             VALUES (
-                gen_random_uuid(), :business_id, :representative_id, :created_by,
+                gen_random_uuid(), NULL, :representative_id, :created_by,
                 :visit_date, :visit_type, 'Draft', :survey_type_id
             )
             RETURNING id
             """
         ),
         {
-            "business_id": location_row[0],
             "representative_id": payload.representative_id or current_user.id,
             "created_by": current_user.id,
             "visit_date": payload.visit_date,
@@ -1166,24 +1133,13 @@ async def update_mystery_header(visit_id: str, payload: MysteryHeaderUpdate, db:
         raise HTTPException(status_code=400, detail="Purpose of visit is not an active configured option")
 
     location_row = db.execute(
-        text("SELECT business_id, active FROM mystery_shopper_locations WHERE id = :id"),
+        text("SELECT id, active FROM mystery_shopper_locations WHERE id = :id"),
         {"id": payload.location_id},
     ).fetchone()
     if not location_row:
         raise HTTPException(status_code=404, detail="Location not found")
     if not location_row[1]:
         raise HTTPException(status_code=400, detail="Selected location is inactive")
-
-    db.execute(
-        text(
-            """
-            UPDATE visits
-            SET business_id = :business_id
-            WHERE id = :visit_id
-            """
-        ),
-        {"visit_id": visit_id, "business_id": location_row[0]},
-    )
 
     db.execute(
         text(

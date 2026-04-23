@@ -74,6 +74,17 @@ def parse_business_ids(business_ids: str | None) -> list[int]:
     return values
 
 
+def parse_location_ids(location_ids: str | None) -> list[int]:
+    values: list[int] = []
+    if not location_ids:
+        return values
+    for raw in location_ids.split(","):
+        token = raw.strip()
+        if token.isdigit():
+            values.append(int(token))
+    return values
+
+
 def detect_question_columns(db: Session) -> tuple[bool, bool, bool]:
     has_question_key = db.execute(text("""
         SELECT 1
@@ -117,6 +128,7 @@ def detect_mystery_tables(db: Session) -> tuple[bool, bool]:
 def get_comprehensive_analytics(
     survey_type: str | None = None,
     business_ids: str | None = None,
+    mystery_location_ids: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     db: Session = Depends(get_db),
@@ -139,6 +151,7 @@ def get_comprehensive_analytics(
             params["survey_type_id"] = survey_type_id
 
         business_id_values = parse_business_ids(business_ids)
+        location_id_values = parse_location_ids(mystery_location_ids)
 
         if business_id_values:
             placeholders = []
@@ -149,6 +162,28 @@ def get_comprehensive_analytics(
             business_clause = ",".join(placeholders)
             where_extra += f" AND v.business_id IN ({business_clause})"
             where_visits_extra += f" AND business_id IN ({business_clause})"
+
+        if is_mystery_survey and location_id_values:
+            location_placeholders = []
+            for idx, value in enumerate(location_id_values):
+                key = f"mystery_location_id_{idx}"
+                location_placeholders.append(f":{key}")
+                params[key] = value
+            location_clause = ",".join(location_placeholders)
+            where_extra += (
+                " AND EXISTS ("
+                "SELECT 1 FROM mystery_shopper_assessments msa_filter "
+                "WHERE msa_filter.visit_id = v.id "
+                f"AND msa_filter.location_id IN ({location_clause})"
+                ")"
+            )
+            where_visits_extra += (
+                " AND EXISTS ("
+                "SELECT 1 FROM mystery_shopper_assessments msa_filter "
+                "WHERE msa_filter.visit_id = visits.id "
+                f"AND msa_filter.location_id IN ({location_clause})"
+                ")"
+            )
 
         if date_from:
             where_extra += " AND v.visit_date >= :date_from"
@@ -556,6 +591,7 @@ def get_comprehensive_analytics(
 def get_question_averages(
     survey_type: str | None = None,
     business_ids: str | None = None,
+    mystery_location_ids: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     db: Session = Depends(get_db),
@@ -575,6 +611,9 @@ def get_question_averages(
             params["survey_type_id"] = survey_type_id
 
         business_id_values = parse_business_ids(business_ids)
+        normalized_survey_type = (survey_type or "").strip().lower()
+        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
+        location_id_values = parse_location_ids(mystery_location_ids)
         if business_id_values:
             placeholders = []
             for idx, value in enumerate(business_id_values):
@@ -582,6 +621,20 @@ def get_question_averages(
                 placeholders.append(f":{key}")
                 params[key] = value
             where_extra += f" AND v.business_id IN ({','.join(placeholders)})"
+
+        if is_mystery_survey and location_id_values:
+            placeholders = []
+            for idx, value in enumerate(location_id_values):
+                key = f"mystery_location_id_{idx}"
+                placeholders.append(f":{key}")
+                params[key] = value
+            where_extra += (
+                " AND EXISTS ("
+                "SELECT 1 FROM mystery_shopper_assessments msa_filter "
+                "WHERE msa_filter.visit_id = v.id "
+                f"AND msa_filter.location_id IN ({','.join(placeholders)})"
+                ")"
+            )
 
         if date_from:
             where_extra += " AND v.visit_date >= :date_from"
@@ -839,6 +892,7 @@ def get_question_trend(
     question_id: int,
     survey_type: str | None = None,
     business_ids: str | None = None,
+    mystery_location_ids: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     interval: str = "week",
@@ -867,6 +921,9 @@ def get_question_trend(
             params["survey_type_id"] = survey_type_id
 
         business_id_values = parse_business_ids(business_ids)
+        normalized_survey_type = (survey_type or "").strip().lower()
+        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
+        location_id_values = parse_location_ids(mystery_location_ids)
         if business_id_values:
             placeholders = []
             for idx, value in enumerate(business_id_values):
@@ -874,6 +931,20 @@ def get_question_trend(
                 placeholders.append(f":{key}")
                 params[key] = value
             where_extra += f" AND v.business_id IN ({','.join(placeholders)})"
+
+        if is_mystery_survey and location_id_values:
+            placeholders = []
+            for idx, value in enumerate(location_id_values):
+                key = f"mystery_location_id_{idx}"
+                placeholders.append(f":{key}")
+                params[key] = value
+            where_extra += (
+                " AND EXISTS ("
+                "SELECT 1 FROM mystery_shopper_assessments msa_filter "
+                "WHERE msa_filter.visit_id = v.id "
+                f"AND msa_filter.location_id IN ({','.join(placeholders)})"
+                ")"
+            )
 
         if date_from:
             where_extra += " AND v.visit_date >= :date_from"
