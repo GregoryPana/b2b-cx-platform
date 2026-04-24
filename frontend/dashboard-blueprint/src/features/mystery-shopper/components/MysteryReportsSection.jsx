@@ -24,6 +24,7 @@ export default function MysteryReportsSection({
   setReportEmailTo,
   handlePreviewReport,
   handleDownloadReport,
+  handleDownloadPdfReport,
   handleEmailReport,
   reportLoading,
   reportSending,
@@ -196,6 +197,7 @@ export default function MysteryReportsSection({
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={handlePreviewReport} disabled={reportLoading}>{reportLoading ? "Generating..." : "Preview Report"}</Button>
                 <Button type="button" variant="outline" onClick={handleDownloadReport}>Download HTML</Button>
+                <Button type="button" variant="outline" onClick={handleDownloadPdfReport}>Download PDF</Button>
                 <Button type="button" onClick={handleEmailReport} disabled={reportSending}>{reportSending ? "Sending..." : "Email Report"}</Button>
               </div>
               {reportPreview ? (

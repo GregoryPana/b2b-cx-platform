@@ -26,6 +26,9 @@ import MysteryReviewQueueSection from "../features/mystery-shopper/components/My
 import MysteryVisitDetailCard from "../features/mystery-shopper/components/MysteryVisitDetailCard";
 import MysterySurveyResultsSection from "../features/mystery-shopper/components/MysterySurveyResultsSection";
 import MysteryReportsSection from "../features/mystery-shopper/components/MysteryReportsSection";
+import MysteryAnalyticsSummarySection from "../features/mystery-shopper/components/MysteryAnalyticsSummarySection";
+import MysteryLocationsSection from "../features/mystery-shopper/components/MysteryLocationsSection";
+import MysteryPurposesSection from "../features/mystery-shopper/components/MysteryPurposesSection";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
@@ -936,6 +939,40 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       setMessage("Report downloaded.");
     } catch {
       setError("Failed to download report");
+    }
+  }, [buildReportParams, headers, isMysteryShopperPlatform, pushToast, validateReportSelection]);
+
+  const handleDownloadPdfReport = useCallback(async () => {
+    if (!validateReportSelection()) return;
+    pushToast("info", "Preparing PDF download...", 1500);
+    setError("");
+    const params = buildReportParams();
+    try {
+      const endpoint = isMysteryShopperPlatform
+        ? `${API_BASE}/mystery-shopper/reports/pdf?${params.toString()}`
+        : null;
+      if (!endpoint) {
+        setError("PDF download is not available for this platform yet.");
+        return;
+      }
+      const res = await fetch(endpoint, { headers });
+      if (!res.ok) {
+        const text = await res.text();
+        setError(text || "Failed to download PDF report");
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "cwscx-mystery-shopper-report.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setMessage("PDF report downloaded.");
+    } catch {
+      setError("Failed to download PDF report");
     }
   }, [buildReportParams, headers, isMysteryShopperPlatform, pushToast, validateReportSelection]);
 
@@ -2583,53 +2620,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           ) : null}
 
           {isMysteryShopperPlatform ? (
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 mt-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Overall Experience</CardTitle>
-                  <CardDescription>Weighted average from overall-experience scoring questions.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="text-4xl font-semibold">{mysteryAnalyticsSummary.overallExperienceAvg?.toFixed?.(2) ?? "--"}</div>
-                  <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-                    <div className="rounded bg-muted p-3">
-                      <p className="text-muted-foreground">Service Quality Avg</p>
-                      <p className="font-medium">{mysteryAnalyticsSummary.qualityAvg?.toFixed?.(2) ?? "--"}</p>
-                    </div>
-                    <div className="rounded bg-muted p-3">
-                      <p className="text-muted-foreground">NPS Score</p>
-                      <p className="font-medium">{analytics?.nps?.nps ?? "--"}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Operational Efficiency</CardTitle>
-                  <CardDescription>CSAT, waiting time, and service completion distribution by selected location scope.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded bg-muted p-3">
-                      <p className="text-muted-foreground">CSAT Average</p>
-                      <p className="font-medium">{analytics?.mystery_shopper?.csat_average?.toFixed?.(2) ?? "--"}</p>
-                    </div>
-                    <div className="rounded bg-muted p-3">
-                      <p className="text-muted-foreground">CSAT Responses</p>
-                      <p className="font-medium">{analytics?.mystery_shopper?.csat_response_count ?? 0}</p>
-                    </div>
-                  </div>
-                  <div className="rounded bg-muted p-3">
-                    <p className="text-muted-foreground">Waiting Time</p>
-                    <p>{(analytics?.mystery_shopper?.waiting_time_distribution || []).map((item) => `${item.label}: ${item.count}`).join(" | ") || "No data"}</p>
-                  </div>
-                  <div className="rounded bg-muted p-3">
-                    <p className="text-muted-foreground">Service Completion</p>
-                    <p>{(analytics?.mystery_shopper?.service_completion_distribution || []).map((item) => `${item.label}: ${item.count}`).join(" | ") || "No data"}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <MysteryAnalyticsSummarySection mysteryAnalyticsSummary={mysteryAnalyticsSummary} analytics={analytics} />
           ) : null}
         </>
         )
@@ -3268,6 +3259,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               setReportEmailTo={setReportEmailTo}
               handlePreviewReport={handlePreviewReport}
               handleDownloadReport={handleDownloadReport}
+              handleDownloadPdfReport={handleDownloadPdfReport}
               handleEmailReport={handleEmailReport}
               reportLoading={reportLoading}
               reportSending={reportSending}
@@ -3797,30 +3789,19 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
       {location.pathname === "/locations" ? (
         isMysteryShopperPlatform ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Locations</CardTitle>
-              <CardDescription>Manage customer service center locations used by the Mystery Shopper survey.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <Input value={newMysteryLocation} onChange={(event) => setNewMysteryLocation(event.target.value)} placeholder="Add new location" />
-                <Button type="button" onClick={createMysteryLocation}>Add Location</Button>
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" onClick={loadMysteryLocations}>{mysteryLocationsLoading ? "Refreshing..." : "Refresh"}</Button>
-                  <Button type="button" variant="outline" onClick={seedMysteryLegacyData} disabled={mysteryLegacySeeding}>{mysteryLegacySeeding ? "Seeding..." : "Seed Old Data"}</Button>
-                </div>
-              </div>
-
-              <SimpleStatusDataTable
-                data={mysteryLocations}
-                entityLabel="Location"
-                onActivate={reactivateMysteryLocation}
-                onDeactivate={deactivateMysteryLocation}
-                onDelete={deleteMysteryLocation}
-              />
-            </CardContent>
-          </Card>
+          <MysteryLocationsSection
+            newMysteryLocation={newMysteryLocation}
+            setNewMysteryLocation={setNewMysteryLocation}
+            createMysteryLocation={createMysteryLocation}
+            loadMysteryLocations={loadMysteryLocations}
+            mysteryLocationsLoading={mysteryLocationsLoading}
+            seedMysteryLegacyData={seedMysteryLegacyData}
+            mysteryLegacySeeding={mysteryLegacySeeding}
+            mysteryLocations={mysteryLocations}
+            reactivateMysteryLocation={reactivateMysteryLocation}
+            deactivateMysteryLocation={deactivateMysteryLocation}
+            deleteMysteryLocation={deleteMysteryLocation}
+          />
         ) : (
           <Card>
             <CardHeader>
@@ -3833,27 +3814,17 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
       {location.pathname === "/purposes" ? (
         isMysteryShopperPlatform ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Purposes</CardTitle>
-              <CardDescription>Manage visit purpose options used when completing Mystery Shopper surveys.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <Input value={newMysteryPurpose} onChange={(event) => setNewMysteryPurpose(event.target.value)} placeholder="Add new purpose" />
-                <Button type="button" onClick={createMysteryPurpose}>Add Purpose</Button>
-                <Button type="button" variant="outline" onClick={loadMysteryPurposes}>{mysteryPurposesLoading ? "Refreshing..." : "Refresh"}</Button>
-              </div>
-
-              <SimpleStatusDataTable
-                data={mysteryPurposes}
-                entityLabel="Purpose"
-                onActivate={reactivateMysteryPurpose}
-                onDeactivate={deactivateMysteryPurpose}
-                onDelete={deleteMysteryPurpose}
-              />
-            </CardContent>
-          </Card>
+          <MysteryPurposesSection
+            newMysteryPurpose={newMysteryPurpose}
+            setNewMysteryPurpose={setNewMysteryPurpose}
+            createMysteryPurpose={createMysteryPurpose}
+            loadMysteryPurposes={loadMysteryPurposes}
+            mysteryPurposesLoading={mysteryPurposesLoading}
+            mysteryPurposes={mysteryPurposes}
+            reactivateMysteryPurpose={reactivateMysteryPurpose}
+            deactivateMysteryPurpose={deactivateMysteryPurpose}
+            deleteMysteryPurpose={deleteMysteryPurpose}
+          />
         ) : (
           <Card>
             <CardHeader>
