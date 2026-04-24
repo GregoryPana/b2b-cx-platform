@@ -30,6 +30,7 @@ mkdir -p "${RELEASE_ROOT}/backend"
 mkdir -p "${RELEASE_ROOT}/scripts"
 mkdir -p "${RELEASE_ROOT}/frontends/internal-surveys/b2b"
 mkdir -p "${RELEASE_ROOT}/frontends/internal-surveys/installation"
+mkdir -p "${RELEASE_ROOT}/frontends/public/mystery-shopper"
 mkdir -p "${RELEASE_ROOT}/frontends/dashboard"
 
 echo "Building dashboard frontend..."
@@ -42,6 +43,10 @@ cp -r "${REPO_ROOT}/frontend/survey/dist" "${RELEASE_ROOT}/frontends/internal-su
 echo "Building installation survey frontend..."
 build_frontend "${REPO_ROOT}/frontend/installation-survey" "/surveys/installation/"
 cp -r "${REPO_ROOT}/frontend/installation-survey/dist" "${RELEASE_ROOT}/frontends/internal-surveys/installation/dist"
+
+echo "Building mystery shopper frontend..."
+build_frontend "${REPO_ROOT}/frontend/mystery-shopper" "/surveys/mystery-shopper/"
+cp -r "${REPO_ROOT}/frontend/mystery-shopper/dist" "${RELEASE_ROOT}/frontends/public/mystery-shopper/dist"
 
 cp -r "${REPO_ROOT}/frontend/dashboard-blueprint/dist" "${RELEASE_ROOT}/frontends/dashboard/dist"
 

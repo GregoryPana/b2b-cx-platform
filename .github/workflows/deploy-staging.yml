@@ -38,6 +38,7 @@ jobs:
             "backend/app/main.py"
             "backend/requirements.txt"
             "frontend/dashboard-blueprint/package.json"
+            "frontend/mystery-shopper/package.json"
             "frontend/survey/package.json"
             "frontend/installation-survey/package.json"
             "scripts/linux/build_release_bundle.sh"
@@ -160,6 +161,15 @@ jobs:
           VITE_BASE_PATH: /surveys/installation/
         run: npm run build
         working-directory: frontend/installation-survey
+      - name: Install dependencies (mystery shopper survey)
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend/mystery-shopper
+      - name: Build (mystery shopper survey)
+        env:
+          VITE_API_URL: /api
+          VITE_BASE_PATH: /surveys/mystery-shopper/
+        run: npm run build
+        working-directory: frontend/mystery-shopper
 
   deploy:
     runs-on: [self-hosted, linux]
@@ -210,6 +220,7 @@ jobs:
             "backend/app/main.py"
             "backend/requirements.txt"
             "frontend/dashboard-blueprint/package.json"
+            "frontend/mystery-shopper/package.json"
             "frontend/survey/package.json"
             "frontend/installation-survey/package.json"
             "scripts/linux/build_release_bundle.sh"
@@ -274,7 +285,7 @@ jobs:
             ls -lt "${TARGET_ROOT}/releases" | head
             LATEST_ZIP="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip | head -n1)"
             echo "${LATEST_ZIP}"
-            unzip -l "${LATEST_ZIP}" | grep -E "dashboard/dist/assets/index|internal-surveys/b2b/dist/assets/index|internal-surveys/installation/dist/assets/index"
+            unzip -l "${LATEST_ZIP}" | grep -E "dashboard/dist/assets/index|internal-surveys/b2b/dist/assets/index|internal-surveys/installation/dist/assets/index|public/mystery-shopper/dist/assets/index"
             sudo bash scripts/linux/install_release_bundle.sh "${LATEST_ZIP}"
             bash scripts/linux/deploy_backend.sh
             bash scripts/linux/deploy_frontends.sh
@@ -282,6 +293,7 @@ jobs:
             ls -la "${TARGET_ROOT}/frontends-src/dashboard/dist/assets"
             ls -la "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist/assets"
             ls -la "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist/assets"
+            ls -la "${TARGET_ROOT}/frontends-src/public/mystery-shopper/dist/assets"
             sudo nginx -t
             STAGING_BASE_URL="${STAGING_BASE_URL:-https://cwscx-tst01.cwsey.com}" bash scripts/linux/verify_staging.sh
           }
@@ -344,6 +356,7 @@ jobs:
             echo "- ${BASE_URL}/dashboard/"
             echo "- ${BASE_URL}/surveys/b2b/"
             echo "- ${BASE_URL}/surveys/installation/"
+            echo "- ${BASE_URL}/surveys/mystery-shopper/"
             echo ""
             echo "### Notes"
             echo "- VM deploy includes rollback attempt when verification fails."

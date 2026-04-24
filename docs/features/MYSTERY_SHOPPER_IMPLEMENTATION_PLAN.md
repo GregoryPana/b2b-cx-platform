@@ -5,7 +5,7 @@ Define the target architecture and phased delivery plan for the Mystery Shopper 
 
 This plan reflects:
 - the current codebase
-- the approved question framework in `docs/reference/questions-mystery-shopper.md`
+- the approved question framework in `mystery shopper framework.md`
 - the supplemental planning notes in:
   - `mystery shopper framework.md`
   - `mystery shopper wireframe.md`
@@ -280,7 +280,7 @@ This plan reflects:
 These should not drive phase-1 UX, but the schema must not block them.
 
 ## Question Model
-- Use `docs/reference/questions-mystery-shopper.md` as the `v1` source of truth.
+- Use `mystery shopper framework.md` as the `v1` source of truth.
 - The approved structure remains 32 fields across the defined sections.
 - Supported input types:
   - `score`

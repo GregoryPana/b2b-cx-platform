@@ -16,6 +16,8 @@ import { CalendarDays, ClipboardCheck, LogOut } from "lucide-react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
+const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
+const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
 
 const DEFAULT_PURPOSE_OPTIONS = ["General Enquiry", "Billing", "Device", "Broadband", "Complaint", "Other"];
 
@@ -621,7 +623,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+    instance.logoutRedirect({ postLogoutRedirectUri: surveyPostLogoutUri });
   };
 
   if (!msalReady || !isAuthenticated || !accessToken || !roleResolved) {
