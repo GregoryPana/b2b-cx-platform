@@ -124,8 +124,6 @@ def detect_mystery_tables(db: Session) -> tuple[bool, bool]:
 
 
 def get_response_table(db: Session, is_mystery_survey: bool = False) -> str | None:
-    if is_mystery_survey and has_table(db, "mystery_shopper_answers"):
-        return "mystery_shopper_answers"
     if has_table(db, "b2b_visit_responses"):
         return "b2b_visit_responses"
     if has_table(db, "responses"):

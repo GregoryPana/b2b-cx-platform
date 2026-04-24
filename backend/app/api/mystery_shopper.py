@@ -110,13 +110,52 @@ def has_column(db: Session, table_name: str, column_name: str) -> bool:
 
 
 def get_response_table(db: Session) -> str | None:
-    if has_table(db, "mystery_shopper_answers"):
-        return "mystery_shopper_answers"
     if has_table(db, "b2b_visit_responses"):
         return "b2b_visit_responses"
     if has_table(db, "responses"):
         return "responses"
     return None
+
+
+def get_mystery_answer_table(db: Session) -> str | None:
+    return "mystery_shopper_answers" if has_table(db, "mystery_shopper_answers") else None
+
+
+def upsert_mystery_answer(
+    db: Session,
+    visit_id: str,
+    question_id: int,
+    score: int | None,
+    answer_text: str | None,
+    verbatim: str | None,
+    actions: list[Any] | None,
+) -> None:
+    mystery_answer_table = get_mystery_answer_table(db)
+    if not mystery_answer_table:
+        return
+
+    db.execute(
+        text(
+            """
+            INSERT INTO mystery_shopper_answers (visit_id, question_id, score, answer_text, verbatim, actions)
+            VALUES (:visit_id, :question_id, :score, :answer_text, :verbatim, CAST(:actions AS jsonb))
+            ON CONFLICT (visit_id, question_id) DO UPDATE SET
+                score = EXCLUDED.score,
+                answer_text = EXCLUDED.answer_text,
+                verbatim = EXCLUDED.verbatim,
+                actions = EXCLUDED.actions,
+                updated_at = NOW()
+            """
+        ),
+        {
+            "visit_id": visit_id,
+            "question_id": question_id,
+            "score": score,
+            "answer_text": answer_text,
+            "verbatim": verbatim,
+            "actions": json.dumps(actions or []),
+        },
+    )
 
 
 def normalize_actions_value(value: Any) -> list[Any]:
@@ -2053,25 +2092,7 @@ async def create_mystery_response(visit_id: str, payload: MysteryResponsePayload
     if not visit_exists:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if response_table == "mystery_shopper_answers":
-        row = db.execute(
-            text(
-                """
-                INSERT INTO mystery_shopper_answers (visit_id, question_id, score, answer_text, verbatim, actions)
-                VALUES (:visit_id, :question_id, :score, :answer_text, :verbatim, CAST(:actions AS jsonb))
-                RETURNING id, question_id, score, answer_text, verbatim, actions, created_at
-                """
-            ),
-            {
-                "visit_id": visit_id,
-                "question_id": payload.question_id,
-                "score": payload.score,
-                "answer_text": payload.answer_text,
-                "verbatim": payload.verbatim,
-                "actions": json.dumps(payload.actions or []),
-            },
-        ).fetchone()
-    elif response_table == "b2b_visit_responses":
+    if response_table == "b2b_visit_responses":
         row = db.execute(
             text(
                 """
@@ -2107,6 +2128,7 @@ async def create_mystery_response(visit_id: str, payload: MysteryResponsePayload
             },
         ).fetchone()
 
+    upsert_mystery_answer(db, visit_id, payload.question_id, payload.score, payload.answer_text, payload.verbatim, payload.actions)
     db.commit()
 
     response_payload = {
@@ -2116,7 +2138,7 @@ async def create_mystery_response(visit_id: str, payload: MysteryResponsePayload
         "score": row[2],
         "answer_text": row[3],
         "verbatim": row[4],
-        "actions": normalize_actions_value(row[5]) if response_table in {"mystery_shopper_answers", "b2b_visit_responses"} else (payload.actions or []),
+        "actions": normalize_actions_value(row[5]) if response_table == "b2b_visit_responses" else (payload.actions or []),
     }
     return response_payload
 
@@ -2143,32 +2165,7 @@ async def update_mystery_response(visit_id: str, response_id: str, payload: Myst
 
     validate_mystery_response(question_row, payload)
 
-    if response_table == "mystery_shopper_answers":
-        row = db.execute(
-            text(
-                """
-                UPDATE mystery_shopper_answers
-                SET question_id = :question_id,
-                    score = :score,
-                    answer_text = :answer_text,
-                    verbatim = :verbatim,
-                    actions = CAST(:actions AS jsonb),
-                    updated_at = NOW()
-                WHERE id = :response_id AND visit_id = :visit_id
-                RETURNING id, question_id, score, answer_text, verbatim, actions, updated_at
-                """
-            ),
-            {
-                "response_id": response_id,
-                "visit_id": visit_id,
-                "question_id": payload.question_id,
-                "score": payload.score,
-                "answer_text": payload.answer_text,
-                "verbatim": payload.verbatim,
-                "actions": json.dumps(payload.actions or []),
-            },
-        ).fetchone()
-    elif response_table == "b2b_visit_responses":
+    if response_table == "b2b_visit_responses":
         row = db.execute(
             text(
                 """
@@ -2220,6 +2217,7 @@ async def update_mystery_response(visit_id: str, response_id: str, payload: Myst
         db.rollback()
         raise HTTPException(status_code=404, detail="Response not found")
 
+    upsert_mystery_answer(db, visit_id, payload.question_id, payload.score, payload.answer_text, payload.verbatim, payload.actions)
     db.commit()
 
     response_payload = {
@@ -2229,7 +2227,7 @@ async def update_mystery_response(visit_id: str, response_id: str, payload: Myst
         "score": row[2],
         "answer_text": row[3],
         "verbatim": row[4],
-        "actions": normalize_actions_value(row[5]) if response_table in {"mystery_shopper_answers", "b2b_visit_responses"} else (payload.actions or []),
+        "actions": normalize_actions_value(row[5]) if response_table == "b2b_visit_responses" else (payload.actions or []),
     }
     return response_payload
 

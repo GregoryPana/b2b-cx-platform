@@ -46,45 +46,10 @@ def upgrade() -> None:
         """
     )
 
-    op.execute(
-        """
-        INSERT INTO mystery_shopper_answers (visit_id, question_id, score, answer_text, verbatim, actions, created_at, updated_at)
-        SELECT
-            r.visit_id,
-            r.question_id,
-            r.score,
-            r.answer_text,
-            r.verbatim,
-            COALESCE(r.actions, '[]'::jsonb),
-            COALESCE(r.created_at, NOW()),
-            COALESCE(r.updated_at, NOW())
-        FROM b2b_visit_responses r
-        JOIN visits v ON v.id = r.visit_id
-        JOIN survey_types st ON st.id = v.survey_type_id
-        WHERE lower(st.name) = lower('Mystery Shopper')
-        ON CONFLICT (visit_id, question_id) DO NOTHING
-        """
-    )
-
-    op.execute(
-        """
-        INSERT INTO mystery_shopper_answers (visit_id, question_id, score, answer_text, verbatim, actions, created_at, updated_at)
-        SELECT
-            r.visit_id,
-            r.question_id,
-            r.score,
-            r.answer_text,
-            r.verbatim,
-            '[]'::jsonb,
-            NOW(),
-            NOW()
-        FROM responses r
-        JOIN visits v ON v.id = r.visit_id
-        JOIN survey_types st ON st.id = v.survey_type_id
-        WHERE lower(st.name) = lower('Mystery Shopper')
-        ON CONFLICT (visit_id, question_id) DO NOTHING
-        """
-    )
+    # Do not backfill here.
+    # Historical Mystery Shopper rows remain readable from legacy shared response tables.
+    # New and updated Mystery answers are dual-written at runtime into this table.
+    # A dedicated offline backfill can be run later without holding Alembic open.
 
 
 def downgrade() -> None:
