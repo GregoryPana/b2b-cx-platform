@@ -403,10 +403,15 @@ def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> st
     for row in survey_question_details:
         grouped_questions.setdefault(str(row.get("category") or "Uncategorized"), []).append(row)
 
+    def question_answer_display(item: dict[str, Any]) -> str:
+        if item.get("score") is not None and item.get("score_max") is not None:
+            return f"{item.get('score')} / {item.get('score_max')}"
+        return item.get("answer_text") or "--"
+
     question_sections = "".join(
         f"<h3>{category}</h3><table><thead><tr><th>Question</th><th>Answer</th><th>Verbatim</th></tr></thead><tbody>"
         + "".join(
-            f"<tr><td>Q{int(item.get('question_number') or 0)}: {item.get('question_text') or '--'}</td><td>{(f'{item.get('score')} / {item.get('score_max')}' if item.get('score') is not None and item.get('score_max') is not None else item.get('answer_text') or '--')}</td><td>{item.get('verbatim') or '--'}</td></tr>"
+            f"<tr><td>Q{int(item.get('question_number') or 0)}: {item.get('question_text') or '--'}</td><td>{question_answer_display(item)}</td><td>{item.get('verbatim') or '--'}</td></tr>"
             for item in items
         )
         + "</tbody></table>"
