@@ -4,7 +4,6 @@ import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
-import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
 import { Separator } from "./components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
@@ -46,18 +45,38 @@ function displayQuestionNumber(question, fallbackIndex = 0) {
   return fallbackIndex + 1;
 }
 
+function getScoreOptions(question) {
+  if (question?.input_type !== "score") return [];
+  const min = Number(question.score_min ?? 0);
+  const max = Number(question.score_max ?? 10);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return [];
+  const options = [];
+  for (let value = min; value <= max; value += 1) {
+    options.push(value);
+  }
+  return options;
+}
+
 function QuestionField({ question, draft, onUpdate }) {
   const choices = parseChoices(question);
 
   if (question.input_type === "score") {
+    const scoreOptions = getScoreOptions(question);
     return (
-      <Input
-        type="number"
-        min={question.score_min ?? 0}
-        max={question.score_max ?? 10}
-        value={draft.score ?? ""}
-        onChange={(event) => onUpdate("score", event.target.value)}
-      />
+      <div className="option-grid score-option-grid" role="radiogroup" aria-label="Select score">
+        {scoreOptions.map((scoreValue) => (
+          <Button
+            key={`${question.id}-score-${scoreValue}`}
+            type="button"
+            variant={String(draft.score ?? "") === String(scoreValue) ? "default" : "outline"}
+            size="sm"
+            className="option-pill score-pill"
+            onClick={() => onUpdate("score", String(scoreValue))}
+          >
+            {scoreValue}
+          </Button>
+        ))}
+      </div>
     );
   }
 

@@ -561,6 +561,16 @@ label {
   min-height: 36px;
 }
 
+.score-option-grid {
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+}
+
+.score-pill {
+  justify-content: center;
+  text-align: center;
+  min-height: 38px;
+}
+
 .category-index {
   display: inline-flex;
   width: 18px;

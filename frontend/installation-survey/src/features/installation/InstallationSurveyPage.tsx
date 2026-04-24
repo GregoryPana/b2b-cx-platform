@@ -19,6 +19,24 @@ function scoreBandLabel(value) {
   return "Critical Fail";
 }
 
+function getScoreRange(question) {
+  const min = Number(question?.score_min ?? 1);
+  const max = Number(question?.score_max ?? 5);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) {
+    return { min: 1, max: 5 };
+  }
+  return { min, max };
+}
+
+function getScoreOptions(question) {
+  const { min, max } = getScoreRange(question);
+  const options: number[] = [];
+  for (let value = min; value <= max; value += 1) {
+    options.push(value);
+  }
+  return options;
+}
+
 export default function InstallationSurveyPage({ headers }) {
   const [questions, setQuestions] = useState([]);
   const [contractors, setContractors] = useState([]);
@@ -77,14 +95,24 @@ export default function InstallationSurveyPage({ headers }) {
   }, [headers]);
 
   const answeredCount = useMemo(() => {
-    return questions.filter((q) => Number(scoresByQuestion[q.question_number]) >= 1).length;
+    return questions.filter((q) => {
+      const score = Number(scoresByQuestion[q.question_number]);
+      if (!Number.isFinite(score)) return false;
+      const { min, max } = getScoreRange(q);
+      return score >= min && score <= max;
+    }).length;
   }, [questions, scoresByQuestion]);
 
   const averageScore = useMemo(() => {
     if (!questions.length) return null;
     const values = questions
-      .map((q) => Number(scoresByQuestion[q.question_number]))
-      .filter((v) => Number.isFinite(v) && v >= 1 && v <= 5);
+      .map((q) => {
+        const score = Number(scoresByQuestion[q.question_number]);
+        const { min, max } = getScoreRange(q);
+        if (!Number.isFinite(score) || score < min || score > max) return null;
+        return score;
+      })
+      .filter((v): v is number => typeof v === "number");
     if (!values.length) return null;
     return values.reduce((s, v) => s + v, 0) / values.length;
   }, [questions, scoresByQuestion]);
@@ -365,7 +393,7 @@ export default function InstallationSurveyPage({ headers }) {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-3">
-                        {[1,2,3,4,5].map((score) => (
+                        {getScoreOptions(question).map((score) => (
                           <Button
                             key={score}
                             type="button"
