@@ -16,7 +16,7 @@ import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
 import { DataTableViewOptions } from "../ui/data-table-view-options";
 
-export default function ReviewQueueDataTable({ data, onView, onApprove, onReject, loadingVisitId }) {
+export default function ReviewQueueDataTable({ data, onView, onApprove, onReject, loadingVisitId, isMysteryShopperPlatform = false }) {
   const [sorting, setSorting] = useState([{ id: "visit_date", desc: true }]);
   const [columnFilters, setColumnFilters] = useState([]);
   const [columnVisibility, setColumnVisibility] = useState({});
@@ -25,8 +25,8 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
   const columns = useMemo(() => [
     {
       accessorKey: "business_name",
-      headerTitle: "Business",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Business" />,
+      headerTitle: isMysteryShopperPlatform ? "Location" : "Business",
+      header: ({ column }) => <DataTableColumnHeader column={column} title={isMysteryShopperPlatform ? "Location" : "Business"} />,
       cell: ({ row }) => row.original.business_name || "--",
     },
     {
@@ -72,7 +72,7 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
       enableSorting: false,
       enableHiding: false,
     },
-  ], [loadingVisitId, onApprove, onReject, onView]);
+  ], [isMysteryShopperPlatform, loadingVisitId, onApprove, onReject, onView]);
 
   const table = useReactTable({
     data,
@@ -97,7 +97,7 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
             <Select value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
-              <option value="business_name">Filter by business</option>
+              <option value="business_name">{isMysteryShopperPlatform ? "Filter by location" : "Filter by business"}</option>
               <option value="visit_date">Filter by date</option>
               <option value="submitted_by_name">Filter by submitter</option>
               <option value="account_executive_name">Filter by account executive</option>

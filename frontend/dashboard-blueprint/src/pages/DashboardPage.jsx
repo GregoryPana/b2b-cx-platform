@@ -732,8 +732,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const loadPendingVisits = useCallback(async () => {
     const params = new URLSearchParams();
     params.set("status", "Pending");
-    if (activePlatform) params.set("survey_type", activePlatform);
-    const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
+    if (!isMysteryShopperPlatform && activePlatform) params.set("survey_type", activePlatform);
+    const endpoint = isMysteryShopperPlatform
+      ? `${API_BASE}/mystery-shopper/admin/visits?${params.toString()}`
+      : `${API_BASE}/dashboard-visits/all?${params.toString()}`;
+    const { res, data } = await fetchJsonSafe(endpoint, { headers });
     if (!res.ok) {
       setError(data?.detail || "Failed to load pending visits");
       return;
@@ -743,7 +746,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       visit_id: visit.visit_id ?? visit.id,
     }));
     setPendingVisits(normalized);
-  }, [activePlatform, headers, fetchJsonSafe]);
+  }, [activePlatform, headers, fetchJsonSafe, isMysteryShopperPlatform]);
 
 
 
@@ -824,12 +827,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     if (surveyStatusFilter !== "all") params.set("status", surveyStatusFilter);
     if (isB2BPlatform && selectedSurveyBusiness) params.set("business_name", selectedSurveyBusiness);
     if (isMysteryShopperPlatform && selectedSurveyLocation) params.set("business_name", selectedSurveyLocation);
-    if (activePlatform) params.set("survey_type", activePlatform);
+    if (!isMysteryShopperPlatform && activePlatform) params.set("survey_type", activePlatform);
 
     setSurveyLoading(true);
     setError("");
     try {
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
+      const endpoint = isMysteryShopperPlatform
+        ? `${API_BASE}/mystery-shopper/admin/visits?${params.toString()}`
+        : `${API_BASE}/dashboard-visits/all?${params.toString()}`;
+      const { res, data } = await fetchJsonSafe(endpoint, { headers });
       if (!res.ok) {
         setError(data?.detail || "Failed to load survey results");
         return;
@@ -1180,7 +1186,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   };
 
   const loadSurveyVisitDetails = async (visitId) => {
-    const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}`, { headers });
+    const endpoint = isMysteryShopperPlatform
+      ? `${API_BASE}/mystery-shopper/visits/${visitId}`
+      : `${API_BASE}/dashboard-visits/${visitId}`;
+    const res = await fetch(endpoint, { headers });
     const data = await res.json();
     if (!res.ok) {
       setError(data.detail || "Failed to load survey details");
@@ -2681,6 +2690,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           <CardContent>
             <ReviewQueueDataTable
               data={pendingVisits}
+              isMysteryShopperPlatform={isMysteryShopperPlatform}
               loadingVisitId={reviewActionLoadingVisitId}
               onView={loadSurveyVisitDetails}
               onApprove={(visit) => handleReviewDecision(visit, "approve")}
@@ -2690,19 +2700,25 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         </Card>
       ) : null}
 
-      {location.pathname === "/review" && selectedSurveyVisit ? (
-        <Card>
-          <CardHeader>
+          {location.pathname === "/review" && selectedSurveyVisit ? (
+            <Card>
+              <CardHeader>
             <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
             <CardDescription>
               {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
             </CardDescription>
+            {isMysteryShopperPlatform ? (
               <CardDescription>
-                Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
+                Location: {selectedSurveyVisit.location_name || selectedSurveyVisit.business_name || "--"} | Time: {selectedSurveyVisit.visit_time || "--"} | Purpose: {selectedSurveyVisit.purpose_of_visit || "--"} | Staff: {selectedSurveyVisit.staff_on_duty || "--"} | Shopper: {selectedSurveyVisit.shopper_name || "--"}
               </CardDescription>
+            ) : (
               <CardDescription>
+                  Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
+              </CardDescription>
+            )}
+            <CardDescription>
                 Last Edited Before Review: {selectedSurveyVisit.edited_by_name || "--"} {selectedSurveyVisit.edited_at ? `at ${formatReadableDateTime(selectedSurveyVisit.edited_at)}` : ""}
-              </CardDescription>
+            </CardDescription>
               <CardDescription>
                 Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${formatReadableDateTime(selectedSurveyVisit.submitted_at)}` : ""}
               </CardDescription>
@@ -3455,9 +3471,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
               <CardDescription>
                 {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
               </CardDescription>
-              <CardDescription>
-                Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
-              </CardDescription>
+              {isMysteryShopperPlatform ? (
+                <CardDescription>
+                  Location: {selectedSurveyVisit.location_name || selectedSurveyVisit.business_name || "--"} | Time: {selectedSurveyVisit.visit_time || "--"} | Purpose: {selectedSurveyVisit.purpose_of_visit || "--"} | Staff: {selectedSurveyVisit.staff_on_duty || "--"} | Shopper: {selectedSurveyVisit.shopper_name || "--"}
+                </CardDescription>
+              ) : (
+                <CardDescription>
+                  Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
+                </CardDescription>
+              )}
               <CardDescription>
                   Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${formatReadableDateTime(selectedSurveyVisit.submitted_at)}` : ""}
               </CardDescription>

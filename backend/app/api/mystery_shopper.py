@@ -1324,6 +1324,126 @@ async def list_mystery_drafts(representative_id: int | None = None, db: Session 
     ]
 
 
+@router.get("/admin/visits")
+async def list_mystery_admin_visits(
+    status: str | None = None,
+    business_name: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+):
+    survey_type_id = _ensure_mystery_shopper_schema(db)
+    response_table = get_response_table(db)
+    if not response_table:
+        raise HTTPException(status_code=500, detail="No response table found")
+
+    where_clauses = ["v.survey_type_id = :survey_type_id"]
+    params: dict[str, Any] = {"survey_type_id": survey_type_id}
+
+    if status:
+        where_clauses.append("v.status = :status")
+        params["status"] = status
+    if business_name:
+        where_clauses.append("LOWER(l.name) LIKE LOWER(:business_name)")
+        params["business_name"] = f"%{business_name}%"
+    if date_from:
+        where_clauses.append("v.visit_date >= :date_from")
+        params["date_from"] = date_from
+    if date_to:
+        where_clauses.append("v.visit_date <= :date_to")
+        params["date_to"] = date_to
+
+    rows = db.execute(
+        text(
+            f"""
+            SELECT
+                v.id,
+                NULL::INTEGER as business_id,
+                l.name as business_name,
+                v.representative_id,
+                u.name as representative_name,
+                v.visit_date,
+                v.visit_type,
+                v.status,
+                NULL::VARCHAR as business_priority,
+                NULL::VARCHAR as account_executive_name,
+                v.submitted_by_name,
+                v.submitted_by_email,
+                v.submitted_at,
+                COUNT(r.id) as response_count,
+                COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
+                (SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = :survey_type_id) as mandatory_total_count,
+                m.location_id,
+                l.name as location_name,
+                m.visit_time,
+                m.purpose_of_visit,
+                m.staff_on_duty,
+                m.shopper_name,
+                m.report_completed_date
+            FROM visits v
+            JOIN mystery_shopper_assessments m ON m.visit_id = v.id
+            JOIN mystery_shopper_locations l ON l.id = m.location_id
+            LEFT JOIN users u ON v.representative_id = u.id
+            LEFT JOIN {response_table} r ON r.visit_id = v.id
+            LEFT JOIN questions q ON q.id = r.question_id
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY
+                v.id,
+                l.name,
+                v.representative_id,
+                u.name,
+                v.visit_date,
+                v.visit_type,
+                v.status,
+                v.submitted_by_name,
+                v.submitted_by_email,
+                v.submitted_at,
+                m.location_id,
+                m.visit_time,
+                m.purpose_of_visit,
+                m.staff_on_duty,
+                m.shopper_name,
+                m.report_completed_date
+            ORDER BY v.visit_date DESC, m.visit_time DESC NULLS LAST, v.id DESC
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    return [
+        {
+            "id": row["id"],
+            "visit_id": row["id"],
+            "business_id": row["business_id"],
+            "business_name": row["business_name"],
+            "location_id": row["location_id"],
+            "location_name": row["location_name"],
+            "representative_id": row["representative_id"],
+            "representative_name": row["representative_name"],
+            "visit_date": row["visit_date"].isoformat() if row["visit_date"] else None,
+            "visit_type": row["visit_type"],
+            "status": row["status"],
+            "business_priority": row["business_priority"],
+            "account_executive_name": row["account_executive_name"],
+            "team_member_names": [],
+            "submitted_by_name": row["submitted_by_name"],
+            "submitted_by_email": row["submitted_by_email"],
+            "submitted_at": row["submitted_at"].isoformat() if row["submitted_at"] else None,
+            "response_count": int(row["response_count"] or 0),
+            "mandatory_answered_count": int(row["mandatory_answered_count"] or 0),
+            "mandatory_total_count": int(row["mandatory_total_count"] or 0),
+            "is_started": int(row["response_count"] or 0) > 0,
+            "is_completed": int(row["mandatory_total_count"] or 0) > 0 and int(row["mandatory_answered_count"] or 0) >= int(row["mandatory_total_count"] or 0),
+            "visit_time": row["visit_time"],
+            "purpose_of_visit": row["purpose_of_visit"],
+            "staff_on_duty": row["staff_on_duty"],
+            "shopper_name": row["shopper_name"],
+            "report_completed_date": row["report_completed_date"].isoformat() if row["report_completed_date"] else None,
+        }
+        for row in rows
+    ]
+
+
 @router.get("/visits/{visit_id}")
 async def get_mystery_visit_detail(visit_id: str, db: Session = Depends(get_db)):
     _ensure_mystery_shopper_schema(db)
@@ -1426,12 +1546,21 @@ async def get_mystery_visit_detail(visit_id: str, db: Session = Depends(get_db))
 
     return {
         "id": visit_row["id"],
+        "business_id": None,
+        "business_name": visit_row["location_name"],
         "representative_id": visit_row["representative_id"],
+        "representative_name": None,
         "visit_date": visit_row["visit_date"].isoformat() if visit_row["visit_date"] else None,
         "visit_type": visit_row["visit_type"],
         "status": visit_row["status"],
         "location_id": visit_row["location_id"],
         "location_name": visit_row["location_name"],
+        "business_priority": None,
+        "account_executive_name": None,
+        "team_member_names": [],
+        "submitted_by_name": None,
+        "submitted_by_email": None,
+        "submitted_at": None,
         "visit_time": visit_row["visit_time"],
         "purpose_of_visit": visit_row["purpose_of_visit"],
         "staff_on_duty": visit_row["staff_on_duty"],
