@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 
 const guideAssetBase = (path) => `${import.meta.env.BASE_URL}guides/${path}`;
@@ -126,6 +127,7 @@ const GUIDE_CONTENT = {
 
 export default function PlatformUserGuidePage({ platform }) {
   const guide = GUIDE_CONTENT[platform];
+  const [selectedImage, setSelectedImage] = useState(null);
 
   if (!guide) {
     return (
@@ -171,7 +173,13 @@ export default function PlatformUserGuidePage({ platform }) {
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {section.images.map((image) => (
                   <figure key={image.src} className="space-y-2 rounded-md border p-3">
-                    <img src={image.src} alt={image.alt} className="w-full rounded border object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => setSelectedImage(image)}
+                      className="block w-full overflow-hidden rounded border bg-background transition hover:opacity-95"
+                    >
+                      <img src={image.src} alt={image.alt} className="w-full rounded object-contain" />
+                    </button>
                     <figcaption className="text-xs text-muted-foreground">{image.alt}</figcaption>
                   </figure>
                 ))}
@@ -180,6 +188,21 @@ export default function PlatformUserGuidePage({ platform }) {
           </CardContent>
         </Card>
       ))}
+
+      {selectedImage ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setSelectedImage(null)}>
+          <div className="relative max-h-full w-full max-w-6xl" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className="absolute right-2 top-2 rounded bg-black/70 px-3 py-1 text-sm text-white"
+              onClick={() => setSelectedImage(null)}
+            >
+              Close
+            </button>
+            <img src={selectedImage.src} alt={selectedImage.alt} className="max-h-[90vh] w-full rounded object-contain" />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
