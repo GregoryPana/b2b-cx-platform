@@ -611,6 +611,8 @@ def get_question_averages(
     """Get per-question averages for drill-down analytics."""
     try:
         survey_type_id = resolve_survey_type_id(db, survey_type)
+        normalized_survey_type = (survey_type or "").strip().lower()
+        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
         response_table = get_response_table(db, is_mystery_survey=is_mystery_survey)
         if not response_table or not has_table(db, response_table):
             return {"items": []}
@@ -623,8 +625,6 @@ def get_question_averages(
             params["survey_type_id"] = survey_type_id
 
         business_id_values = parse_business_ids(business_ids)
-        normalized_survey_type = (survey_type or "").strip().lower()
-        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
         location_id_values = parse_location_ids(mystery_location_ids)
         if business_id_values:
             placeholders = []
