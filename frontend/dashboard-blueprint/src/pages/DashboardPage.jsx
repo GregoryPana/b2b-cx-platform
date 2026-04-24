@@ -24,6 +24,8 @@ import ActionPointsDataTable from "../components/b2b/ActionPointsDataTable";
 import SimpleStatusDataTable from "../components/shared/SimpleStatusDataTable";
 import MysteryReviewQueueSection from "../features/mystery-shopper/components/MysteryReviewQueueSection";
 import MysteryVisitDetailCard from "../features/mystery-shopper/components/MysteryVisitDetailCard";
+import MysterySurveyResultsSection from "../features/mystery-shopper/components/MysterySurveyResultsSection";
+import MysteryReportsSection from "../features/mystery-shopper/components/MysteryReportsSection";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
@@ -853,11 +855,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const validateReportSelection = useCallback(() => {
     if (reportType === "survey") {
       if (!reportBusinessId) {
-        setError("Select a business first for the per-survey report.");
+        setError(isMysteryShopperPlatform ? "Select a location first for the per-survey report." : "Select a business first for the per-survey report.");
         return false;
       }
       if (!reportVisitId) {
-        setError("Select an approved survey for this business before generating the report.");
+        setError(isMysteryShopperPlatform ? "Select an approved survey for this location before generating the report." : "Select an approved survey for this business before generating the report.");
         return false;
       }
     }
@@ -870,19 +872,19 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       }
     }
     return true;
-  }, [reportBusinessId, reportDateFrom, reportDateTo, reportSelectedDate, reportType, reportVisitId]);
+  }, [isMysteryShopperPlatform, reportBusinessId, reportDateFrom, reportDateTo, reportSelectedDate, reportType, reportVisitId]);
 
   const buildReportParams = useCallback(() => {
     const params = new URLSearchParams();
     params.set("report_type", reportType);
-    params.set("survey_type", activePlatform || "B2B");
-    if (reportBusinessId) params.set("business_id", reportBusinessId);
+    if (!isMysteryShopperPlatform) params.set("survey_type", activePlatform || "B2B");
+    if (reportBusinessId) params.set(isMysteryShopperPlatform ? "location_id" : "business_id", reportBusinessId);
     if (reportVisitId.trim()) params.set("visit_id", reportVisitId.trim());
     if (reportSelectedDate) params.set("report_date", reportSelectedDate);
     if (reportDateFrom) params.set("date_from", reportDateFrom);
     if (reportDateTo) params.set("date_to", reportDateTo);
     return params;
-  }, [activePlatform, reportBusinessId, reportDateFrom, reportDateTo, reportSelectedDate, reportType, reportVisitId]);
+  }, [activePlatform, isMysteryShopperPlatform, reportBusinessId, reportDateFrom, reportDateTo, reportSelectedDate, reportType, reportVisitId]);
 
   const handlePreviewReport = useCallback(async () => {
     if (!validateReportSelection()) return;
@@ -890,7 +892,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setError("");
     try {
       const params = buildReportParams();
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/reports/export?${params.toString()}`, { headers }, 25000);
+      const endpoint = isMysteryShopperPlatform
+        ? `${API_BASE}/mystery-shopper/reports/export?${params.toString()}`
+        : `${API_BASE}/dashboard-visits/reports/export?${params.toString()}`;
+      const { res, data } = await fetchJsonSafe(endpoint, { headers }, 25000);
       if (!res.ok) {
         setError(data?.detail || "Failed to generate report preview");
         return;
@@ -901,7 +906,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     } finally {
       setReportLoading(false);
     }
-  }, [buildReportParams, fetchJsonSafe, headers, validateReportSelection]);
+  }, [buildReportParams, fetchJsonSafe, headers, isMysteryShopperPlatform, validateReportSelection]);
 
   const handleDownloadReport = useCallback(async () => {
     if (!validateReportSelection()) return;
@@ -910,7 +915,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     const params = buildReportParams();
     params.set("download", "true");
     try {
-      const res = await fetch(`${API_BASE}/dashboard-visits/reports/export?${params.toString()}`, { headers });
+      const endpoint = isMysteryShopperPlatform
+        ? `${API_BASE}/mystery-shopper/reports/export?${params.toString()}`
+        : `${API_BASE}/dashboard-visits/reports/export?${params.toString()}`;
+      const res = await fetch(endpoint, { headers });
       if (!res.ok) {
         const text = await res.text();
         setError(text || "Failed to download report");
@@ -929,7 +937,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     } catch {
       setError("Failed to download report");
     }
-  }, [buildReportParams, headers, pushToast, validateReportSelection]);
+  }, [buildReportParams, headers, isMysteryShopperPlatform, pushToast, validateReportSelection]);
 
   const handleEmailReport = useCallback(async () => {
     if (!validateReportSelection()) return;
@@ -947,14 +955,19 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       const payload = {
         report_type: reportType,
         to: recipients,
-        survey_type: activePlatform || "B2B",
-        business_id: reportBusinessId ? Number(reportBusinessId) : null,
+        ...(isMysteryShopperPlatform ? {} : { survey_type: activePlatform || "B2B" }),
+        ...(isMysteryShopperPlatform
+          ? { location_id: reportBusinessId ? Number(reportBusinessId) : null }
+          : { business_id: reportBusinessId ? Number(reportBusinessId) : null }),
         visit_id: reportVisitId.trim() || null,
         report_date: reportSelectedDate || null,
         date_from: reportDateFrom || null,
         date_to: reportDateTo || null,
       };
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/reports/email`, {
+      const endpoint = isMysteryShopperPlatform
+        ? `${API_BASE}/mystery-shopper/reports/email`
+        : `${API_BASE}/dashboard-visits/reports/email`;
+      const { res, data } = await fetchJsonSafe(endpoint, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -967,7 +980,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     } finally {
       setReportSending(false);
     }
-  }, [activePlatform, fetchJsonSafe, headers, reportBusinessId, reportDateFrom, reportDateTo, reportEmailTo, reportSelectedDate, reportType, reportVisitId, validateReportSelection]);
+  }, [activePlatform, fetchJsonSafe, headers, isMysteryShopperPlatform, reportBusinessId, reportDateFrom, reportDateTo, reportEmailTo, reportSelectedDate, reportType, reportVisitId, validateReportSelection]);
 
   useEffect(() => {
     if (location.pathname !== "/reports") return;
@@ -988,9 +1001,12 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       setError("");
       try {
         const params = new URLSearchParams();
-        params.set("business_id", reportBusinessId);
-        params.set("survey_type", activePlatform || "B2B");
-        const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/reports/surveys?${params.toString()}`, { headers }, 20000);
+        params.set(isMysteryShopperPlatform ? "location_id" : "business_id", reportBusinessId);
+        if (!isMysteryShopperPlatform) params.set("survey_type", activePlatform || "B2B");
+        const endpoint = isMysteryShopperPlatform
+          ? `${API_BASE}/mystery-shopper/reports/surveys?${params.toString()}`
+          : `${API_BASE}/dashboard-visits/reports/surveys?${params.toString()}`;
+        const { res, data } = await fetchJsonSafe(endpoint, { headers }, 20000);
         if (!res.ok) {
           setError(data?.detail || "Failed to load report-eligible surveys");
           return;
@@ -1007,7 +1023,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     };
 
     loadEligibleSurveys();
-  }, [activePlatform, fetchJsonSafe, headers, location.pathname, reportBusinessId, reportType, reportVisitId, setError, setReportVisitId]);
+  }, [activePlatform, fetchJsonSafe, headers, isMysteryShopperPlatform, location.pathname, reportBusinessId, reportType, reportVisitId, setError, setReportVisitId]);
 
   const loadActionsBoard = useCallback(async () => {
     if (!isB2BPlatform) {
@@ -1326,7 +1342,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       actions: draft.actions ?? response.actions ?? [],
     };
     setReviewSavingResponseId(responseId);
-    const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/${visitId}/responses/${responseId}`, {
+    const endpoint = isMysteryShopperPlatform
+      ? `${API_BASE}/mystery-shopper/visits/${visitId}/responses/${responseId}`
+      : `${API_BASE}/dashboard-visits/${visitId}/responses/${responseId}`;
+    const { res, data } = await fetchJsonSafe(endpoint, {
       method: "PUT",
       headers,
       body: JSON.stringify(payload),
@@ -1397,6 +1416,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setReportPreviewHtml("");
   }, [reportType]);
 
+  useEffect(() => {
+    if (!isMysteryShopperPlatform) return;
+    if (reportType === "action_points") setReportType("lifetime");
+  }, [isMysteryShopperPlatform, reportType]);
+
    const analyticsCards = [
      ...(isMysteryShopperPlatform
         ? [
@@ -1417,6 +1441,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         : []),
      ];
 
+   const reportTypeOptions = isMysteryShopperPlatform
+     ? REPORT_TYPE_OPTIONS.filter((option) => option.key !== "action_points")
+     : REPORT_TYPE_OPTIONS;
+
    const reportMetricCards = [
      { title: "Selected NPS", value: reportPreview?.analytics_comparison?.nps?.selected ?? "--", metric: "b2b_nps" },
      ...(reportType === "lifetime" ? [{ title: "Overall NPS", value: reportPreview?.analytics_comparison?.nps?.overall ?? "--", metric: "b2b_nps" }] : []),
@@ -1426,6 +1454,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
      ...(reportType === "lifetime" ? [{ title: "Overall Relationship", value: reportPreview?.analytics_comparison?.relationship_score?.overall?.toFixed?.(1) ?? "--", metric: "b2b_relationship" }] : []),
      { title: "Selected Competitive Exposure", value: `${reportPreview?.analytics_comparison?.competitor_exposure?.selected?.toFixed?.(1) ?? "--"}%`, metric: "b2b_competitive_exposure" },
      ...(reportType === "lifetime" ? [{ title: "Overall Competitive Exposure", value: `${reportPreview?.analytics_comparison?.competitor_exposure?.overall?.toFixed?.(1) ?? "--"}%`, metric: "b2b_competitive_exposure" }] : []),
+   ];
+
+   const mysteryReportMetricCards = [
+     { title: "Selected NPS", value: reportPreview?.mystery_metrics?.selected_nps ?? "--", metric: "b2b_nps" },
+     ...(reportType === "lifetime" ? [{ title: "Overall NPS", value: reportPreview?.mystery_metrics?.overall_nps ?? "--", metric: "b2b_nps" }] : []),
+     { title: "Selected CSAT Avg", value: reportPreview?.mystery_metrics?.selected_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" },
+     ...(reportType === "lifetime" ? [{ title: "Overall CSAT Avg", value: reportPreview?.mystery_metrics?.overall_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" }] : []),
+     { title: "Overall Experience", value: reportPreview?.mystery_metrics?.selected_overall_experience?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
+     { title: "Service Quality", value: reportPreview?.mystery_metrics?.selected_quality?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
    ];
 
    const installPreviewAverage = (items, key, target) => {
@@ -3192,13 +3229,63 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       ) : null}
 
       {(location.pathname === "/surveys" || location.pathname === "/reports") && !isInstallationPlatform ? (
+        isMysteryShopperPlatform ? (
+          location.pathname === "/surveys" ? (
+            <MysterySurveyResultsSection
+              surveyStatusFilter={surveyStatusFilter}
+              setSurveyStatusFilter={setSurveyStatusFilter}
+              selectedSurveyLocation={selectedSurveyLocation}
+              setSelectedSurveyLocation={setSelectedSurveyLocation}
+              mysteryLocations={mysteryLocations}
+              loadSurveyResults={loadSurveyResults}
+              surveyLoading={surveyLoading}
+              surveyResults={surveyResults}
+              loadSurveyVisitDetails={loadSurveyVisitDetails}
+              selectedSurveyVisit={selectedSurveyVisit}
+              surveyResponseCategoryGroups={surveyResponseCategoryGroups}
+              formatSurveyResponseValue={formatSurveyResponseValue}
+              formatReadableDateTime={formatReadableDateTime}
+              onCloseDetails={() => setSelectedSurveyVisit(null)}
+            />
+          ) : (
+            <MysteryReportsSection
+              reportTypeOptions={reportTypeOptions}
+              reportType={reportType}
+              setReportType={setReportType}
+              reportBusinessId={reportBusinessId}
+              setReportBusinessId={setReportBusinessId}
+              mysteryLocations={mysteryLocations}
+              reportVisitId={reportVisitId}
+              setReportVisitId={setReportVisitId}
+              reportEligibleSurveys={reportEligibleSurveys}
+              reportDateFrom={reportDateFrom}
+              setReportDateFrom={setReportDateFrom}
+              reportDateTo={reportDateTo}
+              setReportDateTo={setReportDateTo}
+              reportSurveyLoading={reportSurveyLoading}
+              reportIneligibleSurveys={reportIneligibleSurveys}
+              reportEmailTo={reportEmailTo}
+              setReportEmailTo={setReportEmailTo}
+              handlePreviewReport={handlePreviewReport}
+              handleDownloadReport={handleDownloadReport}
+              handleEmailReport={handleEmailReport}
+              reportLoading={reportLoading}
+              reportSending={reportSending}
+              reportPreview={reportPreview}
+              reportPreviewHtml={reportPreviewHtml}
+              mysteryReportMetricCards={mysteryReportMetricCards}
+            />
+          )
+        ) : (
         <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="text-xl font-semibold tracking-tight">{location.pathname === "/reports" ? "Survey Reports" : "Survey Results"}</CardTitle>
               <CardDescription>
                 {location.pathname === "/reports"
-                  ? "Create visual management reports by date/business, then download or email them."
+                  ? isMysteryShopperPlatform
+                    ? "Create Mystery Shopper reports by date or location, then preview, download, or email them."
+                    : "Create visual management reports by date/business, then download or email them."
                   : "View full survey submissions, then open each visit to inspect all questions and answers."}
               </CardDescription>
             </CardHeader>
@@ -3247,7 +3334,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 </div>
                 {/* Mobile: horizontal scroll pills */}
                 <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
-                  {REPORT_TYPE_OPTIONS.map((option) => (
+                  {reportTypeOptions.map((option) => (
                     <button
                       key={option.key}
                       type="button"
@@ -3265,7 +3352,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 </div>
                 {/* Desktop: card grid */}
                 <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                  {REPORT_TYPE_OPTIONS.map((option) => (
+                  {reportTypeOptions.map((option) => (
                     <Card key={option.key} className="h-full min-w-0 overflow-visible">
                       <CardHeader>
                         <CardTitle className="text-base">{option.label}</CardTitle>
@@ -3290,9 +3377,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                 <div>
                   <p className="text-sm font-semibold tracking-tight">2) Define Report Scope</p>
                   {reportType === "lifetime" ? (
-                    <p className="text-xs text-muted-foreground">Lifetime Overview uses all data across the platform. No filters needed.</p>
+                    <p className="text-xs text-muted-foreground">{isMysteryShopperPlatform ? "Lifetime overview uses all Mystery Shopper data across the selected scope." : "Lifetime Overview uses all data across the platform. No filters needed."}</p>
                   ) : reportType === "survey" ? (
-                    <p className="text-xs text-muted-foreground">Select a business, then pick an approved survey to view its full details.</p>
+                    <p className="text-xs text-muted-foreground">{isMysteryShopperPlatform ? "Select a location, then pick an approved survey to view its full details." : "Select a business, then pick an approved survey to view its full details."}</p>
                   ) : reportType === "date" ? (
                     <p className="text-xs text-muted-foreground">Pick a single date to see all surveys completed that day, or a date range to cover multiple days.</p>
                   ) : (
@@ -3302,27 +3389,29 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
                 {reportType === "lifetime" ? (
                   <div className="rounded-md border bg-blue-50 p-3">
-                    <p className="text-sm text-blue-900">This report aggregates all completed and approved surveys across all businesses and all dates. No additional filters are required.</p>
+                    <p className="text-sm text-blue-900">{isMysteryShopperPlatform ? "This report aggregates Mystery Shopper visits across the selected date scope and available locations." : "This report aggregates all completed and approved surveys across all businesses and all dates. No additional filters are required."}</p>
                   </div>
                 ) : null}
 
                 {reportType === "survey" ? (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Business</label>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">{isMysteryShopperPlatform ? "Location" : "Business"}</label>
                       <Input
                         type="text"
                         list="report-business-list"
-                        placeholder="Type to search business..."
-                        value={businesses.find((b) => String(b.id) === reportBusinessId)?.name || ""}
+                        placeholder={isMysteryShopperPlatform ? "Type to search location..." : "Type to search business..."}
+                        value={isMysteryShopperPlatform ? (mysteryLocations.find((item) => String(item.id) === reportBusinessId)?.name || "") : (businesses.find((b) => String(b.id) === reportBusinessId)?.name || "")}
                         onChange={(event) => {
-                          const match = businesses.find((b) => b.name === event.target.value);
+                          const match = isMysteryShopperPlatform
+                            ? mysteryLocations.find((item) => item.name === event.target.value)
+                            : businesses.find((b) => b.name === event.target.value);
                           setReportBusinessId(match ? String(match.id) : "");
                         }}
                       />
                       <datalist id="report-business-list">
-                        {businesses.map((business) => (
-                          <option key={business.id} value={business.name} />
+                        {(isMysteryShopperPlatform ? mysteryLocations : businesses).map((item) => (
+                          <option key={item.id} value={item.name} />
                         ))}
                       </datalist>
                     </div>
@@ -3443,15 +3532,15 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                     {reportSending ? "Sending..." : "Email Report"}
                   </Button>
                 </div>
-                {reportPreview ? (
+                    {reportPreview ? (
                   <div className="mt-4 space-y-3 rounded-md border bg-background p-3">
                     <p className="text-sm font-semibold">Report Preview Summary</p>
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
                       <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Visits</p><p className="text-lg font-semibold">{reportPreview.summary?.total_visits ?? 0}</p></div>
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Businesses</p><p className="text-lg font-semibold">{reportPreview.summary?.total_businesses ?? 0}</p></div>
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Outstanding Action Points</p><p className="text-lg font-semibold">{(reportPreview.action_points || []).filter((item) => item.action_status !== "Completed").length}</p></div>
-                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Completed Action Points</p><p className="text-lg font-semibold">{(reportPreview.action_points || []).filter((item) => item.action_status === "Completed").length}</p></div>
-                      {reportMetricCards.filter((card) => card.value !== "--" && card.value !== "--%").map((card) => {
+                      <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">{isMysteryShopperPlatform ? "Locations" : "Businesses"}</p><p className="text-lg font-semibold">{isMysteryShopperPlatform ? (reportPreview.summary?.total_locations ?? 0) : (reportPreview.summary?.total_businesses ?? 0)}</p></div>
+                      {!isMysteryShopperPlatform ? <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Outstanding Action Points</p><p className="text-lg font-semibold">{(reportPreview.action_points || []).filter((item) => item.action_status !== "Completed").length}</p></div> : null}
+                      {!isMysteryShopperPlatform ? <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Completed Action Points</p><p className="text-lg font-semibold">{(reportPreview.action_points || []).filter((item) => item.action_status === "Completed").length}</p></div> : null}
+                      {(isMysteryShopperPlatform ? mysteryReportMetricCards : reportMetricCards).filter((card) => card.value !== "--" && card.value !== "--%").map((card) => {
                         const grade = getTrafficLightMetric(card.metric, card.value);
                         return (
                           <div key={card.title} className={cn("rounded-md border p-2", grade.card)}>
@@ -3464,7 +3553,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
                         );
                       })}
                     </div>
-                    <p className="text-xs text-muted-foreground">Includes executive metrics (NPS, CSAT, Relationship, Competitor Exposure), selected-vs-overall comparison, and yes/no analytics in a visual report format.</p>
+                    <p className="text-xs text-muted-foreground">{isMysteryShopperPlatform ? "Includes Mystery Shopper KPI summaries, visit scope details, and survey-level answers in a shareable report format." : "Includes executive metrics (NPS, CSAT, Relationship, Competitor Exposure), selected-vs-overall comparison, and yes/no analytics in a visual report format."}</p>
                     {reportPreviewHtml ? (
                       <div className="rounded-md border">
                         <iframe title="Report Preview" srcDoc={reportPreviewHtml} className="h-[720px] w-full rounded-md bg-white" />
@@ -3551,6 +3640,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             )
           ) : null}
         </div>
+        )
       ) : null}
 
       {location.pathname === "/actions" ? (

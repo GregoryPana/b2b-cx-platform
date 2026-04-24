@@ -1,8 +1,13 @@
 from datetime import datetime, timedelta
 import json
+import os
+import smtplib
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -58,6 +63,18 @@ class MysteryResponsePayload(BaseModel):
     answer_text: str | None = None
     verbatim: str | None = None
     actions: list[Any] = []
+
+
+class MysteryReportEmailRequest(BaseModel):
+    to: list[str]
+    subject: str | None = None
+    report_type: str | None = "lifetime"
+    location_id: int | None = None
+    visit_id: str | None = None
+    report_date: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    message: str | None = None
 
 
 def has_table(db: Session, table_name: str) -> bool:
@@ -137,6 +154,306 @@ def validate_mystery_response(question_row: Any, payload: MysteryResponsePayload
 
     if is_mandatory and not answer_text:
         raise HTTPException(status_code=400, detail="Answer is required for this question")
+
+
+def build_mystery_report_payload(
+    db: Session,
+    report_type: str | None,
+    location_id: int | None,
+    visit_id: str | None,
+    report_date: str | None,
+    date_from: str | None,
+    date_to: str | None,
+) -> dict[str, Any]:
+    from ..routers.analytics import get_comprehensive_analytics, get_question_averages
+
+    survey_type_id = _ensure_mystery_shopper_schema(db)
+    response_table = get_response_table(db)
+    if not response_table:
+        raise HTTPException(status_code=500, detail="No response table found")
+
+    normalized_report_type = (report_type or "lifetime").strip().lower()
+    if normalized_report_type not in {"lifetime", "survey", "date"}:
+        normalized_report_type = "lifetime"
+
+    effective_date_from = date_from
+    effective_date_to = date_to
+    if report_date:
+      effective_date_from = report_date
+      effective_date_to = report_date
+
+    where_clauses = ["v.survey_type_id = :survey_type_id"]
+    params: dict[str, Any] = {"survey_type_id": survey_type_id}
+    if location_id is not None:
+        where_clauses.append("m.location_id = :location_id")
+        params["location_id"] = location_id
+    if effective_date_from:
+        where_clauses.append("v.visit_date >= :date_from")
+        params["date_from"] = effective_date_from
+    if effective_date_to:
+        where_clauses.append("v.visit_date <= :date_to")
+        params["date_to"] = effective_date_to
+
+    visit_rows = db.execute(
+        text(
+            f"""
+            SELECT
+                v.id,
+                l.id AS location_id,
+                l.name AS location_name,
+                v.visit_date,
+                v.status,
+                m.visit_time,
+                m.purpose_of_visit,
+                m.staff_on_duty,
+                m.shopper_name,
+                COUNT(r.id) AS response_count,
+                AVG(CASE WHEN r.score IS NOT NULL THEN r.score END)::float AS average_score
+            FROM visits v
+            JOIN mystery_shopper_assessments m ON m.visit_id = v.id
+            JOIN mystery_shopper_locations l ON l.id = m.location_id
+            LEFT JOIN {response_table} r ON r.visit_id = v.id
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY v.id, l.id, l.name, v.visit_date, v.status, m.visit_time, m.purpose_of_visit, m.staff_on_duty, m.shopper_name
+            ORDER BY v.visit_date DESC, m.visit_time DESC NULLS LAST, v.id DESC
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    total_responses = sum(int(row["response_count"] or 0) for row in visit_rows)
+    total_visits = len(visit_rows)
+    total_locations = len({row["location_id"] for row in visit_rows if row["location_id"] is not None})
+    weighted_score_sum = sum((float(row["average_score"] or 0.0) * int(row["response_count"] or 0)) for row in visit_rows)
+    weighted_score_count = sum(int(row["response_count"] or 0) for row in visit_rows if row["average_score"] is not None)
+    average_score = round(weighted_score_sum / weighted_score_count, 2) if weighted_score_count else None
+
+    location_filter = str(location_id) if location_id is not None else None
+    analytics_selected = get_comprehensive_analytics(
+        survey_type="Mystery Shopper",
+        mystery_location_ids=location_filter,
+        date_from=effective_date_from,
+        date_to=effective_date_to,
+        db=db,
+    )
+    analytics_overall = get_comprehensive_analytics(survey_type="Mystery Shopper", db=db)
+    question_averages_selected = get_question_averages(
+        survey_type="Mystery Shopper",
+        business_ids=None,
+        date_from=effective_date_from,
+        date_to=effective_date_to,
+        db=db,
+    )
+
+    def weighted_average(items: list[dict[str, Any]]) -> float | None:
+        score_sum = 0.0
+        count_sum = 0
+        for item in items:
+            score = float(item.get("average_score") or 0.0)
+            count = int(item.get("response_count") or 0)
+            if count <= 0:
+                continue
+            score_sum += score * count
+            count_sum += count
+        return round(score_sum / count_sum, 2) if count_sum else None
+
+    question_items = list(question_averages_selected.get("items") or [])
+    overall_experience_avg = weighted_average([item for item in question_items if "overall experience" in str(item.get("category") or "").lower()])
+    quality_avg = weighted_average([
+        item for item in question_items
+        if "overall experience" not in str(item.get("category") or "").lower() and float(item.get("average_score") or 0) <= 5.2
+    ])
+
+    selected_visit_info = None
+    survey_question_details: list[dict[str, Any]] = []
+    if normalized_report_type == "survey" and visit_id:
+        detail = db.execute(
+            text(
+                """
+                SELECT
+                    v.id,
+                    l.name AS location_name,
+                    v.visit_date,
+                    v.status,
+                    m.visit_time,
+                    m.purpose_of_visit,
+                    m.staff_on_duty,
+                    m.shopper_name,
+                    v.submitted_by_name,
+                    v.submitted_by_email,
+                    v.submitted_at
+                FROM visits v
+                JOIN mystery_shopper_assessments m ON m.visit_id = v.id
+                JOIN mystery_shopper_locations l ON l.id = m.location_id
+                WHERE v.id = :visit_id
+                LIMIT 1
+                """
+            ),
+            {"visit_id": visit_id},
+        ).mappings().first()
+        if detail:
+            selected_visit_info = {
+                "visit_id": str(detail["id"]),
+                "location_name": detail["location_name"],
+                "business_name": detail["location_name"],
+                "visit_date": detail["visit_date"].isoformat() if detail["visit_date"] else None,
+                "status": detail["status"],
+                "visit_time": detail["visit_time"],
+                "purpose_of_visit": detail["purpose_of_visit"],
+                "staff_on_duty": detail["staff_on_duty"],
+                "shopper_name": detail["shopper_name"],
+                "submitted_by_name": detail["submitted_by_name"],
+                "submitted_by_email": detail["submitted_by_email"],
+                "submitted_at": detail["submitted_at"].isoformat() if detail["submitted_at"] else None,
+            }
+
+        qrows = db.execute(
+            text(
+                f"""
+                SELECT
+                    q.id AS question_id,
+                    q.question_number,
+                    q.category,
+                    q.question_text,
+                    q.input_type,
+                    q.score_min,
+                    q.score_max,
+                    r.score,
+                    r.answer_text,
+                    r.verbatim
+                FROM {response_table} r
+                JOIN questions q ON q.id = r.question_id
+                WHERE r.visit_id = :visit_id
+                ORDER BY q.question_number, q.id
+                """
+            ),
+            {"visit_id": visit_id},
+        ).mappings().all()
+        survey_question_details = [dict(row) for row in qrows]
+
+    return {
+        "filters": {
+            "report_type": normalized_report_type,
+            "location_id": location_id,
+            "visit_id": visit_id,
+            "report_date": report_date,
+            "date_from": effective_date_from,
+            "date_to": effective_date_to,
+        },
+        "summary": {
+            "total_visits": total_visits,
+            "total_locations": total_locations,
+            "total_responses": total_responses,
+            "average_score": average_score,
+            "is_single_visit": normalized_report_type == "survey" and bool(visit_id),
+        },
+        "mystery_metrics": {
+            "selected_nps": (analytics_selected.get("nps") or {}).get("nps"),
+            "overall_nps": (analytics_overall.get("nps") or {}).get("nps"),
+            "selected_csat": (analytics_selected.get("mystery_shopper") or {}).get("csat_average"),
+            "overall_csat": (analytics_overall.get("mystery_shopper") or {}).get("csat_average"),
+            "selected_overall_experience": overall_experience_avg,
+            "selected_quality": quality_avg,
+        },
+        "analytics_selected": analytics_selected,
+        "analytics_overall": analytics_overall,
+        "selected_visit_info": selected_visit_info,
+        "survey_question_details": survey_question_details,
+        "visit_details": [
+            {
+                "visit_id": str(row["id"]),
+                "visit_date": row["visit_date"].isoformat() if row["visit_date"] else None,
+                "status": row["status"],
+                "location_id": row["location_id"],
+                "location_name": row["location_name"],
+                "visit_time": row["visit_time"],
+                "purpose_of_visit": row["purpose_of_visit"],
+                "staff_on_duty": row["staff_on_duty"],
+                "shopper_name": row["shopper_name"],
+                "response_count": int(row["response_count"] or 0),
+                "avg_score": round(float(row["average_score"]), 2) if row["average_score"] is not None else None,
+            }
+            for row in visit_rows
+        ],
+    }
+
+
+def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> str:
+    filters = payload.get("filters", {}) or {}
+    summary = payload.get("summary", {}) or {}
+    metrics = payload.get("mystery_metrics", {}) or {}
+    selected_visit_info = payload.get("selected_visit_info") or {}
+    visit_details = payload.get("visit_details") or []
+    survey_question_details = payload.get("survey_question_details") or []
+
+    def fmt(value: Any, suffix: str = "") -> str:
+        if value is None or value == "":
+            return "--"
+        try:
+            return f"{float(value):.1f}{suffix}"
+        except Exception:
+            return f"{value}{suffix}"
+
+    visit_rows = "".join(
+        f"<tr><td>{row.get('visit_date') or '--'}</td><td>{row.get('location_name') or '--'}</td><td>{row.get('visit_time') or '--'}</td><td>{row.get('status') or '--'}</td><td>{fmt(row.get('avg_score'))}</td></tr>"
+        for row in visit_details
+    )
+
+    grouped_questions: dict[str, list[dict[str, Any]]] = {}
+    for row in survey_question_details:
+        grouped_questions.setdefault(str(row.get("category") or "Uncategorized"), []).append(row)
+
+    question_sections = "".join(
+        f"<h3>{category}</h3><table><thead><tr><th>Question</th><th>Answer</th><th>Verbatim</th></tr></thead><tbody>"
+        + "".join(
+            f"<tr><td>Q{int(item.get('question_number') or 0)}: {item.get('question_text') or '--'}</td><td>{(f'{item.get('score')} / {item.get('score_max')}' if item.get('score') is not None and item.get('score_max') is not None else item.get('answer_text') or '--')}</td><td>{item.get('verbatim') or '--'}</td></tr>"
+            for item in items
+        )
+        + "</tbody></table>"
+        for category, items in grouped_questions.items()
+    )
+
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset=\"utf-8\" />
+  <title>CWSCX Mystery Shopper Report</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; color: #0f172a; background:#f8fafc; }}
+    .page {{ max-width: 1120px; margin: 0 auto; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:28px; }}
+    h1,h2,h3 {{ color:#0f172a; }}
+    .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }}
+    .card {{ border:1px solid #e2e8f0; border-radius:10px; padding:14px; background:#fff; }}
+    .label {{ font-size:12px; color:#64748b; margin-bottom:6px; }}
+    .value {{ font-size:24px; font-weight:700; color:#0b1220; }}
+    table {{ width:100%; border-collapse:collapse; margin-top:10px; }}
+    th, td {{ border:1px solid #e5e7eb; padding:10px 12px; font-size:13px; text-align:left; }}
+    th {{ background:#f1f5f9; }}
+  </style>
+</head>
+<body>
+  <div class=\"page\">
+    <h1>Mystery Shopper Report</h1>
+    <p>Generated by: {generated_by}</p>
+    <p>Scope: Location {filters.get('location_id') or 'All'} | Date range: {filters.get('date_from') or 'Any'} to {filters.get('date_to') or 'Any'}</p>
+    <div class=\"grid\">
+      <div class=\"card\"><div class=\"label\">Total Visits</div><div class=\"value\">{summary.get('total_visits', 0)}</div></div>
+      <div class=\"card\"><div class=\"label\">Locations</div><div class=\"value\">{summary.get('total_locations', 0)}</div></div>
+      <div class=\"card\"><div class=\"label\">Average Score</div><div class=\"value\">{fmt(summary.get('average_score'))}</div></div>
+      <div class=\"card\"><div class=\"label\">Selected NPS</div><div class=\"value\">{fmt(metrics.get('selected_nps'))}</div></div>
+      <div class=\"card\"><div class=\"label\">Selected CSAT Avg</div><div class=\"value\">{fmt(metrics.get('selected_csat'))}</div></div>
+      <div class=\"card\"><div class=\"label\">Overall Experience</div><div class=\"value\">{fmt(metrics.get('selected_overall_experience'))}</div></div>
+    </div>
+    {f"<h2>Selected Survey</h2><p>{selected_visit_info.get('location_name') or '--'} | {selected_visit_info.get('visit_date') or '--'} | {selected_visit_info.get('status') or '--'} | {selected_visit_info.get('purpose_of_visit') or '--'}</p>" if selected_visit_info else ""}
+    {f"<h2>Survey Details</h2>{question_sections}" if question_sections else ""}
+    <h2>Visit Summary</h2>
+    <table>
+      <thead><tr><th>Date</th><th>Location</th><th>Time</th><th>Status</th><th>Avg Score</th></tr></thead>
+      <tbody>{visit_rows or '<tr><td colspan="5">No visits found.</td></tr>'}</tbody>
+    </table>
+  </div>
+</body>
+</html>"""
 
 
 MYSTERY_SHOPPER_QUESTIONS: list[dict[str, Any]] = [
@@ -1807,6 +2124,131 @@ async def request_mystery_changes(visit_id: str, payload: dict[str, Any], db: Se
     )
     db.commit()
     return {"visit_id": visit_id, "status": "Draft", "message": "Changes requested successfully"}
+
+
+@router.get("/reports/surveys")
+async def list_mystery_report_surveys(location_id: int, db: Session = Depends(get_db)):
+    _ensure_mystery_shopper_schema(db)
+    rows = db.execute(
+        text(
+            """
+            SELECT
+                v.id,
+                v.visit_date,
+                v.status,
+                l.name AS business_name,
+                l.id AS location_id
+            FROM visits v
+            JOIN mystery_shopper_assessments m ON m.visit_id = v.id
+            JOIN mystery_shopper_locations l ON l.id = m.location_id
+            WHERE m.location_id = :location_id
+            ORDER BY v.visit_date DESC, v.id DESC
+            """
+        ),
+        {"location_id": location_id},
+    ).mappings().all()
+    eligible_statuses = {"Approved", "Completed"}
+    eligible = []
+    ineligible = []
+    for row in rows:
+        item = {
+            "visit_id": str(row["id"]),
+            "visit_date": row["visit_date"].isoformat() if row["visit_date"] else None,
+            "status": row["status"] or "Draft",
+            "business_name": row["business_name"],
+            "location_id": row["location_id"],
+        }
+        if item["status"] in eligible_statuses:
+            eligible.append(item)
+        else:
+            item["reason"] = "Survey is not completed/approved yet"
+            ineligible.append(item)
+    return {"location_id": location_id, "eligible": eligible, "ineligible": ineligible}
+
+
+@router.get("/reports/export")
+async def export_mystery_report(
+    report_type: str | None = "lifetime",
+    location_id: int | None = None,
+    visit_id: str | None = None,
+    report_date: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    download: bool = False,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    payload = build_mystery_report_payload(db, report_type, location_id, visit_id, report_date, date_from, date_to)
+    report_html = render_mystery_report_html(payload, getattr(current_user, "name", "Unknown User"))
+    filename = "cwscx-mystery-shopper-report.html"
+    if download:
+        return HTMLResponse(content=report_html, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return {"filename": filename, "report_html": report_html, "report": payload}
+
+
+@router.post("/reports/email")
+async def email_mystery_report(
+    request: MysteryReportEmailRequest,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USERNAME", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    smtp_from = (
+        os.getenv("SMTP_FROM", "").strip()
+        or os.getenv("SMTP_EMAIL", "").strip()
+        or os.getenv("STMP_EMAIL", "").strip()
+        or smtp_user
+    )
+    smtp_use_tls_raw = os.getenv("SMTP_USE_TLS", "").strip().lower()
+    smtp_use_ssl_raw = os.getenv("SMTP_USE_SSL", "").strip().lower()
+    smtp_use_tls = (smtp_port == 587) if smtp_use_tls_raw == "" else smtp_use_tls_raw in {"1", "true", "yes"}
+    smtp_use_ssl = (smtp_port == 465) if smtp_use_ssl_raw == "" else smtp_use_ssl_raw in {"1", "true", "yes"}
+
+    if not smtp_host or not smtp_from:
+        raise HTTPException(status_code=400, detail="SMTP is not configured. Set SMTP_HOST and SMTP_FROM (or SMTP_EMAIL/STMP_EMAIL).")
+
+    payload = build_mystery_report_payload(db, request.report_type, request.location_id, request.visit_id, request.report_date, request.date_from, request.date_to)
+    report_html = render_mystery_report_html(payload, getattr(current_user, "name", "Unknown User"))
+
+    subject = request.subject or "CWSCX Mystery Shopper Report"
+    message = MIMEMultipart("alternative")
+    message["Subject"] = subject
+    message["From"] = smtp_from
+    message["To"] = ", ".join(request.to)
+
+    intro_text = request.message or "Please find the latest Mystery Shopper report below."
+    message.attach(MIMEText(f"{intro_text}\n\nThis email contains an HTML report.", "plain"))
+    message.attach(MIMEText(f"<p>{intro_text}</p>{report_html}", "html"))
+
+    try:
+        smtp_client_cls = smtplib.SMTP_SSL if smtp_use_ssl else smtplib.SMTP
+        with smtp_client_cls(smtp_host, smtp_port, timeout=20) as server:
+            if not smtp_use_ssl:
+                try:
+                    server.ehlo()
+                except Exception:
+                    pass
+                if smtp_use_tls:
+                    if getattr(server, "has_extn", lambda *_args: False)("starttls"):
+                        server.starttls()
+                        try:
+                            server.ehlo()
+                        except Exception:
+                            pass
+                    else:
+                        raise HTTPException(status_code=500, detail="SMTP server does not support STARTTLS.")
+            if smtp_user and smtp_password:
+                server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_from, list(request.to), message.as_string())
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send report email: {exc}")
+
+    return {"status": "sent", "recipients": request.to, "subject": subject, "summary": payload.get("summary", {})}
 
 
 @router.put("/visits/{visit_id}/submit")
