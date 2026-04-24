@@ -5,12 +5,19 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import SurveyWorkspacePage from "./features/survey/SurveyWorkspacePage";
 import UserGuidePage from "./features/user-guide/UserGuidePage";
+import { Card, CardContent } from "./components/ui/card";
+import { Button } from "./components/ui/button";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
+const B2B_ALLOWED_ROLES = new Set(["B2B_ADMIN", "B2B_SURVEYOR", "CX_SUPER_ADMIN"]);
+
+function hasB2BAccess(roles: string[]) {
+  return Array.isArray(roles) && roles.some((role) => B2B_ALLOWED_ROLES.has(role));
+}
 
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
@@ -22,6 +29,8 @@ export default function App() {
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [statusText, setStatusText] = useState("Draft workflow available");
+  const [entraRoles, setEntraRoles] = useState<string[]>([]);
+  const [roleResolved, setRoleResolved] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && accounts.length > 0) {
@@ -54,6 +63,7 @@ export default function App() {
     const account = accounts[0];
     const claims = account.idTokenClaims || {};
     const claimsRoles = Array.isArray(claims.roles) ? claims.roles : [];
+    setEntraRoles(claimsRoles);
     setRole(claimsRoles.includes("B2B_ADMIN") || claimsRoles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
     setUserId(String(claims.sub || claims.oid || "4"));
     setUserName(claims.name || account.name || "");
@@ -76,15 +86,20 @@ export default function App() {
   useEffect(() => {
     if (!accessToken) return;
     const run = async () => {
-      const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const data = await res.json();
-      if (!res.ok) return;
-      const roles = Array.isArray(data.roles) ? data.roles : [];
-      setRole(roles.includes("B2B_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
-      setUserId(String(data.sub || userId));
-      setUserName(data.name || userName);
-      setUserEmail(data.preferred_username || userEmail);
-      setStatusText(role === "Admin" ? "Admin controls enabled" : "Representative workflow enabled");
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const data = await res.json();
+        if (!res.ok) return;
+        const roles = Array.isArray(data.roles) ? data.roles : [];
+        setEntraRoles(roles);
+        setRole(roles.includes("B2B_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
+        setUserId(String(data.sub || userId));
+        setUserName(data.name || userName);
+        setUserEmail(data.preferred_username || userEmail);
+        setStatusText(role === "Admin" ? "Admin controls enabled" : "Representative workflow enabled");
+      } finally {
+        setRoleResolved(true);
+      }
     };
     run();
   }, [accessToken, role, userEmail, userId, userName]);
@@ -102,8 +117,27 @@ export default function App() {
     instance.logoutRedirect({ postLogoutRedirectUri: surveyPostLogoutUri });
   };
 
-  if (!msalReady || !isAuthenticated || !accessToken) {
+  if (!msalReady || !isAuthenticated || !accessToken || !roleResolved) {
     return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
+  }
+
+  if (!hasB2BAccess(entraRoles)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6">
+          <CardContent className="space-y-3 pt-6">
+            <h1 className="text-xl font-semibold">No B2B Survey Access</h1>
+            <p className="text-sm text-muted-foreground">
+              Your account is signed in, but it does not have a B2B survey role.
+              Ask an administrator to assign `B2B_ADMIN`, `B2B_SURVEYOR`, or `CX_SUPER_ADMIN`.
+            </p>
+            <Button type="button" variant="outline" onClick={handleLogout}>
+              Logout
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

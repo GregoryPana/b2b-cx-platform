@@ -31,7 +31,7 @@ export default function PlatformSelectionPage({ userName, userEmail, availablePl
               <CardDescription>Your account authenticated successfully, but no platform role is currently assigned.</CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">Ask an administrator to assign one of these roles: B2B, Mystery Shopper, or Installation Assessment.</p>
+              <p className="text-sm text-muted-foreground">Ask an administrator to assign `B2B_ADMIN`, `MYSTERY_ADMIN`, `INSTALL_ADMIN`, or `CX_SUPER_ADMIN` for dashboard access.</p>
             </CardContent>
           </Card>
         ) : (

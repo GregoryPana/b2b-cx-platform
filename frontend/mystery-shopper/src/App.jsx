@@ -15,8 +15,13 @@ import { gsap } from "gsap";
 import { CalendarDays, ClipboardCheck, LogOut } from "lucide-react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
 
 const DEFAULT_PURPOSE_OPTIONS = ["General Enquiry", "Billing", "Device", "Broadband", "Complaint", "Other"];
+
+function hasMysteryAccess(roles) {
+  return Array.isArray(roles) && roles.some((role) => MYSTERY_ALLOWED_ROLES.has(role));
+}
 
 function parseChoices(question) {
   if (!question?.choices) return [];
@@ -145,6 +150,8 @@ export default function App() {
   const [role, setRole] = useState("Representative");
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
+  const [entraRoles, setEntraRoles] = useState([]);
+  const [roleResolved, setRoleResolved] = useState(false);
   const [accessToken, setAccessToken] = useState("");
   const [activeTab, setActiveTab] = useState("planned");
   const [showMobileCategoryNav, setShowMobileCategoryNav] = useState(false);
@@ -207,6 +214,7 @@ export default function App() {
 
     const claims = account.idTokenClaims || {};
     const roles = Array.isArray(claims.roles) ? claims.roles : [];
+    setEntraRoles(roles);
     setRole(roles.includes("MYSTERY_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
     setUserId(String(claims.sub || claims.oid || claims.preferred_username || ""));
     setUserName(claims.name || account.name || "");
@@ -243,12 +251,15 @@ export default function App() {
         if (!res.ok) return;
 
         const roles = Array.isArray(data.roles) ? data.roles : [];
+        setEntraRoles(roles);
         setUserId(String(data.sub || ""));
         setUserName(data.name || "");
         setUserEmail(data.preferred_username || "");
         setRole(roles.includes("MYSTERY_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
       } catch {
         // keep fallback claims
+      } finally {
+        setRoleResolved(true);
       }
     };
 
@@ -613,7 +624,7 @@ export default function App() {
     instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
   };
 
-  if (!msalReady || !isAuthenticated || !accessToken) {
+  if (!msalReady || !isAuthenticated || !accessToken || !roleResolved) {
     return (
       <div className="app-shell">
         <motion.main id="main-content" className="page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
@@ -622,6 +633,23 @@ export default function App() {
             <CardContent className="p-0 pt-2">
               <CardTitle className="text-[clamp(1.85rem,2.6vw,2.4rem)]">Signing you in...</CardTitle>
               <p className="lead">Please wait while Microsoft Entra authentication completes.</p>
+            </CardContent>
+          </Card>
+        </motion.main>
+      </div>
+    );
+  }
+
+  if (!hasMysteryAccess(entraRoles)) {
+    return (
+      <div className="app-shell">
+        <motion.main id="main-content" className="page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+          <Card className="hero" role="alert" aria-live="polite">
+            <CardContent className="p-0 pt-2">
+              <CardTitle className="text-[clamp(1.65rem,2.3vw,2.1rem)]">No Mystery Shopper Access</CardTitle>
+              <p className="lead">Your account is signed in, but it does not have a Mystery Shopper survey role.</p>
+              <p className="mt-2 text-sm text-muted-foreground">Ask an administrator to assign `MYSTERY_ADMIN`, `MYSTERY_SURVEYOR`, or `CX_SUPER_ADMIN`.</p>
+              <Button type="button" variant="outline" className="mt-4" onClick={handleLogout}>Logout</Button>
             </CardContent>
           </Card>
         </motion.main>
