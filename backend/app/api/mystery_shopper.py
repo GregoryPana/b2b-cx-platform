@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -49,6 +50,93 @@ class MysteryHeaderUpdate(BaseModel):
     purpose_of_visit: str
     staff_on_duty: str
     shopper_name: str
+
+
+class MysteryResponsePayload(BaseModel):
+    question_id: int
+    score: int | None = None
+    answer_text: str | None = None
+    verbatim: str | None = None
+    actions: list[Any] = []
+
+
+def has_table(db: Session, table_name: str) -> bool:
+    return bool(
+        db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_name = :table_name
+                LIMIT 1
+                """
+            ),
+            {"table_name": table_name},
+        ).scalar()
+    )
+
+
+def has_column(db: Session, table_name: str, column_name: str) -> bool:
+    return bool(
+        db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = :table_name AND column_name = :column_name
+                LIMIT 1
+                """
+            ),
+            {"table_name": table_name, "column_name": column_name},
+        ).scalar()
+    )
+
+
+def get_response_table(db: Session) -> str | None:
+    if has_table(db, "b2b_visit_responses"):
+        return "b2b_visit_responses"
+    if has_table(db, "responses"):
+        return "responses"
+    return None
+
+
+def normalize_actions_value(value: Any) -> list[Any]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
+def validate_mystery_response(question_row: Any, payload: MysteryResponsePayload) -> None:
+    input_type = question_row.input_type if hasattr(question_row, "input_type") else question_row[2]
+    score_min = question_row.score_min if hasattr(question_row, "score_min") else question_row[3]
+    score_max = question_row.score_max if hasattr(question_row, "score_max") else question_row[4]
+    is_mandatory = bool(question_row.is_mandatory if hasattr(question_row, "is_mandatory") else question_row[5])
+
+    if input_type == "score":
+        if payload.score is None:
+            raise HTTPException(status_code=400, detail="Score is required for this question")
+        min_value = int(score_min if score_min is not None else 0)
+        max_value = int(score_max if score_max is not None else 10)
+        if payload.score < min_value or payload.score > max_value:
+            raise HTTPException(status_code=400, detail=f"Score must be between {min_value} and {max_value}")
+        return
+
+    answer_text = (payload.answer_text or "").strip()
+    if input_type == "yes_no":
+        if answer_text not in {"Y", "N", "Yes", "No"}:
+            raise HTTPException(status_code=400, detail="Answer must be Yes or No")
+        return
+
+    if is_mandatory and not answer_text:
+        raise HTTPException(status_code=400, detail="Answer is required for this question")
 
 
 MYSTERY_SHOPPER_QUESTIONS: list[dict[str, Any]] = [
@@ -1234,6 +1322,291 @@ async def list_mystery_drafts(representative_id: int | None = None, db: Session 
         }
         for row in rows
     ]
+
+
+@router.get("/visits/{visit_id}")
+async def get_mystery_visit_detail(visit_id: str, db: Session = Depends(get_db)):
+    _ensure_mystery_shopper_schema(db)
+    response_table = get_response_table(db)
+    if not response_table:
+        raise HTTPException(status_code=500, detail="No response table found")
+
+    question_order_col = "q.question_number" if has_column(db, "questions", "question_number") else "q.id"
+
+    visit_row = db.execute(
+        text(
+            """
+            SELECT
+                v.id,
+                v.representative_id,
+                v.visit_date,
+                v.visit_type,
+                v.status,
+                m.location_id,
+                l.name AS location_name,
+                m.visit_time,
+                m.purpose_of_visit,
+                m.staff_on_duty,
+                m.shopper_name,
+                m.report_completed_date
+            FROM visits v
+            JOIN mystery_shopper_assessments m ON m.visit_id = v.id
+            JOIN mystery_shopper_locations l ON l.id = m.location_id
+            WHERE v.id = :visit_id
+            """
+        ),
+        {"visit_id": visit_id},
+    ).mappings().first()
+
+    if not visit_row:
+        raise HTTPException(status_code=404, detail="Visit not found")
+
+    response_rows = db.execute(
+        text(
+            f"""
+            SELECT
+                r.id,
+                r.question_id,
+                r.score,
+                r.answer_text,
+                r.verbatim,
+                {"r.actions" if response_table == "b2b_visit_responses" else "NULL"} as actions,
+                {"r.created_at" if response_table == "b2b_visit_responses" else "NULL"} as created_at,
+                {"r.updated_at" if response_table == "b2b_visit_responses" else "NULL"} as updated_at,
+                {question_order_col} as question_number,
+                q.question_text,
+                q.input_type,
+                q.category
+            FROM {response_table} r
+            LEFT JOIN questions q ON q.id = r.question_id
+            WHERE r.visit_id = :visit_id
+            ORDER BY {question_order_col}
+            """
+        ),
+        {"visit_id": visit_id},
+    ).mappings().all()
+
+    responses = [
+        {
+            "response_id": str(row["id"]),
+            "question_id": row["question_id"],
+            "question_number": row["question_number"] if row["question_number"] else row["question_id"],
+            "question_text": row["question_text"],
+            "question_type": row["input_type"],
+            "category": row["category"] or "Uncategorized",
+            "score": row["score"],
+            "answer_text": row["answer_text"],
+            "verbatim": row["verbatim"],
+            "actions": normalize_actions_value(row["actions"]),
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        }
+        for row in response_rows
+    ]
+
+    mandatory_counts_row = db.execute(
+        text(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
+                COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
+            FROM questions q
+            JOIN visits v ON v.survey_type_id = q.survey_type_id
+            LEFT JOIN {response_table} r
+                ON r.visit_id = v.id
+                AND r.question_id = q.id
+            WHERE v.id = :visit_id
+            """
+        ),
+        {"visit_id": visit_id},
+    ).fetchone()
+
+    mandatory_answered_count = int(mandatory_counts_row[0] or 0) if mandatory_counts_row else 0
+    mandatory_total_count = int(mandatory_counts_row[1] or 0) if mandatory_counts_row else 0
+
+    return {
+        "id": visit_row["id"],
+        "representative_id": visit_row["representative_id"],
+        "visit_date": visit_row["visit_date"].isoformat() if visit_row["visit_date"] else None,
+        "visit_type": visit_row["visit_type"],
+        "status": visit_row["status"],
+        "location_id": visit_row["location_id"],
+        "location_name": visit_row["location_name"],
+        "visit_time": visit_row["visit_time"],
+        "purpose_of_visit": visit_row["purpose_of_visit"],
+        "staff_on_duty": visit_row["staff_on_duty"],
+        "shopper_name": visit_row["shopper_name"],
+        "report_completed_date": visit_row["report_completed_date"].isoformat() if visit_row["report_completed_date"] else None,
+        "mandatory_answered_count": mandatory_answered_count,
+        "mandatory_total_count": mandatory_total_count,
+        "is_started": len(responses) > 0,
+        "is_completed": mandatory_total_count > 0 and mandatory_answered_count >= mandatory_total_count,
+        "responses": responses,
+    }
+
+
+@router.post("/visits/{visit_id}/responses")
+async def create_mystery_response(visit_id: str, payload: MysteryResponsePayload, db: Session = Depends(get_db)):
+    _ensure_mystery_shopper_schema(db)
+    response_table = get_response_table(db)
+    if not response_table:
+        raise HTTPException(status_code=500, detail="No response table found")
+
+    question_row = db.execute(
+        text(
+            """
+            SELECT id, question_text, input_type, score_min, score_max, is_mandatory
+            FROM questions
+            WHERE id = :question_id
+            """
+        ),
+        {"question_id": payload.question_id},
+    ).mappings().first()
+    if not question_row:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    validate_mystery_response(question_row, payload)
+
+    visit_exists = db.execute(text("SELECT 1 FROM visits WHERE id = :visit_id"), {"visit_id": visit_id}).scalar()
+    if not visit_exists:
+        raise HTTPException(status_code=404, detail="Visit not found")
+
+    if response_table == "b2b_visit_responses":
+        row = db.execute(
+            text(
+                """
+                INSERT INTO b2b_visit_responses (visit_id, question_id, score, answer_text, verbatim, actions)
+                VALUES (:visit_id, :question_id, :score, :answer_text, :verbatim, :actions)
+                RETURNING id, question_id, score, answer_text, verbatim, actions, created_at
+                """
+            ),
+            {
+                "visit_id": visit_id,
+                "question_id": payload.question_id,
+                "score": payload.score,
+                "answer_text": payload.answer_text,
+                "verbatim": payload.verbatim,
+                "actions": json.dumps(payload.actions or []),
+            },
+        ).fetchone()
+    else:
+        row = db.execute(
+            text(
+                """
+                INSERT INTO responses (visit_id, question_id, score, answer_text, verbatim, action_required, action_owner, action_timeframe, action_support_needed)
+                VALUES (:visit_id, :question_id, :score, :answer_text, :verbatim, NULL, NULL, NULL, NULL)
+                RETURNING id, question_id, score, answer_text, verbatim
+                """
+            ),
+            {
+                "visit_id": visit_id,
+                "question_id": payload.question_id,
+                "score": payload.score,
+                "answer_text": payload.answer_text,
+                "verbatim": payload.verbatim,
+            },
+        ).fetchone()
+
+    db.commit()
+
+    response_payload = {
+        "response_id": str(row[0]),
+        "question_id": row[1],
+        "visit_id": visit_id,
+        "score": row[2],
+        "answer_text": row[3],
+        "verbatim": row[4],
+        "actions": normalize_actions_value(row[5]) if response_table == "b2b_visit_responses" else (payload.actions or []),
+    }
+    return response_payload
+
+
+@router.put("/visits/{visit_id}/responses/{response_id}")
+async def update_mystery_response(visit_id: str, response_id: str, payload: MysteryResponsePayload, db: Session = Depends(get_db)):
+    _ensure_mystery_shopper_schema(db)
+    response_table = get_response_table(db)
+    if not response_table:
+        raise HTTPException(status_code=500, detail="No response table found")
+
+    question_row = db.execute(
+        text(
+            """
+            SELECT id, question_text, input_type, score_min, score_max, is_mandatory
+            FROM questions
+            WHERE id = :question_id
+            """
+        ),
+        {"question_id": payload.question_id},
+    ).mappings().first()
+    if not question_row:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    validate_mystery_response(question_row, payload)
+
+    if response_table == "b2b_visit_responses":
+        row = db.execute(
+            text(
+                """
+                UPDATE b2b_visit_responses
+                SET question_id = :question_id,
+                    score = :score,
+                    answer_text = :answer_text,
+                    verbatim = :verbatim,
+                    actions = :actions,
+                    updated_at = NOW()
+                WHERE id = :response_id AND visit_id = :visit_id
+                RETURNING id, question_id, score, answer_text, verbatim, actions, updated_at
+                """
+            ),
+            {
+                "response_id": response_id,
+                "visit_id": visit_id,
+                "question_id": payload.question_id,
+                "score": payload.score,
+                "answer_text": payload.answer_text,
+                "verbatim": payload.verbatim,
+                "actions": json.dumps(payload.actions or []),
+            },
+        ).fetchone()
+    else:
+        row = db.execute(
+            text(
+                """
+                UPDATE responses
+                SET question_id = :question_id,
+                    score = :score,
+                    answer_text = :answer_text,
+                    verbatim = :verbatim
+                WHERE id = :response_id AND visit_id = :visit_id
+                RETURNING id, question_id, score, answer_text, verbatim
+                """
+            ),
+            {
+                "response_id": response_id,
+                "visit_id": visit_id,
+                "question_id": payload.question_id,
+                "score": payload.score,
+                "answer_text": payload.answer_text,
+                "verbatim": payload.verbatim,
+            },
+        ).fetchone()
+
+    if not row:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Response not found")
+
+    db.commit()
+
+    response_payload = {
+        "response_id": str(row[0]),
+        "question_id": row[1],
+        "visit_id": visit_id,
+        "score": row[2],
+        "answer_text": row[3],
+        "verbatim": row[4],
+        "actions": normalize_actions_value(row[5]) if response_table == "b2b_visit_responses" else (payload.actions or []),
+    }
+    return response_payload
 
 
 @router.put("/visits/{visit_id}/submit")

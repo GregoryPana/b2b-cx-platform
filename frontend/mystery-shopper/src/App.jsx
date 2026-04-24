@@ -414,7 +414,7 @@ export default function App() {
   };
 
   const loadVisitDetail = async (targetVisitId) => {
-    const res = await fetch(`${API_BASE}/dashboard-visits/${targetVisitId}`, { headers });
+    const res = await fetch(`${API_BASE}/mystery-shopper/visits/${targetVisitId}`, { headers });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Failed to load visit detail");
 
@@ -560,8 +560,8 @@ export default function App() {
     setSavingQuestionId(question.id);
     try {
       const endpoint = existing
-        ? `${API_BASE}/dashboard-visits/${visitId}/responses/${existing.response_id}`
-        : `${API_BASE}/dashboard-visits/${visitId}/responses`;
+        ? `${API_BASE}/mystery-shopper/visits/${visitId}/responses/${existing.response_id}`
+        : `${API_BASE}/mystery-shopper/visits/${visitId}/responses`;
 
       const res = await fetch(endpoint, {
         method: existing ? "PUT" : "POST",
