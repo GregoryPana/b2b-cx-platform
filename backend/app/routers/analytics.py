@@ -123,6 +123,16 @@ def detect_mystery_tables(db: Session) -> tuple[bool, bool]:
     return has_assessments, has_locations
 
 
+def get_response_table(db: Session, is_mystery_survey: bool = False) -> str | None:
+    if is_mystery_survey and has_table(db, "mystery_shopper_answers"):
+        return "mystery_shopper_answers"
+    if has_table(db, "b2b_visit_responses"):
+        return "b2b_visit_responses"
+    if has_table(db, "responses"):
+        return "responses"
+    return None
+
+
 @router.get("")
 @router.get("/")
 def get_comprehensive_analytics(
@@ -140,7 +150,9 @@ def get_comprehensive_analytics(
         survey_type_id = resolve_survey_type_id(db, survey_type)
         normalized_survey_type = (survey_type or "").strip().lower()
         is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
-        response_table = "b2b_visit_responses" if has_table(db, "b2b_visit_responses") else "responses"
+        response_table = get_response_table(db, is_mystery_survey=is_mystery_survey)
+        if not response_table:
+            raise Exception("No response table found")
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         where_extra = ""
         where_visits_extra = ""
@@ -599,8 +611,8 @@ def get_question_averages(
     """Get per-question averages for drill-down analytics."""
     try:
         survey_type_id = resolve_survey_type_id(db, survey_type)
-        response_table = "b2b_visit_responses" if has_table(db, "b2b_visit_responses") else "responses"
-        if not has_table(db, response_table):
+        response_table = get_response_table(db, is_mystery_survey=is_mystery_survey)
+        if not response_table or not has_table(db, response_table):
             return {"items": []}
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         where_extra = ""
@@ -713,8 +725,10 @@ def get_yes_no_question_analytics(
     """Get per-question yes/no distribution for approved visits."""
     try:
         survey_type_id = resolve_survey_type_id(db, survey_type)
-        response_table = "b2b_visit_responses" if has_table(db, "b2b_visit_responses") else "responses"
-        if not has_table(db, response_table):
+        normalized_survey_type = (survey_type or "").strip().lower()
+        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
+        response_table = get_response_table(db, is_mystery_survey=is_mystery_survey)
+        if not response_table or not has_table(db, response_table):
             return {"items": []}
 
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
@@ -813,7 +827,7 @@ def get_account_executive_yes_no_trends(
     try:
         survey_type_id = resolve_survey_type_id(db, survey_type)
         response_table = "b2b_visit_responses" if has_table(db, "b2b_visit_responses") else "responses"
-        if not has_table(db, response_table) or not has_column(db, "visits", "account_executive_name"):
+        if not response_table or not has_table(db, response_table) or not has_column(db, "visits", "account_executive_name"):
             return {"items": []}
 
         has_question_number, has_order_index, has_question_key = detect_question_columns(db)
@@ -905,8 +919,10 @@ def get_question_trend(
             interval_value = "week"
 
         survey_type_id = resolve_survey_type_id(db, survey_type)
-        response_table = "b2b_visit_responses" if has_table(db, "b2b_visit_responses") else "responses"
-        if not has_table(db, response_table):
+        normalized_survey_type = (survey_type or "").strip().lower()
+        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
+        response_table = get_response_table(db, is_mystery_survey=is_mystery_survey)
+        if not response_table or not has_table(db, response_table):
             return {
                 "question": {"id": question_id, "question_text": "", "category": ""},
                 "interval": interval_value,
@@ -921,8 +937,6 @@ def get_question_trend(
             params["survey_type_id"] = survey_type_id
 
         business_id_values = parse_business_ids(business_ids)
-        normalized_survey_type = (survey_type or "").strip().lower()
-        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
         location_id_values = parse_location_ids(mystery_location_ids)
         if business_id_values:
             placeholders = []
