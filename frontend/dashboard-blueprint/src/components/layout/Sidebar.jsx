@@ -15,7 +15,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
       ...(!isInstallationPlatform ? [{ to: "/review", label: "Review", icon: ScanEye }] : []),
       ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: MessageSquareWarning }] : []),
       ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/surveys", label: "Surveys", icon: LayoutList }] : []),
-      ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
+      ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
       ...(isInstallationPlatform ? [{ to: "/contractors", label: "Contractors", icon: Building2 }] : []),
       ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
       ...(isB2BPlatform ? [{ to: "/executives", label: "Account Executives", icon: Building2 }] : []),
@@ -25,7 +25,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
             { to: "/purposes", label: "Purposes", icon: FileChartLine },
           ]
         : []),
-      ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/user-guide", label: "User Guide", icon: BookOpen }] : []),
+      ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/user-guide", label: "User Guide", icon: BookOpen }] : []),
     ];
 
   return (

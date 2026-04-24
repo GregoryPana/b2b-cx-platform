@@ -123,6 +123,58 @@ const GUIDE_CONTENT = {
       },
     ],
   },
+  mystery: {
+    title: "Dashboard User Guide: Mystery Shopper Platform",
+    description: "Reference guide for the Mystery Shopper dashboard modules and reporting workflow.",
+    sections: [
+      {
+        title: "Accessing The Platform",
+        summary: "Use this when starting work in the Mystery Shopper dashboard and confirming you selected the correct platform.",
+        steps: [
+          "Open the dashboard and sign in with your work account.",
+          "Choose Mystery Shopper from the platform selector.",
+          "Confirm the analytics landing page shows Mystery Shopper metrics, locations, and review counts.",
+        ],
+        notes: [
+          "The Mystery Shopper dashboard is for oversight, review, setup, analytics, and reporting.",
+          "Actual mystery shopper assessments are completed in the separate Mystery Shopper survey frontend.",
+          "If you selected the wrong platform, the side menu and report filters will not match your task.",
+        ],
+        images: [],
+      },
+      {
+        title: "Core Mystery Dashboard Pages",
+        summary: "Move from summary information into review and record-level detail based on the task you are working on.",
+        steps: [
+          "Use Analytics to review CX score trends, location performance, question breakdowns, and KPI summaries.",
+          "Use Review to process submitted mystery shopper visits that are waiting for approval or rejection.",
+          "Use Surveys to inspect completed survey records and see the full response details.",
+          "Use Reports to preview, download, or send formatted outputs for the selected scope.",
+          "Use Locations and Purposes to maintain the reference data used by the survey frontend.",
+        ],
+        notes: [
+          "Analytics is the best place to start if you need a quick view of performance.",
+          "Review is the right place when you need to approve, reject, or send a survey back for changes.",
+          "Locations and Purposes affect the options users see in the Mystery Shopper survey frontend.",
+        ],
+        images: [],
+      },
+      {
+        title: "Using Reports And Guides",
+        summary: "Reports and guides support analysis, communication, and onboarding without leaving the platform.",
+        steps: [
+          "Use Reports to filter the results you want to include in a formatted output.",
+          "Preview report content in the dashboard before exporting or sending it.",
+          "Use User Guide whenever you need a page-by-page reminder of how the Mystery Shopper platform works.",
+        ],
+        notes: [
+          "Report automation is planned for a future phase, so current reporting remains manually triggered.",
+          "If a report looks too broad, narrow the scope using location, date, or other available filters before generating output.",
+        ],
+        images: [],
+      },
+    ],
+  },
 };
 
 export default function PlatformUserGuidePage({ platform }) {

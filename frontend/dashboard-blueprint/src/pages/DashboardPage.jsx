@@ -2940,6 +2940,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       {location.pathname === "/user-guide" ? (
         isB2BPlatform ? (
           <PlatformUserGuidePage platform="b2b" />
+        ) : isMysteryShopperPlatform ? (
+          <PlatformUserGuidePage platform="mystery" />
         ) : isInstallationPlatform ? (
           <PlatformUserGuidePage platform="installation" />
         ) : (
