@@ -1220,7 +1220,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     pushToast("info", `${isApprove ? "Approving" : "Rejecting"} visit...`, 1400);
 
     const payload = isApprove ? { approval_notes: notes } : { rejection_notes: notes };
-    const { res, data } = await fetchJsonSafe(`${API_BASE}/dashboard-visits/${visitId}/${decision}`, {
+    const endpoint = isMysteryShopperPlatform
+      ? `${API_BASE}/mystery-shopper/visits/${visitId}/${decision}`
+      : `${API_BASE}/dashboard-visits/${visitId}/${decision}`;
+    const { res, data } = await fetchJsonSafe(endpoint, {
       method: "PUT",
       headers,
       body: JSON.stringify(payload),

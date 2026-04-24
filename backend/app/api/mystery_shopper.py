@@ -1738,6 +1738,77 @@ async def update_mystery_response(visit_id: str, response_id: str, payload: Myst
     return response_payload
 
 
+@router.put("/visits/{visit_id}/approve")
+async def approve_mystery_visit(visit_id: str, payload: dict[str, Any], db: Session = Depends(get_db)):
+    _ensure_mystery_shopper_schema(db)
+    visit_exists = db.execute(text("SELECT 1 FROM visits WHERE id = :visit_id"), {"visit_id": visit_id}).scalar()
+    if not visit_exists:
+        raise HTTPException(status_code=404, detail="Visit not found")
+
+    approval_notes = (payload.get("approval_notes") if isinstance(payload, dict) else None) or None
+    db.execute(
+        text(
+            """
+            UPDATE visits
+            SET status = 'Approved',
+                approval_timestamp = NOW(),
+                approval_notes = :approval_notes
+            WHERE id = :visit_id
+            """
+        ),
+        {"visit_id": visit_id, "approval_notes": approval_notes},
+    )
+    db.commit()
+    return {"visit_id": visit_id, "status": "Approved", "message": "Visit approved successfully"}
+
+
+@router.put("/visits/{visit_id}/reject")
+async def reject_mystery_visit(visit_id: str, payload: dict[str, Any], db: Session = Depends(get_db)):
+    _ensure_mystery_shopper_schema(db)
+    visit_exists = db.execute(text("SELECT 1 FROM visits WHERE id = :visit_id"), {"visit_id": visit_id}).scalar()
+    if not visit_exists:
+        raise HTTPException(status_code=404, detail="Visit not found")
+
+    rejection_notes = (payload.get("rejection_notes") if isinstance(payload, dict) else None) or None
+    db.execute(
+        text(
+            """
+            UPDATE visits
+            SET status = 'Rejected',
+                rejection_timestamp = NOW(),
+                rejection_notes = :rejection_notes
+            WHERE id = :visit_id
+            """
+        ),
+        {"visit_id": visit_id, "rejection_notes": rejection_notes},
+    )
+    db.commit()
+    return {"visit_id": visit_id, "status": "Rejected", "message": "Visit rejected successfully"}
+
+
+@router.put("/visits/{visit_id}/needs-changes")
+async def request_mystery_changes(visit_id: str, payload: dict[str, Any], db: Session = Depends(get_db)):
+    _ensure_mystery_shopper_schema(db)
+    visit_exists = db.execute(text("SELECT 1 FROM visits WHERE id = :visit_id"), {"visit_id": visit_id}).scalar()
+    if not visit_exists:
+        raise HTTPException(status_code=404, detail="Visit not found")
+
+    change_notes = (payload.get("change_notes") if isinstance(payload, dict) else None) or None
+    db.execute(
+        text(
+            """
+            UPDATE visits
+            SET status = 'Draft',
+                change_notes = :change_notes
+            WHERE id = :visit_id
+            """
+        ),
+        {"visit_id": visit_id, "change_notes": change_notes},
+    )
+    db.commit()
+    return {"visit_id": visit_id, "status": "Draft", "message": "Changes requested successfully"}
+
+
 @router.put("/visits/{visit_id}/submit")
 async def submit_mystery_visit(visit_id: str, db: Session = Depends(get_db)):
     _ensure_mystery_shopper_schema(db)
