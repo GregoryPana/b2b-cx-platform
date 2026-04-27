@@ -608,28 +608,43 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
        const queryString = `?${params.toString()}`;
 
        try {
-         const [npsRes, catRes, analyticsRes] = await Promise.all([
-           fetchJsonSafe(`${API_BASE}/dashboard/nps${queryString}`, { headers }),
-           fetchJsonSafe(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }),
-           fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers })
-         ]);
+         let npsData = {};
+         let catData = [];
+         let analyticsData = {};
 
-         const npsData = npsRes.data || {};
-         const catData = catRes.data || [];
-         const analyticsData = analyticsRes.data || {};
+         if (isMysteryShopperPlatform) {
+           const analyticsRes = await fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers });
+           analyticsData = analyticsRes.data || {};
+           if (!analyticsRes.res.ok) {
+             setError(analyticsData.detail || "Failed to load metrics");
+             return;
+           }
+           npsData = analyticsData.nps || {};
+           catData = Array.isArray(analyticsData.category_breakdown) ? analyticsData.category_breakdown : [];
+         } else {
+           const [npsRes, catRes, analyticsRes] = await Promise.all([
+             fetchJsonSafe(`${API_BASE}/dashboard/nps${queryString}`, { headers }),
+             fetchJsonSafe(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }),
+             fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers })
+           ]);
 
-         if (!npsRes.res.ok || !catRes.res.ok || !analyticsRes.res.ok) {
-           setError(
-             npsData.detail ||
-             catData.detail ||
-             analyticsData.detail ||
-             "Failed to load metrics"
-           );
-           return;
+           npsData = npsRes.data || {};
+           catData = catRes.data || [];
+           analyticsData = analyticsRes.data || {};
+
+           if (!npsRes.res.ok || !catRes.res.ok || !analyticsRes.res.ok) {
+             setError(
+               npsData.detail ||
+               catData.detail ||
+               analyticsData.detail ||
+               "Failed to load metrics"
+             );
+             return;
+           }
          }
 
-         setAnalytics({
-           ...analyticsData,
+          setAnalytics({
+            ...analyticsData,
            nps: npsData,
            category_breakdown: Array.isArray(catData) ? catData : [],
            customer_satisfaction: analyticsData.customer_satisfaction || analyticsData,
