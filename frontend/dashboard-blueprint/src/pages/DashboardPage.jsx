@@ -74,6 +74,17 @@ async function fetchJsonSafe(url, options = {}, timeout = 15000) {
       // ignore parse error
     }
     return { res: response, data };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      return {
+        res: { ok: false, status: 408 },
+        data: { detail: "Request timed out", aborted: true },
+      };
+    }
+    return {
+      res: { ok: false, status: 500 },
+      data: { detail: error?.message || "Request failed" },
+    };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -592,7 +603,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
 
    // Load core metrics (NPS, Category Breakdown, CSAT + B2B analytics)
-   useEffect(() => {
+    useEffect(() => {
      if (!activePlatform || isInstallationPlatform) return;
      const load = async () => {
        setError("");
@@ -604,42 +615,31 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             selectedAnalyticsEntityIds.join(",")
           );
         }
-       params.set("_cb", Date.now().toString());
-       const queryString = `?${params.toString()}`;
+        params.set("_cb", Date.now().toString());
+        const queryString = `?${params.toString()}`;
 
-       try {
-         let npsData = {};
-         let catData = [];
-         let analyticsData = {};
+        try {
+         const analyticsRes = await fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers }, 45000);
+         const analyticsData = analyticsRes.data || {};
+         if (!analyticsRes.res.ok) {
+           setError(analyticsData.detail || "Failed to load metrics");
+           return;
+         }
 
-         if (isMysteryShopperPlatform) {
-           const analyticsRes = await fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers });
-           analyticsData = analyticsRes.data || {};
-           if (!analyticsRes.res.ok) {
-             setError(analyticsData.detail || "Failed to load metrics");
-             return;
-           }
-           npsData = analyticsData.nps || {};
-           catData = Array.isArray(analyticsData.category_breakdown) ? analyticsData.category_breakdown : [];
-         } else {
-           const [npsRes, catRes, analyticsRes] = await Promise.all([
-             fetchJsonSafe(`${API_BASE}/dashboard/nps${queryString}`, { headers }),
-             fetchJsonSafe(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }),
-             fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers })
+         let npsData = analyticsData.nps || {};
+         let catData = Array.isArray(analyticsData.category_breakdown) ? analyticsData.category_breakdown : [];
+
+         if (!isMysteryShopperPlatform) {
+           const [npsRes, catRes] = await Promise.all([
+             fetchJsonSafe(`${API_BASE}/dashboard/nps${queryString}`, { headers }, 45000),
+             fetchJsonSafe(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }, 45000),
            ]);
 
-           npsData = npsRes.data || {};
-           catData = catRes.data || [];
-           analyticsData = analyticsRes.data || {};
-
-           if (!npsRes.res.ok || !catRes.res.ok || !analyticsRes.res.ok) {
-             setError(
-               npsData.detail ||
-               catData.detail ||
-               analyticsData.detail ||
-               "Failed to load metrics"
-             );
-             return;
+           if (npsRes.res.ok && npsRes.data) {
+             npsData = npsRes.data;
+           }
+           if (catRes.res.ok && Array.isArray(catRes.data)) {
+             catData = catRes.data;
            }
          }
 
@@ -1627,10 +1627,13 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   }, [actionsBoardItems]);
 
 
-  const categoryBreakdownData = useMemo(() => {
+   const categoryBreakdownData = useMemo(() => {
     const shouldUseTargetedBreakdown = selectedAnalyticsEntityIds.length > 0;
-    if (!shouldUseTargetedBreakdown || questionAverages.length === 0) {
+    if (!questionAverages.length) {
       return analytics?.category_breakdown || [];
+    }
+    if (!shouldUseTargetedBreakdown && Array.isArray(analytics?.category_breakdown) && analytics.category_breakdown.length > 0) {
+      return analytics.category_breakdown;
     }
 
     const grouped = questionAverages.reduce((acc, item) => {
