@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
+import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
@@ -11,9 +12,8 @@ import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
-import { AnimatePresence, motion } from "framer-motion";
-import { gsap } from "gsap";
-import { CalendarDays, ClipboardCheck, LogOut } from "lucide-react";
+import { motion } from "framer-motion";
+import { CalendarDays, ClipboardCheck, LogOut, Menu, X } from "lucide-react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
@@ -157,7 +157,7 @@ export default function App() {
   const [roleResolved, setRoleResolved] = useState(false);
   const [accessToken, setAccessToken] = useState("");
   const [activeTab, setActiveTab] = useState("planned");
-  const [showMobileCategoryNav, setShowMobileCategoryNav] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [currentCategory, setCurrentCategory] = useState("");
 
   const [questions, setQuestions] = useState([]);
@@ -331,20 +331,6 @@ export default function App() {
     { key: "planned", label: "Draft Visits", icon: CalendarDays },
     { key: "survey", label: "Survey", icon: ClipboardCheck },
   ];
-
-  useEffect(() => {
-    const ctx = gsap.context(() => {
-      const targets = gsap.utils.toArray(".panel, .hero, .planned-card, .question-card, .category-panel");
-      if (!targets.length) return;
-      gsap.fromTo(
-        targets,
-        { autoAlpha: 0, y: 10 },
-        { autoAlpha: 1, y: 0, duration: 0.4, stagger: 0.03, ease: "power2.out" }
-      );
-    });
-
-    return () => ctx.revert();
-  }, [activeTab, currentCategory, showMobileCategoryNav]);
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
@@ -629,296 +615,299 @@ export default function App() {
 
   if (!msalReady || !isAuthenticated || !accessToken || !roleResolved) {
     return (
-      <div className="app-shell">
-        <motion.main id="main-content" className="page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
-          <a href="#main-content" className="skip-link">Skip to main content</a>
-          <Card className="hero" role="status" aria-live="polite" aria-atomic="true">
-            <CardContent className="p-0 pt-2">
-              <CardTitle className="text-[clamp(1.85rem,2.6vw,2.4rem)]">Signing you in...</CardTitle>
-              <p className="lead">Please wait while Microsoft Entra authentication completes.</p>
-            </CardContent>
-          </Card>
-        </motion.main>
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6" role="status" aria-live="polite" aria-atomic="true">
+          <CardContent className="space-y-3 pt-6">
+            <CardTitle className="text-2xl">Signing you in...</CardTitle>
+            <p className="text-sm text-muted-foreground">Please wait while Microsoft Entra authentication completes.</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   if (!hasMysteryAccess(entraRoles)) {
     return (
-      <div className="app-shell">
-        <motion.main id="main-content" className="page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
-          <Card className="hero" role="alert" aria-live="polite">
-            <CardContent className="p-0 pt-2">
-              <CardTitle className="text-[clamp(1.65rem,2.3vw,2.1rem)]">No Mystery Shopper Access</CardTitle>
-              <p className="lead">Your account is signed in, but it does not have a Mystery Shopper survey role.</p>
-              <p className="mt-2 text-sm text-muted-foreground">Ask an administrator to assign `MYSTERY_ADMIN`, `MYSTERY_SURVEYOR`, or `CX_SUPER_ADMIN`.</p>
-              <Button type="button" variant="outline" className="mt-4" onClick={handleLogout}>Logout</Button>
-            </CardContent>
-          </Card>
-        </motion.main>
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6" role="alert" aria-live="polite">
+          <CardContent className="space-y-3 pt-6">
+            <CardTitle className="text-2xl">No Mystery Shopper Access</CardTitle>
+            <p className="text-sm text-muted-foreground">Your account is signed in, but it does not have a Mystery Shopper survey role. Ask an administrator to assign `MYSTERY_ADMIN`, `MYSTERY_SURVEYOR`, or `CX_SUPER_ADMIN`.</p>
+            <Button type="button" variant="outline" onClick={handleLogout}>Logout</Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="app-shell">
-      <aside className="workspace-nav">
-        <Card className="workspace-card">
-          <CardContent className="workspace-content">
-            <div className="workspace-brand">Mystery Shopper</div>
-            <div className="workspace-menu">
-              {sidebarPages.map((page) => (
-                <Button
-                  key={page.key}
-                  type="button"
-                  variant={activeTab === page.key ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setActiveTab(page.key)}
-                >
-                  <span className="nav-tab-inner"><page.icon className="icon icon--sm" aria-hidden="true" />{page.label}</span>
+    <div className="relative flex min-h-screen bg-background">
+      {mobileNavOpen ? <button type="button" className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" /> : null}
+      <aside className={cn("fixed left-0 top-0 z-30 h-screen w-72 border-r bg-card transition-transform duration-300", mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0") }>
+        <div className="flex h-14 items-center justify-between border-b px-4">
+          <span className="text-sm font-semibold">Mystery Shopper Survey</span>
+          <Button type="button" variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex h-[calc(100vh-56px)] flex-col p-3">
+          <nav className="space-y-1">
+            {sidebarPages.map((page) => {
+              const Icon = page.icon;
+              return (
+                <Button key={page.key} type="button" variant={activeTab === page.key ? "secondary" : "ghost"} className="w-full justify-start gap-3" onClick={() => { setActiveTab(page.key); setMobileNavOpen(false); }}>
+                  <Icon className="h-4 w-4" />
+                  <span>{page.label}</span>
                 </Button>
-              ))}
-            </div>
-            {activeTab === "survey" && groupedQuestions.length > 0 ? (
-              <div className="workspace-jump">
-                <h3 className="jump-nav-title">Jump to Category</h3>
-                <div className="jump-nav-list category-list">
-                  {groupedQuestions.map(([category], index) => (
-                    <Button
-                      key={category}
-                      type="button"
-                      variant={currentCategory === category ? "default" : "outline"}
-                      size="sm"
-                      className="category-item"
-                      onClick={() => scrollToCategory(category)}
-                    >
-                      <span className="category-index">{index + 1}</span>
-                      {category}
-                    </Button>
-                  ))}
-                </div>
+              );
+            })}
+          </nav>
+
+          {activeTab === "survey" && groupedQuestions.length > 0 ? (
+            <div className="mt-6 space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">Jump to section</p>
+              <div className="space-y-2">
+                {groupedQuestions.map(([category], index) => (
+                  <Button
+                    key={category}
+                    type="button"
+                    variant={currentCategory === category ? "secondary" : "ghost"}
+                    className="h-auto w-full justify-start gap-3 px-3 py-2 text-left"
+                    onClick={() => {
+                      scrollToCategory(category);
+                      setMobileNavOpen(false);
+                    }}
+                  >
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background text-xs font-medium">{index + 1}</span>
+                    <span className="whitespace-normal">{category}</span>
+                  </Button>
+                ))}
               </div>
-            ) : null}
-            <div className="workspace-meta">
-              <span className="workspace-meta-label">Signed in</span>
-              <strong>{userName || "Unknown user"}</strong>
-              <span className="workspace-meta-email">{userEmail || "No email"}</span>
-              <Button type="button" variant="outline" size="sm" onClick={handleLogout} aria-label="Log out"><span className="nav-tab-inner"><LogOut className="icon icon--sm" aria-hidden="true" />Logout</span></Button>
             </div>
-          </CardContent>
-        </Card>
+          ) : null}
+
+          <div className="mt-auto rounded-lg border bg-muted/40 p-3">
+            <p className="text-xs text-muted-foreground">Signed in</p>
+            <p className="truncate text-sm font-medium">{userName || "Unknown user"}</p>
+            <p className="truncate text-xs text-muted-foreground">{userEmail || "No email"}</p>
+            <Button type="button" variant="outline" className="mt-3 w-full justify-start gap-2" onClick={handleLogout}>
+              <LogOut className="h-4 w-4" /> Logout
+            </Button>
+          </div>
+        </div>
       </aside>
 
-      <motion.main id="main-content" className="page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
-        <a href="#main-content" className="skip-link">Skip to main content</a>
-        <Card className="hero">
-          <CardHeader className="p-0">
-            <CardTitle className="text-[clamp(1.85rem,2.6vw,2.4rem)]">Customer Service Centre Assessment</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0 pt-2">
-            <p className="lead">Survey execution workspace with clean question cards and mobile-first behavior.</p>
-            <div className="status">
-              <div>
-                <span className="caption">Current Visit</span>
-                <Badge variant="secondary">{visitId || "Not selected"}</Badge>
-              </div>
-              <div>
-                <span className="caption">Status</span>
-                <Badge variant={status === "Pending" ? "warning" : "secondary"}>{status}</Badge>
-              </div>
-              <div>
-                <span className="caption">Progress</span>
-                <Badge variant="secondary">{completedMandatory}/{totalMandatory || 0} required</Badge>
-              </div>
-              <div>
-                <span className="caption">Locations</span>
-                <Badge variant="secondary">{locations.length}</Badge>
+      <div className="flex flex-1 flex-col lg:pl-72">
+        <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur">
+          <motion.div className="flex h-14 items-center justify-between px-4 md:px-6" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+            <div className="flex min-w-0 items-center gap-2">
+              <Button type="button" variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
+                <Menu className="h-4 w-4" />
+              </Button>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">Customer Service Centre Assessment</p>
+                <p className="truncate text-xs text-muted-foreground">Mystery Shopper survey workspace</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+            <p className="truncate pl-2 text-xs text-muted-foreground">{userName || "Unknown user"}</p>
+          </motion.div>
+        </header>
 
-        <Card className="panel">
-          <CardContent className="p-0">
-            <div className="grid identity-grid">
-              <label>
-                Name
-                <Input value={userName || "-"} disabled />
-              </label>
-              <label>
-                Email
-                <Input value={userEmail || "-"} disabled />
-              </label>
-            </div>
-          </CardContent>
-        </Card>
+        <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="mx-auto w-full max-w-[1600px] flex-1 p-4 md:p-6">
+          {message ? (
+            <div className="mb-4 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">{message}</div>
+          ) : null}
 
-        <Card className="panel">
-          <CardContent className="p-0">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="tabs">
-              <TabsList>
-                <TabsTrigger value="planned"><span className="nav-tab-inner"><CalendarDays className="icon icon--sm" aria-hidden="true" />Today & Upcoming</span></TabsTrigger>
-                <TabsTrigger value="survey"><span className="nav-tab-inner"><ClipboardCheck className="icon icon--sm" aria-hidden="true" />Survey</span></TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </CardContent>
-        </Card>
-
-        {activeTab === "planned" ? (
-          <Card className="panel">
-            <CardContent className="p-0">
-              <div className="panel-header section-toolbar">
-                <h2>Draft Visits</h2>
-                <Button type="button" variant="outline" size="sm" onClick={loadDrafts}>
-                  {loadingDrafts ? "Refreshing..." : "Refresh"}
-                </Button>
-              </div>
-              <div className="planned-list">
-                <Card className="planned-group">
-                  <CardContent className="p-3">
-                    <h3 className="group-title">Today</h3>
-                    {plannedToday.length === 0 ? <p className="caption">No visits planned for today.</p> : null}
-                    {plannedToday.map((visit) => (
-                      <Button key={visit.visit_id} type="button" variant="ghost" size="auto" className="planned-card" onClick={() => selectDraftVisit(visit)}>
-                        <div>
-                          <strong>{visit.location_name}</strong>
-                          <p>{visit.visit_date} at {visit.visit_time}</p>
-                        </div>
-                        <div className="meta">
-                          <span>{visit.purpose_of_visit}</span>
-                          <span>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</span>
-                        </div>
-                      </Button>
-                    ))}
-                  </CardContent>
-                </Card>
-
-                <Card className="planned-group">
-                  <CardContent className="p-3">
-                    <h3 className="group-title">Upcoming</h3>
-                    {plannedUpcoming.length === 0 ? <p className="caption">No upcoming visits.</p> : null}
-                    {plannedUpcoming.map((visit) => (
-                      <Button key={visit.visit_id} type="button" variant="ghost" size="auto" className="planned-card" onClick={() => selectDraftVisit(visit)}>
-                        <div>
-                          <strong>{visit.location_name}</strong>
-                          <p>{visit.visit_date} at {visit.visit_time}</p>
-                        </div>
-                        <div className="meta">
-                          <span>{visit.purpose_of_visit}</span>
-                          <span>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</span>
-                        </div>
-                      </Button>
-                    ))}
-                  </CardContent>
-                </Card>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {activeTab === "survey" ? (
-          <>
-            <Card className="panel">
-              <CardHeader className="p-0 pb-3"><CardTitle>Visit Header</CardTitle></CardHeader>
-              <CardContent className="p-0">
-              <div className="grid visit-header-grid">
-                  <label>
-                    Customer Service Centre
-                    <Select value={headerForm.location_id} onChange={(event) => setHeaderForm((prev) => ({ ...prev, location_id: event.target.value }))}>
-                      <option value="">Select location</option>
-                      {locations.map((location) => (
-                        <option key={location.id} value={location.id}>{location.name}</option>
-                      ))}
-                    </Select>
-                  </label>
-                  <label>
-                    Date of Visit
-                    <Input type="date" value={headerForm.visit_date} onChange={(event) => setHeaderForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
-                  </label>
-                  <label>
-                    Time of Visit
-                    <Input type="time" value={headerForm.visit_time} onChange={(event) => setHeaderForm((prev) => ({ ...prev, visit_time: event.target.value }))} />
-                  </label>
-                  <label>
-                    Purpose of Visit
-                    <Select value={headerForm.purpose_of_visit} onChange={(event) => setHeaderForm((prev) => ({ ...prev, purpose_of_visit: event.target.value }))}>
-                      {purposeOptions.map((option) => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </Select>
-                  </label>
-                  <label>
-                    Staff on Duty
-                    <Input value={headerForm.staff_on_duty} onChange={(event) => setHeaderForm((prev) => ({ ...prev, staff_on_duty: event.target.value }))} />
-                  </label>
-                  <label>
-                    Shopper Name
-                    <Input value={headerForm.shopper_name} onChange={(event) => setHeaderForm((prev) => ({ ...prev, shopper_name: event.target.value }))} />
-                  </label>
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-2xl">Mystery Shopper Survey</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Current Visit</p><p className="mt-1 text-sm font-medium">{visitId || "Not selected"}</p></div>
+                  <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Status</p><p className="mt-1 text-sm font-medium">{status}</p></div>
+                  <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Required Progress</p><p className="mt-1 text-sm font-medium">{completedMandatory}/{totalMandatory || 0}</p></div>
+                  <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Configured Locations</p><p className="mt-1 text-sm font-medium">{locations.length}</p></div>
                 </div>
-                <div className="actions action-toolbar">
-                  <Button type="button" onClick={createVisit} disabled={creatingVisit}>{creatingVisit ? "Creating..." : "Create / Load Visit"}</Button>
-                  <Badge variant="secondary">Current Visit: {visitId || "Not selected"}</Badge>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">User</label>
+                    <Input value={userName || "-"} disabled />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Email</label>
+                    <Input value={userEmail || "-"} disabled />
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            <div className="survey-content">
-                {groupedQuestions.map(([category, items]) => (
-                  <Card key={category} className="panel" id={categoryToId(category)}>
-                    <CardHeader className="p-0 pb-2"><CardTitle>{category}</CardTitle></CardHeader>
-                    <CardContent className="p-0">
-                      <Separator className="mb-3" />
-                      <div className="question-list">
-                        {items.map((question, questionIndex) => {
-                          const draft = responseDrafts[question.id] || {};
-                          const questionLabel = displayQuestionNumber(question, questionIndex);
-                          return (
-                            <Card key={question.id} className="question-card">
-                              <CardContent className="p-3">
-                                <div className="question-head">
-                                  <Badge variant="default" className="question-number">{questionLabel}</Badge>
-                                  <strong>{question.question_text}</strong>
+            <Card>
+              <CardContent className="pt-4">
+                <Tabs value={activeTab} onValueChange={setActiveTab}>
+                  <TabsList>
+                    <TabsTrigger value="planned"><span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" />Draft Visits</span></TabsTrigger>
+                    <TabsTrigger value="survey"><span className="inline-flex items-center gap-2"><ClipboardCheck className="h-4 w-4" />Survey</span></TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </CardContent>
+            </Card>
+
+            {activeTab === "planned" ? (
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                    <CardTitle>Today</CardTitle>
+                    <Button type="button" variant="outline" size="sm" onClick={loadDrafts}>{loadingDrafts ? "Refreshing..." : "Refresh"}</Button>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {plannedToday.length === 0 ? <p className="text-sm text-muted-foreground">No visits planned for today.</p> : null}
+                    {plannedToday.map((visit) => (
+                      <button key={visit.visit_id} type="button" onClick={() => selectDraftVisit(visit)} className="flex w-full items-start justify-between rounded-lg border p-4 text-left transition-colors hover:bg-muted/40">
+                        <div className="space-y-1">
+                          <p className="font-medium">{visit.location_name}</p>
+                          <p className="text-sm text-muted-foreground">{visit.visit_date} at {visit.visit_time || "--"}</p>
+                        </div>
+                        <div className="space-y-1 text-right text-sm text-muted-foreground">
+                          <p>{visit.purpose_of_visit || "--"}</p>
+                          <p>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</p>
+                        </div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Upcoming</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {plannedUpcoming.length === 0 ? <p className="text-sm text-muted-foreground">No upcoming visits.</p> : null}
+                    {plannedUpcoming.map((visit) => (
+                      <button key={visit.visit_id} type="button" onClick={() => selectDraftVisit(visit)} className="flex w-full items-start justify-between rounded-lg border p-4 text-left transition-colors hover:bg-muted/40">
+                        <div className="space-y-1">
+                          <p className="font-medium">{visit.location_name}</p>
+                          <p className="text-sm text-muted-foreground">{visit.visit_date} at {visit.visit_time || "--"}</p>
+                        </div>
+                        <div className="space-y-1 text-right text-sm text-muted-foreground">
+                          <p>{visit.purpose_of_visit || "--"}</p>
+                          <p>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</p>
+                        </div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
+            ) : null}
+
+            {activeTab === "survey" ? (
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Visit Header</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Customer Service Centre</label>
+                        <Select value={headerForm.location_id} onChange={(event) => setHeaderForm((prev) => ({ ...prev, location_id: event.target.value }))}>
+                          <option value="">Select location</option>
+                          {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Date of Visit</label>
+                        <Input type="date" value={headerForm.visit_date} onChange={(event) => setHeaderForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Time of Visit</label>
+                        <Input type="time" value={headerForm.visit_time} onChange={(event) => setHeaderForm((prev) => ({ ...prev, visit_time: event.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Purpose of Visit</label>
+                        <Select value={headerForm.purpose_of_visit} onChange={(event) => setHeaderForm((prev) => ({ ...prev, purpose_of_visit: event.target.value }))}>
+                          {purposeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Staff on Duty</label>
+                        <Input value={headerForm.staff_on_duty} onChange={(event) => setHeaderForm((prev) => ({ ...prev, staff_on_duty: event.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Shopper Name</label>
+                        <Input value={headerForm.shopper_name} onChange={(event) => setHeaderForm((prev) => ({ ...prev, shopper_name: event.target.value }))} />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button type="button" onClick={createVisit} disabled={creatingVisit}>{creatingVisit ? "Creating..." : "Create / Load Visit"}</Button>
+                      <Badge variant="secondary">Current Visit: {visitId || "Not selected"}</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+                  <Card className="hidden xl:block self-start sticky top-20">
+                    <CardHeader>
+                      <CardTitle className="text-sm">Sections</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {groupedQuestions.map(([category], index) => (
+                        <Button key={category} type="button" variant={currentCategory === category ? "secondary" : "ghost"} className="h-auto w-full justify-start gap-3 px-3 py-2 text-left" onClick={() => scrollToCategory(category)}>
+                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background text-xs font-medium">{index + 1}</span>
+                          <span className="whitespace-normal">{category}</span>
+                        </Button>
+                      ))}
+                    </CardContent>
+                  </Card>
+
+                  <div className="space-y-6">
+                    {groupedQuestions.map(([category, items]) => (
+                      <Card key={category} id={categoryToId(category)}>
+                        <CardHeader>
+                          <CardTitle>{category}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {items.map((question, questionIndex) => {
+                            const draft = responseDrafts[question.id] || {};
+                            const questionLabel = displayQuestionNumber(question, questionIndex);
+                            return (
+                              <div key={question.id} className="rounded-lg border p-4 space-y-4">
+                                <div className="flex items-start gap-3">
+                                  <Badge>{questionLabel}</Badge>
+                                  <div className="space-y-2 min-w-0 flex-1">
+                                    <p className="font-medium leading-6">{question.question_text}</p>
+                                    <QuestionField question={question} draft={draft} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
+                                  </div>
                                 </div>
-                                <QuestionField question={question} draft={draft} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
-                                <div className="question-actions">
+                                <div className="flex justify-end">
                                   <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={savingQuestionId === question.id}>
                                     {savingQuestionId === question.id ? "Saving..." : "Save"}
                                   </Button>
                                 </div>
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                              </div>
+                            );
+                          })}
+                        </CardContent>
+                      </Card>
+                    ))}
 
-                <Card className="panel submit-panel">
-                  <CardContent className="p-0">
-                    <div className="actions action-toolbar">
-                      <Button type="button" onClick={submitVisit} disabled={submitting || !visitId}>{submitting ? "Submitting..." : "Submit for Review"}</Button>
-                      <Badge variant="secondary">Mandatory completion: {completedMandatory}/{totalMandatory || 0}</Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-            </div>
-          </>
-        ) : null}
-
-        <AnimatePresence>
-          {message ? (
-            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
-              <Card className="message panel">
-                <CardContent className="p-0">
-                  <Badge variant="warning">{message}</Badge>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
-      </motion.main>
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <Badge variant="secondary">Mandatory completion: {completedMandatory}/{totalMandatory || 0}</Badge>
+                          <Button type="button" onClick={submitVisit} disabled={submitting || !visitId}>{submitting ? "Submitting..." : "Submit for Review"}</Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </motion.main>
+      </div>
     </div>
   );
 }

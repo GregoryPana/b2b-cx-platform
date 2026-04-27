@@ -4,9 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { MsalProvider } from "@azure/msal-react";
 import App from "./App";
 import { ensureMsalInitialized, msalInstance } from "./auth";
-import "../../shared-ui.css";
 import "./index.css";
-import "../../glass-theme.css";
 
 const root = createRoot(document.getElementById("root"));
 const routerBase = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
