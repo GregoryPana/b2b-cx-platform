@@ -4,6 +4,7 @@ import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
 import { Separator } from "./components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
