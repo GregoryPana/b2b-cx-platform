@@ -31,6 +31,7 @@ export default function App() {
   const [statusText, setStatusText] = useState("Draft workflow available");
   const [entraRoles, setEntraRoles] = useState<string[]>([]);
   const [roleResolved, setRoleResolved] = useState(false);
+  const [authProfileError, setAuthProfileError] = useState("");
 
   useEffect(() => {
     if (isAuthenticated && accounts.length > 0) {
@@ -86,8 +87,11 @@ export default function App() {
   useEffect(() => {
     if (!accessToken) return;
     const run = async () => {
+      setAuthProfileError("");
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
       try {
-        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
         const data = await res.json();
         if (!res.ok) return;
         const roles = Array.isArray(data.roles) ? data.roles : [];
@@ -97,7 +101,11 @@ export default function App() {
         setUserName(data.name || userName);
         setUserEmail(data.preferred_username || userEmail);
         setStatusText(role === "Admin" ? "Admin controls enabled" : "Representative workflow enabled");
+      } catch (error) {
+        console.error("Failed loading /auth/me profile", error);
+        setAuthProfileError("Could not load profile details from server. B2B Survey access will fall back to your Entra token roles.");
       } finally {
+        window.clearTimeout(timeoutId);
         setRoleResolved(true);
       }
     };
@@ -141,7 +149,9 @@ export default function App() {
   }
 
   return (
-    <MainLayout onLogout={handleLogout} userName={userName} userEmail={userEmail} statusText={statusText}>
+    <>
+      {authProfileError ? <div className="border-b bg-warning/20 px-4 py-2 text-sm text-warning-foreground">{authProfileError}</div> : null}
+      <MainLayout onLogout={handleLogout} userName={userName} userEmail={userEmail} statusText={statusText}>
       <Routes>
         <Route path="/planned" element={<SurveyWorkspacePage headers={headers} userId={userId} role={role} />} />
         <Route path="/survey" element={<SurveyWorkspacePage headers={headers} userId={userId} role={role} />} />
@@ -149,6 +159,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/planned" replace />} />
         <Route path="*" element={<Navigate to="/planned" replace />} />
       </Routes>
-    </MainLayout>
+      </MainLayout>
+    </>
   );
 }

@@ -86,8 +86,10 @@ export default function App() {
     if (!accessToken) return;
     const run = async () => {
       setAuthProfileError("");
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
       try {
-        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
         const contentType = res.headers.get("content-type") || "";
         let data = null;
         if (contentType.includes("application/json")) {
@@ -127,6 +129,7 @@ export default function App() {
         console.error("Failed loading /auth/me profile", error);
         setAuthProfileError("Could not load profile details from server. Installation access will fall back to your Entra token roles.");
       } finally {
+        window.clearTimeout(timeoutId);
         setRoleResolved(true);
       }
     };

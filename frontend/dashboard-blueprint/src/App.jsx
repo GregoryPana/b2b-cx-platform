@@ -179,8 +179,10 @@ function MsalAuthenticatedApp() {
     if (!accessToken) return;
     const run = async () => {
       setAuthProfileError("");
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
       try {
-        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
         const contentType = res.headers.get("content-type") || "";
         let data = null;
         if (contentType.includes("application/json")) {
@@ -220,6 +222,8 @@ function MsalAuthenticatedApp() {
       } catch (error) {
         console.error("Failed loading /auth/me profile", error);
         setAuthProfileError("Could not load profile details from server. You can still continue with role claims from your sign-in token.");
+      } finally {
+        window.clearTimeout(timeoutId);
       }
     };
     run();
