@@ -419,8 +419,7 @@ export default function App() {
   const loadDrafts = async () => {
     setLoadingDrafts(true);
     try {
-      const query = new URLSearchParams({ representative_id: userId }).toString();
-      const res = await fetch(`${API_BASE}/mystery-shopper/visits/drafts?${query}`, { headers });
+      const res = await fetch(`${API_BASE}/mystery-shopper/visits/drafts`, { headers });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed to load draft visits");
       setDraftVisits(Array.isArray(data) ? data : []);
@@ -510,8 +509,6 @@ export default function App() {
     try {
       const payload = {
         location_id: Number(headerForm.location_id),
-        representative_id: Number(userId),
-        created_by: Number(userId),
         visit_date: headerForm.visit_date,
         visit_type: "Planned",
         visit_time: headerForm.visit_time,

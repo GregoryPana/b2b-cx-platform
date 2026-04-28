@@ -39,7 +39,7 @@ class PurposeUpdate(BaseModel):
 
 class MysteryVisitCreate(BaseModel):
     location_id: int
-    representative_id: int
+    representative_id: int | None = None
     created_by: int | None = None
     visit_date: str
     visit_type: str = "Planned"
@@ -1752,13 +1752,23 @@ async def update_mystery_header(visit_id: str, payload: MysteryHeaderUpdate, db:
 
 
 @router.get("/visits/drafts")
-async def list_mystery_drafts(representative_id: int | None = None, db: Session = Depends(get_db)):
+async def list_mystery_drafts(
+    representative_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
     survey_type_id = _ensure_mystery_shopper_schema(db)
+    effective_representative_id = current_user.id
+    if representative_id is not None:
+        try:
+            effective_representative_id = int(representative_id)
+        except Exception:
+            effective_representative_id = current_user.id
     where_rep = ""
     params: dict[str, Any] = {"survey_type_id": survey_type_id}
-    if representative_id is not None:
+    if effective_representative_id is not None:
         where_rep = " AND v.representative_id = :representative_id"
-        params["representative_id"] = representative_id
+        params["representative_id"] = effective_representative_id
 
     rows = db.execute(
         text(
