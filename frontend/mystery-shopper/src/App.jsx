@@ -154,6 +154,7 @@ export default function App() {
   const [userEmail, setUserEmail] = useState("");
   const [entraRoles, setEntraRoles] = useState([]);
   const [roleResolved, setRoleResolved] = useState(false);
+  const [authProfileError, setAuthProfileError] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [activeTab, setActiveTab] = useState("planned");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -243,30 +244,57 @@ export default function App() {
     if (!accessToken) return;
 
     const run = async () => {
+      setAuthProfileError("");
       try {
         const res = await fetch(`${API_BASE}/auth/me`, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
         });
-        const data = await res.json();
-        if (!res.ok) return;
+        const contentType = res.headers.get("content-type") || "";
+        let data = null;
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          const rawText = await res.text();
+          throw new Error(`Profile endpoint returned non-JSON response (${res.status}). ${rawText.slice(0, 120)}`);
+        }
+
+        if (res.status === 401 && accounts[0]) {
+          try {
+            const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
+            if (result?.accessToken) {
+              setAccessToken(result.accessToken);
+              return;
+            }
+          } catch (refreshError) {
+            if (refreshError instanceof InteractionRequiredAuthError) {
+              instance.acquireTokenRedirect(loginRequest);
+              return;
+            }
+          }
+        }
+
+        if (!res.ok) {
+          throw new Error(data?.detail || `Failed to load profile (${res.status})`);
+        }
 
         const roles = Array.isArray(data.roles) ? data.roles : [];
         setEntraRoles(roles);
-        setUserId(String(data.sub || ""));
-        setUserName(data.name || "");
-        setUserEmail(data.preferred_username || "");
+        setUserId(String(data.sub || userId));
+        setUserName(data.name || userName);
+        setUserEmail(data.preferred_username || userEmail);
         setRole(roles.includes("MYSTERY_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
-      } catch {
-        // keep fallback claims
+      } catch (error) {
+        console.error("Failed loading /auth/me profile", error);
+        setAuthProfileError("Could not load profile details from server. Mystery Shopper access will fall back to your Entra token roles.");
       } finally {
         setRoleResolved(true);
       }
     };
 
     run();
-  }, [accessToken]);
+  }, [accessToken, userEmail, userId, userName, accounts, instance]);
 
   const headers = useMemo(
     () => ({
@@ -640,6 +668,10 @@ export default function App() {
   }
 
   return (
+    <>
+    {authProfileError ? (
+      <div className="border-b bg-warning/20 px-4 py-2 text-sm text-warning-foreground">{authProfileError}</div>
+    ) : null}
     <div className="relative flex min-h-screen bg-background">
       {mobileNavOpen ? <button type="button" className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" /> : null}
       <aside className={cn("fixed left-0 top-0 z-30 h-screen w-72 border-r bg-card transition-transform duration-300", mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0") }>
@@ -897,5 +929,6 @@ export default function App() {
         </motion.main>
       </div>
     </div>
+    </>
   );
 }
