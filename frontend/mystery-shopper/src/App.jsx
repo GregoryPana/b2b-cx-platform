@@ -16,6 +16,7 @@ import { CalendarDays, ClipboardCheck, LogOut, Menu, X } from "lucide-react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
+const SKIP_AUTH_ME = import.meta.env.VITE_SKIP_AUTH_ME !== "false";
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
@@ -243,6 +244,10 @@ export default function App() {
 
   useEffect(() => {
     if (!accessToken) return;
+    if (SKIP_AUTH_ME) {
+      setRoleResolved(true);
+      return;
+    }
 
     const run = async () => {
       setAuthProfileError("");

@@ -11,6 +11,7 @@ import { Button } from "./components/ui/button";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const INSTALLATION_ALLOWED_ROLES = new Set(["INSTALL_ADMIN", "INSTALL_SURVEYOR", "CX_SUPER_ADMIN"]);
+const SKIP_AUTH_ME = import.meta.env.VITE_SKIP_AUTH_ME !== "false";
 
 function readJwtExpiry(accessToken) {
   try {
@@ -84,6 +85,10 @@ export default function App() {
 
   useEffect(() => {
     if (!accessToken) return;
+    if (SKIP_AUTH_ME) {
+      setRoleResolved(true);
+      return;
+    }
     const run = async () => {
       setAuthProfileError("");
       const controller = new AbortController();

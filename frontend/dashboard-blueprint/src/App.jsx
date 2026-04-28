@@ -9,6 +9,7 @@ import { ensureMsalInitialized, loginRequest } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
+const SKIP_AUTH_ME = import.meta.env.VITE_SKIP_AUTH_ME !== "false";
 const ACTIVE_PLATFORM_KEY = "cx.activePlatform";
 const ENTRA_ROLES_KEY = "cx.entraRoles";
 
@@ -178,6 +179,7 @@ function MsalAuthenticatedApp() {
 
   useEffect(() => {
     if (!accessToken) return;
+    if (SKIP_AUTH_ME) return;
     const run = async () => {
       setAuthProfileError("");
       const controller = new AbortController();

@@ -11,6 +11,7 @@ import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+const SKIP_AUTH_ME = import.meta.env.VITE_SKIP_AUTH_ME !== "false";
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
 const B2B_ALLOWED_ROLES = new Set(["B2B_ADMIN", "B2B_SURVEYOR", "CX_SUPER_ADMIN"]);
@@ -86,6 +87,10 @@ export default function App() {
 
   useEffect(() => {
     if (!accessToken) return;
+    if (SKIP_AUTH_ME) {
+      setRoleResolved(true);
+      return;
+    }
     const run = async () => {
       setAuthProfileError("");
       const controller = new AbortController();
