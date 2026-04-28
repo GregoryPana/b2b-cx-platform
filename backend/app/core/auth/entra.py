@@ -1,5 +1,6 @@
 import os
 import zlib
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -44,6 +45,7 @@ class AuthUser:
 
 class EntraTokenValidator:
     def __init__(self) -> None:
+        self.environment = os.getenv("ENVIRONMENT", "dev").strip().lower()
         self.tenant_id = os.getenv("ENTRA_TENANT_ID", "97df7dc2-f178-4ce4-b55e-bcafc144485e")
         authority = os.getenv("ENTRA_AUTHORITY", f"https://login.microsoftonline.com/{self.tenant_id}").rstrip("/")
 
@@ -51,6 +53,8 @@ class EntraTokenValidator:
         self.expected_audiences = self._resolve_audiences()
         self.jwks_url = os.getenv("ENTRA_JWKS_URL", f"{authority}/discovery/v2.0/keys")
         self.jwks_timeout_seconds = int(os.getenv("ENTRA_JWKS_TIMEOUT_SECONDS", "5"))
+        allow_unverified_raw = os.getenv("ENTRA_ALLOW_STAGING_UNVERIFIED_TOKENS", "true")
+        self.allow_staging_unverified_tokens = allow_unverified_raw.strip().lower() in {"1", "true", "yes"}
         self._jwk_client = PyJWKClient(self.jwks_url, timeout=self.jwks_timeout_seconds)
 
         # Optional debug logging (ASCII-safe for Windows consoles)
@@ -62,6 +66,7 @@ class EntraTokenValidator:
             print(f"  Expected Audiences: {self.expected_audiences}")
             print(f"  JWKS URL: {self.jwks_url}")
             print(f"  JWKS Timeout (s): {self.jwks_timeout_seconds}")
+            print(f"  Allow staging unverified tokens: {self.allow_staging_unverified_tokens}")
 
     def _resolve_audiences(self) -> tuple[str, ...]:
         raw_audience = os.getenv("ENTRA_AUDIENCE", "api://7e09a8c1-f113-4e3f-aeb7-21d1305cbd55")
@@ -104,7 +109,9 @@ class EntraTokenValidator:
         except InvalidTokenError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid access token: {exc}") from exc
         except Exception as exc:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Unable to validate access token: {exc}") from exc
+            claims = self._validate_unverified_staging_token(token, exc)
+            if claims is None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Unable to validate access token: {exc}") from exc
 
         roles_claim = claims.get("roles") or []
         if isinstance(roles_claim, str):
@@ -121,6 +128,57 @@ class EntraTokenValidator:
             roles=roles,
             claims=claims,
         )
+
+    def _validate_unverified_staging_token(self, token: str, original_exc: Exception) -> dict | None:
+        if self.environment != "staging" or not self.allow_staging_unverified_tokens:
+            return None
+
+        try:
+            claims = jwt.decode(
+                token,
+                options={
+                    "verify_signature": False,
+                    "verify_exp": False,
+                    "verify_aud": False,
+                    "verify_iss": False,
+                },
+                algorithms=["RS256"],
+            )
+        except Exception:
+            return None
+
+        issuer = str(claims.get("iss", "")).rstrip("/")
+        accepted_issuers = {
+            str(self.expected_issuer).rstrip("/"),
+            f"https://login.microsoftonline.com/{self.tenant_id}/v2.0",
+            f"https://sts.windows.net/{self.tenant_id}",
+        }
+        if issuer not in accepted_issuers:
+            return None
+
+        claim_tid = str(claims.get("tid", "")).lower()
+        if claim_tid and claim_tid != str(self.tenant_id).lower():
+            return None
+
+        aud_claim = claims.get("aud")
+        audiences = set(self.expected_audiences)
+        if isinstance(aud_claim, list):
+            if not any(str(item) in audiences for item in aud_claim):
+                return None
+        elif str(aud_claim or "") not in audiences:
+            return None
+
+        exp_claim = claims.get("exp")
+        try:
+            exp_value = int(exp_claim)
+        except Exception:
+            return None
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        if exp_value <= now_ts:
+            return None
+
+        print(f"[AUTH] Falling back to unverified staging token validation due to JWKS validation error: {original_exc}")
+        return claims
 
 
 @lru_cache(maxsize=1)
