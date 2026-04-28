@@ -9,7 +9,6 @@ import { ensureMsalInitialized, loginRequest } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
-const SKIP_AUTH_ME = import.meta.env.VITE_SKIP_AUTH_ME !== "false";
 const ACTIVE_PLATFORM_KEY = "cx.activePlatform";
 const ENTRA_ROLES_KEY = "cx.entraRoles";
 
@@ -176,61 +175,6 @@ function MsalAuthenticatedApp() {
     };
     loadToken();
   }, [accounts, instance, msalReady]);
-
-  useEffect(() => {
-    if (!accessToken) return;
-    if (SKIP_AUTH_ME) return;
-    const run = async () => {
-      setAuthProfileError("");
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
-      try {
-        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
-        const contentType = res.headers.get("content-type") || "";
-        let data = null;
-        if (contentType.includes("application/json")) {
-          data = await res.json();
-        } else {
-          const rawText = await res.text();
-          throw new Error(`Profile endpoint returned non-JSON response (${res.status}). ${rawText.slice(0, 120)}`);
-        }
-
-         if (res.status === 401 && accounts[0]) {
-           try {
-             const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
-             if (result?.accessToken) {
-               setAccessToken(result.accessToken);
-               return;
-             }
-           } catch (refreshError) {
-             if (refreshError instanceof InteractionRequiredAuthError) {
-               instance.acquireTokenRedirect(loginRequest);
-               return;
-             }
-           }
-         }
-
-        if (!res.ok) {
-          throw new Error(data?.detail || `Failed to load profile (${res.status})`);
-        }
-
-        const roles = Array.isArray(data.roles) ? data.roles : [];
-        if (roles.length > 0) {
-          setEntraRoles(roles);
-          setRole(roles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
-        }
-        setUserId(String(data.sub || userId));
-        setUserName(data.name || userName);
-        setUserEmail(data.preferred_username || userEmail);
-      } catch (error) {
-        console.error("Failed loading /auth/me profile", error);
-        setAuthProfileError("Could not load profile details from server. You can still continue with role claims from your sign-in token.");
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-    };
-    run();
-  }, [accessToken, userEmail, userId, userName, accounts, instance]);
 
   useEffect(() => {
     if (!msalReady || !accounts[0] || !accessToken) return;

@@ -11,7 +11,6 @@ import { Button } from "./components/ui/button";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const INSTALLATION_ALLOWED_ROLES = new Set(["INSTALL_ADMIN", "INSTALL_SURVEYOR", "CX_SUPER_ADMIN"]);
-const SKIP_AUTH_ME = import.meta.env.VITE_SKIP_AUTH_ME !== "false";
 
 function readJwtExpiry(accessToken) {
   try {
@@ -85,60 +84,7 @@ export default function App() {
 
   useEffect(() => {
     if (!accessToken) return;
-    if (SKIP_AUTH_ME) {
-      setRoleResolved(true);
-      return;
-    }
-    const run = async () => {
-      setAuthProfileError("");
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
-      try {
-        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
-        const contentType = res.headers.get("content-type") || "";
-        let data = null;
-        if (contentType.includes("application/json")) {
-          data = await res.json();
-        } else {
-          const rawText = await res.text();
-          throw new Error(`Profile endpoint returned non-JSON response (${res.status}). ${rawText.slice(0, 120)}`);
-        }
-
-        if (res.status === 401 && accounts[0]) {
-          try {
-            const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
-            if (result?.accessToken) {
-              setAccessToken(result.accessToken);
-              return;
-            }
-          } catch (refreshError) {
-            if (refreshError instanceof InteractionRequiredAuthError) {
-              instance.acquireTokenRedirect(loginRequest);
-              return;
-            }
-          }
-        }
-
-        if (!res.ok) {
-          throw new Error(data?.detail || `Failed to load profile (${res.status})`);
-        }
-
-        if (res.ok) {
-          const roles = Array.isArray(data.roles) ? data.roles : [];
-          setEntraRoles(roles);
-          setUserId(String(data.sub || userId));
-          setUserName(data.name || userName);
-          setUserEmail(data.preferred_username || userEmail);
-        }
-      } catch (error) {
-        console.error("Failed loading /auth/me profile", error);
-        setAuthProfileError("Could not load profile details from server. Installation access will fall back to your Entra token roles.");
-      } finally {
-        window.clearTimeout(timeoutId);
-        setRoleResolved(true);
-      }
-    };
-    run();
+    setRoleResolved(true);
   }, [accessToken, userEmail, userId, userName, accounts, instance]);
 
   useEffect(() => {

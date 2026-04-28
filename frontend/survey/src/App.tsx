@@ -11,7 +11,6 @@ import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
-const SKIP_AUTH_ME = import.meta.env.VITE_SKIP_AUTH_ME !== "false";
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
 const B2B_ALLOWED_ROLES = new Set(["B2B_ADMIN", "B2B_SURVEYOR", "CX_SUPER_ADMIN"]);
@@ -87,34 +86,7 @@ export default function App() {
 
   useEffect(() => {
     if (!accessToken) return;
-    if (SKIP_AUTH_ME) {
-      setRoleResolved(true);
-      return;
-    }
-    const run = async () => {
-      setAuthProfileError("");
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
-      try {
-        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
-        const data = await res.json();
-        if (!res.ok) return;
-        const roles = Array.isArray(data.roles) ? data.roles : [];
-        setEntraRoles(roles);
-        setRole(roles.includes("B2B_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
-        setUserId(String(data.sub || userId));
-        setUserName(data.name || userName);
-        setUserEmail(data.preferred_username || userEmail);
-        setStatusText(role === "Admin" ? "Admin controls enabled" : "Representative workflow enabled");
-      } catch (error) {
-        console.error("Failed loading /auth/me profile", error);
-        setAuthProfileError("Could not load profile details from server. B2B Survey access will fall back to your Entra token roles.");
-      } finally {
-        window.clearTimeout(timeoutId);
-        setRoleResolved(true);
-      }
-    };
-    run();
+    setRoleResolved(true);
   }, [accessToken, role, userEmail, userId, userName]);
 
   const headers = useMemo(() => {
