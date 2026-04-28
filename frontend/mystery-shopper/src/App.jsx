@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
 import { Separator } from "./components/ui/separator";
-import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
@@ -741,17 +740,6 @@ export default function App() {
                     <Input value={userEmail || "-"} disabled />
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="pt-4">
-                <Tabs value={activeTab} onValueChange={setActiveTab}>
-                  <TabsList>
-                    <TabsTrigger value="planned"><span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" />Draft Visits</span></TabsTrigger>
-                    <TabsTrigger value="survey"><span className="inline-flex items-center gap-2"><ClipboardCheck className="h-4 w-4" />Survey</span></TabsTrigger>
-                  </TabsList>
-                </Tabs>
               </CardContent>
             </Card>
 
