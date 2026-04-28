@@ -17,7 +17,7 @@ build_frontend() {
 
   pushd "${app_path}" >/dev/null
   npm ci --no-audit --no-fund
-  VITE_API_URL="/api" VITE_BASE_PATH="${base_path}" npm run build
+  VITE_API_URL="/api" VITE_BASE_PATH="${base_path}" VITE_APP_VERSION="$(git -C "${REPO_ROOT}" rev-parse --short HEAD)" npm run build
   if [[ ! -f "dist/index.html" ]]; then
     echo "Missing build output: ${app_path}/dist/index.html"
     exit 1

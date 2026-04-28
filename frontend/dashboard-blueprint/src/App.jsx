@@ -42,7 +42,7 @@ function resolvePlatformsFromRoles(entraRoles) {
   ].filter((platform) => canAccess(platform.name));
 }
 
-function DashboardShell({ headers, availablePlatforms, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired }) {
+function DashboardShell({ headers, availablePlatforms, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired, appVersion }) {
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const activePlatformAllowed = !activePlatform || availablePlatforms.some((platform) => platform.name === activePlatform);
 
@@ -83,6 +83,7 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
       userEmail={userEmail}
       activePlatform={activePlatform}
       pendingReviewCount={pendingReviewCount}
+      appVersion={appVersion}
     >
       <Routes>
         <Route path="/" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />

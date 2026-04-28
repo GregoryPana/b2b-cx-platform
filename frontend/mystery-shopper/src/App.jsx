@@ -18,6 +18,7 @@ const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
 
 const DEFAULT_PURPOSE_OPTIONS = ["General Enquiry", "Billing", "Device", "Broadband", "Complaint", "Other"];
 
@@ -720,6 +721,7 @@ export default function App() {
 
           <div className="mt-auto rounded-lg border bg-muted/40 p-3">
             <p className="text-xs text-muted-foreground">Signed in</p>
+            <p className="text-[11px] text-muted-foreground">Build: {APP_VERSION}</p>
             <p className="truncate text-sm font-medium">{userName || "Unknown user"}</p>
             <p className="truncate text-xs text-muted-foreground">{userEmail || "No email"}</p>
             <Button type="button" variant="outline" className="mt-3 w-full justify-start gap-2" onClick={handleLogout}>
