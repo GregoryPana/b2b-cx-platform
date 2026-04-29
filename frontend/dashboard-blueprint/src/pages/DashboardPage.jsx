@@ -61,11 +61,11 @@ function normalizeBusinessPriorityLevel(value) {
   return "sme";
 }
 
-async function fetchJsonSafe(url, options = {}, timeout = 60000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+async function fetchJsonSafe(url, options = {}, timeout = 0) {
+  const controller = timeout > 0 ? new AbortController() : null;
+  const timeoutId = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
     const text = await response.text();
     let data = null;
     try {
@@ -86,7 +86,7 @@ async function fetchJsonSafe(url, options = {}, timeout = 60000) {
       data: { detail: error?.message || "Request failed" },
     };
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 
