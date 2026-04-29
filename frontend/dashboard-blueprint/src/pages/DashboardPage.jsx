@@ -61,7 +61,7 @@ function normalizeBusinessPriorityLevel(value) {
   return "sme";
 }
 
-async function fetchJsonSafe(url, options = {}, timeout = 15000) {
+async function fetchJsonSafe(url, options = {}, timeout = 60000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
