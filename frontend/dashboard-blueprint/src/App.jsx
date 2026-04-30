@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import DashboardPage from "./pages/DashboardPage";
 import PlatformSelectionPage from "./pages/PlatformSelectionPage";
@@ -47,6 +47,17 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const activePlatformAllowed = !activePlatform || availablePlatforms.some((platform) => platform.name === activePlatform);
   const isMysteryShopperPlatform = String(activePlatform || "").toLowerCase().includes("mystery");
+  const navigate = useNavigate();
+
+  const handleSelectPlatform = useCallback((platformName) => {
+    setActivePlatform(platformName);
+    navigate("/", { replace: true });
+  }, [navigate, setActivePlatform]);
+
+  const handleSwitchPlatform = useCallback(() => {
+    setActivePlatform("");
+    navigate("/", { replace: true });
+  }, [navigate, setActivePlatform]);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,20 +81,20 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
 
   if (!activePlatform || !activePlatformAllowed) {
     return (
-      <PlatformSelectionPage
-        userName={userName}
-        userEmail={userEmail}
-        availablePlatforms={availablePlatforms}
-        onSelectPlatform={setActivePlatform}
-        onLogout={onLogout}
-      />
+        <PlatformSelectionPage
+          userName={userName}
+          userEmail={userEmail}
+          availablePlatforms={availablePlatforms}
+          onSelectPlatform={handleSelectPlatform}
+          onLogout={onLogout}
+        />
     );
   }
 
   return (
     <MainLayout
       onLogout={onLogout}
-      onSwitchPlatform={() => setActivePlatform("")}
+      onSwitchPlatform={handleSwitchPlatform}
       userName={userName}
       userEmail={userEmail}
       activePlatform={activePlatform}
