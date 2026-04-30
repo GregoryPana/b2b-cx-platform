@@ -91,19 +91,19 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
       appVersion={appVersion}
     >
       <Routes>
-        <Route path="/" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/planned" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/trends" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/review" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/actions" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/surveys" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/reports" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/user-guide" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/contractors" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/businesses" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/executives" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/locations" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/purposes" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/" element={<DashboardPage key={`${activePlatform || "none"}-root`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/planned" element={<DashboardPage key={`${activePlatform || "none"}-planned`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/trends" element={<DashboardPage key={`${activePlatform || "none"}-trends`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/review" element={<DashboardPage key={`${activePlatform || "none"}-review`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/actions" element={<DashboardPage key={`${activePlatform || "none"}-actions`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/surveys" element={<DashboardPage key={`${activePlatform || "none"}-surveys`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/reports" element={<DashboardPage key={`${activePlatform || "none"}-reports`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/user-guide" element={<DashboardPage key={`${activePlatform || "none"}-guide`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/contractors" element={<DashboardPage key={`${activePlatform || "none"}-contractors`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/businesses" element={<DashboardPage key={`${activePlatform || "none"}-businesses`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/executives" element={<DashboardPage key={`${activePlatform || "none"}-executives`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/locations" element={<DashboardPage key={`${activePlatform || "none"}-locations`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/purposes" element={<DashboardPage key={`${activePlatform || "none"}-purposes`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </MainLayout>
