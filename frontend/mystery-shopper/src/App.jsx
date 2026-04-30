@@ -22,6 +22,29 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
 
 const DEFAULT_PURPOSE_OPTIONS = ["General Enquiry", "Billing", "Device", "Broadband", "Complaint", "Other"];
 
+async function fetchJsonSafe(url, options = {}, timeout = 30000) {
+  const controller = timeout > 0 ? new AbortController() : null;
+  const timeoutId = timeout > 0 ? window.setTimeout(() => controller.abort(), timeout) : null;
+  try {
+    const response = await fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
+    const text = await response.text();
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // ignore parse error
+    }
+    return { res: response, data };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      return { res: { ok: false, status: 408 }, data: { detail: "Request timed out", aborted: true } };
+    }
+    return { res: { ok: false, status: 500 }, data: { detail: error?.message || "Request failed" } };
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
+  }
+}
+
 function hasMysteryAccess(roles) {
   return Array.isArray(roles) && roles.some((role) => MYSTERY_ALLOWED_ROLES.has(role));
 }
@@ -328,18 +351,18 @@ export default function App() {
 
   const initialize = async () => {
     const [questionsRes, locationsRes, purposesRes] = await Promise.all([
-      fetch(`${API_BASE}/questions?survey_type=Mystery%20Shopper`, { headers }),
-      fetch(`${API_BASE}/mystery-shopper/locations`, { headers }),
-      fetch(`${API_BASE}/mystery-shopper/purposes`, { headers }),
+      fetchJsonSafe(`${API_BASE}/questions?survey_type=Mystery%20Shopper`, { headers }),
+      fetchJsonSafe(`${API_BASE}/mystery-shopper/locations`, { headers }),
+      fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes`, { headers }),
     ]);
 
-    const questionsData = await questionsRes.json();
-    const locationsData = await locationsRes.json();
-    const purposesData = await purposesRes.json();
+    const questionsData = questionsRes.data;
+    const locationsData = locationsRes.data;
+    const purposesData = purposesRes.data;
 
-    if (!questionsRes.ok) throw new Error(questionsData.detail || "Failed to load questions");
-    if (!locationsRes.ok) throw new Error(locationsData.detail || "Failed to load locations");
-    if (!purposesRes.ok) throw new Error(purposesData.detail || "Failed to load purpose options");
+    if (!questionsRes.res.ok) throw new Error(questionsData?.detail || "Failed to load questions");
+    if (!locationsRes.res.ok) throw new Error(locationsData?.detail || "Failed to load locations");
+    if (!purposesRes.res.ok) throw new Error(purposesData?.detail || "Failed to load purpose options");
 
     const nextQuestions = Array.isArray(questionsData) ? questionsData : [];
     const nextLocations = (Array.isArray(locationsData) ? locationsData : []).filter((location) => location.active);
@@ -363,9 +386,8 @@ export default function App() {
   const loadDrafts = async () => {
     setLoadingDrafts(true);
     try {
-      const res = await fetch(`${API_BASE}/mystery-shopper/visits/drafts`, { headers });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to load draft visits");
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/visits/drafts`, { headers });
+      if (!res.ok) throw new Error(data?.detail || "Failed to load draft visits");
       setDraftVisits(Array.isArray(data) ? data : []);
     } catch (error) {
       setMessage(error.message || "Failed to load draft visits");
@@ -375,9 +397,8 @@ export default function App() {
   };
 
   const loadVisitDetail = async (targetVisitId) => {
-    const res = await fetch(`${API_BASE}/mystery-shopper/visits/${targetVisitId}`, { headers });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Failed to load visit detail");
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/visits/${targetVisitId}`, { headers });
+    if (!res.ok) throw new Error(data?.detail || "Failed to load visit detail");
 
     setVisitId(String(data.id));
     setStatus(data.status || "Draft");
@@ -461,13 +482,12 @@ export default function App() {
         shopper_name: headerForm.shopper_name,
       };
 
-      const res = await fetch(`${API_BASE}/mystery-shopper/visits`, {
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/visits`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to create visit");
+      if (!res.ok) throw new Error(data?.detail || "Failed to create visit");
 
       setVisitId(data.visit_id);
       setStatus(data.status || "Draft");
@@ -522,7 +542,7 @@ export default function App() {
         ? `${API_BASE}/mystery-shopper/visits/${visitId}/responses/${existing.response_id}`
         : `${API_BASE}/mystery-shopper/visits/${visitId}/responses`;
 
-      const res = await fetch(endpoint, {
+      const { res, data } = await fetchJsonSafe(endpoint, {
         method: existing ? "PUT" : "POST",
         headers,
         body: JSON.stringify({
@@ -533,8 +553,7 @@ export default function App() {
           actions: [],
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to save response");
+      if (!res.ok) throw new Error(data?.detail || "Failed to save response");
 
       setResponsesByQuestion((prev) => ({ ...prev, [question.id]: data }));
       setMessage(`Saved Q${questionLabel}.`);
@@ -559,9 +578,8 @@ export default function App() {
 
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/mystery-shopper/visits/${visitId}/submit`, { method: "PUT", headers });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to submit visit");
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/visits/${visitId}/submit`, { method: "PUT", headers });
+      if (!res.ok) throw new Error(data?.detail || "Failed to submit visit");
 
       setStatus("Pending");
       setMessage(`Submitted for review. Report date: ${data.report_completed_date} (UTC+4).`);
