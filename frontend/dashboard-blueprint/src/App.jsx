@@ -46,13 +46,17 @@ function resolvePlatformsFromRoles(entraRoles) {
 function DashboardShell({ headers, availablePlatforms, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired, appVersion }) {
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const activePlatformAllowed = !activePlatform || availablePlatforms.some((platform) => platform.name === activePlatform);
+  const isMysteryShopperPlatform = String(activePlatform || "").toLowerCase().includes("mystery");
 
   useEffect(() => {
     let cancelled = false;
     const loadCount = async () => {
       try {
-        const params = new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" });
-        const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
+        const params = new URLSearchParams({ status: "Pending" });
+        const endpoint = isMysteryShopperPlatform
+          ? `${API_BASE}/mystery-shopper/admin/visits?${params.toString()}`
+          : `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
+        const res = await fetch(endpoint, { headers });
         if (!cancelled && res.ok) {
           const data = await res.json();
           setPendingReviewCount(Array.isArray(data) ? data.length : 0);
@@ -62,7 +66,7 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
     if (activePlatform) loadCount();
     const interval = setInterval(() => { if (activePlatform) loadCount(); }, 30000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [activePlatform, headers]);
+  }, [activePlatform, headers, isMysteryShopperPlatform]);
 
   if (!activePlatform || !activePlatformAllowed) {
     return (
