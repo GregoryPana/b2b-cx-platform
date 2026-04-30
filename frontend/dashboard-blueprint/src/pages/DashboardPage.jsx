@@ -623,6 +623,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
      if (!activePlatform || isInstallationPlatform) return;
      const load = async () => {
        const requestVersion = platformRequestVersion.current;
+       const isStale = () => requestVersion !== platformRequestVersion.current;
        setError("");
         const params = new URLSearchParams();
         params.set("survey_type", activePlatform);
@@ -638,10 +639,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         try {
          const analyticsRes = await fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers }, 45000);
          const analyticsData = analyticsRes.data || {};
-         if (!analyticsRes.res.ok) {
-           setError(analyticsData.detail || "Failed to load metrics");
-           return;
-         }
+          if (!analyticsRes.res.ok) {
+            if (isStale()) return;
+            setError(analyticsData.detail || "Failed to load metrics");
+            return;
+          }
 
          let npsData = analyticsData.nps || {};
          let catData = Array.isArray(analyticsData.category_breakdown) ? analyticsData.category_breakdown : [];
@@ -671,10 +673,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
            mystery_shopper: analyticsData.mystery_shopper || null,
            visits: analyticsData.visits || null,
          });
-       } catch (err) {
-         setError("Failed to load metrics");
-       }
-     };
+        } catch (err) {
+          if (isStale()) return;
+          setError("Failed to load metrics");
+        }
+      };
      load();
     }, [activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
@@ -687,15 +690,17 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
      const load = async () => {
         const requestVersion = platformRequestVersion.current;
+        const isStale = () => requestVersion !== platformRequestVersion.current;
         const params = new URLSearchParams({ survey_type: activePlatform });
        if (selectedAnalyticsEntityIds.length > 0) {
          params.set("business_ids", selectedAnalyticsEntityIds.join(","));
        }
-       const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/yes-no?${params.toString()}`, { headers });
-       if (!res.ok) {
-         setYesNoQuestionAnalytics([]);
-         return;
-       }
+        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/yes-no?${params.toString()}`, { headers });
+        if (!res.ok) {
+          if (isStale()) return;
+          setYesNoQuestionAnalytics([]);
+          return;
+        }
         if (requestVersion !== platformRequestVersion.current) return;
         setYesNoQuestionAnalytics(Array.isArray(data?.items) ? data.items : []);
       };
@@ -711,12 +716,14 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
       const load = async () => {
         const requestVersion = platformRequestVersion.current;
+        const isStale = () => requestVersion !== platformRequestVersion.current;
         const params = new URLSearchParams({ survey_type: activePlatform });
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set("business_ids", selectedAnalyticsEntityIds.join(","));
         }
         const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/account-executives/yes-no-trends?${params.toString()}`, { headers });
         if (!res.ok) {
+          if (isStale()) return;
           setAccountExecutiveYesNoTrendData([]);
           return;
         }
@@ -732,6 +739,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
      if (!activePlatform || isInstallationPlatform) return;
       const load = async () => {
         const requestVersion = platformRequestVersion.current;
+        const isStale = () => requestVersion !== platformRequestVersion.current;
         const params = new URLSearchParams({ survey_type: activePlatform });
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
@@ -740,8 +748,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           );
         }
         const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
-       if (!res.ok) return;
-       const values = Array.isArray(data?.items) ? data.items : [];
+        if (!res.ok) {
+          if (isStale()) return;
+          return;
+        }
+        const values = Array.isArray(data?.items) ? data.items : [];
         if (requestVersion !== platformRequestVersion.current) return;
         setQuestionAverages(values);
        if (values.length === 0) {
@@ -761,6 +772,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
      if (!selectedQuestionId || !activePlatform) return;
       const load = async () => {
         const requestVersion = platformRequestVersion.current;
+        const isStale = () => requestVersion !== platformRequestVersion.current;
         const params = new URLSearchParams({ survey_type: activePlatform, interval: "week" });
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
@@ -769,8 +781,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
           );
         }
         const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/${selectedQuestionId}/trend?${params.toString()}`, { headers });
-       if (!res.ok) return;
-       const rows = Array.isArray(data?.points) ? data.points : [];
+        if (!res.ok) {
+          if (isStale()) return;
+          return;
+        }
+        const rows = Array.isArray(data?.points) ? data.points : [];
         if (requestVersion !== platformRequestVersion.current) return;
         setTrendData(rows.map((row) => ({ period: row.period_label || row.period, average: Number(row.average_score || 0) })));
       };
@@ -779,6 +794,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
   const loadPendingVisits = useCallback(async () => {
     const requestVersion = platformRequestVersion.current;
+    const isStale = () => requestVersion !== platformRequestVersion.current;
     const params = new URLSearchParams();
     params.set("status", "Pending");
     if (!isMysteryShopperPlatform && activePlatform) params.set("survey_type", activePlatform);
@@ -787,6 +803,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       : `${API_BASE}/dashboard-visits/all?${params.toString()}`;
     const { res, data } = await fetchJsonSafe(endpoint, { headers });
     if (!res.ok) {
+      if (isStale()) return;
       setError(data?.detail || "Failed to load pending visits");
       return;
     }
@@ -813,16 +830,20 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setMysteryLocationsLoading(true);
     try {
       const requestVersion = platformRequestVersion.current;
+      const isStale = () => requestVersion !== platformRequestVersion.current;
       const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/locations`, { headers });
       if (!res.ok) {
+        if (isStale()) return;
         setError(data?.detail || "Failed to load locations");
         return;
       }
       if (requestVersion !== platformRequestVersion.current) return;
       setMysteryLocations(Array.isArray(data) ? data : []);
     } catch {
+      if (requestVersion !== platformRequestVersion.current) return;
       setError("Failed to load locations");
     } finally {
+      if (requestVersion !== platformRequestVersion.current) return;
       setMysteryLocationsLoading(false);
     }
   };
@@ -835,16 +856,20 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     setMysteryPurposesLoading(true);
     try {
       const requestVersion = platformRequestVersion.current;
+      const isStale = () => requestVersion !== platformRequestVersion.current;
       const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes`, { headers });
       if (!res.ok) {
+        if (isStale()) return;
         setError(data?.detail || "Failed to load purposes");
         return;
       }
       if (requestVersion !== platformRequestVersion.current) return;
       setMysteryPurposes(Array.isArray(data) ? data : []);
     } catch {
+      if (requestVersion !== platformRequestVersion.current) return;
       setError("Failed to load purposes");
     } finally {
+      if (requestVersion !== platformRequestVersion.current) return;
       setMysteryPurposesLoading(false);
     }
   };
@@ -873,6 +898,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
   const loadSurveyResults = async () => {
     if (!activePlatform || isInstallationPlatform) return;
+    const requestVersion = platformRequestVersion.current;
+    const isStale = () => requestVersion !== platformRequestVersion.current;
 
     const params = new URLSearchParams();
     if (surveyStatusFilter !== "all") params.set("status", surveyStatusFilter);
@@ -888,13 +915,16 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         : `${API_BASE}/dashboard-visits/all?${params.toString()}`;
       const { res, data } = await fetchJsonSafe(endpoint, { headers });
       if (!res.ok) {
+        if (isStale()) return;
         setError(data?.detail || "Failed to load survey results");
         return;
       }
       const rows = Array.isArray(data) ? data : [];
       rows.sort((a, b) => String(b.visit_date || "").localeCompare(String(a.visit_date || "")));
+      if (isStale()) return;
       setSurveyResults(rows);
     } finally {
+      if (isStale()) return;
       setSurveyLoading(false);
     }
   };
