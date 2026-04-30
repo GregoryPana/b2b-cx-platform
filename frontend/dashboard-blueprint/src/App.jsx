@@ -60,13 +60,15 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
   }, [navigate, setActivePlatform]);
 
   useEffect(() => {
+    if (isMysteryShopperPlatform) {
+      setPendingReviewCount(0);
+      return;
+    }
     let cancelled = false;
     const loadCount = async () => {
       try {
         const params = new URLSearchParams({ status: "Pending" });
-        const endpoint = isMysteryShopperPlatform
-          ? `${API_BASE}/mystery-shopper/admin/visits?${params.toString()}`
-          : `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
+        const endpoint = `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
         const res = await fetch(endpoint, { headers });
         if (!cancelled && res.ok) {
           const data = await res.json();

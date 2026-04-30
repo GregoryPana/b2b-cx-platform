@@ -882,9 +882,13 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       setSelectedSurveyLocation("");
       return;
     }
-    loadMysteryLocations();
-    loadMysteryPurposes();
-  }, [isMysteryShopperPlatform, headers]);
+    if (["/", "/surveys", "/reports", "/locations"].includes(location.pathname)) {
+      loadMysteryLocations();
+    }
+    if (location.pathname === "/purposes") {
+      loadMysteryPurposes();
+    }
+  }, [isMysteryShopperPlatform, headers, location.pathname]);
 
   useEffect(() => {
     if (!message) return;
