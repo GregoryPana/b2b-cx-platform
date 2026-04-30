@@ -2037,59 +2037,55 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       return;
     }
     pushToast("info", "Adding location...", 1500);
-    const res = await fetch(`${API_BASE}/mystery-shopper/locations`, {
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/locations`, {
       method: "POST",
       headers,
       body: JSON.stringify({ name }),
-    });
-    const data = await res.json();
+    }, 30000);
     if (!res.ok) {
-      setError(data.detail || "Failed to create location");
+      setError(data?.detail || "Failed to create location");
       return;
     }
     setNewMysteryLocation("");
-    setMessage(`Location added: ${data.name}`);
+    setMessage(`Location added: ${data?.name}`);
     await loadMysteryLocations();
   };
 
   const deactivateMysteryLocation = async (locationId) => {
     pushToast("info", "Archiving location...", 1500);
-    const res = await fetch(`${API_BASE}/mystery-shopper/locations/${locationId}`, { method: "DELETE", headers });
-    const data = await res.json();
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/locations/${locationId}`, { method: "DELETE", headers }, 30000);
     if (!res.ok) {
-      setError(data.detail || "Failed to deactivate location");
+      setError(data?.detail || "Failed to deactivate location");
       return;
     }
-    setMessage(`Location archived: ${data.name}`);
+    setMessage(`Location archived: ${data?.name}`);
     await loadMysteryLocations();
   };
 
   const reactivateMysteryLocation = async (locationId) => {
     pushToast("info", "Reactivating location...", 1500);
-    const res = await fetch(`${API_BASE}/mystery-shopper/locations/${locationId}`, {
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/locations/${locationId}`, {
       method: "PUT",
       headers,
       body: JSON.stringify({ active: true }),
-    });
-    const data = await res.json();
+    }, 30000);
     if (!res.ok) {
-      setError(data.detail || "Failed to reactivate location");
+      setError(data?.detail || "Failed to reactivate location");
       return;
     }
-    setMessage(`Location reactivated: ${data.name}`);
+    setMessage(`Location reactivated: ${data?.name}`);
     await loadMysteryLocations();
   };
 
   const deleteMysteryLocation = async (locationItem) => {
     if (!window.confirm(`Delete location "${locationItem.name}" permanently?`)) return;
     pushToast("info", "Deleting location...", 1500);
-    const res = await fetch(`${API_BASE}/mystery-shopper/locations/${locationItem.id}/purge`, { method: "DELETE", headers });
-    const data = await res.json();
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/locations/${locationItem.id}/purge`, { method: "DELETE", headers }, 30000);
     if (!res.ok) {
-      setError(data.detail || "Failed to delete location");
+      setError(data?.detail || "Failed to delete location");
       return;
     }
-    setMessage(`Location deleted: ${data.name}`);
+    setMessage(`Location deleted: ${data?.name}`);
     await loadMysteryLocations();
   };
 
@@ -2100,59 +2096,55 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       return;
     }
     pushToast("info", "Adding purpose...", 1500);
-    const res = await fetch(`${API_BASE}/mystery-shopper/purposes`, {
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes`, {
       method: "POST",
       headers,
       body: JSON.stringify({ name }),
-    });
-    const data = await res.json();
+    }, 30000);
     if (!res.ok) {
-      setError(data.detail || "Failed to create purpose");
+      setError(data?.detail || "Failed to create purpose");
       return;
     }
     setNewMysteryPurpose("");
-    setMessage(`Purpose added: ${data.name}`);
+    setMessage(`Purpose added: ${data?.name}`);
     await loadMysteryPurposes();
   };
 
   const deactivateMysteryPurpose = async (purposeId) => {
     pushToast("info", "Archiving purpose...", 1500);
-    const res = await fetch(`${API_BASE}/mystery-shopper/purposes/${purposeId}`, { method: "DELETE", headers });
-    const data = await res.json();
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes/${purposeId}`, { method: "DELETE", headers }, 30000);
     if (!res.ok) {
-      setError(data.detail || "Failed to deactivate purpose");
+      setError(data?.detail || "Failed to deactivate purpose");
       return;
     }
-    setMessage(`Purpose archived: ${data.name}`);
+    setMessage(`Purpose archived: ${data?.name}`);
     await loadMysteryPurposes();
   };
 
   const reactivateMysteryPurpose = async (purposeId) => {
     pushToast("info", "Reactivating purpose...", 1500);
-    const res = await fetch(`${API_BASE}/mystery-shopper/purposes/${purposeId}`, {
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes/${purposeId}`, {
       method: "PUT",
       headers,
       body: JSON.stringify({ active: true }),
-    });
-    const data = await res.json();
+    }, 30000);
     if (!res.ok) {
-      setError(data.detail || "Failed to reactivate purpose");
+      setError(data?.detail || "Failed to reactivate purpose");
       return;
     }
-    setMessage(`Purpose reactivated: ${data.name}`);
+    setMessage(`Purpose reactivated: ${data?.name}`);
     await loadMysteryPurposes();
   };
 
   const deleteMysteryPurpose = async (purposeItem) => {
     if (!window.confirm(`Delete purpose "${purposeItem.name}" permanently?`)) return;
     pushToast("info", "Deleting purpose...", 1500);
-    const res = await fetch(`${API_BASE}/mystery-shopper/purposes/${purposeItem.id}/purge`, { method: "DELETE", headers });
-    const data = await res.json();
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes/${purposeItem.id}/purge`, { method: "DELETE", headers }, 30000);
     if (!res.ok) {
-      setError(data.detail || "Failed to delete purpose");
+      setError(data?.detail || "Failed to delete purpose");
       return;
     }
-    setMessage(`Purpose deleted: ${data.name}`);
+    setMessage(`Purpose deleted: ${data?.name}`);
     await loadMysteryPurposes();
   };
 
