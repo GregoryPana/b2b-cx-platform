@@ -784,11 +784,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }
     setMysteryLocationsLoading(true);
     try {
-      await fetch(`${API_BASE}/mystery-shopper/bootstrap`, { method: "POST", headers });
-      const res = await fetch(`${API_BASE}/mystery-shopper/locations`, { headers });
-      const data = await res.json();
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/locations`, { headers });
       if (!res.ok) {
-        setError(data.detail || "Failed to load locations");
+        setError(data?.detail || "Failed to load locations");
         return;
       }
       setMysteryLocations(Array.isArray(data) ? data : []);
@@ -806,10 +804,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     }
     setMysteryPurposesLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/mystery-shopper/purposes`, { headers });
-      const data = await res.json();
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes`, { headers });
       if (!res.ok) {
-        setError(data.detail || "Failed to load purposes");
+        setError(data?.detail || "Failed to load purposes");
         return;
       }
       setMysteryPurposes(Array.isArray(data) ? data : []);

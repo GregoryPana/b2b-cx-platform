@@ -327,8 +327,6 @@ export default function App() {
   }, [activeTab]);
 
   const initialize = async () => {
-    await fetch(`${API_BASE}/mystery-shopper/bootstrap`, { method: "POST", headers });
-
     const [questionsRes, locationsRes, purposesRes] = await Promise.all([
       fetch(`${API_BASE}/questions?survey_type=Mystery%20Shopper`, { headers }),
       fetch(`${API_BASE}/mystery-shopper/locations`, { headers }),
