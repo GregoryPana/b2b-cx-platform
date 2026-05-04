@@ -2990,7 +2990,7 @@ def reject_visit(visit_id: str, rejection_data: dict, db: Session = Depends(get_
             """
             UPDATE visits 
             SET status = 'Rejected', 
-                rejection_timestamp = NOW(),
+                review_timestamp = NOW(),
                 rejection_notes = :rejection_notes
             WHERE id = :visit_id
             """
@@ -3022,6 +3022,7 @@ def request_changes(visit_id: str, changes_data: dict, db: Session = Depends(get
             """
             UPDATE visits 
             SET status = 'Draft', 
+                review_timestamp = NOW(),
                 change_notes = :change_notes
             WHERE id = :visit_id
             """
