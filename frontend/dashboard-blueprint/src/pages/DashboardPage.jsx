@@ -61,11 +61,17 @@ function normalizeBusinessPriorityLevel(value) {
   return "sme";
 }
 
-async function fetchJsonSafe(url, options = {}, timeout = 0) {
-  const controller = timeout > 0 ? new AbortController() : null;
+async function fetchJsonSafe(url, options = {}, timeout = 30000) {
+  const controller = new AbortController();
+  const externalSignal = options.signal;
+  const onExternalAbort = () => controller.abort(externalSignal?.reason);
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort(externalSignal.reason);
+    else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+  }
   const timeoutId = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
   try {
-    const response = await fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
+    const response = await fetch(url, { ...options, signal: controller.signal });
     const text = await response.text();
     let data = null;
     try {
@@ -87,6 +93,7 @@ async function fetchJsonSafe(url, options = {}, timeout = 0) {
     };
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
+    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
   }
 }
 
@@ -250,6 +257,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
    const [newInstallationContractorName, setNewInstallationContractorName] = useState("");
   const [installationContractorSaving, setInstallationContractorSaving] = useState(false);
   const platformRequestVersion = useRef(0);
+const platformAbortRef = useRef(null);
+  const getPlatformSignal = () => {
+    if (!platformAbortRef.current) platformAbortRef.current = new AbortController();
+    return platformAbortRef.current.signal;
+  };
 
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -599,6 +611,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
   useEffect(() => {
     platformRequestVersion.current += 1;
+    if (platformAbortRef.current) {
+      platformAbortRef.current.abort();
+    }
+    platformAbortRef.current = new AbortController();
     setError("");
     setMessage("");
     setAnalytics(null);
@@ -638,7 +654,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         const queryString = `?${params.toString()}`;
 
         try {
-         const analyticsRes = await fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers }, 45000);
+         const platformSignal = getPlatformSignal();
+         const analyticsRes = await fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers, signal: platformSignal }, 45000);
          const analyticsData = analyticsRes.data || {};
           if (!analyticsRes.res.ok) {
             if (isStale()) return;
@@ -646,27 +663,13 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
             return;
           }
 
-         let npsData = analyticsData.nps || {};
-         let catData = Array.isArray(analyticsData.category_breakdown) ? analyticsData.category_breakdown : [];
-
-         if (!isMysteryShopperPlatform) {
-           const [npsRes, catRes] = await Promise.all([
-             fetchJsonSafe(`${API_BASE}/dashboard/nps${queryString}`, { headers }, 45000),
-             fetchJsonSafe(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }, 45000),
-           ]);
-
-           if (npsRes.res.ok && npsRes.data) {
-             npsData = npsRes.data;
-           }
-           if (catRes.res.ok && Array.isArray(catRes.data)) {
-             catData = catRes.data;
-           }
-         }
+         const npsData = analyticsData.nps || {};
+         const catData = Array.isArray(analyticsData.category_breakdown) ? analyticsData.category_breakdown : [];
 
           if (requestVersion !== platformRequestVersion.current) return;
           setAnalytics({
             ...analyticsData,
-           nps: npsData,
+            nps: npsData,
            category_breakdown: Array.isArray(catData) ? catData : [],
            customer_satisfaction: analyticsData.customer_satisfaction || analyticsData,
            relationship_score: analyticsData.relationship_score || null,
@@ -806,7 +809,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     const endpoint = isMysteryShopperPlatform
       ? `${API_BASE}/mystery-shopper/admin/visits?${params.toString()}`
       : `${API_BASE}/dashboard-visits/all?${params.toString()}`;
-    const { res, data } = await fetchJsonSafe(endpoint, { headers });
+    const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: getPlatformSignal() });
     if (!res.ok) {
       if (isStale()) return;
       setError(data?.detail || "Failed to load pending visits");
@@ -833,24 +836,22 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       setMysteryLocations([]);
       return;
     }
+    const requestVersion = platformRequestVersion.current;
+    const isStale = () => requestVersion !== platformRequestVersion.current;
     setMysteryLocationsLoading(true);
     try {
-      const requestVersion = platformRequestVersion.current;
-      const isStale = () => requestVersion !== platformRequestVersion.current;
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/locations`, { headers });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/locations`, { headers, signal: getPlatformSignal() });
+      if (isStale()) return;
       if (!res.ok) {
-        if (isStale()) return;
         setError(data?.detail || "Failed to load locations");
         return;
       }
-      if (requestVersion !== platformRequestVersion.current) return;
       setMysteryLocations(Array.isArray(data) ? data : []);
     } catch {
-      if (requestVersion !== platformRequestVersion.current) return;
+      if (isStale()) return;
       setError("Failed to load locations");
     } finally {
-      if (requestVersion !== platformRequestVersion.current) return;
-      setMysteryLocationsLoading(false);
+      if (!isStale()) setMysteryLocationsLoading(false);
     }
   };
 
@@ -859,24 +860,22 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       setMysteryPurposes([]);
       return;
     }
+    const requestVersion = platformRequestVersion.current;
+    const isStale = () => requestVersion !== platformRequestVersion.current;
     setMysteryPurposesLoading(true);
     try {
-      const requestVersion = platformRequestVersion.current;
-      const isStale = () => requestVersion !== platformRequestVersion.current;
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes`, { headers });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes`, { headers, signal: getPlatformSignal() });
+      if (isStale()) return;
       if (!res.ok) {
-        if (isStale()) return;
         setError(data?.detail || "Failed to load purposes");
         return;
       }
-      if (requestVersion !== platformRequestVersion.current) return;
       setMysteryPurposes(Array.isArray(data) ? data : []);
     } catch {
-      if (requestVersion !== platformRequestVersion.current) return;
+      if (isStale()) return;
       setError("Failed to load purposes");
     } finally {
-      if (requestVersion !== platformRequestVersion.current) return;
-      setMysteryPurposesLoading(false);
+      if (!isStale()) setMysteryPurposesLoading(false);
     }
   };
 
@@ -923,7 +922,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       const endpoint = isMysteryShopperPlatform
         ? `${API_BASE}/mystery-shopper/admin/visits?${params.toString()}`
         : `${API_BASE}/dashboard-visits/all?${params.toString()}`;
-      const { res, data } = await fetchJsonSafe(endpoint, { headers });
+      const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: getPlatformSignal() });
       if (!res.ok) {
         if (isStale()) return;
         setError(data?.detail || "Failed to load survey results");
