@@ -1043,7 +1043,7 @@ def _seed_purpose_options_from_historical_assessments(db: Session) -> int:
     return len(inserted_rows)
 
 
-def _ensure_mystery_shopper_schema(db: Session) -> int:
+def _bootstrap_mystery_shopper_schema(db: Session) -> int:
     db.execute(text(
         """
         CREATE TABLE IF NOT EXISTS mystery_shopper_locations (
@@ -1263,9 +1263,55 @@ def _ensure_mystery_shopper_schema(db: Session) -> int:
     return int(survey_type_id)
 
 
+def _ensure_mystery_shopper_schema(db: Session) -> int:
+    required_tables = [
+        "mystery_shopper_locations",
+        "mystery_shopper_assessments",
+        "mystery_shopper_purpose_options",
+    ]
+    missing_tables = [table_name for table_name in required_tables if not has_table(db, table_name)]
+    if missing_tables:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Mystery Shopper schema is not initialized. "
+                f"Missing tables: {', '.join(missing_tables)}. "
+                "Run the Mystery Shopper bootstrap/migrations before serving requests."
+            ),
+        )
+
+    survey_type_id = db.execute(
+        text("SELECT id FROM survey_types WHERE name = 'Mystery Shopper'")
+    ).scalar()
+    if not survey_type_id:
+        raise HTTPException(
+            status_code=500,
+            detail="Mystery Shopper survey type is not initialized. Run the Mystery Shopper bootstrap/migrations.",
+        )
+
+    has_question = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM questions
+            WHERE survey_type_id = :survey_type_id
+            LIMIT 1
+            """
+        ),
+        {"survey_type_id": survey_type_id},
+    ).scalar()
+    if not has_question:
+        raise HTTPException(
+            status_code=500,
+            detail="Mystery Shopper questions are not initialized. Run the Mystery Shopper bootstrap/migrations.",
+        )
+
+    return int(survey_type_id)
+
+
 @router.post("/bootstrap")
 async def bootstrap_mystery_shopper(db: Session = Depends(get_db)):
-    survey_type_id = _ensure_mystery_shopper_schema(db)
+    survey_type_id = _bootstrap_mystery_shopper_schema(db)
     seeded_location_count = _seed_locations_from_existing_mystery_visits(db)
     seeded_purpose_count = _seed_purpose_options_from_historical_assessments(db)
     db.commit()
