@@ -177,7 +177,10 @@ function MsalAuthenticatedApp() {
     setUserEmail(claims.preferred_username || account.username || "");
     const claimRoles = Array.isArray(claims.roles) ? claims.roles : [];
     if (claimRoles.length > 0) {
-      setEntraRoles(claimRoles);
+      setEntraRoles((prev) => {
+        if (prev.length === claimRoles.length && prev.every((r, i) => r === claimRoles[i])) return prev;
+        return claimRoles;
+      });
       setRole(claimRoles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
     }
 
