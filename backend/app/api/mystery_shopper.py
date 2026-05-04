@@ -122,6 +122,31 @@ def get_mystery_answer_table(db: Session) -> str | None:
     return "mystery_shopper_answers" if has_table(db, "mystery_shopper_answers") else None
 
 
+def resolve_mystery_actor_user_id(db: Session, current_user: AuthUser) -> int:
+    return int(resolve_actor_user_id(db, current_user))
+
+
+def ensure_mystery_visit_access(db: Session, visit_id: str, current_user: AuthUser) -> None:
+    survey_type_id = _ensure_mystery_shopper_schema(db)
+    actor_user_id = resolve_mystery_actor_user_id(db, current_user)
+    visit_row = db.execute(
+        text(
+            """
+            SELECT representative_id
+            FROM visits
+            WHERE id = :visit_id
+              AND survey_type_id = :survey_type_id
+            LIMIT 1
+            """
+        ),
+        {"visit_id": visit_id, "survey_type_id": survey_type_id},
+    ).fetchone()
+    if not visit_row:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    if int(visit_row[0] or 0) != actor_user_id:
+        raise HTTPException(status_code=403, detail="You do not have access to this draft")
+
+
 def upsert_mystery_answer(
     db: Session,
     visit_id: str,
@@ -1640,7 +1665,7 @@ async def create_mystery_visit(
     current_user: AuthUser = Depends(get_current_user),
 ):
     survey_type_id = _ensure_mystery_shopper_schema(db)
-    actor_user_id = resolve_actor_user_id(db, current_user)
+    actor_user_id = resolve_mystery_actor_user_id(db, current_user)
     valid_purpose = db.execute(
         text(
             """
@@ -1744,8 +1769,14 @@ async def create_mystery_visit(
 
 
 @router.put("/visits/{visit_id}/header")
-async def update_mystery_header(visit_id: str, payload: MysteryHeaderUpdate, db: Session = Depends(get_db)):
+async def update_mystery_header(
+    visit_id: str,
+    payload: MysteryHeaderUpdate,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
     _ensure_mystery_shopper_schema(db)
+    ensure_mystery_visit_access(db, visit_id, current_user)
     valid_purpose = db.execute(
         text(
             """
@@ -1806,12 +1837,10 @@ async def list_mystery_drafts(
     current_user: AuthUser = Depends(get_current_user),
 ):
     survey_type_id = _ensure_mystery_shopper_schema(db)
-    effective_representative_id = current_user.id
-    if representative_id is not None:
-        try:
-            effective_representative_id = int(representative_id)
-        except Exception:
-            effective_representative_id = current_user.id
+    response_table = get_response_table(db)
+    if not response_table:
+        raise HTTPException(status_code=500, detail="No response table found")
+    effective_representative_id = resolve_mystery_actor_user_id(db, current_user)
     where_rep = ""
     params: dict[str, Any] = {"survey_type_id": survey_type_id}
     if effective_representative_id is not None:
@@ -1839,7 +1868,7 @@ async def list_mystery_drafts(
             FROM visits v
             JOIN mystery_shopper_assessments m ON m.visit_id = v.id
             JOIN mystery_shopper_locations l ON l.id = m.location_id
-            LEFT JOIN b2b_visit_responses r ON r.visit_id = v.id
+            LEFT JOIN {response_table} r ON r.visit_id = v.id
             LEFT JOIN questions q ON q.id = r.question_id
             WHERE v.status = 'Draft' AND v.survey_type_id = :survey_type_id {where_rep}
             GROUP BY v.id, m.location_id, l.name, m.visit_time, m.purpose_of_visit, m.staff_on_duty, m.shopper_name
@@ -1995,8 +2024,13 @@ async def list_mystery_admin_visits(
 
 
 @router.get("/visits/{visit_id}")
-async def get_mystery_visit_detail(visit_id: str, db: Session = Depends(get_db)):
+async def get_mystery_visit_detail(
+    visit_id: str,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
     _ensure_mystery_shopper_schema(db)
+    ensure_mystery_visit_access(db, visit_id, current_user)
     response_table = get_response_table(db)
     if not response_table:
         raise HTTPException(status_code=500, detail="No response table found")
@@ -2125,8 +2159,14 @@ async def get_mystery_visit_detail(visit_id: str, db: Session = Depends(get_db))
 
 
 @router.post("/visits/{visit_id}/responses")
-async def create_mystery_response(visit_id: str, payload: MysteryResponsePayload, db: Session = Depends(get_db)):
+async def create_mystery_response(
+    visit_id: str,
+    payload: MysteryResponsePayload,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
     _ensure_mystery_shopper_schema(db)
+    ensure_mystery_visit_access(db, visit_id, current_user)
     response_table = get_response_table(db)
     if not response_table:
         raise HTTPException(status_code=500, detail="No response table found")
@@ -2202,8 +2242,15 @@ async def create_mystery_response(visit_id: str, payload: MysteryResponsePayload
 
 
 @router.put("/visits/{visit_id}/responses/{response_id}")
-async def update_mystery_response(visit_id: str, response_id: str, payload: MysteryResponsePayload, db: Session = Depends(get_db)):
+async def update_mystery_response(
+    visit_id: str,
+    response_id: str,
+    payload: MysteryResponsePayload,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
     _ensure_mystery_shopper_schema(db)
+    ensure_mystery_visit_access(db, visit_id, current_user)
     response_table = get_response_table(db)
     if not response_table:
         raise HTTPException(status_code=500, detail="No response table found")
@@ -2507,8 +2554,13 @@ async def email_mystery_report(
 
 
 @router.put("/visits/{visit_id}/submit")
-async def submit_mystery_visit(visit_id: str, db: Session = Depends(get_db)):
+async def submit_mystery_visit(
+    visit_id: str,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
     _ensure_mystery_shopper_schema(db)
+    ensure_mystery_visit_access(db, visit_id, current_user)
     report_date = _utc_plus_4_today()
 
     db.execute(
