@@ -14,3 +14,4 @@ backend/logs/
 frontend/**/dist/
 release/
 everything-claude-code/
+*.patch
