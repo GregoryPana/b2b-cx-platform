@@ -65,20 +65,36 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
       return;
     }
     let cancelled = false;
+    let controller = null;
+    let timeoutId = null;
     const loadCount = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      if (timeoutId) window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => controller?.abort(), 30000);
       try {
-        const params = new URLSearchParams({ status: "Pending" });
         const endpoint = `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
-        const res = await fetch(endpoint, { headers });
+        const res = await fetch(endpoint, { headers, signal: controller.signal });
         if (!cancelled && res.ok) {
           const data = await res.json();
           setPendingReviewCount(Array.isArray(data) ? data.length : 0);
         }
       } catch { /* silent */ }
+      finally {
+        if (timeoutId) {
+          window.clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      }
     };
     if (activePlatform) loadCount();
     const interval = setInterval(() => { if (activePlatform) loadCount(); }, 30000);
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (timeoutId) window.clearTimeout(timeoutId);
+      controller?.abort();
+    };
   }, [activePlatform, headers, isMysteryShopperPlatform]);
 
   if (!activePlatform || !activePlatformAllowed) {

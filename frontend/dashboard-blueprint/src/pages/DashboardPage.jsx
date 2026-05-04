@@ -611,9 +611,6 @@ const platformAbortRef = useRef(null);
 
   useEffect(() => {
     platformRequestVersion.current += 1;
-    if (platformAbortRef.current) {
-      platformAbortRef.current.abort();
-    }
     platformAbortRef.current = new AbortController();
     setError("");
     setMessage("");
@@ -626,6 +623,9 @@ const platformAbortRef = useRef(null);
     setSurveyResults([]);
     setSelectedSurveyVisit(null);
     setReviewResponseDrafts({});
+    return () => {
+      platformAbortRef.current?.abort();
+    };
   }, [activePlatform]);
 
    // Reset selected question when platform changes
