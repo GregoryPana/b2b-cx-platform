@@ -12,7 +12,7 @@ import { Textarea } from "./components/ui/textarea";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
 import { motion } from "framer-motion";
-import { CalendarDays, ClipboardCheck, LogOut, Menu, X } from "lucide-react";
+import { CalendarDays, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
@@ -181,6 +181,7 @@ export default function App() {
   const [authProfileError, setAuthProfileError] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [activeTab, setActiveTab] = useState("planned");
+  const [entryChoicePending, setEntryChoicePending] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [currentCategory, setCurrentCategory] = useState("");
 
@@ -324,6 +325,22 @@ export default function App() {
     [questions, responseDrafts, responsesByQuestion]
   );
 
+  const unsavedQuestionCount = useMemo(
+    () =>
+      questions.filter((question) => {
+        const draft = responseDrafts[question.id] || {};
+        const existing = responsesByQuestion[question.id] || {};
+        const draftScore = String(draft.score ?? "");
+        const existingScore = String(existing.score ?? "");
+        const draftAnswer = String(draft.answer_text ?? "").trim();
+        const existingAnswer = String(existing.answer_text ?? "").trim();
+        const draftVerbatim = String(draft.verbatim ?? "").trim();
+        const existingVerbatim = String(existing.verbatim ?? "").trim();
+        return draftScore !== existingScore || draftAnswer !== existingAnswer || draftVerbatim !== existingVerbatim;
+      }).length,
+    [questions, responseDrafts, responsesByQuestion]
+  );
+
   const todayString = new Date().toISOString().split("T")[0];
   const plannedToday = draftVisits.filter((visit) => visit.visit_date === todayString);
   const plannedUpcoming = draftVisits.filter((visit) => visit.visit_date > todayString);
@@ -461,6 +478,7 @@ export default function App() {
       shopper_name: visit.shopper_name || "",
     }));
     await loadVisitDetail(visit.visit_id);
+    setEntryChoicePending(false);
     setActiveTab("survey");
   };
 
@@ -491,15 +509,29 @@ export default function App() {
 
       setVisitId(data.visit_id);
       setStatus(data.status || "Draft");
-      setMessage("Mystery Shopper visit created.");
+      setEntryChoicePending(false);
+      raiseMessage("Mystery Shopper visit created.", "success");
       setActiveTab("survey");
       await loadDrafts();
       await loadVisitDetail(data.visit_id);
     } catch (error) {
-      setMessage(error.message || "Failed to create visit");
+      raiseMessage(error.message || "Failed to create visit", "error");
     } finally {
       setCreatingVisit(false);
     }
+  };
+
+  const startNewSurvey = () => {
+    setEntryChoicePending(false);
+    setActiveTab("survey");
+    setMobileNavOpen(false);
+    raiseMessage("Fill out the visit header to begin a new survey.", "info");
+  };
+
+  const openDrafts = () => {
+    setEntryChoicePending(false);
+    setActiveTab("planned");
+    setMobileNavOpen(false);
   };
 
   const updateQuestionDraft = (questionId, field, value) => {
@@ -636,15 +668,15 @@ export default function App() {
       <div className="border-b bg-warning/20 px-4 py-2 text-sm text-warning-foreground">{authProfileError}</div>
     ) : null}
     <div className="relative flex min-h-screen bg-background">
-      {mobileNavOpen ? <button type="button" className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" /> : null}
-      <aside className={cn("fixed left-0 top-0 z-30 h-screen w-72 border-r bg-card transition-transform duration-300", mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0") }>
+      {mobileNavOpen ? <motion.button type="button" className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} /> : null}
+      <motion.aside className={cn("fixed left-0 top-0 z-30 h-screen w-[min(86vw,20rem)] max-w-full border-r bg-card shadow-2xl transition-transform duration-300 lg:w-72", mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0")} initial={{ opacity: 0.98 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
         <div className="flex h-14 items-center justify-between border-b px-4">
           <span className="text-sm font-semibold">Mystery Shopper Survey</span>
           <Button type="button" variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation">
             <X className="h-4 w-4" />
           </Button>
         </div>
-        <div className="flex h-[calc(100vh-56px)] flex-col p-3">
+        <div className="flex h-[calc(100vh-56px)] flex-col overflow-y-auto p-3 custom-scrollbar">
           <nav className="space-y-1">
             {sidebarPages.map((page) => {
               const Icon = page.icon;
@@ -690,7 +722,7 @@ export default function App() {
             </Button>
           </div>
         </div>
-      </aside>
+      </motion.aside>
 
       <div className="flex flex-1 flex-col lg:pl-72">
         <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur">
@@ -710,7 +742,9 @@ export default function App() {
 
         <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="mx-auto w-full max-w-[1600px] flex-1 p-4 md:p-6">
           {message ? (
-            <div className="mb-4 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">{message}</div>
+            <motion.div className={cn("mb-4 rounded border px-4 py-3 text-sm", messageTone === "error" ? "border-destructive/30 bg-destructive/10 text-destructive" : messageTone === "success" ? "border-success/30 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-900")} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+              {message}
+            </motion.div>
           ) : null}
 
           <div className="space-y-6">
@@ -726,6 +760,13 @@ export default function App() {
                   <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Configured Locations</p><p className="mt-1 text-sm font-medium">{locations.length}</p></div>
                 </div>
 
+                <div className="flex flex-wrap gap-2">
+                  {creatingVisit ? <Badge className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Creating visit</Badge> : null}
+                  {savingQuestionId ? <Badge variant="secondary" className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Saving response</Badge> : null}
+                  {submitting ? <Badge variant="secondary" className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Submitting survey</Badge> : null}
+                  {unsavedQuestionCount > 0 ? <Badge variant="outline" className="gap-1"><PencilLine className="h-3.5 w-3.5" /> {unsavedQuestionCount} unsaved change{unsavedQuestionCount === 1 ? "" : "s"}</Badge> : null}
+                </div>
+
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">User</label>
@@ -738,6 +779,36 @@ export default function App() {
                 </div>
               </CardContent>
             </Card>
+
+            {entryChoicePending ? (
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }}>
+                <Card className="border-primary/15 shadow-sm">
+                  <CardHeader>
+                    <CardTitle>How would you like to begin?</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-3 md:grid-cols-2">
+                    <button type="button" onClick={startNewSurvey} className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10 active:scale-[0.99]">
+                      <div className="flex items-center gap-3">
+                        <PlayCircle className="h-5 w-5 text-primary" />
+                        <div>
+                          <p className="font-medium">Start a new survey</p>
+                          <p className="text-sm text-muted-foreground">Open the visit header and create a fresh Mystery Shopper visit.</p>
+                        </div>
+                      </div>
+                    </button>
+                    <button type="button" onClick={openDrafts} disabled={loadingDrafts || draftVisits.length === 0} className="rounded-xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60">
+                      <div className="flex items-center gap-3">
+                        <CalendarDays className="h-5 w-5 text-primary" />
+                        <div>
+                          <p className="font-medium">Load an existing draft</p>
+                          <p className="text-sm text-muted-foreground">Resume one of {draftVisits.length} draft visit{draftVisits.length === 1 ? "" : "s"} already saved.</p>
+                        </div>
+                      </div>
+                    </button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ) : null}
 
             {activeTab === "planned" ? (
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">

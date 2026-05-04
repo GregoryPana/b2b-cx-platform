@@ -34,6 +34,7 @@
     @apply bg-background text-foreground;
     font-family: "IBM Plex Sans", "Source Sans 3", sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
+    overflow-x: hidden;
   }
 
   img {
@@ -49,5 +50,10 @@
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
     @apply rounded-full bg-muted-foreground/20 hover:bg-muted-foreground/30;
+  }
+
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
   }
 }

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..core.auth.dependencies import get_current_user
 from ..core.auth.entra import AuthUser
 from ..core.database import get_db
+from .visits_dashboard import resolve_actor_user_id
 
 router = APIRouter(prefix="/mystery-shopper", tags=["mystery-shopper"])
 
@@ -1639,6 +1640,7 @@ async def create_mystery_visit(
     current_user: AuthUser = Depends(get_current_user),
 ):
     survey_type_id = _ensure_mystery_shopper_schema(db)
+    actor_user_id = resolve_actor_user_id(db, current_user)
     valid_purpose = db.execute(
         text(
             """
@@ -1700,8 +1702,8 @@ async def create_mystery_visit(
             """
         ),
         {
-            "representative_id": payload.representative_id or current_user.id,
-            "created_by": current_user.id,
+            "representative_id": payload.representative_id or actor_user_id,
+            "created_by": actor_user_id,
             "visit_date": payload.visit_date,
             "visit_type": payload.visit_type,
             "survey_type_id": survey_type_id,
@@ -1734,7 +1736,7 @@ async def create_mystery_visit(
         "visit_id": str(visit_id),
         "status": "Draft",
         "created_by": {
-            "user_id": current_user.id,
+            "user_id": actor_user_id,
             "name": current_user.name,
             "email": current_user.email,
         },
