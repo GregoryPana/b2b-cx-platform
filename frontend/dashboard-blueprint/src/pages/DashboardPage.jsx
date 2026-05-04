@@ -620,6 +620,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
    // Load core metrics (NPS, Category Breakdown, CSAT + B2B analytics)
     useEffect(() => {
+     if (location.pathname !== "/") return;
      if (!activePlatform || isInstallationPlatform) return;
      const load = async () => {
        const requestVersion = platformRequestVersion.current;
@@ -679,10 +680,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         }
       };
      load();
-    }, [activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+     }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
    // Load yes/no question analytics
     useEffect(() => {
+      if (location.pathname !== "/") return;
       if (!activePlatform || !isB2BPlatform) {
         setYesNoQuestionAnalytics([]);
         return;
@@ -706,9 +708,10 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       };
 
       load();
-    }, [activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
     useEffect(() => {
+      if (location.pathname !== "/") return;
       if (!activePlatform || !isB2BPlatform) {
         setAccountExecutiveYesNoTrendData([]);
         return;
@@ -732,10 +735,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       };
 
       load();
-    }, [activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, headers, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, headers, fetchJsonSafe]);
 
    // Load question averages for drilldown table
    useEffect(() => {
+     if (!["/", "/trends"].includes(location.pathname)) return;
      if (!activePlatform || isInstallationPlatform) return;
       const load = async () => {
         const requestVersion = platformRequestVersion.current;
@@ -765,10 +769,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
        }
      };
      load();
-    }, [activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
    // Load question trend data
    useEffect(() => {
+     if (!["/", "/trends"].includes(location.pathname)) return;
      if (!selectedQuestionId || !activePlatform) return;
       const load = async () => {
         const requestVersion = platformRequestVersion.current;
@@ -790,7 +795,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
         setTrendData(rows.map((row) => ({ period: row.period_label || row.period, average: Number(row.average_score || 0) })));
       };
      load();
-    }, [activePlatform, isMysteryShopperPlatform, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isMysteryShopperPlatform, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
   const loadPendingVisits = useCallback(async () => {
     const requestVersion = platformRequestVersion.current;
@@ -819,8 +824,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
 
   // Load pending visits for review queue
   useEffect(() => {
+    if (!["/", "/review"].includes(location.pathname)) return;
     loadPendingVisits();
-  }, [loadPendingVisits]);
+  }, [location.pathname, loadPendingVisits]);
 
   const loadMysteryLocations = async () => {
     if (!isMysteryShopperPlatform) {
