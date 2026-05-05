@@ -7,6 +7,25 @@
 
 This guide is intentionally aligned to the current CWSCX codebase and the real staging runtime that is already in use.
 
+## How To Follow This Guide If You Are New
+
+- Run the commands exactly as shown.
+- Run them in the same order they appear in this guide.
+- If a command starts with `sudo`, the VM will ask for your password.
+- If a file needs to be created, this guide will give you the command to create it.
+- If you prefer editing files in `nano`, use:
+
+```bash
+nano <filename>
+```
+
+Inside `nano`:
+- press `Ctrl+O` to save
+- press `Enter` to confirm the filename
+- press `Ctrl+X` to exit
+
+Where possible, this guide uses `cat <<'EOF'` commands so you can create files without needing to know an editor.
+
 ---
 
 ## 1. What Exists In The Current Platform
@@ -66,6 +85,23 @@ It will **not** fully prove:
 - frontend JavaScript has no runtime errors after login
 
 Those gaps are expected and should be documented as observability limitations for now.
+
+## Current Progress Checkpoint
+
+If you have already completed these items:
+
+- Docker Engine installed
+- Docker Compose plugin installed
+- Uptime Kuma deployed
+- pgAdmin deployed
+- first Kuma monitor created for `https://cwscx-tst01.cwsey.com/api/health`
+
+Then you do **not** need to restart from the top of the guide.
+
+Resume from here instead:
+- Section 9.2 to add the `staging-api-ready` monitor
+- Section 9.3 to add the frontend route monitors
+- Section 10 to complete pgAdmin login and add the staging PostgreSQL server connection
 
 ---
 
@@ -344,13 +380,42 @@ If you later add production monitoring, add production VM/API/database equivalen
 
 As the service owner account on the observability VM:
 
+1. Create the directories:
+
 ```bash
 mkdir -p ~/observability/{data/uptime-kuma,data/pgadmin}
+```
+
+2. Move into the new folder:
+
+```bash
 cd ~/observability
+```
+
+3. Create the working files:
+
+```bash
 touch docker-compose.yml .env README.md
+```
+
+4. Set pgAdmin folder ownership and permissions:
+
+```bash
 sudo chown -R 5050:5050 ~/observability/data/pgadmin
 sudo chmod 750 ~/observability/data/pgadmin
+```
+
+5. Set Uptime Kuma folder permissions:
+
+```bash
 sudo chmod 755 ~/observability/data/uptime-kuma
+```
+
+6. Confirm the structure exists:
+
+```bash
+ls -lah ~/observability
+ls -lah ~/observability/data
 ```
 
 Result:
@@ -381,6 +446,18 @@ chmod 600 ~/observability/.env
 ```
 
 Use a strong password and store it in your secret manager.
+
+If you need to edit the file afterward:
+
+```bash
+nano ~/observability/.env
+```
+
+To confirm the file exists:
+
+```bash
+ls -lah ~/observability/.env
+```
 
 ---
 
@@ -433,15 +510,98 @@ networks:
     name: observability-net
 ```
 
+Now write that content into the file using this exact command:
+
+```bash
+cat > ~/observability/docker-compose.yml <<'EOF'
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data/uptime-kuma:/app/data
+    environment:
+      - UPTIME_KUMA_PORT=3001
+    healthcheck:
+      test: ["CMD", "extra/healthcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    volumes:
+      - ./data/pgadmin:/var/lib/pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
+      - PGADMIN_CONFIG_SERVER_MODE=True
+      - PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=True
+      - PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED=False
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:80/misc/ping || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  default:
+    name: observability-net
+EOF
+```
+
+Confirm the file contents:
+
+```bash
+sed -n '1,220p' ~/observability/docker-compose.yml
+```
+
+If you prefer to edit with `nano` instead:
+
+```bash
+nano ~/observability/docker-compose.yml
+```
+
 ---
 
 ## 8. Initial Deployment
 
+1. Move into the observability folder:
+
 ```bash
 cd ~/observability
+```
+
+2. Pull the images:
+
+```bash
 docker compose pull
+```
+
+3. Start the stack in the background:
+
+```bash
 docker compose up -d
+```
+
+4. Check container status:
+
+```bash
 docker compose ps
+```
+
+5. Check recent logs:
+
+```bash
 docker compose logs --tail=50
 ```
 
@@ -454,10 +614,11 @@ Expected:
 
 ## 9. Uptime Kuma Setup
 
-Open:
-- `http://<observability-vm-ip>:3001`
-
-Create the initial account.
+1. Open a browser from your workstation.
+2. Go to:
+   - `http://<observability-vm-ip>:3001`
+3. Create the first Uptime Kuma account when prompted.
+4. Save that username and password in your secret manager.
 
 ### Recommended staging monitors
 
@@ -512,20 +673,41 @@ Optional:
 - If staging still uses self-signed certificates:
   - enable Kuma's option to ignore TLS / invalid certificate errors
 
+### 9.6 How to add a monitor in Uptime Kuma
+
+Repeat these steps for each monitor listed above:
+
+1. Log in to Uptime Kuma.
+2. Click **Add New Monitor**.
+3. Choose the monitor type shown in this guide.
+4. Enter the name exactly as shown in this guide.
+5. Enter the URL or host/port exactly as shown in this guide.
+6. Set:
+   - Heartbeat interval: `60 seconds`
+   - Retries: `3`
+   - Timeout: `10 seconds`
+7. If the monitor uses HTTPS and the target uses a self-signed certificate:
+   - enable the option to ignore TLS / invalid certificate errors
+8. Click **Save**.
+9. Wait for the first check result and confirm the monitor turns green.
+
 ---
 
 ## 10. pgAdmin Setup
 
-Open:
-- `http://<observability-vm-ip>:5050`
-
-Log in with the values from `.env`.
-
-Set the pgAdmin master password when prompted.
+1. Open a browser from your workstation.
+2. Go to:
+   - `http://<observability-vm-ip>:5050`
+3. Log in with the email and password stored in `~/observability/.env`.
+4. When pgAdmin asks for a master password, create one and store it in your secret manager.
 
 ### Add the staging database
 
-Register a new server with:
+Register a new server with these exact steps:
+
+1. In the left navigation, right-click **Servers**.
+2. Click **Register**.
+3. Click **Server...**
 
 **General**
 - Name: `staging-cwscx-postgres`
@@ -537,9 +719,23 @@ Register a new server with:
 - Username: `cxadmin`
 - Password: `cxadmin123`
 
+4. Click **Save**.
+
 If you later rotate credentials, update them here as well.
 
+If you do not see the server appear immediately in the left panel:
+1. click the small refresh icon in pgAdmin, or
+2. collapse and re-expand **Servers**
+
 ### Verification query
+
+1. In pgAdmin, expand the new server connection.
+2. Open the target database.
+3. Right-click the database.
+4. Click **Query Tool**.
+5. Paste the SQL below.
+6. Click the run/execute button.
+7. Wait for the results grid to appear at the bottom of the page.
 
 ```sql
 SELECT current_database(), current_user;
@@ -584,6 +780,12 @@ Back up the observability stack data directory:
 
 ```bash
 sudo tar -czf /backup/observability-$(date +%Y%m%d).tar.gz -C ~/observability data/
+```
+
+If the backup folder does not exist yet, create it first:
+
+```bash
+sudo mkdir -p /backup/observability
 ```
 
 This protects:
