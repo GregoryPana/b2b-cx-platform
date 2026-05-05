@@ -117,13 +117,203 @@ docker --version
 docker compose version
 ```
 
-### 3.3 Optional time sync sanity
+If `docker` is not installed at all, or the VM has been partially configured and you want to start over cleanly, use the reset procedure in Section 3.3 before reinstalling.
+
+### 3.3 Reset Docker On A Fresh Or Partially Configured VM
+
+Use this only if you want to wipe the current Docker installation and start over with a clean setup.
+
+This will remove:
+- Docker Engine packages
+- Compose packages
+- local Docker images, containers, networks, and volumes
+- Docker state directories under `/var/lib/docker` and `/var/lib/containerd`
+
+On a fresh observability VM this is usually acceptable. Do **not** run this on a host that is already running workloads you need to keep.
+
+```bash
+sudo systemctl stop docker docker.socket containerd 2>/dev/null || true
+
+sudo apt-get purge -y \
+  docker.io \
+  docker-ce \
+  docker-ce-cli \
+  docker-buildx-plugin \
+  docker-compose-plugin \
+  docker-compose-v2 \
+  docker-compose \
+  containerd \
+  containerd.io \
+  runc
+
+sudo apt-get autoremove -y --purge
+
+sudo rm -rf /var/lib/docker /var/lib/containerd /etc/docker
+sudo rm -f /etc/apt/sources.list.d/docker.list
+sudo rm -f /etc/apt/keyrings/docker.asc
+
+sudo groupdel docker 2>/dev/null || true
+
+hash -r
+```
+
+Verification after reset:
+
+```bash
+docker --version
+docker compose version
+docker-compose --version
+```
+
+Expected:
+- all three commands should fail with `command not found` or equivalent until Docker is reinstalled
+
+### 3.4 Install Docker And Compose Cleanly
+
+For a fresh observability VM, use Docker's official repository so `docker compose` is available consistently.
+
+This is the preferred and validated setup for the current observability VM.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+sudo usermod -aG docker $USER
+```
+
+Log out and back in after adding yourself to the `docker` group.
+
+Verification:
+
+```bash
+docker --version
+docker compose version
+docker ps
+```
+
+Expected:
+- Docker version prints successfully
+- `docker compose version` prints successfully
+- `docker ps` works without `sudo` after re-login
+
+Known-good example from the current observability VM:
+
+```bash
+Docker version 29.4.2, build 055a478
+Docker Compose version v5.1.3
+```
+
+### 3.5 Fallback If Official Docker Compose Is Not Available
+
+If you already installed Ubuntu's `docker.io` package and do not want to reset immediately, you can try a fallback Compose package:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker-compose-v2 || sudo apt-get install -y docker-compose
+```
+
+Verification:
+
+```bash
+docker compose version || docker-compose --version
+```
+
+If only `docker-compose` works, you may continue, but the preferred long-term setup for this VM is still the clean Docker CE + Compose plugin install above.
+
+### 3.6 Common Docker/Compose Troubleshooting On A Fresh Ubuntu VM
+
+#### Case: `docker` works but `docker compose` does not
+
+Example symptom:
+
+```bash
+docker --version
+# works
+
+docker compose version
+# docker: unknown command: docker compose
+```
+
+Most likely cause:
+- Ubuntu `docker.io` was installed first
+- Compose plugin was not installed with it
+
+Recommended fix:
+- use the reset procedure in Section 3.3
+- then reinstall using Docker's official repository from Section 3.4
+
+Fallback if you do not want to reset immediately:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker-compose-v2 || sudo apt-get install -y docker-compose
+```
+
+#### Case: `docker ps` requires `sudo`
+
+Cause:
+- the current shell session has not picked up the `docker` group membership yet
+
+Fix:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+Then log out and back in before continuing.
+
+#### Case: Docker installed but daemon not ready
+
+Check:
+
+```bash
+sudo systemctl status docker --no-pager
+sudo systemctl status containerd --no-pager
+```
+
+If needed:
+
+```bash
+sudo systemctl enable --now docker
+sudo systemctl enable --now containerd
+```
+
+### 3.7 Optional time sync sanity
 
 ```bash
 timedatectl status
 ```
 
 Keep the VM time correct so Kuma timing and future alert timestamps are trustworthy.
+
+For the current CWSCX operational environment, set the observability VM timezone to `Indian/Mahe` so cron schedules, logs, and operational timestamps align with the local working timezone (`UTC+4`).
+
+Recommended:
+
+```bash
+sudo timedatectl set-timezone Indian/Mahe
+timedatectl status
+```
+
+Expected:
+- `Time zone: Indian/Mahe (+04, +0400)`
+- `System clock synchronized: yes`
+- `NTP service: active`
+
+If you leave the VM on `UTC`, the setup can still work correctly, but:
+- cron schedules will run in UTC
+- Uptime Kuma timestamps will be shown relative to UTC unless adjusted in the UI
+- troubleshooting and backup timing may be less intuitive for operators working in Seychelles time
 
 ---
 
