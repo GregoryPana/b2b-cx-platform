@@ -14,6 +14,7 @@ const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
 const B2B_ALLOWED_ROLES = new Set(["B2B_ADMIN", "B2B_SURVEYOR", "CX_SUPER_ADMIN"]);
+const LOGOUT_FLAG_KEY = "cx.logoutRequested";
 
 function hasB2BAccess(roles: string[]) {
   return Array.isArray(roles) && roles.some((role) => B2B_ALLOWED_ROLES.has(role));
@@ -32,6 +33,13 @@ export default function App() {
   const [entraRoles, setEntraRoles] = useState<string[]>([]);
   const [roleResolved, setRoleResolved] = useState(false);
   const [authProfileError, setAuthProfileError] = useState("");
+  const [logoutRequested, setLogoutRequested] = useState(() => {
+    try {
+      return sessionStorage.getItem(LOGOUT_FLAG_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (isAuthenticated && accounts.length > 0) {
@@ -54,10 +62,11 @@ export default function App() {
 
   useEffect(() => {
     if (!msalReady) return;
+    if (logoutRequested) return;
     if (!isAuthenticated && inProgress === "none") {
       instance.loginRedirect(loginRequest);
     }
-  }, [inProgress, instance, isAuthenticated, msalReady]);
+  }, [inProgress, instance, isAuthenticated, logoutRequested, msalReady]);
 
   useEffect(() => {
     if (!msalReady || !accounts[0]) return;
@@ -99,10 +108,44 @@ export default function App() {
   }, [accessToken, role, userId]);
 
   const handleLogout = () => {
+    try {
+      sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(true);
     instance.logoutRedirect({ postLogoutRedirectUri: surveyPostLogoutUri });
   };
 
-  if (!msalReady || !isAuthenticated || !accessToken || !roleResolved) {
+  const handleSignInAgain = () => {
+    try {
+      sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(false);
+    instance.loginRedirect(loginRequest);
+  };
+
+  if (!msalReady) {
+    return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
+  }
+
+  if (logoutRequested && !isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6">
+          <CardContent className="space-y-3 pt-6">
+            <h1 className="text-xl font-semibold">You have signed out</h1>
+            <p className="text-sm text-muted-foreground">You can close this tab, or sign in again whenever you want to continue.</p>
+            <Button type="button" onClick={handleSignInAgain}>Sign in again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !accessToken || !roleResolved) {
     return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
   }
 
@@ -113,8 +156,8 @@ export default function App() {
           <CardContent className="space-y-3 pt-6">
             <h1 className="text-xl font-semibold">No B2B Survey Access</h1>
             <p className="text-sm text-muted-foreground">
-              Your account is signed in, but it does not have a B2B survey role.
-              Ask an administrator to assign `B2B_ADMIN`, `B2B_SURVEYOR`, or `CX_SUPER_ADMIN`.
+              You're signed in, but this account does not currently have access to the B2B survey.
+              Please ask an administrator to grant access and then try again.
             </p>
             <Button type="button" variant="outline" onClick={handleLogout}>
               Logout

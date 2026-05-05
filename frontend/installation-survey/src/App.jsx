@@ -11,6 +11,7 @@ import { Button } from "./components/ui/button";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const INSTALLATION_ALLOWED_ROLES = new Set(["INSTALL_ADMIN", "INSTALL_SURVEYOR", "CX_SUPER_ADMIN"]);
+const LOGOUT_FLAG_KEY = "cx.logoutRequested";
 
 function readJwtExpiry(accessToken) {
   try {
@@ -42,6 +43,13 @@ export default function App() {
   const [entraRoles, setEntraRoles] = useState([]);
   const [roleResolved, setRoleResolved] = useState(false);
   const [authProfileError, setAuthProfileError] = useState("");
+  const [logoutRequested, setLogoutRequested] = useState(() => {
+    try {
+      return sessionStorage.getItem(LOGOUT_FLAG_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     let active = true;
@@ -53,10 +61,11 @@ export default function App() {
 
   useEffect(() => {
     if (!msalReady) return;
+    if (logoutRequested) return;
     if (!isAuthenticated && inProgress === "none") {
       instance.loginRedirect(loginRequest);
     }
-  }, [instance, inProgress, isAuthenticated, msalReady]);
+  }, [instance, inProgress, isAuthenticated, logoutRequested, msalReady]);
 
   useEffect(() => {
     if (!msalReady || !accounts[0]) return;
@@ -151,10 +160,50 @@ export default function App() {
   }, [accessToken, entraRoles, userId, userName, userEmail]);
 
   const handleLogout = () => {
+    try {
+      sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(true);
     instance.logoutRedirect();
   };
 
-  if (!msalReady || !isAuthenticated || !accessToken || !roleResolved) {
+  const handleSignInAgain = () => {
+    try {
+      sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(false);
+    instance.loginRedirect(loginRequest);
+  };
+
+  if (!msalReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+        <Card className="p-6">
+          <CardContent className="pt-6">Signing you in...</CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (logoutRequested && !isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6">
+          <CardContent className="space-y-3 pt-6">
+            <h1 className="text-xl font-semibold">You have signed out</h1>
+            <p className="text-sm text-muted-foreground">You're all set. You can close this tab, or sign in again when you're ready.</p>
+            <Button type="button" onClick={handleSignInAgain}>Sign in again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !accessToken || !roleResolved) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
         <Card className="p-6">
@@ -171,8 +220,8 @@ export default function App() {
           <CardContent className="space-y-3 pt-6">
             <h1 className="text-xl font-semibold">No Installation Access</h1>
             <p className="text-sm text-muted-foreground">
-              Your account is signed in, but it does not have an Installation Assessment role.
-              Ask an administrator to assign `INSTALL_ADMIN`, `INSTALL_SURVEYOR`, or `CX_SUPER_ADMIN`.
+              You're signed in, but this account does not currently have access to the Installation Assessment survey.
+              Please ask an administrator to grant access and then try again.
             </p>
             <Button type="button" variant="outline" onClick={handleLogout}>
               Logout

@@ -12,6 +12,7 @@ const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
 const ACTIVE_PLATFORM_KEY = "cx.activePlatform";
 const ENTRA_ROLES_KEY = "cx.entraRoles";
+const LOGOUT_FLAG_KEY = "cx.logoutRequested";
 
 function readJwtExpiry(accessToken) {
   try {
@@ -165,6 +166,13 @@ function MsalAuthenticatedApp() {
     }
   });
   const [authProfileError, setAuthProfileError] = useState("");
+  const [logoutRequested, setLogoutRequested] = useState(() => {
+    try {
+      return sessionStorage.getItem(LOGOUT_FLAG_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const availablePlatforms = useMemo(() => resolvePlatformsFromRoles(Array.isArray(entraRoles) ? entraRoles : []), [entraRoles]);
 
   useEffect(() => {
@@ -179,10 +187,11 @@ function MsalAuthenticatedApp() {
 
   useEffect(() => {
     if (!msalReady) return;
+    if (logoutRequested) return;
     if (!isAuthenticated && inProgress === "none") {
       instance.loginRedirect(loginRequest);
     }
-  }, [inProgress, instance, isAuthenticated, msalReady]);
+  }, [inProgress, instance, isAuthenticated, logoutRequested, msalReady]);
 
   useEffect(() => {
     if (!msalReady || !accounts[0]) return;
@@ -276,7 +285,23 @@ function MsalAuthenticatedApp() {
   }, [accessToken, entraRoles, role, userId]);
 
   const handleLogout = () => {
+    try {
+      sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(true);
     instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+  };
+
+  const handleSignInAgain = () => {
+    try {
+      sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(false);
+    instance.loginRedirect(loginRequest);
   };
 
   const handleSessionExpired = useCallback(() => {
@@ -314,7 +339,23 @@ function MsalAuthenticatedApp() {
     if (!stillAllowed) setActivePlatform("");
   }, [activePlatform, availablePlatforms]);
 
-  if (!msalReady || !isAuthenticated || !accessToken) {
+  if (!msalReady) {
+    return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
+  }
+
+  if (logoutRequested && !isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-sm">
+          <h1 className="text-xl font-semibold">You have signed out</h1>
+          <p className="mt-2 text-sm text-muted-foreground">You can safely close this tab, or sign in again when you're ready.</p>
+          <Button type="button" className="mt-4" onClick={handleSignInAgain}>Sign in again</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !accessToken) {
     return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
   }
 

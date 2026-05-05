@@ -19,6 +19,7 @@ const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
+const LOGOUT_FLAG_KEY = "cx.logoutRequested";
 
 const DEFAULT_PURPOSE_OPTIONS = ["General Enquiry", "Billing", "Device", "Broadband", "Complaint", "Other"];
 
@@ -179,6 +180,13 @@ export default function App() {
   const [entraRoles, setEntraRoles] = useState([]);
   const [roleResolved, setRoleResolved] = useState(false);
   const [authProfileError, setAuthProfileError] = useState("");
+  const [logoutRequested, setLogoutRequested] = useState(() => {
+    try {
+      return sessionStorage.getItem(LOGOUT_FLAG_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const [accessToken, setAccessToken] = useState("");
   const [activeTab, setActiveTab] = useState("planned");
   const [entryChoicePending, setEntryChoicePending] = useState(true);
@@ -230,10 +238,11 @@ export default function App() {
 
   useEffect(() => {
     if (!msalReady) return;
+    if (logoutRequested) return;
     if (!isAuthenticated && inProgress === "none") {
       instance.loginRedirect(loginRequest);
     }
-  }, [instance, inProgress, isAuthenticated, msalReady]);
+  }, [instance, inProgress, isAuthenticated, logoutRequested, msalReady]);
 
   useEffect(() => {
     if (!msalReady) return;
@@ -632,10 +641,53 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    try {
+      sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(true);
     instance.logoutRedirect({ postLogoutRedirectUri: surveyPostLogoutUri });
   };
 
-  if (!msalReady || !isAuthenticated || !accessToken || !roleResolved) {
+  const handleSignInAgain = () => {
+    try {
+      sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(false);
+    instance.loginRedirect(loginRequest);
+  };
+
+  if (!msalReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6" role="status" aria-live="polite" aria-atomic="true">
+          <CardContent className="space-y-3 pt-6">
+            <CardTitle className="text-2xl">Signing you in...</CardTitle>
+            <p className="text-sm text-muted-foreground">Please wait while Microsoft Entra authentication completes.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (logoutRequested && !isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6" role="status" aria-live="polite">
+          <CardContent className="space-y-3 pt-6">
+            <CardTitle className="text-2xl">You have signed out</CardTitle>
+            <p className="text-sm text-muted-foreground">You're all set. You can close this tab, or sign in again whenever you're ready.</p>
+            <Button type="button" onClick={handleSignInAgain}>Sign in again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !accessToken || !roleResolved) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
         <Card className="max-w-lg p-6" role="status" aria-live="polite" aria-atomic="true">
@@ -654,7 +706,7 @@ export default function App() {
         <Card className="max-w-lg p-6" role="alert" aria-live="polite">
           <CardContent className="space-y-3 pt-6">
             <CardTitle className="text-2xl">No Mystery Shopper Access</CardTitle>
-            <p className="text-sm text-muted-foreground">Your account is signed in, but it does not have a Mystery Shopper survey role. Ask an administrator to assign `MYSTERY_ADMIN`, `MYSTERY_SURVEYOR`, or `CX_SUPER_ADMIN`.</p>
+            <p className="text-sm text-muted-foreground">You're signed in, but this account does not currently have access to the Mystery Shopper survey. Please ask an administrator to grant access and then try again.</p>
             <Button type="button" variant="outline" onClick={handleLogout}>Logout</Button>
           </CardContent>
         </Card>
