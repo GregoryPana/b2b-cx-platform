@@ -28,7 +28,7 @@
 - `/dashboard/` -> CX Governance Dashboard SPA
 - `/surveys/b2b/` -> B2B Survey SPA
 - `/surveys/installation/` -> Installation Assessment SPA
-- `/mystery-shopper/` -> Mystery Shopper SPA
+- `/surveys/mystery-shopper/` -> Mystery Shopper SPA
 
 ## Verification
 - backend health check

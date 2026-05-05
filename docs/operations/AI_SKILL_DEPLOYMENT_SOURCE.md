@@ -24,12 +24,12 @@ routes:
   dashboard: /dashboard/
   survey_b2b: /surveys/b2b/
   survey_installation: /surveys/installation/
-  mystery_shopper: /mystery-shopper/
-frontend_paths:
-  dashboard: /opt/cwscx/frontends-src/dashboard/dist
-  b2b: /opt/cwscx/frontends-src/internal-surveys/b2b/dist
-  installation: /opt/cwscx/frontends-src/internal-surveys/installation/dist
-  mystery: /opt/cwscx/frontends-src/public/mystery-shopper/dist
+  mystery_shopper: /surveys/mystery-shopper/
+  frontend_paths:
+    dashboard: /opt/cwscx/frontends-src/dashboard/dist
+    b2b: /opt/cwscx/frontends-src/internal-surveys/b2b/dist
+    installation: /opt/cwscx/frontends-src/internal-surveys/installation/dist
+    mystery: /opt/cwscx/frontends-src/public/mystery-shopper/dist
 ```
 
 ## 3) Deployment commands

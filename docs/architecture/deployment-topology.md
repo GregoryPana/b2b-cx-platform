@@ -9,7 +9,7 @@ CWSCX uses a single-domain, path-based deployment model.
 - `/dashboard/` -> CX Governance Dashboard
 - `/surveys/b2b/` -> B2B Survey SPA
 - `/surveys/installation/` -> Installation Assessment Survey SPA
-- `/mystery-shopper/` -> Mystery Shopper SPA
+- `/surveys/mystery-shopper/` -> Mystery Shopper SPA
 - `/api/*` -> FastAPI backend
 
 ### Hosting Model

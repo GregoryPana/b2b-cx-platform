@@ -112,7 +112,8 @@ This plan reflects:
 
 ### Entra Authentication Model
 - All frontends authenticate through Entra using MSAL.
-- Each frontend reads Entra token roles from claims and confirms them via `/auth/me`.
+- Each frontend reads Entra token roles directly from the Entra token claims during startup.
+- Frontend boot should not depend on `/auth/me`; backend profile lookup is optional and must not block page load.
 - Platform selection in the dashboard is derived from Entra roles.
 - Survey frontend access is validated in the relevant survey frontend before rendering workspace routes.
 - Backend authorization remains the source of truth for protected API actions.

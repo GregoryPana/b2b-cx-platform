@@ -9,7 +9,7 @@ CWSCX is the Cable & Wireless Seychelles Customer Experience Platform. It combin
   Purpose: Business customer experience surveys, visit execution, and account feedback.
 - `Installation Assessment` -> `/surveys/installation/`
   Purpose: Installation quality inspections, work-order-based assessments, and technical scoring.
-- `Mystery Shopper` -> `/mystery-shopper/`
+- `Mystery Shopper` -> `/surveys/mystery-shopper/`
   Purpose: Structured mystery shopper survey capture and service-quality evaluation.
 
 ## Who This Documentation Is For

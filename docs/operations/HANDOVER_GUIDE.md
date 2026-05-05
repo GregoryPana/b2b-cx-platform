@@ -34,7 +34,7 @@ The CWSCX platform helps Cable and Wireless Seychelles collect, review, and mana
   - planned visits workflow, response capture, submission
 - Installation Survey (`/surveys/installation/`)
   - installation assessment workflow with Entra sign-in and role-based access
-- Mystery Shopper (`/mystery-shopper/`)
+- Mystery Shopper (`/surveys/mystery-shopper/`)
   - protected mystery shopper SPA flow
 - API backend (`/api/*`)
   - serves data, handles business logic, validates auth
@@ -102,6 +102,16 @@ Technical checks:
 - `cwscx-backend` service is active
 - Nginx config test passes
 
+Backup and recovery checks:
+- database backups are currently created by a VM cron job
+- active script path: `/opt/backups/postgres/backup.sh`
+- active log path: `/opt/backups/postgres/backup.log`
+- backup layout:
+  - `/opt/backups/postgres/daily/`
+  - `/opt/backups/postgres/weekly/`
+  - `/opt/backups/postgres/monthly/`
+- restore-readiness should be verified periodically with `pg_restore --list` and a full restore drill
+
 ## 10) Incident handling playbook
 ### Scenario A: Frontend route returns 500 or blank
 Check:
@@ -157,7 +167,15 @@ Action:
 - staging setup: `docs/deployment/STAGING_CICD_SETUP.md`
 - canonical runbook: `docs/deployment/ENTERPRISE_DEPLOYMENT_RUNBOOK.md`
 
-## 14) Language and communication guidance for non-technical users
+## 14) Future Operations Note
+- A future cross-environment operations platform is planned to centralize:
+  - backup status
+  - health checks
+  - alert intake
+  - alert triage across multiple VMs, environments, and bespoke applications
+- That future platform is not part of the current shipped runtime.
+
+## 15) Language and communication guidance for non-technical users
 When explaining status updates to non-technical teams:
 - avoid low-level stack details unless asked
 - lead with user impact (what works / what is blocked)

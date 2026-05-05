@@ -273,6 +273,13 @@ Current understanding:
 - `0f54c37` Remove mystery frontend bootstrap dependency
 - `ab08f3e` Scope dashboard data loads to active pages
 - `75b37aa` Allow staging auth fallback when JWKS times out
+- `4d00c2e` Merge mystery shopper platform fixes
+- `ee921d9` Abort stale dashboard requests on unmount
+- `813925f` Stop mystery request paths from mutating schema
+- `770cb25` Improve mystery survey create flow and mobile UX
+- `e9fb98b` Scope mystery drafts to the owning user
+- `7e8d73f` Fix visit reject review timestamp writes
+- `fb24221` Improve sign-out flow and access messages
 
 ## Current Known State At Time Of Writing
 
@@ -280,7 +287,7 @@ Current understanding:
 - B2B analytics endpoints returned `200`
 - B2B dashboard compatibility endpoints returned `200`
 - Mystery analytics endpoints returned `200`
-- Mystery admin visits returned `200`
+- Mystery admin visits returned `200` after runtime schema mutation was removed from request handling
 - Mystery bootstrap, locations, and purposes returned `200` in recent backend logs
 
 ### Confirmed Historical Live Problems
@@ -288,11 +295,29 @@ Current understanding:
 - live dashboard sometimes still showed old JS behavior after newer fixes had been pushed
 - Mystery dashboard could destabilize other platforms after switching
 - Mystery frontend and dashboard could both fail from request storms, timeouts, or old asset behavior
+- Mystery request paths previously ran live DDL and triggered deadlocks under traffic
+- Mystery draft visibility previously broke because draft create and draft list used different user-ID resolution paths
+- Mystery reject actions previously failed because code tried to write a non-existent `rejection_timestamp` column
+- logout could previously trap users in an immediate sign-in loop after sign-out and refresh
+
+### Current Stabilization State
+- platform switching is now protected by abort cleanup and bounded polling in the dashboard shell
+- Mystery request paths no longer mutate schema at runtime
+- Mystery drafts are scoped to the owning user and protected from cross-user access
+- Mystery survey frontend supports a clearer start-vs-load entry flow and better mobile sidebar behavior
+- sign-out now lands users on a stable signed-out state instead of forcing immediate re-login
+- current VM backup automation is cron-based and lives outside the repo deploy path:
+  - cron entry points to `/opt/backups/postgres/backup.sh`
+  - active backup layout uses:
+    - `/opt/backups/postgres/daily/`
+    - `/opt/backups/postgres/weekly/`
+    - `/opt/backups/postgres/monthly/`
 
 ### Current Open Questions
 - whether the latest deployed frontend artifacts on the VM always correspond to the latest pushed source
 - whether any remaining Mystery platform issue is still stale-asset related versus one final live request-path issue
 - whether nginx/browser/proxy/network conditions are contributing to pending/cancelled frontend requests in addition to application logic
+- future work: centralized cross-environment operations monitoring for backup status, health checks, and alert triage remains out of scope for the current runtime
 
 ## Practical Next Debugging Steps If Problems Continue
 1. Verify the currently served JS bundle on the VM and in browser match the expected latest commit.
