@@ -6,45 +6,45 @@ This document shows how the active documentation in this repo fits together, wha
 
 ```mermaid
 flowchart TD
-    INDEX[docs/INDEX.md]\nMain documentation entry point
-    MAP[docs/DOCUMENTATION_MAP.md]\nVisual guide to the docs
+    INDEX["docs/INDEX.md<br/>Main documentation entry point"]
+    MAP["docs/DOCUMENTATION_MAP.md<br/>Visual guide to the docs"]
 
     INDEX --> MAP
-    INDEX --> ARCH[docs/architecture/] 
-    INDEX --> DEPLOY[docs/deployment/]
-    INDEX --> OPS[docs/operations/]
-    INDEX --> FEAT[docs/features/]
-    INDEX --> REF[docs/reference/]
-    INDEX --> DESIGN[docs/design/]
-    INDEX --> ARCHIVE[docs/archive/]
+    INDEX --> ARCH["docs/architecture/"]
+    INDEX --> DEPLOY["docs/deployment/"]
+    INDEX --> OPS["docs/operations/"]
+    INDEX --> FEAT["docs/features/"]
+    INDEX --> REF["docs/reference/"]
+    INDEX --> DESIGN["docs/design/"]
+    INDEX --> ARCHIVE["docs/archive/"]
 
-    OPS --> HANDOVER[HANDOVER_GUIDE.md]
-    OPS --> ENTRA[ENTRA_SESSION_POLICY.md]
-    OPS --> MOPS[MYSTERY_SHOPPER_OPERATIONS_GUIDE.md]
-    OPS --> AISKILL[AI_SKILL_DEPLOYMENT_SOURCE.md]
+    OPS --> HANDOVER["HANDOVER_GUIDE.md"]
+    OPS --> ENTRA["ENTRA_SESSION_POLICY.md"]
+    OPS --> MOPS["MYSTERY_SHOPPER_OPERATIONS_GUIDE.md"]
+    OPS --> AISKILL["AI_SKILL_DEPLOYMENT_SOURCE.md"]
 
-    FEAT --> MYSTERYPLAN[MYSTERY_SHOPPER_IMPLEMENTATION_PLAN.md]
-    FEAT --> MYSTERYLOG[MYSTERY_SHOPPER_AND_PLATFORM_TROUBLESHOOTING_LOG.md]
-    FEAT --> INSTALLPLAN[features/installation/INSTALLATION_ASSESSMENT_PLAN.md]
+    FEAT --> MYSTERYPLAN["MYSTERY_SHOPPER_IMPLEMENTATION_PLAN.md"]
+    FEAT --> MYSTERYLOG["MYSTERY_SHOPPER_AND_PLATFORM_TROUBLESHOOTING_LOG.md"]
+    FEAT --> INSTALLPLAN["features/installation/INSTALLATION_ASSESSMENT_PLAN.md"]
 
-    DEPLOY --> E2E[DEPLOYMENT_END_TO_END_GUIDE.md]
-    DEPLOY --> STAGING[STAGING_CICD_SETUP.md]
-    DEPLOY --> RUNBOOK[ENTERPRISE_DEPLOYMENT_RUNBOOK.md]
+    DEPLOY --> E2E["DEPLOYMENT_END_TO_END_GUIDE.md"]
+    DEPLOY --> STAGING["STAGING_CICD_SETUP.md"]
+    DEPLOY --> RUNBOOK["ENTERPRISE_DEPLOYMENT_RUNBOOK.md"]
 
-    ARCH --> ROLES[role-authorization-matrix.md]
-    ARCH --> TOPO[deployment-topology.md]
-    ARCH --> JWT[jwt-validation-contract.md]
-    ARCH --> VISITS[visit-lifecycle.md]
+    ARCH --> ROLES["role-authorization-matrix.md"]
+    ARCH --> TOPO["deployment-topology.md"]
+    ARCH --> JWT["jwt-validation-contract.md"]
+    ARCH --> VISITS["visit-lifecycle.md"]
 
-    REF --> QB2B[questions-b2b.md]
-    REF --> QINSTALL[questions-installation.md]
-    REF --> QMYSTERY[questions-mystery-shopper.md]
+    REF --> QB2B["questions-b2b.md"]
+    REF --> QINSTALL["questions-installation.md"]
+    REF --> QMYSTERY["questions-mystery-shopper.md"]
 
-    DESIGN --> DSMAP[DESIGN_SYSTEM_MAP.md]
-    DESIGN --> UX[UX DESIGN GUIDE.md]
-    DESIGN --> UI[FRONTEND_UI_UX_STANDARDS.md]
+    DESIGN --> DSMAP["DESIGN_SYSTEM_MAP.md"]
+    DESIGN --> UX["UX DESIGN GUIDE.md"]
+    DESIGN --> UI["FRONTEND_UI_UX_STANDARDS.md"]
 
-    ARCHIVE --> OLD[Historical / superseded material]
+    ARCHIVE --> OLD["Historical / superseded material"]
 ```
 
 ## What Each Section Contains
