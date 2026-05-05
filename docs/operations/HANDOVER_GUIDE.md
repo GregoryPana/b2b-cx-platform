@@ -101,16 +101,23 @@ Technical checks:
 - `/api/health` responds healthy
 - `cwscx-backend` service is active
 - Nginx config test passes
+- staging database container `cwscx-postgres` is up
+- staging database host port `5433` is listening when remote DB access is expected
 
 Backup and recovery checks:
-- database backups are currently created by a VM cron job
-- active script path: `/opt/backups/postgres/backup.sh`
-- active log path: `/opt/backups/postgres/backup.log`
+- staging database backups are currently created by a VM cron job
+- staging active script path: `/opt/backups/postgres/backup.sh`
+- staging active log path: `/opt/backups/postgres/backup.log`
+- staging live database compose source: `/opt/cwscx/docker-compose.yml`
+- staging live database container: `cwscx-postgres`
+- staging live database host port: `5433`
 - backup layout:
   - `/opt/backups/postgres/daily/`
   - `/opt/backups/postgres/weekly/`
   - `/opt/backups/postgres/monthly/`
 - restore-readiness should be verified periodically with `pg_restore --list` and a full restore drill
+
+These paths and runtime details describe the current staging VM only. Production should be documented separately once the live environment is provisioned.
 
 ## 10) Incident handling playbook
 ### Scenario A: Frontend route returns 500 or blank

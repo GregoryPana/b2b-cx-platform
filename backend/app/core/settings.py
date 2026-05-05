@@ -8,6 +8,7 @@ class Settings:
     database_url: str | None
     entra_issuer: str | None
     entra_audience: str | None
+    app_version: str
 
 
 def get_settings() -> Settings:
@@ -16,4 +17,5 @@ def get_settings() -> Settings:
         database_url=os.getenv("DATABASE_URL"),
         entra_issuer=os.getenv("ENTRA_ISSUER"),
         entra_audience=os.getenv("ENTRA_AUDIENCE"),
+        app_version=os.getenv("APP_VERSION", "1.0.0"),
     )

@@ -20,6 +20,24 @@ This is the current deployment runbook for CWSCX staging and production-style de
 - installation survey: `/opt/cwscx/frontends-src/internal-surveys/installation/dist`
 - mystery shopper: `/opt/cwscx/frontends-src/public/mystery-shopper/dist`
 
+## Current staging database runtime
+- live compose file: `/opt/cwscx/docker-compose.yml`
+- compose project: `cwscx`
+- postgres service: `postgres`
+- postgres container: `cwscx-postgres`
+- host port mapping: `5433:5432`
+- named volume: `cwscx_data`
+
+These database runtime details are for the current staging VM. Production may use a different compose file, host layout, port exposure policy, or managed PostgreSQL approach.
+
+Useful verification commands:
+
+```bash
+docker inspect cwscx-postgres --format '{{json .Config.Labels}}'
+docker compose -f /opt/cwscx/docker-compose.yml config
+docker compose -f /opt/cwscx/docker-compose.yml ps
+```
+
 ## Core deployment sequence
 1. build release bundle
 2. archive it in `/opt/cwscx/releases`

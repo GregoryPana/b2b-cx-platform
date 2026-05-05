@@ -3,6 +3,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # Core Platform Imports
@@ -44,6 +45,7 @@ from app.core.auth.dependencies import (
     MYSTERY_ROLES,
     require_roles,
 )
+from app.core.health import readiness_check
 
 
 def create_app() -> FastAPI:
@@ -117,7 +119,20 @@ def create_app() -> FastAPI:
     # Add a simple health endpoint that works without authentication
     @app.get("/health")
     async def health_check():
-        return {"status": "healthy", "platform": "CX Assessment Platform", "mode": environment}
+        payload = readiness_check(environment)
+        status_code = 200 if payload.get("status") == "ready" else 503
+        normalized = {
+            "status": "ok" if payload.get("status") == "ready" else "degraded",
+            "version": payload.get("version"),
+            "checks": payload.get("checks", {}),
+        }
+        return JSONResponse(status_code=status_code, content=normalized)
+
+    @app.get("/health/ready")
+    async def ready_check():
+        payload = readiness_check(environment)
+        status_code = 200 if payload.get("status") == "ready" else 503
+        return JSONResponse(status_code=status_code, content=payload)
     
     # Core Platform Routes
     app.include_router(core_router, prefix="/core", tags=["core"], dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])

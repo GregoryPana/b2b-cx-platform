@@ -59,6 +59,7 @@ Expected baseline:
 ```text
 /opt/cwscx/
   backend/
+  docker-compose.yml
   frontends-src/
   scripts/linux/
   releases/
@@ -96,6 +97,27 @@ Required startup variables include:
 - `ENTRA_ISSUER`
 - `ENTRA_AUDIENCE`
 
+## 6.1) Staging database runtime notes
+
+Current staging database runtime is Docker-based and is managed from:
+
+- compose file: `/opt/cwscx/docker-compose.yml`
+- compose service: `postgres`
+- container name: `cwscx-postgres`
+- host port exposure: `5433 -> 5432`
+
+This is separate from the repo's development compose file `docker-compose.dev.yml`.
+
+These values are specific to the current staging VM and should not be copied into the future production environment without review.
+
+Useful checks:
+
+```bash
+docker inspect cwscx-postgres --format '{{json .Config.Labels}}'
+docker compose -f /opt/cwscx/docker-compose.yml ps
+ss -ltnp | grep 5433
+```
+
 ## 7) First deployment validation
 
 Run `deploy-staging` manually once after setup.
@@ -111,6 +133,7 @@ Success criteria:
   - `/dashboard/`
   - `/surveys/b2b/`
   - `/surveys/installation/`
+  - `/surveys/mystery-shopper/`
   - `/api/health`
 
 ## 8) Data preservation policy
