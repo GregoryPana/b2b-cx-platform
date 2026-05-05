@@ -20,6 +20,10 @@ CWSCX is the Cable & Wireless Seychelles Customer Experience Platform. It combin
 - Platform Architect / Planner
   Start here: `docs/architecture/` -> `docs/features/`
 
+## Visual Guide
+- `docs/DOCUMENTATION_MAP.md`
+  Purpose: Graphical/visual explanation of how the active docs connect, what each section contains, and what order to read them in.
+
 ## Tech Stack At A Glance
 - Frontend: React 18, Vite, Tailwind CSS, MSAL.js, TanStack Table, Recharts
 - Backend: Python, FastAPI, SQLAlchemy 2.0, Alembic, Uvicorn
