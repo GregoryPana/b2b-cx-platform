@@ -80,6 +80,9 @@ def _set_question_position(bind, question_key: str, position: int, has_question_
 
 
 def _resolve_b2b_survey_type_id(bind) -> int | None:
+    if not _has_column(bind, "questions", "survey_type_id"):
+        return None
+
     survey_type_id = bind.execute(
         sa.text("SELECT survey_type_id FROM questions WHERE question_key = 'q16_other_provider_products' LIMIT 1")
     ).scalar()
