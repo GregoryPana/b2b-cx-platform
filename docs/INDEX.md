@@ -58,6 +58,7 @@ CWSCX is the Cable & Wireless Seychelles Customer Experience Platform. It combin
 ### Deployment
 - `docs/deployment/DEPLOYMENT_END_TO_END_GUIDE.md`
 - `docs/deployment/STAGING_CICD_SETUP.md`
+- `docs/deployment/PRODUCTION_CICD_SETUP.md`
 - `docs/deployment/postgres_migration.md`
 - `docs/deployment/installation_database_setup.md`
 - `docs/deployment/ENTERPRISE_DEPLOYMENT_RUNBOOK.md`

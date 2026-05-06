@@ -23,12 +23,15 @@ Deployment means:
 
 ## 2) Trigger points
 
-Primary workflow: `.github/workflows/deploy-staging.yml`
+Primary workflows:
 
-Deploy starts when:
+- staging: `.github/workflows/deploy-staging.yml`
+- production: `.github/workflows/deploy-production.yml`
 
-- code is pushed to `main`, or
-- workflow is run manually (`workflow_dispatch`)
+Deploy starts when explicitly requested:
+
+- staging: workflow is run manually (`workflow_dispatch`)
+- production: workflow is run manually (`workflow_dispatch`)
 
 ## 3) Where each stage runs
 
@@ -42,9 +45,10 @@ Runs on GitHub-hosted runners:
 
 ### Deploy stage
 
-Runs on self-hosted runner on staging VM/network (`runs-on: [self-hosted, linux]`).
+- staging runs on self-hosted runner on the staging VM/network (`runs-on: [self-hosted, linux]`)
+- production runs on self-hosted runner on the production VM/network (`runs-on: [self-hosted, linux, production]`)
 
-This is required because staging VM is private-network only.
+This is required because both target environments are internal-network systems, not internet-exposed SSH targets for GitHub-hosted runners.
 
 ## 4) Step-by-step deployment flow
 
@@ -59,7 +63,7 @@ Deploy job does all of the following before any build:
 
 Purpose: ensures deploy always uses exact GitHub commit, not stale local files.
 
-### Step B: Build release bundle on VM runner
+### Step B: Build release bundle on runner
 
 Script: `scripts/linux/build_release_bundle.sh`
 
@@ -86,7 +90,7 @@ release/
 
 ### Step C: Archive release zip
 
-Workflow copies generated zip into:
+Workflow copies generated zip into the local target root on the runner host:
 
 - `/opt/cwscx/releases/cwscx-release-<release-id>.zip`
 
@@ -174,6 +178,8 @@ Runner user must have:
 - write access to `/opt/cwscx`
 - passwordless sudo for deployment actions needing root
 
+Production runner should also have the `production` label in GitHub Actions if the production workflow uses `runs-on: [self-hosted, linux, production]`.
+
 Common required binaries:
 
 - `systemctl`
@@ -219,6 +225,7 @@ If deployment works, users should see the new screens or fixes without needing a
 - post-deploy smoke tests completed
 - release zip retained in `/opt/cwscx/releases`
 - rollback candidate identified
+- production self-hosted runner online and healthy
 
 ## 11) What this flow explicitly does not do
 

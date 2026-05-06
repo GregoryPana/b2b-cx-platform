@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SITE_FILE="/etc/nginx/sites-available/cwscx-staging"
-LINK_FILE="/etc/nginx/sites-enabled/cwscx-staging"
+SITE_NAME="${SITE_NAME:-cwscx-staging}"
+SITE_FILE="/etc/nginx/sites-available/${SITE_NAME}"
+LINK_FILE="/etc/nginx/sites-enabled/${SITE_NAME}"
 
 SERVER_NAME="${SERVER_NAME:-cwscx-tst01.cwsey.com}"
 SSL_CERTIFICATE="${SSL_CERTIFICATE:-/etc/ssl/cwscx/cwscx.crt}"

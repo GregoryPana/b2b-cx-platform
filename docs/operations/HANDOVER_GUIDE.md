@@ -45,7 +45,7 @@ The CWSCX platform helps Cable and Wireless Seychelles collect, review, and mana
 - Auth: Microsoft Entra bearer token validation
 - Reverse proxy: Nginx
 - Runtime control: systemd services
-- CI/CD: GitHub Actions + self-hosted runner on staging network
+- CI/CD: GitHub Actions + self-hosted runners on internal network (staging and production)
 
 ## 5) Environment and architecture
 ### Staging
@@ -83,7 +83,7 @@ Typical installation cycle:
 ## 8) Deployment lifecycle (high-level)
 1. code is merged to `main`
 2. CI checks run (backend tests, frontend builds)
-3. deploy job runs on self-hosted runner
+3. deploy job is triggered manually and runs on self-hosted runner
 4. release bundle is built and installed
 5. backend, frontends, nginx updated
 6. verification checks run

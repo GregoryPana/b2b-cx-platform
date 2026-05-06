@@ -3,13 +3,24 @@ name: deploy-production
 on:
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
-  deploy:
+  changes:
     runs-on: ubuntu-latest
-    environment: production
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      dashboard: ${{ steps.changes.outputs.dashboard }}
+      surveys: ${{ steps.changes.outputs.surveys }}
+      mystery: ${{ steps.changes.outputs.mystery }}
+      infra: ${{ steps.changes.outputs.infra }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
 
       - name: Detect changed components
         id: changes
@@ -32,6 +43,68 @@ jobs:
               - '.github/workflows/**'
               - 'ENTERPRISE_DEPLOYMENT_RUNBOOK.md'
 
+  deploy:
+    runs-on: [self-hosted, linux, production]
+    environment: production
+    needs: changes
+    env:
+      RELEASE_ID: production-${{ github.run_number }}-${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Sync workspace to triggering commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git cat-file -e "${GITHUB_SHA}^{commit}" 2>/dev/null; then
+            echo "Commit ${GITHUB_SHA} already present in local checkout."
+          else
+            FETCH_OK="false"
+            for attempt in 1 2 3 4 5; do
+              if git fetch --all --tags --prune; then
+                FETCH_OK="true"
+                break
+              fi
+              echo "git fetch failed (attempt ${attempt}/5); retrying in $((attempt * 3))s..."
+              sleep $((attempt * 3))
+            done
+
+            if [[ "${FETCH_OK}" != "true" ]]; then
+              echo "::error::git fetch failed after retries."
+              exit 1
+            fi
+          fi
+
+          git checkout --force "${GITHUB_SHA}"
+          git clean -ffdx
+          echo "Deploying commit: $(git rev-parse --short HEAD)"
+
+      - name: Validate workspace sources for build
+        shell: bash
+        run: |
+          set -euo pipefail
+          REQUIRED_PATHS=(
+            "backend/app/main.py"
+            "backend/requirements.txt"
+            "frontend/dashboard-blueprint/package.json"
+            "frontend/mystery-shopper/package.json"
+            "frontend/survey/package.json"
+            "frontend/installation-survey/package.json"
+            "scripts/linux/build_release_bundle.sh"
+            "scripts/linux/install_release_bundle.sh"
+          )
+
+          for path in "${REQUIRED_PATHS[@]}"; do
+            if [[ ! -e "${path}" ]]; then
+              echo "::error::Missing required source path in runner workspace: ${path}"
+              exit 1
+            fi
+          done
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -43,84 +116,93 @@ jobs:
           python-version: "3.11"
 
       - name: Build release bundle
-        shell: pwsh
+        shell: bash
         env:
-          BUILD_BACKEND: ${{ steps.changes.outputs.backend == 'true' || steps.changes.outputs.infra == 'true' }}
-          BUILD_DASHBOARD: ${{ steps.changes.outputs.dashboard == 'true' || steps.changes.outputs.infra == 'true' }}
-          BUILD_SURVEYS: ${{ steps.changes.outputs.surveys == 'true' || steps.changes.outputs.infra == 'true' }}
-          BUILD_MYSTERY_SHOPPER: ${{ steps.changes.outputs.mystery == 'true' || steps.changes.outputs.infra == 'true' }}
+          BUILD_BACKEND: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.infra == 'true' }}
+          BUILD_DASHBOARD: ${{ needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.infra == 'true' }}
+          BUILD_SURVEYS: ${{ needs.changes.outputs.surveys == 'true' || needs.changes.outputs.infra == 'true' }}
+          BUILD_MYSTERY_SHOPPER: ${{ needs.changes.outputs.mystery == 'true' || needs.changes.outputs.infra == 'true' }}
         run: |
-          pwsh -ExecutionPolicy Bypass -File .\scripts\windows\build_release_bundle.ps1 -OutputZip $env:RUNNER_TEMP\cwscx-release.zip
+          bash scripts/linux/build_release_bundle.sh "${RUNNER_TEMP}/cwscx-release.zip"
 
-      - name: Upload release bundle to VM
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          source: ${{ runner.temp }}/cwscx-release.zip
-          target: /tmp/
-
-      - name: Install and deploy on VM
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Install and deploy on production VM (local runner)
+        shell: bash
         env:
-          BUILD_BACKEND: ${{ steps.changes.outputs.backend == 'true' || steps.changes.outputs.infra == 'true' }}
-          BUILD_DASHBOARD: ${{ steps.changes.outputs.dashboard == 'true' || steps.changes.outputs.infra == 'true' }}
-          BUILD_SURVEYS: ${{ steps.changes.outputs.surveys == 'true' || steps.changes.outputs.infra == 'true' }}
-          BUILD_MYSTERY_SHOPPER: ${{ steps.changes.outputs.mystery == 'true' || steps.changes.outputs.infra == 'true' }}
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          envs: BUILD_BACKEND,BUILD_DASHBOARD,BUILD_SURVEYS,BUILD_MYSTERY_SHOPPER
-          script: |
-            set -euo pipefail
+          RELEASE_ID: ${{ env.RELEASE_ID }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
 
-            TARGET_ROOT="${{ secrets.PROD_PATH }}"
-            if [[ -z "${TARGET_ROOT}" ]]; then
-              echo "Missing PROD_PATH secret"
-              exit 1
-            fi
+          TARGET_ROOT="/opt/cwscx"
+          if [[ ! -w "${TARGET_ROOT}" ]]; then
+            echo "::error::Runner user cannot write to ${TARGET_ROOT}. Run: sudo chown -R $(whoami):www-data ${TARGET_ROOT}"
+            exit 1
+          fi
 
-            sudo mkdir -p "${TARGET_ROOT}"
-            sudo chown -R "${USER}:www-data" "${TARGET_ROOT}" || true
+          if ! sudo -n /usr/bin/systemctl --version >/dev/null 2>&1 && ! sudo -n /bin/systemctl --version >/dev/null 2>&1; then
+            echo "::error::Passwordless sudo for systemctl is required for deploy."
+            exit 1
+          fi
 
-            cd "${TARGET_ROOT}"
+          if ! sudo -n /usr/bin/bash -lc 'exit 0' >/dev/null 2>&1 && ! sudo -n /bin/bash -lc 'exit 0' >/dev/null 2>&1; then
+            echo "::error::Passwordless sudo for bash is required to run deploy scripts as root."
+            exit 1
+          fi
 
-            TS="$(date +%Y%m%d-%H%M%S)"
-            mkdir -p "${TARGET_ROOT}/releases"
-            cp -f /tmp/cwscx-release.zip "${TARGET_ROOT}/releases/cwscx-release-${TS}.zip"
+          TS="$(date +%Y%m%d-%H%M%S)"
+          SAFE_RELEASE_ID="${RELEASE_ID:-production-${TS}}"
+          mkdir -p "${TARGET_ROOT}/releases"
+          NEW_BUNDLE="${TARGET_ROOT}/releases/cwscx-release-${SAFE_RELEASE_ID}.zip"
+          cp -f "${RUNNER_TEMP}/cwscx-release.zip" "${NEW_BUNDLE}"
 
+          PREV_BUNDLE="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip 2>/dev/null | grep -v "${SAFE_RELEASE_ID}" | head -n1 || true)"
+
+          deploy_release() {
             ls -lt "${TARGET_ROOT}/releases" | head
             LATEST_ZIP="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip | head -n1)"
             echo "${LATEST_ZIP}"
-            unzip -l "${LATEST_ZIP}" | grep -E "dashboard/dist/assets/index|internal-surveys/b2b/dist/assets/index|internal-surveys/installation/dist/assets/index"
-
+            unzip -l "${LATEST_ZIP}" | grep -E "dashboard/dist/assets/index|internal-surveys/b2b/dist/assets/index|internal-surveys/installation/dist/assets/index|public/mystery-shopper/dist/assets/index"
             sudo bash scripts/linux/install_release_bundle.sh "${LATEST_ZIP}"
 
-            if [[ -f docker-compose.yml ]]; then
-              docker compose up -d
+            if [[ -f "${TARGET_ROOT}/docker-compose.yml" ]]; then
+              docker compose -f "${TARGET_ROOT}/docker-compose.yml" up -d
             fi
 
-            if [[ "${BUILD_BACKEND:-false}" == "True" || "${BUILD_BACKEND:-false}" == "true" || "${BUILD_BACKEND:-false}" == "1" ]]; then
-              bash scripts/linux/deploy_backend.sh
-            else
-              echo "Skipping backend deploy (no backend changes)."
-            fi
-
-            if [[ "${BUILD_DASHBOARD:-false}" == "True" || "${BUILD_DASHBOARD:-false}" == "true" || "${BUILD_DASHBOARD:-false}" == "1" || \
-                  "${BUILD_SURVEYS:-false}" == "True" || "${BUILD_SURVEYS:-false}" == "true" || "${BUILD_SURVEYS:-false}" == "1" || \
-                  "${BUILD_MYSTERY_SHOPPER:-false}" == "True" || "${BUILD_MYSTERY_SHOPPER:-false}" == "true" || "${BUILD_MYSTERY_SHOPPER:-false}" == "1" ]]; then
-              bash scripts/linux/deploy_frontends.sh
-            else
-              echo "Skipping frontend validation (no frontend changes)."
-            fi
-
-            sudo bash scripts/linux/deploy_nginx.sh
+            bash scripts/linux/deploy_backend.sh
+            bash scripts/linux/deploy_frontends.sh
+            SERVER_NAME="cwscx-app01.cwsey.com" SITE_NAME="cwscx-production" sudo bash scripts/linux/deploy_nginx.sh
 
             ls -la "${TARGET_ROOT}/frontends-src/dashboard/dist/assets"
             ls -la "${TARGET_ROOT}/frontends-src/internal-surveys/b2b/dist/assets"
             ls -la "${TARGET_ROOT}/frontends-src/internal-surveys/installation/dist/assets"
-
-            curl -fsS http://127.0.0.1:8000/health
+            ls -la "${TARGET_ROOT}/frontends-src/public/mystery-shopper/dist/assets"
             sudo nginx -t
+            curl -fsS http://127.0.0.1:8000/health
+            if [[ -n "${PRODUCTION_BASE_URL:-}" ]]; then
+              curl -kfsS "${PRODUCTION_BASE_URL}/api/health" >/dev/null
+            fi
+          }
+
+          rollback_release() {
+            if [[ -z "${PREV_BUNDLE}" || ! -f "${PREV_BUNDLE}" ]]; then
+              echo "No previous release bundle available for rollback."
+              return
+            fi
+
+            echo "Rolling back using ${PREV_BUNDLE}"
+            sudo bash scripts/linux/install_release_bundle.sh "${PREV_BUNDLE}"
+            if [[ -f "${TARGET_ROOT}/docker-compose.yml" ]]; then
+              docker compose -f "${TARGET_ROOT}/docker-compose.yml" up -d || true
+            fi
+            bash scripts/linux/deploy_backend.sh || true
+            bash scripts/linux/deploy_frontends.sh || true
+            SERVER_NAME="cwscx-app01.cwsey.com" SITE_NAME="cwscx-production" sudo bash scripts/linux/deploy_nginx.sh || true
+          }
+
+          if deploy_release; then
+            echo "Production deploy succeeded."
+          else
+            echo "Production deploy failed. Initiating rollback."
+            rollback_release
+            exit 1
+          fi

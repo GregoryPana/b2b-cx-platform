@@ -11,7 +11,7 @@ Use this document when:
 ## 1) Deployment model summary
 
 - workflow: `.github/workflows/deploy-staging.yml`
-- trigger: push to `main` or manual run
+- trigger: manual only (`workflow_dispatch`)
 - CI jobs run on GitHub-hosted runners
 - deploy job runs on self-hosted Linux runner in staging network
 - deployment is local on VM (no SCP from developer machine)

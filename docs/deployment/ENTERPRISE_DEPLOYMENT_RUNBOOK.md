@@ -13,6 +13,7 @@ This is the current deployment runbook for CWSCX staging and production-style de
 - staging deploys from `.github/workflows/deploy-staging.yml`
 - production deploys from `.github/workflows/deploy-production.yml`
 - both flows use release bundles and path-based routing
+- both environments now assume internal self-hosted runners rather than public GitHub-hosted SSH/SCP access to target VMs
 
 ## Expected internal frontend paths
 - dashboard: `/opt/cwscx/frontends-src/dashboard/dist`
@@ -47,3 +48,11 @@ docker compose -f /opt/cwscx/docker-compose.yml ps
 6. deploy frontends
 7. deploy nginx
 8. verify health and routes
+
+## Production runner model
+- production runner should be installed on the Application Frontend VM (`cwscx-app01`) or another internal VM that can reach it locally
+- recommended labels:
+  - `self-hosted`
+  - `linux`
+  - `production`
+- production deploy should run locally on the internal runner, not via public GitHub-hosted SCP/SSH actions

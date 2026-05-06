@@ -6,6 +6,7 @@
 This tracker covers four parallel workstreams. Workstream 3 (production cutover) is gated by completion of Workstreams 1 and 2. Workstream 4 is independent.
 
 **Status legend:**
+
 - `[ ]` Not started
 - `[~]` In progress
 - `[x]` Complete
@@ -21,16 +22,16 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 
 ### 1.1 Resolve `[DTO LEAD CONFIRM]` decisions in EXIT-CONVENTIONS.md
 
-| Task | Status | Decision Recorded |
-|---|---|---|
-| Section 1.4 — Security patch SLA window for HIGH/CRITICAL CVEs | [ ] | |
-| Section 2.4 — Conventional Commits as commit format (yes/no) | [ ] | |
-| Section 2.5 — Squash vs rebase vs merge commits | [ ] | |
-| Section 2.6 — Repository licence policy | [ ] | |
-| Section 3.1 — Python line length (88, 100, 120) | [ ] | |
-| Section 3.5 — Docstring style (Google, NumPy, reST) | [ ] | |
-| Section 5 — JSON field naming (snake_case vs camelCase) | [ ] | |
-| Section 11.2 — Certificate management approach | [ ] | |
+| Task                                                            | Status | Decision Recorded |
+| --------------------------------------------------------------- | ------ | ----------------- |
+| Section 1.4 — Security patch SLA window for HIGH/CRITICAL CVEs | [ ]    |                   |
+| Section 2.4 — Conventional Commits as commit format (yes/no)   | [ ]    |                   |
+| Section 2.5 — Squash vs rebase vs merge commits                | [ ]    |                   |
+| Section 2.6 — Repository licence policy                        | [ ]    |                   |
+| Section 3.1 — Python line length (88, 100, 120)                | [ ]    |                   |
+| Section 3.5 — Docstring style (Google, NumPy, reST)            | [ ]    |                   |
+| Section 5 — JSON field naming (snake_case vs camelCase)        | [ ]    |                   |
+| Section 11.2 — Certificate management approach                 | [ ]    |                   |
 
 **Verification:** All eight items resolved. Section 17.5 of EXIT-CONVENTIONS.md updated with decisions and confirmation date. Section 17.4 version history entry added.
 
@@ -73,105 +74,111 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 
 ### 2.1 Pre-flight checks on DB VM
 
-- [x] SSH access confirmed for DTO Lead
-- [x] Hostname and internal IP recorded in DTO infrastructure documentation
-- [x] Ubuntu version confirmed (24.04 LTS)
-- [ ] Disk space confirmed sufficient (minimum 50 GB free)
+- [X] SSH access confirmed for DTO Lead
+- [X] Hostname and internal IP recorded in DTO infrastructure documentation
+- [X] Ubuntu version confirmed (24.04 LTS)
+- [X] Disk space confirmed sufficient (minimum 50 GB free)
 - [ ] Internal DNS records: `monitoring.cws.internal` and `pgadmin.cws.internal` requested (or alternative naming) and provisioned
-- [ ] Firewall rules confirmed: inbound 3001 (Uptime Kuma) and 5050 (pgAdmin) from internal network only
-- [x] Outbound connectivity from DB VM to staging VM on port 5433 (Postgres) confirmed via `nc -zv`
-- [x] Outbound connectivity from DB VM to staging VM on port 80/443 (HTTP) confirmed
-- [ ] Outbound connectivity from DB VM to SMTP relay (for email alerts) confirmed
+- [X] Firewall rules confirmed: inbound 3001 (Uptime Kuma) and 5050 (pgAdmin) from internal network only
+- [X] Outbound connectivity from DB VM to staging VM on port 5433 (Postgres) confirmed via `nc -zv`
+- [X] Outbound connectivity from DB VM to staging VM on port 80/443 (HTTP) confirmed
+- [X] Outbound connectivity from DB VM to SMTP relay (for email alerts) confirmed
 - [ ] Outbound connectivity from DB VM to Microsoft Teams webhook URL confirmed (if Teams alerting used)
 
 ### 2.2 Software prerequisites
 
-- [x] Docker Engine installed (version recorded)
-- [x] Docker Compose v2 plugin installed and confirmed (`docker compose version`)
+- [X] Docker Engine installed (version recorded)
+- [X] Docker Compose v2 plugin installed and confirmed (`docker compose version`)
 - [ ] User `dto-ops` (or chosen service user) created and added to `docker` group
-- [x] System time synchronised (NTP/chrony confirmed running)
-- [ ] Timezone switched to `Indian/Mahe`
+- [X] System time synchronised (NTP/chrony confirmed running)
+- [X] Timezone switched to `Indian/Mahe`
 
 ### 2.3 Application code changes (separate workstream — see HEALTH_ENDPOINT_SPEC.md)
 
-- [x] Specification provided to AI agent working on application codebase
-- [x] AI agent confirms current state of health endpoint (exists / does not exist / partial)
-- [x] `/health` implemented per current no-versioning contract and exposed publicly as `/api/health`
-- [x] `/health/ready` readiness alias implemented and exposed publicly as `/api/health/ready`
-- [x] Endpoint changes committed and pushed for staging deploy
+- [X] Specification provided to AI agent working on application codebase
+- [X] AI agent confirms current state of health endpoint (exists / does not exist / partial)
+- [X] `/health` implemented per current no-versioning contract and exposed publicly as `/api/health`
+- [X] `/health/ready` readiness alias implemented and exposed publicly as `/api/health/ready`
+- [X] Endpoint changes committed and pushed for staging deploy
+
 - [~] Endpoint validation from observability VM in progress
-- [x] Endpoint accessible without authentication
+
+- [X] Endpoint accessible without authentication
 
 ### 2.4 Deploy Uptime Kuma and pgAdmin
 
-- [x] observability working directory created on DB VM with appropriate ownership
-- [x] `docker-compose.yml` placed (per setup guide)
-- [x] `.env` file created with non-default credentials for pgAdmin
-- [x] Persistent volume directories created and ownership set
-- [x] `docker compose up -d` executed
-- [x] Both containers reach healthy state
-- [x] Logs reviewed for errors: `docker compose logs --tail=100`
+- [X] observability working directory created on DB VM with appropriate ownership
+- [X] `docker-compose.yml` placed (per setup guide)
+- [X] `.env` file created with non-default credentials for pgAdmin
+- [X] Persistent volume directories created and ownership set
+- [X] `docker compose up -d` executed
+- [X] Both containers reach healthy state
+- [X] Logs reviewed for errors: `docker compose logs --tail=100`
 
 ### 2.5 Uptime Kuma initial configuration
 
-- [x] Web UI accessed via internal network
-- [x] Initial admin account created (strong password, recorded in secret store)
-- [x] First monitor created: staging application `/api/health`
-  - [x] Monitor type: HTTP(s)
-  - [x] URL configured
-  - [x] Method: GET
-  - [x] Expected status code: 200
-  - [x] Heartbeat interval: 60 seconds
-  - [x] Retry on failure: 3
-  - [x] Request timeout: 10 seconds
-- [ ] Second monitor created: staging application `/api/health/ready`
-- [ ] Frontend route monitors created for all four SPA paths
-- [ ] Notification channel configured: email or Teams webhook
-- [ ] Notification channel attached to staging monitor
-- [ ] Status page created (optional but recommended): displays staging app status
+- [X] Web UI accessed via internal network
+- [X] Initial admin account created (strong password, recorded in secret store)
+- [X] First monitor created: staging application `/api/health`
+  - [X] Monitor type: HTTP(s)
+  - [X] URL configured
+  - [X] Method: GET
+  - [X] Expected status code: 200
+  - [X] Heartbeat interval: 60 seconds
+  - [X] Retry on failure: 3
+  - [X] Request timeout: 10 seconds
+- [X] Second monitor created: staging application `/api/health/ready`
+- [X] Frontend route monitors created for all four SPA paths
+- [X] Notification channel configured: email
+- [X] Notification channel attached to staging monitor
+- [X] Status page created (optional but recommended): displays staging app status
 
 ### 2.6 Uptime Kuma alert validation
 
-- [ ] Kill test: stop staging application container, observe Uptime Kuma transitions to DOWN within 3 minutes
-- [ ] Down notification received via configured channel
-- [ ] Recovery test: restart staging application container, observe Uptime Kuma transitions to UP
-- [ ] Recovery notification received
-- [ ] Test results documented (date, observed times)
+- [X] Kill test: stop staging application container, observe Uptime Kuma transitions to DOWN within 3 minutes
+- [X] Down notification received via configured channel
+- [X] Recovery test: restart staging application container, observe Uptime Kuma transitions to UP
+- [X] Recovery notification received
+- [X] Test results documented (2026-05-06, 08:55 AM)
 
 ### 2.7 pgAdmin initial configuration
 
-- [ ] Web UI accessed via internal network
-- [ ] Login with credentials from `.env`
-- [ ] Master password set (recorded in secret store)
-- [ ] First server connection created: staging Postgres
-  - [ ] Hostname/IP: `172.17.1.213`
-  - [ ] Port: `5433`
-  - [ ] Database: `cwscx-postgres`
-  - [ ] Username: `cxadmin` (current staging credential)
-  - [ ] Connection saved with name: `staging-cwscx-postgres`
-- [ ] Test query executed successfully: `SELECT current_database(), current_user;`
-- [ ] Decision made on existing pgAdmin on staging VM: remove / keep as fallback / leave unchanged
+- [X] Web UI accessed via internal network
+- [X] Login with credentials from `.env`
+- [X] Master password set (recorded in secret store)
+- [X] First server connection created: staging Postgres
+  - [X] Hostname/IP: `172.17.1.213`
+  - [X] Port: `5433`
+  - [X] Database: `cwscx-postgres`
+  - [X] Username: `cxadmin` (current staging credential)
+  - [X] Connection saved with name: `staging-cwscx-postgres`
+- [X] Test query executed successfully: `SELECT current_database(), current_user;`
+- [X] Decision made on existing pgAdmin on staging VM: keep as fallback
 
 ### 2.8 Operational documentation
 
-- [ ] `/opt/observability/README.md` written covering:
-  - [ ] What runs on this VM
-  - [ ] How to access each tool
-  - [ ] How to add a new monitor when production app comes up
-  - [ ] How to add a new pgAdmin server connection
-  - [ ] Backup procedure for `/opt/observability/data/`
-- [ ] Backup script for Uptime Kuma and pgAdmin volumes scheduled (cron or systemd timer)
-- [ ] First backup run successfully and verified
+- [X] `/opt/observability/README.md` written covering:
+  - [X] What runs on this VM
+  - [X] How to access each tool
+  - [X] How to add a new monitor when production app comes up
+  - [X] How to add a new pgAdmin server connection
+  - [X] Backup procedure for `/opt/observability/data/`
+- [X] Backup script for Uptime Kuma and pgAdmin volumes scheduled (cron or systemd timer)
+- [X] First backup run successfully and verified
 
 ### 2.9 Current progress note
 
-- [x] Uptime Kuma installed on observability VM
-- [x] pgAdmin installed on observability VM
-- [x] First staging monitor for `/api/health` created in Kuma
-- [ ] Continue from next practical step:
-  - create `/api/health/ready` monitor
-  - create frontend route monitors
-  - complete pgAdmin first login and register the staging PostgreSQL server
+- [X] Uptime Kuma installed on observability VM
+- [X] pgAdmin installed on observability VM
+- [X] First staging monitor for `/api/health` created in Kuma
+- [X] Staging readiness monitor for `/api/health/ready` created in Kuma
+- [X] Frontend route monitors created for all four SPA paths
+- [X] Email notification configured and validated for down and recovery alerts
+- [X] pgAdmin master password set and staging database connection verified
+- [X] Observability VM README created on the VM
+- [~] Continue from next practical step:
+  - confirm DNS naming decision for observability URLs
+  - decide whether to add Teams notifications in addition to email
 
 **Verification:** Staging application monitoring is live, alert routing tested end-to-end, pgAdmin successfully querying staging database.
 
@@ -211,23 +218,24 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 
 ### 3.2 Application Frontend VM preparation
 
-- [ ] Docker Engine and Compose v2 installed and version recorded
+- [X] Docker Engine and Compose v2 installed and version recorded
 - [ ] Service user `app-svc` (or chosen name) created, non-root, in `docker` group
 - [ ] Directory structure created: `/opt/{app_name}/{compose,data,logs,backups}`
 - [ ] Internal DNS record `{app_name}.cws.internal` pointing to Application Frontend VM
-- [ ] TLS certificate provisioned (internal CA / Let's Encrypt / self-signed per current standard)
+- [X] TLS certificate provisioned (internal CA / Let's Encrypt / self-signed per current standard)
 - [ ] NGINX configuration prepared for TLS termination + reverse proxy
 - [ ] Firewall rules confirmed:
   - [ ] Inbound 443 from internal network only
   - [ ] Outbound to Entra ID OIDC endpoints
   - [ ] Outbound to internal SMTP relay (if app sends email)
   - [ ] No other egress
-- [ ] Production `.env` file placed at `/opt/{app_name}/.env`, mode 600, owned by service user
+- [X] Production `.env` file placed at `/opt/{app_name}/.env`, mode 600, owned by service user
 - [ ] All secrets in `.env` confirmed not present anywhere in git history
+- [ ] Self-hosted production GitHub Actions runner installed and online with `production` label
 
 ### 3.3 Database preparation
 
-- [ ] PostgreSQL container configuration matches staging (version, extensions, locale)
+- [X] PostgreSQL container configuration matches staging (version, extensions, locale)
 - [ ] Backup tool configured (pgBackRest or pg_dump cron)
 - [ ] Backup destination confirmed (NOT the same VM)
 - [ ] Backup schedule active and verified with first successful run
@@ -306,6 +314,7 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 ### 4.2 Repository standardisation against EXIT-CONVENTIONS.md
 
 For each existing repository:
+
 - [ ] README.md present and current
 - [ ] EXIT.md present (minimum viable — full version per Workstream 3 pattern)
 - [ ] `.env.example` documents every environment variable

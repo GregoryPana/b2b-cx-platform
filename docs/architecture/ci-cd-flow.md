@@ -14,8 +14,8 @@
 - validate release bundle structure
 
 ## CD
-- `main` -> staging deployment through self-hosted runner
-- production deployment -> manual workflow dispatch and approval
+- staging deployment -> manual workflow dispatch through self-hosted runner
+- production deployment -> manual workflow dispatch through self-hosted runner
 
 ## Deployment Model
 - the exact commit is checked out on the runner
