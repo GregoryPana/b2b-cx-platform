@@ -49,9 +49,9 @@ class EntraTokenValidator:
         self.tenant_id = os.getenv("ENTRA_TENANT_ID", "97df7dc2-f178-4ce4-b55e-bcafc144485e")
         authority = os.getenv("ENTRA_AUTHORITY", f"https://login.microsoftonline.com/{self.tenant_id}").rstrip("/")
 
-        self.expected_issuer = os.getenv("ENTRA_ISSUER", f"{authority}/v2.0")
+        self.expected_issuer = (os.getenv("ENTRA_ISSUER") or f"{authority}/v2.0").rstrip("/")
         self.expected_audiences = self._resolve_audiences()
-        self.jwks_url = os.getenv("ENTRA_JWKS_URL", f"{authority}/discovery/v2.0/keys")
+        self.jwks_url = (os.getenv("ENTRA_JWKS_URL") or f"{authority}/discovery/v2.0/keys").strip()
         self.jwks_timeout_seconds = int(os.getenv("ENTRA_JWKS_TIMEOUT_SECONDS", "5"))
         allow_unverified_raw = os.getenv("ENTRA_ALLOW_STAGING_UNVERIFIED_TOKENS", "true")
         self.allow_staging_unverified_tokens = allow_unverified_raw.strip().lower() in {"1", "true", "yes"}
