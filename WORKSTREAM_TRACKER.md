@@ -237,8 +237,8 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 
 - [X] PostgreSQL container configuration matches staging (version, extensions, locale)
 - [X] Backup tool configured (pg_dump cron / staging-style local pattern)
-- [ ] Backup destination confirmed (NOT the same VM)
-- [ ] Backup schedule active and verified with first successful run
+- [!] Backup destination confirmed (NOT the same VM)
+- [X] Backup schedule active and verified with first successful run
 - [X] Restore procedure tested at least once before relying on it
 - [X] Restore test result recorded in EXIT.md Section 8
 
@@ -253,16 +253,27 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 - [ ] Smoke tests executed:
   - [X] Application loads
   - [X] Authentication works (Entra ID redirect successful)
-  - [ ] Critical user paths exercised (list specific paths in EXIT.md)
+  - [X] Critical user paths exercised (list specific paths in EXIT.md)
   - [X] Database queries return expected data
 - [X] DNS confirmed resolving correctly
 - [X] TLS certificate valid and trusted by internal browsers
 
+### 3.4.1 Production data baseline sanitisation
+
+- [X] Fresh pre-sanitisation production backup taken
+- [X] Production transactional data cleared
+- [X] Reference/configuration tables preserved
+- [X] Legacy B2B response rows confirmed cleared
+- [X] Post-sanitisation verification query completed successfully
+- [X] Production baseline now reflects a clean first-use data state
+
 ### 3.5 Production monitoring activation
 
-- [ ] Uptime Kuma — production monitor added for `https://cwscx-app01.cwsey.com/api/health`
-- [ ] Production monitor configured with same intervals and retries as staging
-- [ ] Notification channel attached to production monitor
+- [X] Uptime Kuma — production monitor added for `https://cwscx-app01.cwsey.com/api/health`
+- [X] Production monitor configured with same intervals and retries as staging
+- [X] Notification channel attached to production monitor
+- [X] Production SPA route monitors added
+- [X] Production database TCP monitor added
 - [X] pgAdmin — production server connection added on DB VM
 - [X] Connection name: `production-cwscx-postgres`
 - [X] Test query executed successfully on production
@@ -282,12 +293,12 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 - [ ] Go-live communicated to application users
 - [ ] DTO team notified that production monitoring is active
 - [ ] Risk register updated with any new observations
-- [ ] EXIT.md Section 21 version history updated with go-live date
+- [X] EXIT.md Section 21 version history updated with go-live date
 - [ ] Lessons learned captured for second application cutover
 
 **Verification:** Application stable in production for 24 hours, monitoring functioning, EXIT.md current.
 
-**Current note:** Production infrastructure deployment succeeded on 2026-05-07, health endpoints are healthy, SPA routes are reachable, authenticated dashboard/API flows are working, and database connectivity from the observability VM works.
+**Current note:** Production infrastructure deployment succeeded on 2026-05-07, health endpoints are healthy, SPA routes are reachable, authenticated dashboard/API flows are working, database connectivity from the observability VM works, production local DB backup is configured and verified, the production data set has been sanitised to a clean first-use baseline, and production Uptime Kuma monitoring is active for backend, SPA routes, and database reachability. Remaining hardening step: move production backups off the same VM when infrastructure permits.
 
 ---
 

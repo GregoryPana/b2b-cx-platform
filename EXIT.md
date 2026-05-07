@@ -14,9 +14,9 @@
 
 **Production URL (internal):** `https://cwscx-app01.cwsey.com`
 
-**Status:** Active in staging, preparing for production cutover.
+**Status:** Deployed to production baseline infrastructure; authenticated API flow remediation still in progress.
 
-**Date of first production deployment:** Not yet deployed to production.
+**Date of first production deployment:** 2026-05-07
 
 **Date this EXIT.md was last fully reviewed:** 2026-05-06
 
@@ -259,10 +259,16 @@ Any future cleanup should reduce these deviations rather than expand them.
   - `/opt/backups/postgres/daily/`
   - `/opt/backups/postgres/weekly/`
   - `/opt/backups/postgres/monthly/`
-- Production backup target: not yet finalized in this document and must be set before cutover
+- Production tool: VM-local backup script at `/opt/backups/postgres/backup.sh`
+- Production schedule: cron-driven (`0 2 * * * /opt/backups/postgres/backup.sh >> /opt/backups/postgres/backup.log 2>&1`)
+- Production retention layout:
+  - `/opt/backups/postgres/daily/`
+  - `/opt/backups/postgres/weekly/`
+  - `/opt/backups/postgres/monthly/`
+- Production backup target: currently local to the production VM; should be moved off-VM as a later hardening step
 - RPO target: Not yet finalized. Must be agreed before production cutover.
 - RTO target: Not yet finalized. Must be agreed before production cutover.
-- Last successful restore test: current staging dump readability and operational backup verification completed; full production-grade restore drill still needs formal documentation
+- Last successful restore test: production bootstrap validated by restoring a staging backup into the production database before first successful deployment (2026-05-07)
 
 **Restore procedure:**
 Current reference material exists in:
@@ -454,6 +460,13 @@ Current deploy flow packages a release zip rather than publishing OCI images as 
 **Current observability host:**
 - `cwscx-sql01` / `cwscx-sql01.cwsey.com` / `172.17.1.212`
 
+**Current production baseline health state (2026-05-07):**
+- `https://cwscx-app01.cwsey.com/api/health` returns healthy
+- `https://cwscx-app01.cwsey.com/api/health/ready` returns healthy
+- production DB port `5433` is reachable from observability VM
+- production SPA routes respond over HTTPS
+- authenticated dashboard/API calls are now working
+
 **Current staging monitors:**
 - `staging-api-health`
 - `staging-api-ready`
@@ -462,6 +475,18 @@ Current deploy flow packages a release zip rather than publishing OCI images as 
 - `staging-installation-route`
 - `staging-mystery-route`
 - `staging-postgres-tcp`
+
+**Current production monitors / connections completed so far:**
+- production pgAdmin database connection is configured on the observability VM:
+  - `production-cwscx-postgres`
+- production Uptime Kuma monitoring is active for:
+  - `https://cwscx-app01.cwsey.com/api/health`
+  - `https://cwscx-app01.cwsey.com/api/health/ready`
+  - `https://cwscx-app01.cwsey.com/dashboard/`
+  - `https://cwscx-app01.cwsey.com/surveys/b2b/`
+  - `https://cwscx-app01.cwsey.com/surveys/installation/`
+  - `https://cwscx-app01.cwsey.com/surveys/mystery-shopper/`
+  - PostgreSQL TCP reachability on `cwscx-app01.cwsey.com:5433`
 
 **Alert routing:** email is currently configured and tested for down and recovery notifications. Teams notifications are deferred.
 
@@ -553,6 +578,8 @@ Current deploy flow packages a release zip rather than publishing OCI images as 
 | Current app deviates from DTO target conventions (sync backend DB access, non-versioned API base, mixed JS/TS estate) | operational/documentation drift and harder inheritance | Medium | document clearly here and reduce incrementally | DTO Lead | 2026-05-06 |
 | Production infrastructure details still incomplete | cutover risk if assumptions remain undocumented | High | complete Workstream 3 before go-live | DTO Lead | 2026-05-06 |
 | Observability does not fully prove authenticated business flows | outages may still require manual smoke confirmation | Medium | keep health, route, DB, and manual smoke checks together | DTO Lead | 2026-05-06 |
+| Production backups currently live on the same VM as the runtime | backup loss risk if the whole VM is lost | Medium | move backups to separate host/NAS/object storage as a follow-up hardening step | DTO Lead | 2026-05-07 |
+| Production dataset still contains staging-derived data pending sanitisation | business/data integrity risk for first-use production state | High | sanitise data before operational handover and normal user onboarding | DTO Lead | 2026-05-07 |
 
 ---
 
@@ -605,3 +632,5 @@ Additional platform-specific anti-patterns learned during current work:
 | Date | Author | Change summary |
 |---|---|---|
 | 2026-05-06 | OpenCode / Gregory collaboration | Initial populated current-state version for CWSCX staging-to-production preparation |
+| 2026-05-07 | OpenCode / Gregory collaboration | Updated current state after first successful production infrastructure deployment and recorded remaining auth blocker |
+| 2026-05-07 | OpenCode / Gregory collaboration | Updated current state after auth remediation, baseline production success, and production backup setup |
