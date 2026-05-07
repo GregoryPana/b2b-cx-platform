@@ -193,25 +193,25 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 
 ### 3.1 EXIT.md production readiness gate
 
-- [ ] EXIT.md template (slimmed version per Workstream 1.3) copied into application repository
-- [ ] All `{{PLACEHOLDER}}` markers replaced with real values
-- [ ] All `[FILL: ...]` markers resolved with content
-- [ ] HTML comment instruction blocks removed from final version
-- [ ] Section 1 — Application overview and purpose complete
-- [ ] Section 2 — Tier classification confirmed (Tier 1) with rationale
-- [ ] Section 3 — Architecture diagram present
-- [ ] Section 4 — VM assignments accurate (Application Frontend VM as production)
-- [ ] Section 5 — Technology stack with exact pinned versions
-- [ ] Section 6 — Codebase structure documented
-- [ ] Section 8 — Database backup schedule and **tested** restore procedure
-- [ ] Section 10 — All environment variables documented with sensitivity classification
-- [ ] Section 12 — Build, test, deploy commands accurate
-- [ ] Section 13 — Current CI/CD state documented (GitHub Actions, transition plan to GitLab noted)
-- [ ] Section 14 — Observability: Uptime Kuma monitor URL, pgAdmin connection name
-- [ ] Section 15 — Backup procedure with last successful test date
-- [ ] Section 16 — Common Tasks runbook completed for at least: add API endpoint, add DB table, add env var
-- [ ] Section 17 — Deferred items listed (full observability stack, GitLab CI/CD)
-- [ ] Section 18 — Risks documented and accepted by DTO Lead
+- [X] EXIT.md template (slimmed version per Workstream 1.3) copied into application repository
+- [X] All `{{PLACEHOLDER}}` markers replaced with real values
+- [X] All `[FILL: ...]` markers resolved with content
+- [X] HTML comment instruction blocks removed from final version
+- [X] Section 1 — Application overview and purpose complete
+- [X] Section 2 — Tier classification confirmed (Tier 1) with rationale
+- [X] Section 3 — Architecture diagram present
+- [X] Section 4 — VM assignments accurate (Application Frontend VM as production)
+- [X] Section 5 — Technology stack with exact pinned versions
+- [X] Section 6 — Codebase structure documented
+- [X] Section 8 — Database backup schedule and **tested** restore procedure
+- [X] Section 10 — All environment variables documented with sensitivity classification
+- [X] Section 12 — Build, test, deploy commands accurate
+- [X] Section 13 — Current CI/CD state documented (GitHub Actions, transition plan to GitLab noted)
+- [X] Section 14 — Observability: Uptime Kuma monitor URL, pgAdmin connection name
+- [X] Section 15 — Backup procedure with last successful test date
+- [X] Section 16 — Common Tasks runbook completed for at least: add API endpoint, add DB table, add env var
+- [X] Section 17 — Deferred items listed (full observability stack, GitLab CI/CD)
+- [X] Section 18 — Risks documented and accepted by DTO Lead
 - [ ] Section 20 — Ownership and escalation contacts populated
 - [ ] EXIT.md committed to application repository root
 - [ ] DTO Lead review and sign-off on EXIT.md
@@ -220,52 +220,52 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 
 - [X] Docker Engine and Compose v2 installed and version recorded
 - [ ] Service user `app-svc` (or chosen name) created, non-root, in `docker` group
-- [ ] Directory structure created: `/opt/{app_name}/{compose,data,logs,backups}`
+- [X] Directory structure created: `/opt/{app_name}/{compose,data,logs,backups}`
 - [ ] Internal DNS record `{app_name}.cws.internal` pointing to Application Frontend VM
 - [X] TLS certificate provisioned (internal CA / Let's Encrypt / self-signed per current standard)
-- [ ] NGINX configuration prepared for TLS termination + reverse proxy
+- [X] NGINX configuration prepared for TLS termination + reverse proxy
 - [ ] Firewall rules confirmed:
-  - [ ] Inbound 443 from internal network only
+  - [X] Inbound 443 from internal network only
   - [ ] Outbound to Entra ID OIDC endpoints
   - [ ] Outbound to internal SMTP relay (if app sends email)
   - [ ] No other egress
 - [X] Production `.env` file placed at `/opt/{app_name}/.env`, mode 600, owned by service user
 - [ ] All secrets in `.env` confirmed not present anywhere in git history
-- [ ] Self-hosted production GitHub Actions runner installed and online with `production` label
+- [X] Self-hosted production GitHub Actions runner installed and online with `production` label
 
 ### 3.3 Database preparation
 
 - [X] PostgreSQL container configuration matches staging (version, extensions, locale)
-- [ ] Backup tool configured (pgBackRest or pg_dump cron)
+- [X] Backup tool configured (pg_dump cron / staging-style local pattern)
 - [ ] Backup destination confirmed (NOT the same VM)
 - [ ] Backup schedule active and verified with first successful run
-- [ ] Restore procedure tested at least once before relying on it
-- [ ] Restore test result recorded in EXIT.md Section 8
+- [X] Restore procedure tested at least once before relying on it
+- [X] Restore test result recorded in EXIT.md Section 8
 
 ### 3.4 Cutover execution
 
 - [ ] Maintenance window communicated to users (if applicable)
-- [ ] Final staging Postgres backup taken
-- [ ] Backup transferred to Application Frontend VM
-- [ ] Database restored on Application Frontend VM
-- [ ] Application started: `docker compose up -d`
-- [ ] All containers reach healthy state
+- [X] Final staging Postgres backup taken
+- [X] Backup transferred to Application Frontend VM
+- [X] Database restored on Application Frontend VM
+- [X] Application started: `docker compose up -d`
+- [X] All containers reach healthy state
 - [ ] Smoke tests executed:
-  - [ ] Application loads
-  - [ ] Authentication works (Entra ID redirect successful)
+  - [X] Application loads
+  - [X] Authentication works (Entra ID redirect successful)
   - [ ] Critical user paths exercised (list specific paths in EXIT.md)
-  - [ ] Database queries return expected data
-- [ ] DNS confirmed resolving correctly
-- [ ] TLS certificate valid and trusted by internal browsers
+  - [X] Database queries return expected data
+- [X] DNS confirmed resolving correctly
+- [X] TLS certificate valid and trusted by internal browsers
 
 ### 3.5 Production monitoring activation
 
-- [ ] Uptime Kuma — production monitor added for `https://{app_name}.cws.internal/api/v1/health`
+- [ ] Uptime Kuma — production monitor added for `https://cwscx-app01.cwsey.com/api/health`
 - [ ] Production monitor configured with same intervals and retries as staging
 - [ ] Notification channel attached to production monitor
-- [ ] pgAdmin — production server connection added on DB VM
-- [ ] Connection name: `production-{app_name}`
-- [ ] Test query executed successfully on production
+- [X] pgAdmin — production server connection added on DB VM
+- [X] Connection name: `production-cwscx-postgres`
+- [X] Test query executed successfully on production
 - [ ] Kill-test on production after deployment confirms alert routing works
 
 ### 3.6 Post-cutover validation (24 hours)
@@ -286,6 +286,8 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 - [ ] Lessons learned captured for second application cutover
 
 **Verification:** Application stable in production for 24 hours, monitoring functioning, EXIT.md current.
+
+**Current note:** Production infrastructure deployment succeeded on 2026-05-07, health endpoints are healthy, SPA routes are reachable, authenticated dashboard/API flows are working, and database connectivity from the observability VM works.
 
 ---
 
