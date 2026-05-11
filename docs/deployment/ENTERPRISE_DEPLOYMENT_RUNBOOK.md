@@ -13,12 +13,31 @@ This is the current deployment runbook for CWSCX staging and production-style de
 - staging deploys from `.github/workflows/deploy-staging.yml`
 - production deploys from `.github/workflows/deploy-production.yml`
 - both flows use release bundles and path-based routing
+- both environments now assume internal self-hosted runners rather than public GitHub-hosted SSH/SCP access to target VMs
 
 ## Expected internal frontend paths
 - dashboard: `/opt/cwscx/frontends-src/dashboard/dist`
 - B2B survey: `/opt/cwscx/frontends-src/internal-surveys/b2b/dist`
 - installation survey: `/opt/cwscx/frontends-src/internal-surveys/installation/dist`
 - mystery shopper: `/opt/cwscx/frontends-src/public/mystery-shopper/dist`
+
+## Current staging database runtime
+- live compose file: `/opt/cwscx/docker-compose.yml`
+- compose project: `cwscx`
+- postgres service: `postgres`
+- postgres container: `cwscx-postgres`
+- host port mapping: `5433:5432`
+- named volume: `cwscx_data`
+
+These database runtime details are for the current staging VM. Production may use a different compose file, host layout, port exposure policy, or managed PostgreSQL approach.
+
+Useful verification commands:
+
+```bash
+docker inspect cwscx-postgres --format '{{json .Config.Labels}}'
+docker compose -f /opt/cwscx/docker-compose.yml config
+docker compose -f /opt/cwscx/docker-compose.yml ps
+```
 
 ## Core deployment sequence
 1. build release bundle
@@ -29,3 +48,11 @@ This is the current deployment runbook for CWSCX staging and production-style de
 6. deploy frontends
 7. deploy nginx
 8. verify health and routes
+
+## Production runner model
+- production runner should be installed on the Application Frontend VM (`cwscx-app01`) or another internal VM that can reach it locally
+- recommended labels:
+  - `self-hosted`
+  - `linux`
+  - `production`
+- production deploy should run locally on the internal runner, not via public GitHub-hosted SCP/SSH actions

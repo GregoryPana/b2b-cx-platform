@@ -159,6 +159,18 @@ class BusinessService:
             """),
             {"business_id": business_id}
         ).fetchall()
+
+        mystery_assessment_count = db.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM mystery_shopper_assessments msa
+                JOIN visits v ON v.id = msa.visit_id
+                WHERE v.business_id = :business_id
+                """
+            ),
+            {"business_id": business_id},
+        ).scalar()
         
         return {
             "business": {
@@ -170,6 +182,7 @@ class BusinessService:
             },
             "related_records": {
                 "total_visits": visit_count,
+                "total_mystery_shopper_assessments": int(mystery_assessment_count or 0),
                 "visits": [
                     {
                         "id": visit[0],
@@ -197,6 +210,27 @@ class BusinessService:
             )
         
         try:
+            mystery_assessment_count = db.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM mystery_shopper_assessments msa
+                    JOIN visits v ON v.id = msa.visit_id
+                    WHERE v.business_id = :business_id
+                    """
+                ),
+                {"business_id": business_id},
+            ).scalar()
+
+            if mystery_assessment_count and int(mystery_assessment_count) > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "This business cannot be deleted because it is linked to Mystery Shopper assessments. "
+                        "Retire the business instead to hide it from normal use while keeping historical data."
+                    ),
+                )
+
             deleted_response_count = 0
             for table_name in ("b2b_visit_responses", "responses"):
                 table_exists = db.execute(
@@ -233,6 +267,8 @@ class BusinessService:
             return {"deleted": True, "business_id": business_id, "deleted_response_count": deleted_response_count}
         except Exception as e:
             db.rollback()
+            if isinstance(e, HTTPException):
+                raise e
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to delete business: {str(e)}"

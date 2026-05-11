@@ -4,12 +4,21 @@ import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import SurveyWorkspacePage from "./features/survey/SurveyWorkspacePage";
+import UserGuidePage from "./features/user-guide/UserGuidePage";
+import { Card, CardContent } from "./components/ui/card";
+import { Button } from "./components/ui/button";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
+const B2B_ALLOWED_ROLES = new Set(["B2B_ADMIN", "B2B_SURVEYOR", "CX_SUPER_ADMIN"]);
+const LOGOUT_FLAG_KEY = "cx.logoutRequested";
+
+function hasB2BAccess(roles: string[]) {
+  return Array.isArray(roles) && roles.some((role) => B2B_ALLOWED_ROLES.has(role));
+}
 
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
@@ -21,6 +30,16 @@ export default function App() {
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [statusText, setStatusText] = useState("Draft workflow available");
+  const [entraRoles, setEntraRoles] = useState<string[]>([]);
+  const [roleResolved, setRoleResolved] = useState(false);
+  const [authProfileError, setAuthProfileError] = useState("");
+  const [logoutRequested, setLogoutRequested] = useState(() => {
+    try {
+      return sessionStorage.getItem(LOGOUT_FLAG_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (isAuthenticated && accounts.length > 0) {
@@ -43,16 +62,18 @@ export default function App() {
 
   useEffect(() => {
     if (!msalReady) return;
+    if (logoutRequested) return;
     if (!isAuthenticated && inProgress === "none") {
       instance.loginRedirect(loginRequest);
     }
-  }, [inProgress, instance, isAuthenticated, msalReady]);
+  }, [inProgress, instance, isAuthenticated, logoutRequested, msalReady]);
 
   useEffect(() => {
     if (!msalReady || !accounts[0]) return;
     const account = accounts[0];
     const claims = account.idTokenClaims || {};
     const claimsRoles = Array.isArray(claims.roles) ? claims.roles : [];
+    setEntraRoles(claimsRoles);
     setRole(claimsRoles.includes("B2B_ADMIN") || claimsRoles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
     setUserId(String(claims.sub || claims.oid || "4"));
     setUserName(claims.name || account.name || "");
@@ -74,18 +95,7 @@ export default function App() {
 
   useEffect(() => {
     if (!accessToken) return;
-    const run = async () => {
-      const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const data = await res.json();
-      if (!res.ok) return;
-      const roles = Array.isArray(data.roles) ? data.roles : [];
-      setRole(roles.includes("B2B_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
-      setUserId(String(data.sub || userId));
-      setUserName(data.name || userName);
-      setUserEmail(data.preferred_username || userEmail);
-      setStatusText(role === "Admin" ? "Admin controls enabled" : "Representative workflow enabled");
-    };
-    run();
+    setRoleResolved(true);
   }, [accessToken, role, userEmail, userId, userName]);
 
   const headers = useMemo(() => {
@@ -98,21 +108,78 @@ export default function App() {
   }, [accessToken, role, userId]);
 
   const handleLogout = () => {
+    try {
+      sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(true);
     instance.logoutRedirect({ postLogoutRedirectUri: surveyPostLogoutUri });
   };
 
-  if (!msalReady || !isAuthenticated || !accessToken) {
+  const handleSignInAgain = () => {
+    try {
+      sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(false);
+    instance.loginRedirect(loginRequest);
+  };
+
+  if (!msalReady) {
     return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
   }
 
+  if (logoutRequested && !isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6">
+          <CardContent className="space-y-3 pt-6">
+            <h1 className="text-xl font-semibold">You have signed out</h1>
+            <p className="text-sm text-muted-foreground">You can close this tab, or sign in again whenever you want to continue.</p>
+            <Button type="button" onClick={handleSignInAgain}>Sign in again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !accessToken || !roleResolved) {
+    return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
+  }
+
+  if (!hasB2BAccess(entraRoles)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6">
+          <CardContent className="space-y-3 pt-6">
+            <h1 className="text-xl font-semibold">No B2B Survey Access</h1>
+            <p className="text-sm text-muted-foreground">
+              You're signed in, but this account does not currently have access to the B2B survey.
+              Please ask an administrator to grant access and then try again.
+            </p>
+            <Button type="button" variant="outline" onClick={handleLogout}>
+              Logout
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <MainLayout onLogout={handleLogout} userName={userName} userEmail={userEmail} statusText={statusText}>
+    <>
+      {authProfileError ? <div className="border-b bg-warning/20 px-4 py-2 text-sm text-warning-foreground">{authProfileError}</div> : null}
+      <MainLayout onLogout={handleLogout} userName={userName} userEmail={userEmail} statusText={statusText}>
       <Routes>
         <Route path="/planned" element={<SurveyWorkspacePage headers={headers} userId={userId} role={role} />} />
         <Route path="/survey" element={<SurveyWorkspacePage headers={headers} userId={userId} role={role} />} />
+        <Route path="/user-guide" element={<UserGuidePage />} />
         <Route path="/" element={<Navigate to="/planned" replace />} />
         <Route path="*" element={<Navigate to="/planned" replace />} />
       </Routes>
-    </MainLayout>
+      </MainLayout>
+    </>
   );
 }

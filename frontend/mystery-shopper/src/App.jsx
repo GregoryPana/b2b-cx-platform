@@ -1,23 +1,54 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
+import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
 import { Separator } from "./components/ui/separator";
-import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
-import { AnimatePresence, motion } from "framer-motion";
-import { gsap } from "gsap";
-import { CalendarDays, ClipboardCheck, LogOut } from "lucide-react";
+import { motion } from "framer-motion";
+import { CalendarDays, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
+const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
+const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
+const LOGOUT_FLAG_KEY = "cx.logoutRequested";
 
 const DEFAULT_PURPOSE_OPTIONS = ["General Enquiry", "Billing", "Device", "Broadband", "Complaint", "Other"];
+
+async function fetchJsonSafe(url, options = {}, timeout = 30000) {
+  const controller = timeout > 0 ? new AbortController() : null;
+  const timeoutId = timeout > 0 ? window.setTimeout(() => controller.abort(), timeout) : null;
+  try {
+    const response = await fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
+    const text = await response.text();
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // ignore parse error
+    }
+    return { res: response, data };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      return { res: { ok: false, status: 408 }, data: { detail: "Request timed out", aborted: true } };
+    }
+    return { res: { ok: false, status: 500 }, data: { detail: error?.message || "Request failed" } };
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
+  }
+}
+
+function hasMysteryAccess(roles) {
+  return Array.isArray(roles) && roles.some((role) => MYSTERY_ALLOWED_ROLES.has(role));
+}
 
 function parseChoices(question) {
   if (!question?.choices) return [];
@@ -46,18 +77,38 @@ function displayQuestionNumber(question, fallbackIndex = 0) {
   return fallbackIndex + 1;
 }
 
+function getScoreOptions(question) {
+  if (question?.input_type !== "score") return [];
+  const min = Number(question.score_min ?? 0);
+  const max = Number(question.score_max ?? 10);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return [];
+  const options = [];
+  for (let value = min; value <= max; value += 1) {
+    options.push(value);
+  }
+  return options;
+}
+
 function QuestionField({ question, draft, onUpdate }) {
   const choices = parseChoices(question);
 
   if (question.input_type === "score") {
+    const scoreOptions = getScoreOptions(question);
     return (
-      <Input
-        type="number"
-        min={question.score_min ?? 0}
-        max={question.score_max ?? 10}
-        value={draft.score ?? ""}
-        onChange={(event) => onUpdate("score", event.target.value)}
-      />
+      <div className="option-grid score-option-grid" role="radiogroup" aria-label="Select score">
+        {scoreOptions.map((scoreValue) => (
+          <Button
+            key={`${question.id}-score-${scoreValue}`}
+            type="button"
+            variant={String(draft.score ?? "") === String(scoreValue) ? "default" : "outline"}
+            size="sm"
+            className="option-pill score-pill"
+            onClick={() => onUpdate("score", String(scoreValue))}
+          >
+            {scoreValue}
+          </Button>
+        ))}
+      </div>
     );
   }
 
@@ -126,9 +177,20 @@ export default function App() {
   const [role, setRole] = useState("Representative");
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
+  const [entraRoles, setEntraRoles] = useState([]);
+  const [roleResolved, setRoleResolved] = useState(false);
+  const [authProfileError, setAuthProfileError] = useState("");
+  const [logoutRequested, setLogoutRequested] = useState(() => {
+    try {
+      return sessionStorage.getItem(LOGOUT_FLAG_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const [accessToken, setAccessToken] = useState("");
   const [activeTab, setActiveTab] = useState("planned");
-  const [showMobileCategoryNav, setShowMobileCategoryNav] = useState(false);
+  const [entryChoicePending, setEntryChoicePending] = useState(true);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [currentCategory, setCurrentCategory] = useState("");
 
   const [questions, setQuestions] = useState([]);
@@ -176,10 +238,11 @@ export default function App() {
 
   useEffect(() => {
     if (!msalReady) return;
+    if (logoutRequested) return;
     if (!isAuthenticated && inProgress === "none") {
       instance.loginRedirect(loginRequest);
     }
-  }, [instance, inProgress, isAuthenticated, msalReady]);
+  }, [instance, inProgress, isAuthenticated, logoutRequested, msalReady]);
 
   useEffect(() => {
     if (!msalReady) return;
@@ -188,6 +251,7 @@ export default function App() {
 
     const claims = account.idTokenClaims || {};
     const roles = Array.isArray(claims.roles) ? claims.roles : [];
+    setEntraRoles(roles);
     setRole(roles.includes("MYSTERY_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
     setUserId(String(claims.sub || claims.oid || claims.preferred_username || ""));
     setUserName(claims.name || account.name || "");
@@ -212,28 +276,7 @@ export default function App() {
 
   useEffect(() => {
     if (!accessToken) return;
-
-    const run = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/auth/me`, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-        const data = await res.json();
-        if (!res.ok) return;
-
-        const roles = Array.isArray(data.roles) ? data.roles : [];
-        setUserId(String(data.sub || ""));
-        setUserName(data.name || "");
-        setUserEmail(data.preferred_username || "");
-        setRole(roles.includes("MYSTERY_ADMIN") || roles.includes("CX_SUPER_ADMIN") ? "Admin" : "Representative");
-      } catch {
-        // keep fallback claims
-      }
-    };
-
-    run();
+    setRoleResolved(true);
   }, [accessToken]);
 
   const headers = useMemo(
@@ -291,6 +334,22 @@ export default function App() {
     [questions, responseDrafts, responsesByQuestion]
   );
 
+  const unsavedQuestionCount = useMemo(
+    () =>
+      questions.filter((question) => {
+        const draft = responseDrafts[question.id] || {};
+        const existing = responsesByQuestion[question.id] || {};
+        const draftScore = String(draft.score ?? "");
+        const existingScore = String(existing.score ?? "");
+        const draftAnswer = String(draft.answer_text ?? "").trim();
+        const existingAnswer = String(existing.answer_text ?? "").trim();
+        const draftVerbatim = String(draft.verbatim ?? "").trim();
+        const existingVerbatim = String(existing.verbatim ?? "").trim();
+        return draftScore !== existingScore || draftAnswer !== existingAnswer || draftVerbatim !== existingVerbatim;
+      }).length,
+    [questions, responseDrafts, responsesByQuestion]
+  );
+
   const todayString = new Date().toISOString().split("T")[0];
   const plannedToday = draftVisits.filter((visit) => visit.visit_date === todayString);
   const plannedUpcoming = draftVisits.filter((visit) => visit.visit_date > todayString);
@@ -298,20 +357,6 @@ export default function App() {
     { key: "planned", label: "Draft Visits", icon: CalendarDays },
     { key: "survey", label: "Survey", icon: ClipboardCheck },
   ];
-
-  useEffect(() => {
-    const ctx = gsap.context(() => {
-      const targets = gsap.utils.toArray(".panel, .hero, .planned-card, .question-card, .category-panel");
-      if (!targets.length) return;
-      gsap.fromTo(
-        targets,
-        { autoAlpha: 0, y: 10 },
-        { autoAlpha: 1, y: 0, duration: 0.4, stagger: 0.03, ease: "power2.out" }
-      );
-    });
-
-    return () => ctx.revert();
-  }, [activeTab, currentCategory, showMobileCategoryNav]);
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
@@ -331,21 +376,19 @@ export default function App() {
   }, [activeTab]);
 
   const initialize = async () => {
-    await fetch(`${API_BASE}/mystery-shopper/bootstrap`, { method: "POST", headers });
-
     const [questionsRes, locationsRes, purposesRes] = await Promise.all([
-      fetch(`${API_BASE}/questions?survey_type=Mystery%20Shopper`, { headers }),
-      fetch(`${API_BASE}/mystery-shopper/locations`, { headers }),
-      fetch(`${API_BASE}/mystery-shopper/purposes`, { headers }),
+      fetchJsonSafe(`${API_BASE}/questions?survey_type=Mystery%20Shopper`, { headers }),
+      fetchJsonSafe(`${API_BASE}/mystery-shopper/locations`, { headers }),
+      fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes`, { headers }),
     ]);
 
-    const questionsData = await questionsRes.json();
-    const locationsData = await locationsRes.json();
-    const purposesData = await purposesRes.json();
+    const questionsData = questionsRes.data;
+    const locationsData = locationsRes.data;
+    const purposesData = purposesRes.data;
 
-    if (!questionsRes.ok) throw new Error(questionsData.detail || "Failed to load questions");
-    if (!locationsRes.ok) throw new Error(locationsData.detail || "Failed to load locations");
-    if (!purposesRes.ok) throw new Error(purposesData.detail || "Failed to load purpose options");
+    if (!questionsRes.res.ok) throw new Error(questionsData?.detail || "Failed to load questions");
+    if (!locationsRes.res.ok) throw new Error(locationsData?.detail || "Failed to load locations");
+    if (!purposesRes.res.ok) throw new Error(purposesData?.detail || "Failed to load purpose options");
 
     const nextQuestions = Array.isArray(questionsData) ? questionsData : [];
     const nextLocations = (Array.isArray(locationsData) ? locationsData : []).filter((location) => location.active);
@@ -369,10 +412,8 @@ export default function App() {
   const loadDrafts = async () => {
     setLoadingDrafts(true);
     try {
-      const query = new URLSearchParams({ representative_id: userId }).toString();
-      const res = await fetch(`${API_BASE}/mystery-shopper/visits/drafts?${query}`, { headers });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to load draft visits");
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/visits/drafts`, { headers });
+      if (!res.ok) throw new Error(data?.detail || "Failed to load draft visits");
       setDraftVisits(Array.isArray(data) ? data : []);
     } catch (error) {
       setMessage(error.message || "Failed to load draft visits");
@@ -382,9 +423,8 @@ export default function App() {
   };
 
   const loadVisitDetail = async (targetVisitId) => {
-    const res = await fetch(`${API_BASE}/dashboard-visits/${targetVisitId}`, { headers });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Failed to load visit detail");
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/visits/${targetVisitId}`, { headers });
+    if (!res.ok) throw new Error(data?.detail || "Failed to load visit detail");
 
     setVisitId(String(data.id));
     setStatus(data.status || "Draft");
@@ -447,6 +487,7 @@ export default function App() {
       shopper_name: visit.shopper_name || "",
     }));
     await loadVisitDetail(visit.visit_id);
+    setEntryChoicePending(false);
     setActiveTab("survey");
   };
 
@@ -460,8 +501,6 @@ export default function App() {
     try {
       const payload = {
         location_id: Number(headerForm.location_id),
-        representative_id: Number(userId),
-        created_by: Number(userId),
         visit_date: headerForm.visit_date,
         visit_type: "Planned",
         visit_time: headerForm.visit_time,
@@ -470,25 +509,38 @@ export default function App() {
         shopper_name: headerForm.shopper_name,
       };
 
-      const res = await fetch(`${API_BASE}/mystery-shopper/visits`, {
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/visits`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to create visit");
+      if (!res.ok) throw new Error(data?.detail || "Failed to create visit");
 
       setVisitId(data.visit_id);
       setStatus(data.status || "Draft");
-      setMessage("Mystery Shopper visit created.");
+      setEntryChoicePending(false);
+      raiseMessage("Mystery Shopper visit created.", "success");
       setActiveTab("survey");
       await loadDrafts();
       await loadVisitDetail(data.visit_id);
     } catch (error) {
-      setMessage(error.message || "Failed to create visit");
+      raiseMessage(error.message || "Failed to create visit", "error");
     } finally {
       setCreatingVisit(false);
     }
+  };
+
+  const startNewSurvey = () => {
+    setEntryChoicePending(false);
+    setActiveTab("survey");
+    setMobileNavOpen(false);
+    raiseMessage("Fill out the visit header to begin a new survey.", "info");
+  };
+
+  const openDrafts = () => {
+    setEntryChoicePending(false);
+    setActiveTab("planned");
+    setMobileNavOpen(false);
   };
 
   const updateQuestionDraft = (questionId, field, value) => {
@@ -528,10 +580,10 @@ export default function App() {
     setSavingQuestionId(question.id);
     try {
       const endpoint = existing
-        ? `${API_BASE}/dashboard-visits/${visitId}/responses/${existing.response_id}`
-        : `${API_BASE}/dashboard-visits/${visitId}/responses`;
+        ? `${API_BASE}/mystery-shopper/visits/${visitId}/responses/${existing.response_id}`
+        : `${API_BASE}/mystery-shopper/visits/${visitId}/responses`;
 
-      const res = await fetch(endpoint, {
+      const { res, data } = await fetchJsonSafe(endpoint, {
         method: existing ? "PUT" : "POST",
         headers,
         body: JSON.stringify({
@@ -542,8 +594,7 @@ export default function App() {
           actions: [],
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to save response");
+      if (!res.ok) throw new Error(data?.detail || "Failed to save response");
 
       setResponsesByQuestion((prev) => ({ ...prev, [question.id]: data }));
       setMessage(`Saved Q${questionLabel}.`);
@@ -568,9 +619,8 @@ export default function App() {
 
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/mystery-shopper/visits/${visitId}/submit`, { method: "PUT", headers });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to submit visit");
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/visits/${visitId}/submit`, { method: "PUT", headers });
+      if (!res.ok) throw new Error(data?.detail || "Failed to submit visit");
 
       setStatus("Pending");
       setMessage(`Submitted for review. Report date: ${data.report_completed_date} (UTC+4).`);
@@ -591,284 +641,381 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+    try {
+      sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(true);
+    instance.logoutRedirect({ postLogoutRedirectUri: surveyPostLogoutUri });
   };
 
-  if (!msalReady || !isAuthenticated || !accessToken) {
+  const handleSignInAgain = () => {
+    try {
+      sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(false);
+    instance.loginRedirect(loginRequest);
+  };
+
+  if (!msalReady) {
     return (
-      <div className="app-shell">
-        <motion.main id="main-content" className="page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
-          <a href="#main-content" className="skip-link">Skip to main content</a>
-          <Card className="hero" role="status" aria-live="polite" aria-atomic="true">
-            <CardContent className="p-0 pt-2">
-              <CardTitle className="text-[clamp(1.85rem,2.6vw,2.4rem)]">Signing you in...</CardTitle>
-              <p className="lead">Please wait while Microsoft Entra authentication completes.</p>
-            </CardContent>
-          </Card>
-        </motion.main>
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6" role="status" aria-live="polite" aria-atomic="true">
+          <CardContent className="space-y-3 pt-6">
+            <CardTitle className="text-2xl">Signing you in...</CardTitle>
+            <p className="text-sm text-muted-foreground">Please wait while Microsoft Entra authentication completes.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (logoutRequested && !isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6" role="status" aria-live="polite">
+          <CardContent className="space-y-3 pt-6">
+            <CardTitle className="text-2xl">You have signed out</CardTitle>
+            <p className="text-sm text-muted-foreground">You're all set. You can close this tab, or sign in again whenever you're ready.</p>
+            <Button type="button" onClick={handleSignInAgain}>Sign in again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !accessToken || !roleResolved) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6" role="status" aria-live="polite" aria-atomic="true">
+          <CardContent className="space-y-3 pt-6">
+            <CardTitle className="text-2xl">Signing you in...</CardTitle>
+            <p className="text-sm text-muted-foreground">Please wait while Microsoft Entra authentication completes.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!hasMysteryAccess(entraRoles)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6" role="alert" aria-live="polite">
+          <CardContent className="space-y-3 pt-6">
+            <CardTitle className="text-2xl">No Mystery Shopper Access</CardTitle>
+            <p className="text-sm text-muted-foreground">You're signed in, but this account does not currently have access to the Mystery Shopper survey. Please ask an administrator to grant access and then try again.</p>
+            <Button type="button" variant="outline" onClick={handleLogout}>Logout</Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="app-shell">
-      <aside className="workspace-nav">
-        <Card className="workspace-card">
-          <CardContent className="workspace-content">
-            <div className="workspace-brand">Mystery Shopper</div>
-            <div className="workspace-menu">
-              {sidebarPages.map((page) => (
-                <Button
-                  key={page.key}
-                  type="button"
-                  variant={activeTab === page.key ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setActiveTab(page.key)}
-                >
-                  <span className="nav-tab-inner"><page.icon className="icon icon--sm" aria-hidden="true" />{page.label}</span>
+    <>
+    {authProfileError ? (
+      <div className="border-b bg-warning/20 px-4 py-2 text-sm text-warning-foreground">{authProfileError}</div>
+    ) : null}
+    <div className="relative flex min-h-screen bg-background">
+      {mobileNavOpen ? <motion.button type="button" className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} /> : null}
+      <motion.aside className={cn("fixed left-0 top-0 z-30 h-screen w-[min(86vw,20rem)] max-w-full border-r bg-card shadow-2xl transition-transform duration-300 lg:w-72", mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0")} initial={{ opacity: 0.98 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+        <div className="flex h-14 items-center justify-between border-b px-4">
+          <span className="text-sm font-semibold">Mystery Shopper Survey</span>
+          <Button type="button" variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex h-[calc(100vh-56px)] flex-col overflow-y-auto p-3 custom-scrollbar">
+          <nav className="space-y-1">
+            {sidebarPages.map((page) => {
+              const Icon = page.icon;
+              return (
+                <Button key={page.key} type="button" variant={activeTab === page.key ? "secondary" : "ghost"} className="w-full justify-start gap-3" onClick={() => { setActiveTab(page.key); setMobileNavOpen(false); }}>
+                  <Icon className="h-4 w-4" />
+                  <span>{page.label}</span>
                 </Button>
-              ))}
+              );
+            })}
+          </nav>
+
+          {activeTab === "survey" && groupedQuestions.length > 0 ? (
+            <div className="mt-6 space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">Jump to section</p>
+              <div className="space-y-2">
+                {groupedQuestions.map(([category], index) => (
+                  <Button
+                    key={category}
+                    type="button"
+                    variant={currentCategory === category ? "secondary" : "ghost"}
+                    className="h-auto w-full justify-start gap-3 px-3 py-2 text-left"
+                    onClick={() => {
+                      scrollToCategory(category);
+                      setMobileNavOpen(false);
+                    }}
+                  >
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background text-xs font-medium">{index + 1}</span>
+                    <span className="whitespace-normal">{category}</span>
+                  </Button>
+                ))}
+              </div>
             </div>
-            {activeTab === "survey" && groupedQuestions.length > 0 ? (
-              <div className="workspace-jump">
-                <h3 className="jump-nav-title">Jump to Category</h3>
-                <div className="jump-nav-list category-list">
-                  {groupedQuestions.map(([category], index) => (
-                    <Button
-                      key={category}
-                      type="button"
-                      variant={currentCategory === category ? "default" : "outline"}
-                      size="sm"
-                      className="category-item"
-                      onClick={() => scrollToCategory(category)}
-                    >
-                      <span className="category-index">{index + 1}</span>
-                      {category}
-                    </Button>
-                  ))}
+          ) : null}
+
+          <div className="mt-auto rounded-lg border bg-muted/40 p-3">
+            <p className="text-xs text-muted-foreground">Signed in</p>
+            <p className="text-[11px] text-muted-foreground">Build: {APP_VERSION}</p>
+            <p className="truncate text-sm font-medium">{userName || "Unknown user"}</p>
+            <p className="truncate text-xs text-muted-foreground">{userEmail || "No email"}</p>
+            <Button type="button" variant="outline" className="mt-3 w-full justify-start gap-2" onClick={handleLogout}>
+              <LogOut className="h-4 w-4" /> Logout
+            </Button>
+          </div>
+        </div>
+      </motion.aside>
+
+      <div className="flex flex-1 flex-col lg:pl-72">
+        <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur">
+          <motion.div className="flex h-14 items-center justify-between px-4 md:px-6" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+            <div className="flex min-w-0 items-center gap-2">
+              <Button type="button" variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
+                <Menu className="h-4 w-4" />
+              </Button>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">Customer Service Centre Assessment</p>
+                <p className="truncate text-xs text-muted-foreground">Mystery Shopper survey workspace</p>
+              </div>
+            </div>
+            <p className="truncate pl-2 text-xs text-muted-foreground">{userName || "Unknown user"}</p>
+          </motion.div>
+        </header>
+
+        <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="mx-auto w-full max-w-[1600px] flex-1 p-4 md:p-6">
+          {message ? (
+            <motion.div className={cn("mb-4 rounded border px-4 py-3 text-sm", messageTone === "error" ? "border-destructive/30 bg-destructive/10 text-destructive" : messageTone === "success" ? "border-success/30 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-900")} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+              {message}
+            </motion.div>
+          ) : null}
+
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-2xl">Mystery Shopper Survey</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Current Visit</p><p className="mt-1 text-sm font-medium">{visitId || "Not selected"}</p></div>
+                  <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Status</p><p className="mt-1 text-sm font-medium">{status}</p></div>
+                  <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Required Progress</p><p className="mt-1 text-sm font-medium">{completedMandatory}/{totalMandatory || 0}</p></div>
+                  <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Configured Locations</p><p className="mt-1 text-sm font-medium">{locations.length}</p></div>
                 </div>
-              </div>
-            ) : null}
-            <div className="workspace-meta">
-              <span className="workspace-meta-label">Signed in</span>
-              <strong>{userName || "Unknown user"}</strong>
-              <span className="workspace-meta-email">{userEmail || "No email"}</span>
-              <Button type="button" variant="outline" size="sm" onClick={handleLogout} aria-label="Log out"><span className="nav-tab-inner"><LogOut className="icon icon--sm" aria-hidden="true" />Logout</span></Button>
-            </div>
-          </CardContent>
-        </Card>
-      </aside>
 
-      <motion.main id="main-content" className="page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
-        <a href="#main-content" className="skip-link">Skip to main content</a>
-        <Card className="hero">
-          <CardHeader className="p-0">
-            <CardTitle className="text-[clamp(1.85rem,2.6vw,2.4rem)]">Customer Service Centre Assessment</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0 pt-2">
-            <p className="lead">Survey execution workspace with clean question cards and mobile-first behavior.</p>
-            <div className="status">
-              <div>
-                <span className="caption">Current Visit</span>
-                <Badge variant="secondary">{visitId || "Not selected"}</Badge>
-              </div>
-              <div>
-                <span className="caption">Status</span>
-                <Badge variant={status === "Pending" ? "warning" : "secondary"}>{status}</Badge>
-              </div>
-              <div>
-                <span className="caption">Progress</span>
-                <Badge variant="secondary">{completedMandatory}/{totalMandatory || 0} required</Badge>
-              </div>
-              <div>
-                <span className="caption">Locations</span>
-                <Badge variant="secondary">{locations.length}</Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="panel">
-          <CardContent className="p-0">
-            <div className="grid identity-grid">
-              <label>
-                Name
-                <Input value={userName || "-"} disabled />
-              </label>
-              <label>
-                Email
-                <Input value={userEmail || "-"} disabled />
-              </label>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="panel">
-          <CardContent className="p-0">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="tabs">
-              <TabsList>
-                <TabsTrigger value="planned"><span className="nav-tab-inner"><CalendarDays className="icon icon--sm" aria-hidden="true" />Today & Upcoming</span></TabsTrigger>
-                <TabsTrigger value="survey"><span className="nav-tab-inner"><ClipboardCheck className="icon icon--sm" aria-hidden="true" />Survey</span></TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </CardContent>
-        </Card>
-
-        {activeTab === "planned" ? (
-          <Card className="panel">
-            <CardContent className="p-0">
-              <div className="panel-header section-toolbar">
-                <h2>Draft Visits</h2>
-                <Button type="button" variant="outline" size="sm" onClick={loadDrafts}>
-                  {loadingDrafts ? "Refreshing..." : "Refresh"}
-                </Button>
-              </div>
-              <div className="planned-list">
-                <Card className="planned-group">
-                  <CardContent className="p-3">
-                    <h3 className="group-title">Today</h3>
-                    {plannedToday.length === 0 ? <p className="caption">No visits planned for today.</p> : null}
-                    {plannedToday.map((visit) => (
-                      <Button key={visit.visit_id} type="button" variant="ghost" size="auto" className="planned-card" onClick={() => selectDraftVisit(visit)}>
-                        <div>
-                          <strong>{visit.location_name}</strong>
-                          <p>{visit.visit_date} at {visit.visit_time}</p>
-                        </div>
-                        <div className="meta">
-                          <span>{visit.purpose_of_visit}</span>
-                          <span>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</span>
-                        </div>
-                      </Button>
-                    ))}
-                  </CardContent>
-                </Card>
-
-                <Card className="planned-group">
-                  <CardContent className="p-3">
-                    <h3 className="group-title">Upcoming</h3>
-                    {plannedUpcoming.length === 0 ? <p className="caption">No upcoming visits.</p> : null}
-                    {plannedUpcoming.map((visit) => (
-                      <Button key={visit.visit_id} type="button" variant="ghost" size="auto" className="planned-card" onClick={() => selectDraftVisit(visit)}>
-                        <div>
-                          <strong>{visit.location_name}</strong>
-                          <p>{visit.visit_date} at {visit.visit_time}</p>
-                        </div>
-                        <div className="meta">
-                          <span>{visit.purpose_of_visit}</span>
-                          <span>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</span>
-                        </div>
-                      </Button>
-                    ))}
-                  </CardContent>
-                </Card>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {activeTab === "survey" ? (
-          <>
-            <Card className="panel">
-              <CardHeader className="p-0 pb-3"><CardTitle>Visit Header</CardTitle></CardHeader>
-              <CardContent className="p-0">
-              <div className="grid visit-header-grid">
-                  <label>
-                    Customer Service Centre
-                    <Select value={headerForm.location_id} onChange={(event) => setHeaderForm((prev) => ({ ...prev, location_id: event.target.value }))}>
-                      <option value="">Select location</option>
-                      {locations.map((location) => (
-                        <option key={location.id} value={location.id}>{location.name}</option>
-                      ))}
-                    </Select>
-                  </label>
-                  <label>
-                    Date of Visit
-                    <Input type="date" value={headerForm.visit_date} onChange={(event) => setHeaderForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
-                  </label>
-                  <label>
-                    Time of Visit
-                    <Input type="time" value={headerForm.visit_time} onChange={(event) => setHeaderForm((prev) => ({ ...prev, visit_time: event.target.value }))} />
-                  </label>
-                  <label>
-                    Purpose of Visit
-                    <Select value={headerForm.purpose_of_visit} onChange={(event) => setHeaderForm((prev) => ({ ...prev, purpose_of_visit: event.target.value }))}>
-                      {purposeOptions.map((option) => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </Select>
-                  </label>
-                  <label>
-                    Staff on Duty
-                    <Input value={headerForm.staff_on_duty} onChange={(event) => setHeaderForm((prev) => ({ ...prev, staff_on_duty: event.target.value }))} />
-                  </label>
-                  <label>
-                    Shopper Name
-                    <Input value={headerForm.shopper_name} onChange={(event) => setHeaderForm((prev) => ({ ...prev, shopper_name: event.target.value }))} />
-                  </label>
+                <div className="flex flex-wrap gap-2">
+                  {creatingVisit ? <Badge className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Creating visit</Badge> : null}
+                  {savingQuestionId ? <Badge variant="secondary" className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Saving response</Badge> : null}
+                  {submitting ? <Badge variant="secondary" className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Submitting survey</Badge> : null}
+                  {unsavedQuestionCount > 0 ? <Badge variant="outline" className="gap-1"><PencilLine className="h-3.5 w-3.5" /> {unsavedQuestionCount} unsaved change{unsavedQuestionCount === 1 ? "" : "s"}</Badge> : null}
                 </div>
-                <div className="actions action-toolbar">
-                  <Button type="button" onClick={createVisit} disabled={creatingVisit}>{creatingVisit ? "Creating..." : "Create / Load Visit"}</Button>
-                  <Badge variant="secondary">Current Visit: {visitId || "Not selected"}</Badge>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">User</label>
+                    <Input value={userName || "-"} disabled />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Email</label>
+                    <Input value={userEmail || "-"} disabled />
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            <div className="survey-content">
-                {groupedQuestions.map(([category, items]) => (
-                  <Card key={category} className="panel" id={categoryToId(category)}>
-                    <CardHeader className="p-0 pb-2"><CardTitle>{category}</CardTitle></CardHeader>
-                    <CardContent className="p-0">
-                      <Separator className="mb-3" />
-                      <div className="question-list">
-                        {items.map((question, questionIndex) => {
-                          const draft = responseDrafts[question.id] || {};
-                          const questionLabel = displayQuestionNumber(question, questionIndex);
-                          return (
-                            <Card key={question.id} className="question-card">
-                              <CardContent className="p-3">
-                                <div className="question-head">
-                                  <Badge variant="default" className="question-number">{questionLabel}</Badge>
-                                  <strong>{question.question_text}</strong>
+            {entryChoicePending ? (
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }}>
+                <Card className="border-primary/15 shadow-sm">
+                  <CardHeader>
+                    <CardTitle>How would you like to begin?</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-3 md:grid-cols-2">
+                    <button type="button" onClick={startNewSurvey} className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10 active:scale-[0.99]">
+                      <div className="flex items-center gap-3">
+                        <PlayCircle className="h-5 w-5 text-primary" />
+                        <div>
+                          <p className="font-medium">Start a new survey</p>
+                          <p className="text-sm text-muted-foreground">Open the visit header and create a fresh Mystery Shopper visit.</p>
+                        </div>
+                      </div>
+                    </button>
+                    <button type="button" onClick={openDrafts} disabled={loadingDrafts || draftVisits.length === 0} className="rounded-xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60">
+                      <div className="flex items-center gap-3">
+                        <CalendarDays className="h-5 w-5 text-primary" />
+                        <div>
+                          <p className="font-medium">Load an existing draft</p>
+                          <p className="text-sm text-muted-foreground">Resume one of {draftVisits.length} draft visit{draftVisits.length === 1 ? "" : "s"} already saved.</p>
+                        </div>
+                      </div>
+                    </button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ) : null}
+
+            {activeTab === "planned" ? (
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                    <CardTitle>Today</CardTitle>
+                    <Button type="button" variant="outline" size="sm" onClick={loadDrafts}>{loadingDrafts ? "Refreshing..." : "Refresh"}</Button>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {plannedToday.length === 0 ? <p className="text-sm text-muted-foreground">No visits planned for today.</p> : null}
+                    {plannedToday.map((visit) => (
+                      <button key={visit.visit_id} type="button" onClick={() => selectDraftVisit(visit)} className="flex w-full items-start justify-between rounded-lg border p-4 text-left transition-colors hover:bg-muted/40">
+                        <div className="space-y-1">
+                          <p className="font-medium">{visit.location_name}</p>
+                          <p className="text-sm text-muted-foreground">{visit.visit_date} at {visit.visit_time || "--"}</p>
+                        </div>
+                        <div className="space-y-1 text-right text-sm text-muted-foreground">
+                          <p>{visit.purpose_of_visit || "--"}</p>
+                          <p>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</p>
+                        </div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Upcoming</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {plannedUpcoming.length === 0 ? <p className="text-sm text-muted-foreground">No upcoming visits.</p> : null}
+                    {plannedUpcoming.map((visit) => (
+                      <button key={visit.visit_id} type="button" onClick={() => selectDraftVisit(visit)} className="flex w-full items-start justify-between rounded-lg border p-4 text-left transition-colors hover:bg-muted/40">
+                        <div className="space-y-1">
+                          <p className="font-medium">{visit.location_name}</p>
+                          <p className="text-sm text-muted-foreground">{visit.visit_date} at {visit.visit_time || "--"}</p>
+                        </div>
+                        <div className="space-y-1 text-right text-sm text-muted-foreground">
+                          <p>{visit.purpose_of_visit || "--"}</p>
+                          <p>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</p>
+                        </div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
+            ) : null}
+
+            {activeTab === "survey" ? (
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Visit Header</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Customer Service Centre</label>
+                        <Select value={headerForm.location_id} onChange={(event) => setHeaderForm((prev) => ({ ...prev, location_id: event.target.value }))}>
+                          <option value="">Select location</option>
+                          {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Date of Visit</label>
+                        <Input type="date" value={headerForm.visit_date} onChange={(event) => setHeaderForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Time of Visit</label>
+                        <Input type="time" value={headerForm.visit_time} onChange={(event) => setHeaderForm((prev) => ({ ...prev, visit_time: event.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Purpose of Visit</label>
+                        <Select value={headerForm.purpose_of_visit} onChange={(event) => setHeaderForm((prev) => ({ ...prev, purpose_of_visit: event.target.value }))}>
+                          {purposeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Staff on Duty</label>
+                        <Input value={headerForm.staff_on_duty} onChange={(event) => setHeaderForm((prev) => ({ ...prev, staff_on_duty: event.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">Shopper Name</label>
+                        <Input value={headerForm.shopper_name} onChange={(event) => setHeaderForm((prev) => ({ ...prev, shopper_name: event.target.value }))} />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button type="button" onClick={createVisit} disabled={creatingVisit}>{creatingVisit ? "Creating..." : "Create / Load Visit"}</Button>
+                      <Badge variant="secondary">Current Visit: {visitId || "Not selected"}</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+                  <Card className="hidden xl:block self-start sticky top-20">
+                    <CardHeader>
+                      <CardTitle className="text-sm">Sections</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {groupedQuestions.map(([category], index) => (
+                        <Button key={category} type="button" variant={currentCategory === category ? "secondary" : "ghost"} className="h-auto w-full justify-start gap-3 px-3 py-2 text-left" onClick={() => scrollToCategory(category)}>
+                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background text-xs font-medium">{index + 1}</span>
+                          <span className="whitespace-normal">{category}</span>
+                        </Button>
+                      ))}
+                    </CardContent>
+                  </Card>
+
+                  <div className="space-y-6">
+                    {groupedQuestions.map(([category, items]) => (
+                      <Card key={category} id={categoryToId(category)}>
+                        <CardHeader>
+                          <CardTitle>{category}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {items.map((question, questionIndex) => {
+                            const draft = responseDrafts[question.id] || {};
+                            const questionLabel = displayQuestionNumber(question, questionIndex);
+                            return (
+                              <div key={question.id} className="rounded-lg border p-4 space-y-4">
+                                <div className="flex items-start gap-3">
+                                  <Badge>{questionLabel}</Badge>
+                                  <div className="space-y-2 min-w-0 flex-1">
+                                    <p className="font-medium leading-6">{question.question_text}</p>
+                                    <QuestionField question={question} draft={draft} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
+                                  </div>
                                 </div>
-                                <QuestionField question={question} draft={draft} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
-                                <div className="question-actions">
+                                <div className="flex justify-end">
                                   <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={savingQuestionId === question.id}>
                                     {savingQuestionId === question.id ? "Saving..." : "Save"}
                                   </Button>
                                 </div>
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                              </div>
+                            );
+                          })}
+                        </CardContent>
+                      </Card>
+                    ))}
 
-                <Card className="panel submit-panel">
-                  <CardContent className="p-0">
-                    <div className="actions action-toolbar">
-                      <Button type="button" onClick={submitVisit} disabled={submitting || !visitId}>{submitting ? "Submitting..." : "Submit for Review"}</Button>
-                      <Badge variant="secondary">Mandatory completion: {completedMandatory}/{totalMandatory || 0}</Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-            </div>
-          </>
-        ) : null}
-
-        <AnimatePresence>
-          {message ? (
-            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
-              <Card className="message panel">
-                <CardContent className="p-0">
-                  <Badge variant="warning">{message}</Badge>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
-      </motion.main>
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <Badge variant="secondary">Mandatory completion: {completedMandatory}/{totalMandatory || 0}</Badge>
+                          <Button type="button" onClick={submitVisit} disabled={submitting || !visitId}>{submitting ? "Submitting..." : "Submit for Review"}</Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </motion.main>
+      </div>
     </div>
+    </>
   );
 }

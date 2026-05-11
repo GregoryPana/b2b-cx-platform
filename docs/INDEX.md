@@ -9,7 +9,7 @@ CWSCX is the Cable & Wireless Seychelles Customer Experience Platform. It combin
   Purpose: Business customer experience surveys, visit execution, and account feedback.
 - `Installation Assessment` -> `/surveys/installation/`
   Purpose: Installation quality inspections, work-order-based assessments, and technical scoring.
-- `Mystery Shopper` -> `/mystery-shopper/`
+- `Mystery Shopper` -> `/surveys/mystery-shopper/`
   Purpose: Structured mystery shopper survey capture and service-quality evaluation.
 
 ## Who This Documentation Is For
@@ -19,6 +19,10 @@ CWSCX is the Cable & Wireless Seychelles Customer Experience Platform. It combin
   Start here: `docs/deployment/`
 - Platform Architect / Planner
   Start here: `docs/architecture/` -> `docs/features/`
+
+## Visual Guide
+- `docs/DOCUMENTATION_MAP.md`
+  Purpose: Graphical/visual explanation of how the active docs connect, what each section contains, and what order to read them in.
 
 ## Tech Stack At A Glance
 - Frontend: React 18, Vite, Tailwind CSS, MSAL.js, TanStack Table, Recharts
@@ -54,6 +58,7 @@ CWSCX is the Cable & Wireless Seychelles Customer Experience Platform. It combin
 ### Deployment
 - `docs/deployment/DEPLOYMENT_END_TO_END_GUIDE.md`
 - `docs/deployment/STAGING_CICD_SETUP.md`
+- `docs/deployment/PRODUCTION_CICD_SETUP.md`
 - `docs/deployment/postgres_migration.md`
 - `docs/deployment/installation_database_setup.md`
 - `docs/deployment/ENTERPRISE_DEPLOYMENT_RUNBOOK.md`

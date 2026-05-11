@@ -34,7 +34,7 @@ The CWSCX platform helps Cable and Wireless Seychelles collect, review, and mana
   - planned visits workflow, response capture, submission
 - Installation Survey (`/surveys/installation/`)
   - installation assessment workflow with Entra sign-in and role-based access
-- Mystery Shopper (`/mystery-shopper/`)
+- Mystery Shopper (`/surveys/mystery-shopper/`)
   - protected mystery shopper SPA flow
 - API backend (`/api/*`)
   - serves data, handles business logic, validates auth
@@ -45,7 +45,7 @@ The CWSCX platform helps Cable and Wireless Seychelles collect, review, and mana
 - Auth: Microsoft Entra bearer token validation
 - Reverse proxy: Nginx
 - Runtime control: systemd services
-- CI/CD: GitHub Actions + self-hosted runner on staging network
+- CI/CD: GitHub Actions + self-hosted runners on internal network (staging and production)
 
 ## 5) Environment and architecture
 ### Staging
@@ -83,7 +83,7 @@ Typical installation cycle:
 ## 8) Deployment lifecycle (high-level)
 1. code is merged to `main`
 2. CI checks run (backend tests, frontend builds)
-3. deploy job runs on self-hosted runner
+3. deploy job is triggered manually and runs on self-hosted runner
 4. release bundle is built and installed
 5. backend, frontends, nginx updated
 6. verification checks run
@@ -101,6 +101,23 @@ Technical checks:
 - `/api/health` responds healthy
 - `cwscx-backend` service is active
 - Nginx config test passes
+- staging database container `cwscx-postgres` is up
+- staging database host port `5433` is listening when remote DB access is expected
+
+Backup and recovery checks:
+- staging database backups are currently created by a VM cron job
+- staging active script path: `/opt/backups/postgres/backup.sh`
+- staging active log path: `/opt/backups/postgres/backup.log`
+- staging live database compose source: `/opt/cwscx/docker-compose.yml`
+- staging live database container: `cwscx-postgres`
+- staging live database host port: `5433`
+- backup layout:
+  - `/opt/backups/postgres/daily/`
+  - `/opt/backups/postgres/weekly/`
+  - `/opt/backups/postgres/monthly/`
+- restore-readiness should be verified periodically with `pg_restore --list` and a full restore drill
+
+These paths and runtime details describe the current staging VM only. Production should be documented separately once the live environment is provisioned.
 
 ## 10) Incident handling playbook
 ### Scenario A: Frontend route returns 500 or blank
@@ -157,7 +174,15 @@ Action:
 - staging setup: `docs/deployment/STAGING_CICD_SETUP.md`
 - canonical runbook: `docs/deployment/ENTERPRISE_DEPLOYMENT_RUNBOOK.md`
 
-## 14) Language and communication guidance for non-technical users
+## 14) Future Operations Note
+- A future cross-environment operations platform is planned to centralize:
+  - backup status
+  - health checks
+  - alert intake
+  - alert triage across multiple VMs, environments, and bespoke applications
+- That future platform is not part of the current shipped runtime.
+
+## 15) Language and communication guidance for non-technical users
 When explaining status updates to non-technical teams:
 - avoid low-level stack details unless asked
 - lead with user impact (what works / what is blocked)

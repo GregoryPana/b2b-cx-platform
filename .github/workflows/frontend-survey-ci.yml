@@ -7,10 +7,14 @@ on:
   push:
     paths:
       - "frontend/survey/**"
+      - "frontend/mystery-shopper/**"
+      - "frontend/installation-survey/**"
       - ".github/workflows/frontend-survey-ci.yml"
   pull_request:
     paths:
       - "frontend/survey/**"
+      - "frontend/mystery-shopper/**"
+      - "frontend/installation-survey/**"
       - ".github/workflows/frontend-survey-ci.yml"
 
 jobs:
@@ -31,3 +35,21 @@ jobs:
           VITE_BASE_PATH: /surveys/b2b/
         run: npm run build
         working-directory: frontend/survey
+      - name: Install dependencies (installation survey)
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend/installation-survey
+      - name: Build (installation survey)
+        env:
+          VITE_API_URL: /api
+          VITE_BASE_PATH: /surveys/installation/
+        run: npm run build
+        working-directory: frontend/installation-survey
+      - name: Install dependencies (mystery shopper survey)
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend/mystery-shopper
+      - name: Build (mystery shopper survey)
+        env:
+          VITE_API_URL: /api
+          VITE_BASE_PATH: /surveys/mystery-shopper/
+        run: npm run build
+        working-directory: frontend/mystery-shopper

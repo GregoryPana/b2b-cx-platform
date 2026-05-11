@@ -16,8 +16,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("installation_surveys", sa.Column("work_order", sa.String(length=255), nullable=True))
+    op.execute(
+        """
+        ALTER TABLE installation_surveys
+        ADD COLUMN IF NOT EXISTS work_order VARCHAR(255)
+        """
+    )
 
 
 def downgrade() -> None:
-    op.drop_column("installation_surveys", "work_order")
+    op.execute(
+        """
+        ALTER TABLE installation_surveys
+        DROP COLUMN IF EXISTS work_order
+        """
+    )

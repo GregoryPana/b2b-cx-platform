@@ -1,4 +1,4 @@
-import { ClipboardCheck, CalendarDays, LogOut, Menu, X } from "lucide-react";
+import { BookOpen, ClipboardCheck, CalendarDays, LogOut, Menu, X } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
@@ -15,6 +15,7 @@ interface SidebarProps {
 const items = [
   { to: "/planned", label: "Planned Visits", icon: CalendarDays },
   { to: "/survey", label: "Survey", icon: ClipboardCheck },
+  { to: "/user-guide", label: "User Guide", icon: BookOpen },
 ];
 
 export default function Sidebar({ collapsed, mobileOpen, onToggle, onCloseMobile, onLogout, userEmail }: SidebarProps) {
@@ -46,7 +47,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onCloseMobile
           return (
             <NavLink key={item.to} to={item.to} onClick={onCloseMobile}>
               {({ isActive }) => (
-                <Button variant={isActive ? "secondary" : "ghost"} className={cn("w-full justify-start", collapsed && "justify-center px-0")}>
+                <Button variant={isActive ? "secondary" : "ghost"} className={cn("w-full justify-start gap-3", collapsed && "justify-center px-0")}>
                   <Icon className="h-4 w-4" />
                   {!collapsed ? <span>{item.label}</span> : null}
                 </Button>

@@ -53,6 +53,12 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
     count: Number(item.survey_count || 0),
   }));
 
+  const contractorBreakdownData = (analytics?.contractor_breakdown || []).map((item) => ({
+    contractor_name: item.contractor_name,
+    average: Number(item.average_score || 0),
+    count: Number(item.survey_count || 0),
+  }));
+
   const overallAverage = analytics?.summary?.overall_average_score;
   const avgB2B = findAverage(analytics?.customer_type_averages, "customer_type", "B2B");
   const avgB2C = findAverage(analytics?.customer_type_averages, "customer_type", "B2C");
@@ -139,6 +145,55 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
           </CardContent>
         </Card>
       </div>
+
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Contractor Breakdown
+            <Hint text="Compares average installation scores by contractor name so quality can be assessed per contractor." />
+          </CardTitle>
+          <CardDescription>Average score and number of surveys for each contractor.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {contractorBreakdownData.length ? (
+            <>
+              <div className="min-w-0 h-72">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
+                  <BarChart data={contractorBreakdownData} layout="vertical" margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" domain={[0, 5]} />
+                    <YAxis type="category" dataKey="contractor_name" width={220} tick={{ fontSize: 12 }} />
+                    <Tooltip formatter={(value, name, context) => [Number(value).toFixed(2), name === "average" ? "Average Score" : "Surveys"]} />
+                    <Bar dataKey="average" fill="#f97316" radius={[0, 6, 6, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="rounded-md border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="px-3 py-2 text-left font-medium">Contractor</th>
+                      <th className="px-3 py-2 text-right font-medium">Average</th>
+                      <th className="px-3 py-2 text-right font-medium">Surveys</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {contractorBreakdownData.map((row) => (
+                      <tr key={row.contractor_name} className="border-b last:border-b-0">
+                        <td className="px-3 py-2">{row.contractor_name}</td>
+                        <td className="px-3 py-2 text-right">{row.average.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right">{row.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">No contractor survey data yet.</div>
+          )}
+        </CardContent>
+      </Card>
 
        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card className="min-w-0">

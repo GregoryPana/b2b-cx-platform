@@ -3,7 +3,7 @@ import { cn } from "../../lib/utils";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 
-export default function MainLayout({ children, onLogout, onSwitchPlatform, userName, userEmail, activePlatform, pendingReviewCount }) {
+export default function MainLayout({ children, onLogout, onSwitchPlatform, userName, userEmail, activePlatform, pendingReviewCount, appVersion }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [theme, setTheme] = useState("light");
@@ -27,6 +27,7 @@ export default function MainLayout({ children, onLogout, onSwitchPlatform, userN
         userEmail={userEmail}
         activePlatform={activePlatform}
         pendingReviewCount={pendingReviewCount}
+        appVersion={appVersion}
       />
       <div className={cn("flex min-w-0 flex-1 flex-col transition-all duration-300", collapsed ? "lg:pl-20" : "lg:pl-72")}>
         <Header theme={theme} toggleTheme={toggleTheme} onOpenMobileNav={() => setMobileOpen(true)} />

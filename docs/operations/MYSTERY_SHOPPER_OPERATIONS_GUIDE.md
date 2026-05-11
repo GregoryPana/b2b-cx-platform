@@ -22,7 +22,7 @@ Operational checklist for Admin, Reviewer, and Representative users to run Myste
 
 ## 3. Representative Workflow
 1. Open Mystery Shopper frontend.
-2. Enter User ID and role `Representative`.
+2. Sign in with your Entra account.
 3. Create/load visit with required header details:
    - location, visit date/time, purpose, staff on duty, shopper name
 4. Complete and save section responses.
@@ -51,9 +51,12 @@ Operational checklist for Admin, Reviewer, and Representative users to run Myste
 
 ## 7. Troubleshooting
 - If locations are missing:
-  - Verify bootstrap endpoint succeeded.
-  - Verify location records are active.
+   - Verify bootstrap endpoint succeeded.
+   - Verify location records are active.
+- If a draft cannot be seen or resumed:
+  - confirm the user is signed in with the same Entra account that created the draft
+  - confirm the draft still has `Draft` status
 - If review queue is empty:
-  - Check submitted visits are in `Pending` status for Mystery Shopper.
+   - Check submitted visits are in `Pending` status for Mystery Shopper.
 - If analytics look empty:
-  - Confirm visits are approved and responses are saved.
+   - Confirm visits are approved and responses are saved.

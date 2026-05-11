@@ -22,6 +22,7 @@ export const msalInstance = isMsalSupported
         authority,
         redirectUri: window.location.origin,
         postLogoutRedirectUri: window.location.origin,
+        navigateToLoginRequestUrl: false,
       },
       cache: {
         cacheLocation: "localStorage",

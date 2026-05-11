@@ -14,8 +14,8 @@
 - validate release bundle structure
 
 ## CD
-- `main` -> staging deployment through self-hosted runner
-- production deployment -> manual workflow dispatch and approval
+- staging deployment -> manual workflow dispatch through self-hosted runner
+- production deployment -> manual workflow dispatch through self-hosted runner
 
 ## Deployment Model
 - the exact commit is checked out on the runner
@@ -28,7 +28,7 @@
 - `/dashboard/` -> CX Governance Dashboard SPA
 - `/surveys/b2b/` -> B2B Survey SPA
 - `/surveys/installation/` -> Installation Assessment SPA
-- `/mystery-shopper/` -> Mystery Shopper SPA
+- `/surveys/mystery-shopper/` -> Mystery Shopper SPA
 
 ## Verification
 - backend health check

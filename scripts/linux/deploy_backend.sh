@@ -9,6 +9,7 @@ fi
 VENV_DIR="${BACKEND_DIR}/venv"
 ENV_FILE="${REPO_DIR}/.env"
 SERVICE_FILE="/etc/systemd/system/cwscx-backend.service"
+ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260424_000019}"
 
 run_as_root() {
   if [[ "${EUID}" -eq 0 ]]; then
@@ -70,7 +71,7 @@ export DATABASE_URL="${DATABASE_URL_VALUE}"
 
 # Use upgrade-only migrations; never clear/reset data
 ALEMBIC_LOG="$(mktemp /tmp/cwscx-alembic.XXXXXX.log)"
-if ! "${VENV_DIR}/bin/alembic" upgrade head 2>&1 | tee "${ALEMBIC_LOG}"; then
+if ! "${VENV_DIR}/bin/alembic" upgrade "${ALEMBIC_TARGET_REVISION}" 2>&1 | tee "${ALEMBIC_LOG}"; then
   if grep -qiE '(lock timeout|canceling statement due to lock timeout|could not obtain lock)' "${ALEMBIC_LOG}"; then
     echo "Alembic migration was blocked by a database lock."
     echo "Run the lock inspection query below on the VM, clear the blocker, then rerun deploy:"
@@ -78,9 +79,9 @@ if ! "${VENV_DIR}/bin/alembic" upgrade head 2>&1 | tee "${ALEMBIC_LOG}"; then
     exit 1
   fi
   if grep -qiE '(already exists|DuplicateTable)' "${ALEMBIC_LOG}"; then
-    echo "Detected pre-existing schema without matching Alembic revision; stamping current head and retrying migrations."
+    echo "Detected pre-existing schema without matching Alembic revision; stamping known active lineage point and retrying migrations."
     "${VENV_DIR}/bin/alembic" stamp 20260326_000012
-    "${VENV_DIR}/bin/alembic" upgrade head
+    "${VENV_DIR}/bin/alembic" upgrade "${ALEMBIC_TARGET_REVISION}"
   else
     exit 1
   fi

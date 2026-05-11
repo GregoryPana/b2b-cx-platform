@@ -142,8 +142,16 @@ function getScoreRangeLabel(question: Question) {
   return `${min}-${max}`;
 }
 
-function normalizeScoreInput(value: string) {
-  return value.replace(/[^0-9]/g, "");
+function getScoreOptions(question: Question) {
+  if (question.input_type !== "score") return [];
+  const min = Number(question.score_min ?? 0);
+  const max = Number(question.score_max ?? 10);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return [];
+  const options: number[] = [];
+  for (let value = min; value <= max; value += 1) {
+    options.push(value);
+  }
+  return options;
 }
 
 function getScoreValidationMessage(question: Question, scoreValue: string) {
@@ -1188,6 +1196,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                               const choices = parseChoices(question);
                               const saving = savingQuestionId === question.id;
                               const scoreRangeLabel = getScoreRangeLabel(question);
+                              const scoreOptions = getScoreOptions(question);
                               const scoreValidationMessage = getScoreValidationMessage(question, draft.score);
                               return (
                                 <Card key={question.id}>
@@ -1204,17 +1213,21 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                   <CardContent className="space-y-4">
                                     {question.input_type === "score" ? (
                                       <div className="space-y-2">
-                                        <Input
-                                          type="number"
-                                          inputMode="numeric"
-                                          min={question.score_min ?? 0}
-                                          max={question.score_max ?? 10}
-                                          value={draft.score}
-                                          onChange={(event) => updateQuestionDraft(question.id, "score", normalizeScoreInput(event.target.value))}
-                                          aria-invalid={scoreValidationMessage ? "true" : "false"}
-                                          className={scoreValidationMessage ? "border-destructive" : undefined}
-                                        />
-                                        <p className="text-xs text-muted-foreground">Enter a whole number in the range {scoreRangeLabel}.</p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {scoreOptions.map((scoreValue) => (
+                                            <Button
+                                              key={`${question.id}-score-${scoreValue}`}
+                                              type="button"
+                                              size="sm"
+                                              variant={String(scoreValue) === String(draft.score) ? "default" : "outline"}
+                                              className="min-w-10"
+                                              onClick={() => updateQuestionDraft(question.id, "score", String(scoreValue))}
+                                            >
+                                              {scoreValue}
+                                            </Button>
+                                          ))}
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">Select a score in the range {scoreRangeLabel}.</p>
                                         {scoreValidationMessage ? <p className="text-xs text-destructive">{scoreValidationMessage}</p> : null}
                                       </div>
                                     ) : question.input_type === "yes_no" ? (

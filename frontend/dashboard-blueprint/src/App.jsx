@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import DashboardPage from "./pages/DashboardPage";
 import PlatformSelectionPage from "./pages/PlatformSelectionPage";
@@ -9,8 +9,10 @@ import { ensureMsalInitialized, loginRequest } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
 const ACTIVE_PLATFORM_KEY = "cx.activePlatform";
 const ENTRA_ROLES_KEY = "cx.entraRoles";
+const LOGOUT_FLAG_KEY = "cx.logoutRequested";
 
 function readJwtExpiry(accessToken) {
   try {
@@ -29,9 +31,9 @@ function resolvePlatformsFromRoles(entraRoles) {
   const isSuperAdmin = entraRoles.includes("CX_SUPER_ADMIN");
   const canAccess = (platformKey) => {
     if (isSuperAdmin) return true;
-    if (platformKey === "B2B") return entraRoles.includes("B2B_ADMIN") || entraRoles.includes("B2B_SURVEYOR");
-    if (platformKey === "Mystery Shopper") return entraRoles.includes("MYSTERY_ADMIN") || entraRoles.includes("MYSTERY_SURVEYOR");
-    if (platformKey === "Installation Assessment") return entraRoles.includes("INSTALL_ADMIN") || entraRoles.includes("INSTALL_SURVEYOR");
+    if (platformKey === "B2B") return entraRoles.includes("B2B_ADMIN");
+    if (platformKey === "Mystery Shopper") return entraRoles.includes("MYSTERY_ADMIN");
+    if (platformKey === "Installation Assessment") return entraRoles.includes("INSTALL_ADMIN");
     return false;
   };
 
@@ -42,60 +44,96 @@ function resolvePlatformsFromRoles(entraRoles) {
   ].filter((platform) => canAccess(platform.name));
 }
 
-function DashboardShell({ headers, availablePlatforms, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired }) {
+function DashboardShell({ headers, availablePlatforms, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired, appVersion }) {
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const activePlatformAllowed = !activePlatform || availablePlatforms.some((platform) => platform.name === activePlatform);
+  const isMysteryShopperPlatform = String(activePlatform || "").toLowerCase().includes("mystery");
+  const navigate = useNavigate();
+
+  const handleSelectPlatform = useCallback((platformName) => {
+    setActivePlatform(platformName);
+    navigate("/", { replace: true });
+  }, [navigate, setActivePlatform]);
+
+  const handleSwitchPlatform = useCallback(() => {
+    setActivePlatform("");
+    navigate("/", { replace: true });
+  }, [navigate, setActivePlatform]);
 
   useEffect(() => {
+    if (isMysteryShopperPlatform) {
+      setPendingReviewCount(0);
+      return;
+    }
     let cancelled = false;
+    let controller = null;
+    let timeoutId = null;
     const loadCount = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      if (timeoutId) window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => controller?.abort(), 30000);
       try {
-        const params = new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" });
-        const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
+        const endpoint = `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
+        const res = await fetch(endpoint, { headers, signal: controller.signal });
         if (!cancelled && res.ok) {
           const data = await res.json();
           setPendingReviewCount(Array.isArray(data) ? data.length : 0);
         }
       } catch { /* silent */ }
+      finally {
+        if (timeoutId) {
+          window.clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      }
     };
     if (activePlatform) loadCount();
     const interval = setInterval(() => { if (activePlatform) loadCount(); }, 30000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [activePlatform, headers]);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (timeoutId) window.clearTimeout(timeoutId);
+      controller?.abort();
+    };
+  }, [activePlatform, headers, isMysteryShopperPlatform]);
 
   if (!activePlatform || !activePlatformAllowed) {
     return (
-      <PlatformSelectionPage
-        userName={userName}
-        userEmail={userEmail}
-        availablePlatforms={availablePlatforms}
-        onSelectPlatform={setActivePlatform}
-        onLogout={onLogout}
-      />
+        <PlatformSelectionPage
+          userName={userName}
+          userEmail={userEmail}
+          availablePlatforms={availablePlatforms}
+          onSelectPlatform={handleSelectPlatform}
+          onLogout={onLogout}
+        />
     );
   }
 
   return (
     <MainLayout
       onLogout={onLogout}
-      onSwitchPlatform={() => setActivePlatform("")}
+      onSwitchPlatform={handleSwitchPlatform}
       userName={userName}
       userEmail={userEmail}
       activePlatform={activePlatform}
       pendingReviewCount={pendingReviewCount}
+      appVersion={appVersion}
     >
       <Routes>
-        <Route path="/" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/planned" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/trends" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/review" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/actions" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/surveys" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/reports" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/businesses" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/executives" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/locations" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
-        <Route path="/purposes" element={<DashboardPage headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/" element={<DashboardPage key={`${activePlatform || "none"}-root`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/planned" element={<DashboardPage key={`${activePlatform || "none"}-planned`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/trends" element={<DashboardPage key={`${activePlatform || "none"}-trends`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/review" element={<DashboardPage key={`${activePlatform || "none"}-review`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/actions" element={<DashboardPage key={`${activePlatform || "none"}-actions`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/surveys" element={<DashboardPage key={`${activePlatform || "none"}-surveys`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/reports" element={<DashboardPage key={`${activePlatform || "none"}-reports`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/user-guide" element={<DashboardPage key={`${activePlatform || "none"}-guide`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/contractors" element={<DashboardPage key={`${activePlatform || "none"}-contractors`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/businesses" element={<DashboardPage key={`${activePlatform || "none"}-businesses`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/executives" element={<DashboardPage key={`${activePlatform || "none"}-executives`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/locations" element={<DashboardPage key={`${activePlatform || "none"}-locations`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/purposes" element={<DashboardPage key={`${activePlatform || "none"}-purposes`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </MainLayout>
@@ -128,6 +166,13 @@ function MsalAuthenticatedApp() {
     }
   });
   const [authProfileError, setAuthProfileError] = useState("");
+  const [logoutRequested, setLogoutRequested] = useState(() => {
+    try {
+      return sessionStorage.getItem(LOGOUT_FLAG_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const availablePlatforms = useMemo(() => resolvePlatformsFromRoles(Array.isArray(entraRoles) ? entraRoles : []), [entraRoles]);
 
   useEffect(() => {
@@ -142,10 +187,11 @@ function MsalAuthenticatedApp() {
 
   useEffect(() => {
     if (!msalReady) return;
+    if (logoutRequested) return;
     if (!isAuthenticated && inProgress === "none") {
       instance.loginRedirect(loginRequest);
     }
-  }, [inProgress, instance, isAuthenticated, msalReady]);
+  }, [inProgress, instance, isAuthenticated, logoutRequested, msalReady]);
 
   useEffect(() => {
     if (!msalReady || !accounts[0]) return;
@@ -156,7 +202,10 @@ function MsalAuthenticatedApp() {
     setUserEmail(claims.preferred_username || account.username || "");
     const claimRoles = Array.isArray(claims.roles) ? claims.roles : [];
     if (claimRoles.length > 0) {
-      setEntraRoles(claimRoles);
+      setEntraRoles((prev) => {
+        if (prev.length === claimRoles.length && prev.every((r, i) => r === claimRoles[i])) return prev;
+        return claimRoles;
+      });
       setRole(claimRoles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
     }
 
@@ -172,56 +221,6 @@ function MsalAuthenticatedApp() {
     };
     loadToken();
   }, [accounts, instance, msalReady]);
-
-  useEffect(() => {
-    if (!accessToken) return;
-    const run = async () => {
-      setAuthProfileError("");
-      try {
-        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
-        const contentType = res.headers.get("content-type") || "";
-        let data = null;
-        if (contentType.includes("application/json")) {
-          data = await res.json();
-        } else {
-          const rawText = await res.text();
-          throw new Error(`Profile endpoint returned non-JSON response (${res.status}). ${rawText.slice(0, 120)}`);
-        }
-
-         if (res.status === 401 && accounts[0]) {
-           try {
-             const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
-             if (result?.accessToken) {
-               setAccessToken(result.accessToken);
-               return;
-             }
-           } catch (refreshError) {
-             if (refreshError instanceof InteractionRequiredAuthError) {
-               instance.acquireTokenRedirect(loginRequest);
-               return;
-             }
-           }
-         }
-
-        if (!res.ok) {
-          throw new Error(data?.detail || `Failed to load profile (${res.status})`);
-        }
-
-        const roles = Array.isArray(data.roles) ? data.roles : [];
-        if (roles.length > 0) {
-          setEntraRoles(roles);
-          setRole(roles.some((item) => item.endsWith("_ADMIN") || item === "CX_SUPER_ADMIN") ? "Admin" : "Representative");
-        }
-        setUserId(String(data.sub || userId));
-        setUserName(data.name || userName);
-        setUserEmail(data.preferred_username || userEmail);
-      } catch (error) {
-        console.error("Failed loading /auth/me profile", error);
-        setAuthProfileError("Could not load profile details from server. You can still continue with role claims from your sign-in token.");
-      }
-    };
-    run();
-  }, [accessToken, userEmail, userId, userName, accounts, instance]);
 
   useEffect(() => {
     if (!msalReady || !accounts[0] || !accessToken) return;
@@ -286,7 +285,23 @@ function MsalAuthenticatedApp() {
   }, [accessToken, entraRoles, role, userId]);
 
   const handleLogout = () => {
+    try {
+      sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(true);
     instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+  };
+
+  const handleSignInAgain = () => {
+    try {
+      sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(false);
+    instance.loginRedirect(loginRequest);
   };
 
   const handleSessionExpired = useCallback(() => {
@@ -324,7 +339,23 @@ function MsalAuthenticatedApp() {
     if (!stillAllowed) setActivePlatform("");
   }, [activePlatform, availablePlatforms]);
 
-  if (!msalReady || !isAuthenticated || !accessToken) {
+  if (!msalReady) {
+    return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
+  }
+
+  if (logoutRequested && !isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-sm">
+          <h1 className="text-xl font-semibold">You have signed out</h1>
+          <p className="mt-2 text-sm text-muted-foreground">You can safely close this tab, or sign in again when you're ready.</p>
+          <Button type="button" className="mt-4" onClick={handleSignInAgain}>Sign in again</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !accessToken) {
     return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
   }
 
@@ -342,6 +373,7 @@ function MsalAuthenticatedApp() {
         setActivePlatform={setActivePlatform}
         onLogout={handleLogout}
         onSessionExpired={handleSessionExpired}
+        appVersion={APP_VERSION}
       />
     </>
   );
@@ -405,6 +437,7 @@ function DevBypassApp() {
       activePlatform={activePlatform}
       setActivePlatform={setActivePlatform}
       onLogout={handleLogout}
+      appVersion={APP_VERSION}
     />
   );
 }

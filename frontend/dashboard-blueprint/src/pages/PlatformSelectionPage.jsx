@@ -28,10 +28,10 @@ export default function PlatformSelectionPage({ userName, userEmail, availablePl
           <Card>
             <CardHeader>
               <CardTitle>No platform access detected</CardTitle>
-              <CardDescription>Your account authenticated successfully, but no platform role is currently assigned.</CardDescription>
+              <CardDescription>You're signed in, but this account does not have access to any platform dashboards yet.</CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">Ask an administrator to assign one of these roles: B2B, Mystery Shopper, or Installation Assessment.</p>
+              <p className="text-sm text-muted-foreground">Please ask an administrator to grant the dashboard role you need, and then sign in again.</p>
             </CardContent>
           </Card>
         ) : (

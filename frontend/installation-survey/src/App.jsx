@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import InstallationSurveyPage from "./features/installation/InstallationSurveyPage";
+import UserGuidePage from "./features/user-guide/UserGuidePage";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const INSTALLATION_ALLOWED_ROLES = new Set(["INSTALL_ADMIN", "INSTALL_SURVEYOR", "CX_SUPER_ADMIN"]);
+const LOGOUT_FLAG_KEY = "cx.logoutRequested";
 
 function readJwtExpiry(accessToken) {
   try {
@@ -40,6 +43,13 @@ export default function App() {
   const [entraRoles, setEntraRoles] = useState([]);
   const [roleResolved, setRoleResolved] = useState(false);
   const [authProfileError, setAuthProfileError] = useState("");
+  const [logoutRequested, setLogoutRequested] = useState(() => {
+    try {
+      return sessionStorage.getItem(LOGOUT_FLAG_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     let active = true;
@@ -51,10 +61,11 @@ export default function App() {
 
   useEffect(() => {
     if (!msalReady) return;
+    if (logoutRequested) return;
     if (!isAuthenticated && inProgress === "none") {
       instance.loginRedirect(loginRequest);
     }
-  }, [instance, inProgress, isAuthenticated, msalReady]);
+  }, [instance, inProgress, isAuthenticated, logoutRequested, msalReady]);
 
   useEffect(() => {
     if (!msalReady || !accounts[0]) return;
@@ -82,53 +93,7 @@ export default function App() {
 
   useEffect(() => {
     if (!accessToken) return;
-    const run = async () => {
-      setAuthProfileError("");
-      try {
-        const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
-        const contentType = res.headers.get("content-type") || "";
-        let data = null;
-        if (contentType.includes("application/json")) {
-          data = await res.json();
-        } else {
-          const rawText = await res.text();
-          throw new Error(`Profile endpoint returned non-JSON response (${res.status}). ${rawText.slice(0, 120)}`);
-        }
-
-        if (res.status === 401 && accounts[0]) {
-          try {
-            const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
-            if (result?.accessToken) {
-              setAccessToken(result.accessToken);
-              return;
-            }
-          } catch (refreshError) {
-            if (refreshError instanceof InteractionRequiredAuthError) {
-              instance.acquireTokenRedirect(loginRequest);
-              return;
-            }
-          }
-        }
-
-        if (!res.ok) {
-          throw new Error(data?.detail || `Failed to load profile (${res.status})`);
-        }
-
-        if (res.ok) {
-          const roles = Array.isArray(data.roles) ? data.roles : [];
-          setEntraRoles(roles);
-          setUserId(String(data.sub || userId));
-          setUserName(data.name || userName);
-          setUserEmail(data.preferred_username || userEmail);
-        }
-      } catch (error) {
-        console.error("Failed loading /auth/me profile", error);
-        setAuthProfileError("Could not load profile details from server. Installation access will fall back to your Entra token roles.");
-      } finally {
-        setRoleResolved(true);
-      }
-    };
-    run();
+    setRoleResolved(true);
   }, [accessToken, userEmail, userId, userName, accounts, instance]);
 
   useEffect(() => {
@@ -195,10 +160,50 @@ export default function App() {
   }, [accessToken, entraRoles, userId, userName, userEmail]);
 
   const handleLogout = () => {
+    try {
+      sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(true);
     instance.logoutRedirect();
   };
 
-  if (!msalReady || !isAuthenticated || !accessToken || !roleResolved) {
+  const handleSignInAgain = () => {
+    try {
+      sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    setLogoutRequested(false);
+    instance.loginRedirect(loginRequest);
+  };
+
+  if (!msalReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+        <Card className="p-6">
+          <CardContent className="pt-6">Signing you in...</CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (logoutRequested && !isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6">
+          <CardContent className="space-y-3 pt-6">
+            <h1 className="text-xl font-semibold">You have signed out</h1>
+            <p className="text-sm text-muted-foreground">You're all set. You can close this tab, or sign in again when you're ready.</p>
+            <Button type="button" onClick={handleSignInAgain}>Sign in again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !accessToken || !roleResolved) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
         <Card className="p-6">
@@ -215,8 +220,8 @@ export default function App() {
           <CardContent className="space-y-3 pt-6">
             <h1 className="text-xl font-semibold">No Installation Access</h1>
             <p className="text-sm text-muted-foreground">
-              Your account is signed in, but it does not have an Installation Assessment role.
-              Ask an administrator to assign `INSTALL_ADMIN`, `INSTALL_SURVEYOR`, or `CX_SUPER_ADMIN`.
+              You're signed in, but this account does not currently have access to the Installation Assessment survey.
+              Please ask an administrator to grant access and then try again.
             </p>
             <Button type="button" variant="outline" onClick={handleLogout}>
               Logout
@@ -233,7 +238,11 @@ export default function App() {
         <div className="border-b bg-warning/20 px-4 py-2 text-sm text-warning-foreground">{authProfileError}</div>
       ) : null}
       <MainLayout onLogout={handleLogout} userName={userName} userEmail={userEmail} statusText={statusText}>
-        <InstallationSurveyPage headers={headers} />
+        <Routes>
+          <Route path="/" element={<InstallationSurveyPage headers={headers} />} />
+          <Route path="/user-guide" element={<UserGuidePage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </MainLayout>
     </>
   );

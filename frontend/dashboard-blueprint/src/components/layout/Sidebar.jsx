@@ -1,30 +1,32 @@
-import { ArrowLeftRight, Building2, CalendarDays, ChartLine, ChartPie, FileChartLine, LayoutList, LogOut, Menu, MessageSquareWarning, ScanEye, X } from "lucide-react";
+import { ArrowLeftRight, BookOpen, Building2, CalendarDays, ChartLine, ChartPie, FileChartLine, LayoutList, LogOut, Menu, MessageSquareWarning, ScanEye, X } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 
-export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, onLogout, onSwitchPlatform, userName, userEmail, activePlatform, pendingReviewCount }) {
+export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, onLogout, onSwitchPlatform, userName, userEmail, activePlatform, pendingReviewCount, appVersion }) {
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
   const isInstallationPlatform = normalizedPlatform.includes("installation");
-   const items = [
-     { to: "/", label: "Analytics", icon: ChartPie },
-     ...(isB2BPlatform ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
-     ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/trends", label: "Trends", icon: ChartLine }] : []),
-     ...(!isInstallationPlatform ? [{ to: "/review", label: "Review", icon: ScanEye }] : []),
-     ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: MessageSquareWarning }] : []),
-     ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/surveys", label: "Surveys", icon: LayoutList }] : []),
-     ...(isB2BPlatform || isInstallationPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
-     ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
-     ...(isB2BPlatform ? [{ to: "/executives", label: "Account Executives", icon: Building2 }] : []),
-     ...(isMysteryShopperPlatform
-       ? [
-           { to: "/locations", label: "Locations", icon: Building2 },
-           { to: "/purposes", label: "Purposes", icon: FileChartLine },
-         ]
-       : []),
-   ];
+    const items = [
+      { to: "/", label: "Analytics", icon: ChartPie },
+      ...(isB2BPlatform ? [{ to: "/planned", label: "Planned Visits", icon: CalendarDays }] : []),
+      ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/trends", label: "Trends", icon: ChartLine }] : []),
+      ...(!isInstallationPlatform ? [{ to: "/review", label: "Review", icon: ScanEye }] : []),
+      ...(isB2BPlatform ? [{ to: "/actions", label: "Action Points", icon: MessageSquareWarning }] : []),
+      ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/surveys", label: "Surveys", icon: LayoutList }] : []),
+      ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/reports", label: "Reports", icon: FileChartLine }] : []),
+      ...(isInstallationPlatform ? [{ to: "/contractors", label: "Contractors", icon: Building2 }] : []),
+      ...(isB2BPlatform ? [{ to: "/businesses", label: "Businesses", icon: Building2 }] : []),
+      ...(isB2BPlatform ? [{ to: "/executives", label: "Account Executives", icon: Building2 }] : []),
+      ...(isMysteryShopperPlatform
+        ? [
+            { to: "/locations", label: "Locations", icon: Building2 },
+            { to: "/purposes", label: "Purposes", icon: FileChartLine },
+          ]
+        : []),
+      ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/user-guide", label: "User Guide", icon: BookOpen }] : []),
+    ];
 
   return (
     <>
@@ -76,6 +78,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
         {!collapsed ? (
           <div className="shrink-0 border-t bg-card p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
             <p className="truncate text-xs text-muted-foreground">Platform: {activePlatform || "Not selected"}</p>
+            <p className="truncate text-[11px] text-muted-foreground">Build: {appVersion || "dev"}</p>
             <p className="truncate text-sm font-medium">{userName || "Unknown user"}</p>
             <p className="truncate text-xs text-muted-foreground">{userEmail || "No email"}</p>
             <Button variant="outline" className="mt-2 w-full justify-start" onClick={onSwitchPlatform}>
