@@ -169,7 +169,7 @@ jobs:
         working-directory: frontend/mystery-shopper
 
   deploy:
-    runs-on: [self-hosted, linux, cwscx-tst01]
+    runs-on: [self-hosted, linux]
     environment: staging
     needs: [changes, backend_ci, dashboard_ci, survey_ci]
     if: ${{ needs.changes.outputs.should_deploy == 'true' && needs.backend_ci.result == 'success' && needs.dashboard_ci.result == 'success' && needs.survey_ci.result == 'success' }}
