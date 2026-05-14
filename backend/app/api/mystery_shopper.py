@@ -128,6 +128,22 @@ def resolve_mystery_actor_user_id(db: Session, current_user: AuthUser) -> int:
 
 def ensure_mystery_visit_access(db: Session, visit_id: str, current_user: AuthUser) -> None:
     survey_type_id = _ensure_mystery_shopper_schema(db)
+    if current_user.has_any_role(("MYSTERY_ADMIN",)):
+        visit_exists = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM visits
+                WHERE id = :visit_id
+                  AND survey_type_id = :survey_type_id
+                LIMIT 1
+                """
+            ),
+            {"visit_id": visit_id, "survey_type_id": survey_type_id},
+        ).scalar()
+        if not visit_exists:
+            raise HTTPException(status_code=404, detail="Visit not found")
+        return
     actor_user_id = resolve_mystery_actor_user_id(db, current_user)
     visit_row = db.execute(
         text(
@@ -306,11 +322,14 @@ def build_mystery_report_payload(
     analytics_overall = get_comprehensive_analytics(survey_type="Mystery Shopper", db=db)
     question_averages_selected = get_question_averages(
         survey_type="Mystery Shopper",
-        business_ids=None,
+        mystery_location_ids=location_filter,
         date_from=effective_date_from,
         date_to=effective_date_to,
         db=db,
     )
+
+    has_question_number = has_column(db, "questions", "question_number")
+    question_number_select = "q.question_number" if has_question_number else "q.id"
 
     def weighted_average(items: list[dict[str, Any]]) -> float | None:
         score_sum = 0.0
@@ -379,7 +398,7 @@ def build_mystery_report_payload(
                 f"""
                 SELECT
                     q.id AS question_id,
-                    q.question_number,
+                    {question_number_select} AS question_number,
                     q.category,
                     q.question_text,
                     q.input_type,
@@ -391,7 +410,7 @@ def build_mystery_report_payload(
                 FROM {response_table} r
                 JOIN questions q ON q.id = r.question_id
                 WHERE r.visit_id = :visit_id
-                ORDER BY q.question_number, q.id
+                ORDER BY {question_number_select}, q.id
                 """
             ),
             {"visit_id": visit_id},

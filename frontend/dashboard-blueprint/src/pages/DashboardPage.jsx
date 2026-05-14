@@ -3466,7 +3466,7 @@ const platformAbortRef = useRef(null);
                 {reportType === "survey" ? (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">{isMysteryShopperPlatform ? "Location" : "Business"}</label>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">{isMysteryShopperPlatform ? "Select Location" : "Select Business"}</label>
                       <Input
                         type="text"
                         list="report-business-list"
