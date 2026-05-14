@@ -278,6 +278,7 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 - [X] Connection name: `production-cwscx-postgres`
 - [X] Test query executed successfully on production
 - [ ] Kill-test on production after deployment confirms alert routing works
+- [X] Production status page created in Uptime Kuma
 
 ### 3.6 Post-cutover validation (24 hours)
 
@@ -291,7 +292,8 @@ This tracker covers four parallel workstreams. Workstream 3 (production cutover)
 ### 3.7 Communication and closure
 
 - [ ] Go-live communicated to application users
-- [ ] DTO team notified that production monitoring is active
+- [X] DTO team notified that production monitoring is active
+- [X] User-facing production URL and troubleshooting message prepared
 - [ ] Risk register updated with any new observations
 - [X] EXIT.md Section 21 version history updated with go-live date
 - [ ] Lessons learned captured for second application cutover

@@ -1,0 +1,53 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __SERVER_NAME__;
+
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name __SERVER_NAME__;
+
+    ssl_certificate __SSL_CERT__;
+    ssl_certificate_key __SSL_KEY__;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy no-referrer-when-downgrade always;
+
+    location = / {
+        return 302 /app/;
+    }
+
+    location /api/ {
+        proxy_pass __BACKEND_UPSTREAM__/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+        proxy_connect_timeout 10s;
+    }
+
+    location /dashboard/ {
+        alias __APP_ROOT__/frontends-src/dashboard/dist/;
+        index index.html;
+        try_files $uri $uri/ /dashboard/index.html;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    }
+
+    location /app/ {
+        alias __APP_ROOT__/frontends-src/app/dist/;
+        index index.html;
+        try_files $uri $uri/ /app/index.html;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    }
+}

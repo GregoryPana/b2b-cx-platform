@@ -1,0 +1,40 @@
+name: deploy-production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder CI
+        run: |
+          echo "Run backend tests and frontend builds here"
+
+  deploy:
+    needs: ci
+    runs-on: [self-hosted, linux, production]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+      - name: Harden workspace to exact commit
+        run: |
+          git fetch --prune --tags
+          git checkout --force "$GITHUB_SHA"
+          git clean -ffdx
+      - name: Build release bundle
+        run: ./scripts/linux/build_release_bundle.sh
+      - name: Install release bundle
+        run: ./scripts/linux/install_release_bundle.sh
+      - name: Deploy backend
+        run: ./scripts/linux/deploy_backend.sh
+      - name: Deploy frontends
+        run: ./scripts/linux/deploy_frontends.sh
+      - name: Deploy nginx
+        run: ./scripts/linux/deploy_nginx.sh
+      - name: Verify release
+        run: ./scripts/linux/verify_release.sh production

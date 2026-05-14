@@ -1,0 +1,44 @@
+stages:
+  - ci
+  - deploy_staging
+  - deploy_production
+
+ci_checks:
+  stage: ci
+  tags: []
+  script:
+    - echo "Run backend tests and frontend builds here"
+
+deploy_staging:
+  stage: deploy_staging
+  when: manual
+  tags:
+    - staging
+    - linux
+  script:
+    - git fetch --prune --tags
+    - git checkout --force "$CI_COMMIT_SHA"
+    - git clean -ffdx
+    - ./scripts/linux/build_release_bundle.sh
+    - ./scripts/linux/install_release_bundle.sh
+    - ./scripts/linux/deploy_backend.sh
+    - ./scripts/linux/deploy_frontends.sh
+    - ./scripts/linux/deploy_nginx.sh
+    - ./scripts/linux/verify_release.sh staging
+
+deploy_production:
+  stage: deploy_production
+  when: manual
+  tags:
+    - production
+    - linux
+  script:
+    - git fetch --prune --tags
+    - git checkout --force "$CI_COMMIT_SHA"
+    - git clean -ffdx
+    - ./scripts/linux/build_release_bundle.sh
+    - ./scripts/linux/install_release_bundle.sh
+    - ./scripts/linux/deploy_backend.sh
+    - ./scripts/linux/deploy_frontends.sh
+    - ./scripts/linux/deploy_nginx.sh
+    - ./scripts/linux/verify_release.sh production
