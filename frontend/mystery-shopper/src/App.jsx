@@ -89,6 +89,26 @@ function getScoreOptions(question) {
   return options;
 }
 
+function normalizeQuestionValue(question, draft = {}, existing = null) {
+  const score = question?.input_type === "score"
+    ? String(draft.score ?? existing?.score ?? "")
+    : "";
+  const answerText = question?.input_type === "score"
+    ? ""
+    : String(draft.answer_text ?? existing?.answer_text ?? "").trim();
+  const verbatim = String(draft.verbatim ?? existing?.verbatim ?? "").trim();
+
+  return { score, answerText, verbatim };
+}
+
+function isQuestionDirty(question, draft = {}, existing = null) {
+  const draftOnly = normalizeQuestionValue(question, draft, null);
+  const persisted = normalizeQuestionValue(question, {}, existing);
+  return draftOnly.score !== persisted.score
+    || draftOnly.answerText !== persisted.answerText
+    || draftOnly.verbatim !== persisted.verbatim;
+}
+
 function QuestionField({ question, draft, onUpdate }) {
   const choices = parseChoices(question);
 
@@ -339,13 +359,7 @@ export default function App() {
       questions.filter((question) => {
         const draft = responseDrafts[question.id] || {};
         const existing = responsesByQuestion[question.id] || {};
-        const draftScore = String(draft.score ?? "");
-        const existingScore = String(existing.score ?? "");
-        const draftAnswer = String(draft.answer_text ?? "").trim();
-        const existingAnswer = String(existing.answer_text ?? "").trim();
-        const draftVerbatim = String(draft.verbatim ?? "").trim();
-        const existingVerbatim = String(existing.verbatim ?? "").trim();
-        return draftScore !== existingScore || draftAnswer !== existingAnswer || draftVerbatim !== existingVerbatim;
+        return isQuestionDirty(question, draft, existing);
       }).length,
     [questions, responseDrafts, responsesByQuestion]
   );
@@ -561,19 +575,27 @@ export default function App() {
 
     const draft = responseDrafts[question.id] || {};
     const existing = responsesByQuestion[question.id];
+    const hasChanges = isQuestionDirty(question, draft, existing);
 
     const questionLabel = displayQuestionNumber(question);
+
+    if (!hasChanges) {
+      raiseMessage(existing?.response_id
+        ? `Q${questionLabel} is already saved. No new changes to save.`
+        : `No response entered yet for Q${questionLabel}.`, existing?.response_id ? "success" : "info");
+      return;
+    }
 
     if (question.input_type === "score") {
       const numeric = Number(draft.score);
       if (Number.isNaN(numeric)) {
-        setMessage(`Enter a score for Q${questionLabel}.`);
+        raiseMessage(`Enter a score for Q${questionLabel}.`, "info");
         return;
       }
     }
 
     if (question.input_type === "yes_no" && !draft.answer_text) {
-      setMessage(`Select Yes or No for Q${questionLabel}.`);
+      raiseMessage(`Select Yes or No for Q${questionLabel}.`, "info");
       return;
     }
 
@@ -597,9 +619,9 @@ export default function App() {
       if (!res.ok) throw new Error(data?.detail || "Failed to save response");
 
       setResponsesByQuestion((prev) => ({ ...prev, [question.id]: data }));
-      setMessage(`Saved Q${questionLabel}.`);
+      raiseMessage(`Saved Q${questionLabel}.`, "success");
     } catch (error) {
-      setMessage(error.message || "Failed to save response");
+      raiseMessage(error.message || "Failed to save response", "error");
     } finally {
       setSavingQuestionId(null);
     }
@@ -978,7 +1000,22 @@ export default function App() {
                         <CardContent className="space-y-4">
                           {items.map((question, questionIndex) => {
                             const draft = responseDrafts[question.id] || {};
+                            const existing = responsesByQuestion[question.id] || null;
+                            const hasChanges = isQuestionDirty(question, draft, existing);
+                            const hasSavedResponse = Boolean(existing?.response_id);
                             const questionLabel = displayQuestionNumber(question, questionIndex);
+                            const saveButtonLabel = savingQuestionId === question.id
+                              ? "Saving..."
+                              : hasChanges
+                                ? "Save"
+                                : hasSavedResponse
+                                  ? "Saved"
+                                  : "No changes";
+                            const statusText = hasChanges
+                              ? "Unsaved changes"
+                              : hasSavedResponse
+                                ? "Response captured"
+                                : "No response captured yet";
                             return (
                               <div key={question.id} className="rounded-lg border p-4 space-y-4">
                                 <div className="flex items-start gap-3">
@@ -988,9 +1025,15 @@ export default function App() {
                                     <QuestionField question={question} draft={draft} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
                                   </div>
                                 </div>
-                                <div className="flex justify-end">
-                                  <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={savingQuestionId === question.id}>
-                                    {savingQuestionId === question.id ? "Saving..." : "Save"}
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className={cn(
+                                    "text-xs",
+                                    hasChanges ? "text-amber-700" : hasSavedResponse ? "text-emerald-700" : "text-muted-foreground"
+                                  )}>
+                                    {statusText}
+                                  </p>
+                                  <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={savingQuestionId === question.id || !hasChanges}>
+                                    {saveButtonLabel}
                                   </Button>
                                 </div>
                               </div>
