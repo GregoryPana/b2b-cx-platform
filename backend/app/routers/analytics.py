@@ -158,7 +158,7 @@ def get_comprehensive_analytics(
         params: dict[str, Any] = {}
         if survey_type_id is not None and has_visit_survey_type:
             where_extra = " AND v.survey_type_id = :survey_type_id"
-            where_visits_extra = " AND survey_type_id = :survey_type_id"
+            where_visits_extra = " AND v.survey_type_id = :survey_type_id"
             where_visit_alias_extra = " AND v.survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
 
@@ -173,7 +173,7 @@ def get_comprehensive_analytics(
                 params[key] = value
             business_clause = ",".join(placeholders)
             where_extra += f" AND v.business_id IN ({business_clause})"
-            where_visits_extra += f" AND business_id IN ({business_clause})"
+            where_visits_extra += f" AND v.business_id IN ({business_clause})"
             where_visit_alias_extra += f" AND v.business_id IN ({business_clause})"
 
         if is_mystery_survey and location_id_values:
@@ -193,7 +193,7 @@ def get_comprehensive_analytics(
             where_visits_extra += (
                 " AND EXISTS ("
                 "SELECT 1 FROM mystery_shopper_assessments msa_filter "
-                "WHERE msa_filter.visit_id = visits.id "
+                "WHERE msa_filter.visit_id = v.id "
                 f"AND msa_filter.location_id IN ({location_clause})"
                 ")"
             )
@@ -207,12 +207,12 @@ def get_comprehensive_analytics(
 
         if date_from:
             where_extra += " AND v.visit_date >= :date_from"
-            where_visits_extra += " AND visit_date >= :date_from"
+            where_visits_extra += " AND v.visit_date >= :date_from"
             where_visit_alias_extra += " AND v.visit_date >= :date_from"
             params["date_from"] = date_from
         if date_to:
             where_extra += " AND v.visit_date <= :date_to"
-            where_visits_extra += " AND visit_date <= :date_to"
+            where_visits_extra += " AND v.visit_date <= :date_to"
             where_visit_alias_extra += " AND v.visit_date <= :date_to"
             params["date_to"] = date_to
 
@@ -255,11 +255,11 @@ def get_comprehensive_analytics(
         visit_stats = db.execute(text(f"""
             SELECT 
                 COUNT(*) as total_visits,
-                SUM(CASE WHEN status = 'Draft' THEN 1 ELSE 0 END) as draft_visits,
-                SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_visits,
-                SUM(CASE WHEN status = 'Approved' THEN 1 ELSE 0 END) as approved_visits,
-                SUM(CASE WHEN status = 'Rejected' THEN 1 ELSE 0 END) as rejected_visits
-            FROM visits
+                SUM(CASE WHEN v.status = 'Draft' THEN 1 ELSE 0 END) as draft_visits,
+                SUM(CASE WHEN v.status = 'Pending' THEN 1 ELSE 0 END) as pending_visits,
+                SUM(CASE WHEN v.status = 'Approved' THEN 1 ELSE 0 END) as approved_visits,
+                SUM(CASE WHEN v.status = 'Rejected' THEN 1 ELSE 0 END) as rejected_visits
+            FROM visits v
             WHERE 1=1
             {where_visits_extra}
         """), params).fetchone()

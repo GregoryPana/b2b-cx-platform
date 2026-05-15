@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.api.installation import get_installation_questions
+from app.api.installation_surveys import get_installation_questions
 
 DATABASE_URL = "postgresql://b2b:b2b@localhost:55432/b2b"
 engine = create_engine(DATABASE_URL)
