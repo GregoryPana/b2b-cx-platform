@@ -1561,9 +1561,26 @@ const platformAbortRef = useRef(null);
         : []),
      ];
 
-   const reportTypeOptions = isMysteryShopperPlatform
+   const reportTypeOptions = (isMysteryShopperPlatform
      ? REPORT_TYPE_OPTIONS.filter((option) => option.key !== "action_points")
-     : REPORT_TYPE_OPTIONS;
+     : REPORT_TYPE_OPTIONS
+   ).map((option) => {
+     if (!isMysteryShopperPlatform) return option;
+     if (option.key === "survey") {
+       return {
+         ...option,
+         label: "Selected Location",
+         description: "View survey details for a specific location. Pick a location then select an approved survey.",
+       };
+     }
+     if (option.key === "lifetime") {
+       return {
+         ...option,
+         description: "Full lifetime metrics, visits per location, and any pending visits across the platform.",
+       };
+     }
+     return option;
+   });
 
    const reportMetricCards = [
      { title: "Selected NPS", value: reportPreview?.analytics_comparison?.nps?.selected ?? "--", metric: "b2b_nps" },

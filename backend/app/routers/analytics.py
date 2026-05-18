@@ -154,10 +154,12 @@ def get_comprehensive_analytics(
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         where_extra = ""
         where_visits_extra = ""
+        where_visit_alias_extra = ""
         params: dict[str, Any] = {}
         if survey_type_id is not None and has_visit_survey_type:
             where_extra = " AND v.survey_type_id = :survey_type_id"
             where_visits_extra = " AND survey_type_id = :survey_type_id"
+            where_visit_alias_extra = " AND v.survey_type_id = :survey_type_id"
             params["survey_type_id"] = survey_type_id
 
         business_id_values = parse_business_ids(business_ids)
@@ -172,6 +174,7 @@ def get_comprehensive_analytics(
             business_clause = ",".join(placeholders)
             where_extra += f" AND v.business_id IN ({business_clause})"
             where_visits_extra += f" AND business_id IN ({business_clause})"
+            where_visit_alias_extra += f" AND v.business_id IN ({business_clause})"
 
         if is_mystery_survey and location_id_values:
             location_placeholders = []
@@ -194,14 +197,23 @@ def get_comprehensive_analytics(
                 f"AND msa_filter.location_id IN ({location_clause})"
                 ")"
             )
+            where_visit_alias_extra += (
+                " AND EXISTS ("
+                "SELECT 1 FROM mystery_shopper_assessments msa_filter "
+                "WHERE msa_filter.visit_id = v.id "
+                f"AND msa_filter.location_id IN ({location_clause})"
+                ")"
+            )
 
         if date_from:
             where_extra += " AND v.visit_date >= :date_from"
             where_visits_extra += " AND visit_date >= :date_from"
+            where_visit_alias_extra += " AND v.visit_date >= :date_from"
             params["date_from"] = date_from
         if date_to:
             where_extra += " AND v.visit_date <= :date_to"
             where_visits_extra += " AND visit_date <= :date_to"
+            where_visit_alias_extra += " AND v.visit_date <= :date_to"
             params["date_to"] = date_to
 
         has_question_key, has_order_index, has_question_number = detect_question_columns(db)
@@ -494,7 +506,7 @@ def get_comprehensive_analytics(
                     COUNT(*) as visit_count
                 FROM visits v
                 WHERE v.status = 'Approved'
-                {where_visits_extra}
+                {where_visit_alias_extra}
                 GROUP BY v.visit_date
                 ORDER BY v.visit_date DESC
                 LIMIT 14
