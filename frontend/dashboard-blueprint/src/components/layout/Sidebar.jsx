@@ -3,6 +3,13 @@ import { NavLink } from "react-router-dom";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 
+const BRAND_ASSET_BASE = `${import.meta.env.BASE_URL || "/"}branding/`;
+const PLATFORM_ICON_MAP = {
+  B2B: `${BRAND_ASSET_BASE}platforms/b2b.png`,
+  "Mystery Shopper": `${BRAND_ASSET_BASE}platforms/mystery-shopper.png`,
+  "Installation Assessment": `${BRAND_ASSET_BASE}platforms/installation-assessment.png`,
+};
+
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, onLogout, onSwitchPlatform, userName, userEmail, activePlatform, pendingReviewCount }) {
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
   const isB2BPlatform = normalizedPlatform.includes("b2b");
@@ -27,6 +34,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
         : []),
       ...(isB2BPlatform || isMysteryShopperPlatform || isInstallationPlatform ? [{ to: "/user-guide", label: "User Guide", icon: BookOpen }] : []),
     ];
+  const activePlatformIcon = PLATFORM_ICON_MAP[activePlatform] || null;
 
   return (
     <>
@@ -39,7 +47,12 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
         )}
       >
         <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
-          {!collapsed ? <span className="text-lg font-semibold">CX Dashboard</span> : null}
+          {!collapsed ? (
+            <span className="flex items-center gap-2 text-lg font-semibold">
+              {activePlatformIcon ? <img src={activePlatformIcon} alt={`${activePlatform || "Platform"} icon`} className="h-6 w-6 object-contain" /> : null}
+              <span>CX Dashboard</span>
+            </span>
+          ) : (activePlatformIcon ? <img src={activePlatformIcon} alt={`${activePlatform || "Platform"} icon`} className="h-6 w-6 object-contain" /> : null)}
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={onCloseMobile} aria-label="Close navigation">
               <X className="h-4 w-4" />

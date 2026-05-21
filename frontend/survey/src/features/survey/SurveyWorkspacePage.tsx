@@ -16,10 +16,6 @@ import { Textarea } from "../../components/ui/textarea";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const SURVEY_TYPE = String(import.meta.env.VITE_SURVEY_TYPE || "B2B");
-const BRAND_ASSET_BASE = `${import.meta.env.BASE_URL || "/"}branding/`;
-const SURVEY_ICON_SRC = `${BRAND_ASSET_BASE}online-survey.png`;
-const CWS_LOGO_SRC = `${BRAND_ASSET_BASE}cws-logo.png`;
-const CWS_BANNER_SRC = `${BRAND_ASSET_BASE}cws-banner.png`;
 
 const QUESTION_CATEGORY_ORDER = [
   "Category 1: Relationship Strength",
@@ -784,24 +780,6 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       <PageContainer className="space-y-6">
       {error ? <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
       {message ? <div className="rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success">{message}</div> : null}
-
-      <Card className="overflow-hidden animate-target">
-        <img src={CWS_BANNER_SRC} alt="Cable and Wireless Seychelles banner" className="h-24 w-full object-cover md:h-28" />
-        <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between md:p-5">
-          <div className="flex items-center gap-4">
-            <img src={CWS_LOGO_SRC} alt="Cable and Wireless Seychelles logo" className="h-12 w-12 rounded-lg border bg-background p-2 object-contain" />
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl border bg-background/90 shadow-sm">
-                <img src={SURVEY_ICON_SRC} alt="Online survey icon" className="h-7 w-7 object-contain" />
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">Cable and Wireless Seychelles</p>
-                <p className="text-xl font-semibold tracking-tight">B2B Customer Experience Survey</p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="animate-target">
         <Card>
