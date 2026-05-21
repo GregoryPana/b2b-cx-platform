@@ -18,8 +18,11 @@ const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
 const LOGOUT_FLAG_KEY = "cx.logoutRequested";
+const BRAND_ASSET_BASE = `${import.meta.env.BASE_URL || "/"}branding/`;
+const SURVEY_ICON_SRC = `${BRAND_ASSET_BASE}online-survey.png`;
+const CWS_LOGO_SRC = `${BRAND_ASSET_BASE}cws-logo.png`;
+const CWS_BANNER_SRC = `${BRAND_ASSET_BASE}cws-banner.png`;
 
 const DEFAULT_PURPOSE_OPTIONS = ["General Enquiry", "Billing", "Device", "Broadband", "Complaint", "Other"];
 
@@ -745,7 +748,10 @@ export default function App() {
       {mobileNavOpen ? <motion.button type="button" className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} /> : null}
       <motion.aside className={cn("fixed left-0 top-0 z-30 h-screen w-[min(86vw,20rem)] max-w-full border-r bg-card shadow-2xl transition-transform duration-300 lg:w-72", mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0")} initial={{ opacity: 0.98 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
         <div className="flex h-14 items-center justify-between border-b px-4">
-          <span className="text-sm font-semibold">Mystery Shopper Survey</span>
+          <div className="flex items-center gap-2">
+            <img src={SURVEY_ICON_SRC} alt="Online survey icon" className="h-6 w-6 rounded object-contain" />
+            <span className="text-sm font-semibold">Mystery Shopper Survey</span>
+          </div>
           <Button type="button" variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation">
             <X className="h-4 w-4" />
           </Button>
@@ -788,7 +794,6 @@ export default function App() {
 
           <div className="mt-auto rounded-lg border bg-muted/40 p-3">
             <p className="text-xs text-muted-foreground">Signed in</p>
-            <p className="text-[11px] text-muted-foreground">Build: {APP_VERSION}</p>
             <p className="truncate text-sm font-medium">{userName || "Unknown user"}</p>
             <p className="truncate text-xs text-muted-foreground">{userEmail || "No email"}</p>
             <Button type="button" variant="outline" className="mt-3 w-full justify-start gap-2" onClick={handleLogout}>
@@ -820,6 +825,24 @@ export default function App() {
               {message}
             </motion.div>
           ) : null}
+
+          <Card className="overflow-hidden">
+            <img src={CWS_BANNER_SRC} alt="Cable and Wireless Seychelles banner" className="h-24 w-full object-cover md:h-28" />
+            <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between md:p-5">
+              <div className="flex items-center gap-4">
+                <img src={CWS_LOGO_SRC} alt="Cable and Wireless Seychelles logo" className="h-12 w-12 rounded-lg border bg-background p-2 object-contain" />
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl border bg-background/90 shadow-sm">
+                    <img src={SURVEY_ICON_SRC} alt="Online survey icon" className="h-7 w-7 object-contain" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">Cable and Wireless Seychelles</p>
+                    <p className="text-xl font-semibold tracking-tight">Customer Service Centre Assessment</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           <div className="space-y-6">
             <Card>

@@ -4,6 +4,8 @@ set -euo pipefail
 SITE_NAME="${SITE_NAME:-cwscx-staging}"
 SITE_FILE="/etc/nginx/sites-available/${SITE_NAME}"
 LINK_FILE="/etc/nginx/sites-enabled/${SITE_NAME}"
+SNIPPETS_DIR="/etc/nginx/snippets"
+EXTRA_ROUTES_FILE="${SNIPPETS_DIR}/${SITE_NAME}-extra-routes.conf"
 
 SERVER_NAME="${SERVER_NAME:-cwscx-tst01.cwsey.com}"
 SSL_CERTIFICATE="${SSL_CERTIFICATE:-/etc/ssl/cwscx/cwscx.crt}"
@@ -15,6 +17,66 @@ if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root (sudo bash scripts/linux/deploy_nginx.sh)"
   exit 1
 fi
+
+mkdir -p "${SNIPPETS_DIR}"
+
+seed_staging_extra_routes() {
+  if [[ "${SITE_NAME}" != "cwscx-staging" ]]; then
+    return 0
+  fi
+
+  if [[ -f "${EXTRA_ROUTES_FILE}" ]]; then
+    echo "Preserving existing staging extra routes: ${EXTRA_ROUTES_FILE}"
+    return 0
+  fi
+
+  cat >"${EXTRA_ROUTES_FILE}" <<'EOF'
+location = /system-check {
+    return 301 /system-check/;
+}
+
+location ^~ /system-check/api/ {
+    proxy_pass http://127.0.0.1:8010/api/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 300;
+    proxy_connect_timeout 60;
+    proxy_send_timeout 300;
+}
+
+location ^~ /system-check/assets/ {
+    alias /opt/system-check-platform/current/frontend/dist/assets/;
+    access_log off;
+    expires 7d;
+    add_header Cache-Control "public, max-age=604800";
+}
+
+location = /system-check/server-check.png {
+    alias /opt/system-check-platform/current/frontend/dist/server-check.png;
+    access_log off;
+    expires 7d;
+    add_header Cache-Control "public, max-age=604800";
+}
+
+location = /system-check/index.html {
+    alias /opt/system-check-platform/current/frontend/dist/index.html;
+    add_header Cache-Control "no-store";
+}
+
+location /system-check/ {
+    alias /opt/system-check-platform/current/frontend/dist/;
+    try_files $uri $uri/ /system-check/index.html;
+    add_header Cache-Control "no-store";
+}
+EOF
+
+  echo "Created staging extra routes snippet: ${EXTRA_ROUTES_FILE}"
+}
+
+seed_staging_extra_routes
 
 # Remove conflicting enabled site configs that declare the same server_name.
 for enabled_conf in /etc/nginx/sites-enabled/*; do
@@ -117,6 +179,10 @@ server {
     location = /pgadmin {
         return 301 /pgadmin/;
     }
+
+    # Extra staging-only or environment-specific routes can live here without
+    # being overwritten on each CWSCX deploy.
+    include ${EXTRA_ROUTES_FILE};
 
     # Dashboard SPA
     location ^~ /dashboard/assets/ {

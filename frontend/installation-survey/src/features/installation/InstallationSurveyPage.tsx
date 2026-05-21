@@ -8,6 +8,10 @@ import { Label } from "../../components/ui/label";
 import { Skeleton } from "../../components/ui/skeleton";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+const BRAND_ASSET_BASE = `${import.meta.env.BASE_URL || "/"}branding/`;
+const SURVEY_ICON_SRC = `${BRAND_ASSET_BASE}online-survey.png`;
+const CWS_LOGO_SRC = `${BRAND_ASSET_BASE}cws-logo.png`;
+const CWS_BANNER_SRC = `${BRAND_ASSET_BASE}cws-banner.png`;
 
 const CUSTOMER_TYPES = ["B2B", "B2C"];
 const WORKER_TYPES = ["Field Team", "Contractor"];
@@ -209,8 +213,23 @@ export default function InstallationSurveyPage({ headers }) {
   return (
     <PageContainer>
       <div className="mb-8">
-        <h1 className="text-4xl font-bold tracking-tight">Installation Assessment</h1>
-        <p className="text-muted-foreground mt-2">Complete the quality assessment checklist and submit.</p>
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <img src={CWS_BANNER_SRC} alt="Cable and Wireless Seychelles banner" className="h-24 w-full object-cover md:h-28" />
+          <div className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between md:p-5">
+            <div className="flex items-center gap-4">
+              <img src={CWS_LOGO_SRC} alt="Cable and Wireless Seychelles logo" className="h-12 w-12 rounded-lg border bg-background p-2 object-contain" />
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl border bg-background/90 shadow-sm">
+                  <img src={SURVEY_ICON_SRC} alt="Online survey icon" className="h-7 w-7 object-contain" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-bold tracking-tight">Installation Assessment</h1>
+                  <p className="mt-1 text-sm text-muted-foreground">Complete the quality assessment checklist and submit.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit}>

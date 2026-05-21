@@ -25,6 +25,12 @@ The interface should help users quickly answer:
 
 ## 2) Shared Visual Language
 
+## Shared branding assets
+
+- shared branding source assets should live under `frontend/shared-assets/branding/`
+- each deployable frontend should expose runtime copies under its own `public/branding/`
+- favicon, logo, and banner usage should stay consistent across the platform family unless a project-specific exception is approved
+
 ## Typography
 
 - Primary font: `IBM Plex Sans`

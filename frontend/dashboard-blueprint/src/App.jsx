@@ -9,7 +9,6 @@ import { ensureMsalInitialized, loginRequest } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
 const ACTIVE_PLATFORM_KEY = "cx.activePlatform";
 const ENTRA_ROLES_KEY = "cx.entraRoles";
 const LOGOUT_FLAG_KEY = "cx.logoutRequested";
@@ -44,7 +43,7 @@ function resolvePlatformsFromRoles(entraRoles) {
   ].filter((platform) => canAccess(platform.name));
 }
 
-function DashboardShell({ headers, availablePlatforms, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired, appVersion }) {
+function DashboardShell({ headers, availablePlatforms, userName, userEmail, activePlatform, setActivePlatform, onLogout, onSessionExpired }) {
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const activePlatformAllowed = !activePlatform || availablePlatforms.some((platform) => platform.name === activePlatform);
   const isMysteryShopperPlatform = String(activePlatform || "").toLowerCase().includes("mystery");
@@ -118,7 +117,6 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
       userEmail={userEmail}
       activePlatform={activePlatform}
       pendingReviewCount={pendingReviewCount}
-      appVersion={appVersion}
     >
       <Routes>
         <Route path="/" element={<DashboardPage key={`${activePlatform || "none"}-root`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
@@ -373,7 +371,6 @@ function MsalAuthenticatedApp() {
         setActivePlatform={setActivePlatform}
         onLogout={handleLogout}
         onSessionExpired={handleSessionExpired}
-        appVersion={APP_VERSION}
       />
     </>
   );
@@ -437,7 +434,6 @@ function DevBypassApp() {
       activePlatform={activePlatform}
       setActivePlatform={setActivePlatform}
       onLogout={handleLogout}
-      appVersion={APP_VERSION}
     />
   );
 }

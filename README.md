@@ -21,6 +21,7 @@ CWSCX is Cable & Wireless Seychelles' customer experience platform for internal 
 - `frontend/survey/` -> B2B Survey
 - `frontend/installation-survey/` -> Installation Assessment Survey
 - `frontend/mystery-shopper/` -> Mystery Shopper
+- `frontend/shared-assets/branding/` -> shared source branding assets mirrored into each frontend `public/branding/`
 - `backend/` -> FastAPI application
 - `scripts/linux/` -> Deployment scripts
 - `.github/workflows/` -> CI/CD pipelines
