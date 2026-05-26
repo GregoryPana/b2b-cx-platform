@@ -1324,6 +1324,7 @@ const platformAbortRef = useRef(null);
   };
 
   const loadSurveyVisitDetails = async (visitId) => {
+    pushToast("info", "Loading full survey details...", 1400);
     const endpoint = isMysteryShopperPlatform
       ? `${API_BASE}/mystery-shopper/visits/${visitId}`
       : `${API_BASE}/dashboard-visits/${visitId}`;
@@ -3611,11 +3612,11 @@ const platformAbortRef = useRef(null);
                   />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={handlePreviewReport} disabled={reportLoading}>
+                  <Button type="button" variant="outline" onClick={handlePreviewReport} disabled={reportLoading} title="Generate an in-page preview so you can check the report before sending or downloading it">
                     {reportLoading ? "Generating..." : "Preview Report"}
                   </Button>
-                  <Button type="button" variant="outline" onClick={handleDownloadReport}>Download HTML</Button>
-                  <Button type="button" onClick={handleEmailReport} disabled={reportSending}>
+                  <Button type="button" variant="outline" onClick={handleDownloadReport} title="Download the current report as an HTML file you can open or share">Download HTML</Button>
+                  <Button type="button" onClick={handleEmailReport} disabled={reportSending} title="Email the current report to the addresses entered above">
                     {reportSending ? "Sending..." : "Email Report"}
                   </Button>
                 </div>
@@ -3655,7 +3656,7 @@ const platformAbortRef = useRef(null);
               {location.pathname === "/surveys" ? (
               <>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={loadSurveyResults}>Refresh</Button>
+                <Button type="button" variant="outline" onClick={loadSurveyResults} title="Reload the current survey list using the selected filters">Refresh</Button>
                 <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${surveyResults.length} results`}</span>
               </div>
 
@@ -3788,7 +3789,7 @@ const platformAbortRef = useRef(null);
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" onClick={loadActionsBoard}>
+                  <Button type="button" variant="outline" onClick={loadActionsBoard} title="Reload the action points board with the filters currently selected">
                     {actionsBoardLoading ? "Refreshing..." : "Refresh"}
                   </Button>
                   <Button
@@ -3936,7 +3937,7 @@ const platformAbortRef = useRef(null);
             <Card>
               <CardHeader>
                 <CardTitle>Business Directory</CardTitle>
-                <Button type="button" variant="outline" size="sm" onClick={loadBusinesses}>Refresh</Button>
+                <Button type="button" variant="outline" size="sm" onClick={loadBusinesses} title="Reload the business directory list">Refresh</Button>
               </CardHeader>
               <CardContent>
                 <BusinessesDataTable

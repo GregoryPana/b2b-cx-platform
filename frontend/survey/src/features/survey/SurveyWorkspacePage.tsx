@@ -181,7 +181,11 @@ function businessTypeLabel(value?: string) {
   return normalized === "large_corporate" || normalized === "high" ? "Large Business/Corporate" : "SME";
 }
 
-export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspacePageProps) {
+function looksLikeEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWorkspacePageProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const isPlannedRoute = location.pathname === "/planned" || location.pathname === "/";
@@ -198,11 +202,15 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
   const [newBusinessName, setNewBusinessName] = useState("");
   const [visitSource, setVisitSource] = useState<"new" | "planned">("new");
   const [selectedDraftId, setSelectedDraftId] = useState("");
+  const [accountExecutiveSearch, setAccountExecutiveSearch] = useState("");
+  const [newAccountExecutiveName, setNewAccountExecutiveName] = useState("");
+  const [newAccountExecutiveEmail, setNewAccountExecutiveEmail] = useState("");
   const [currentCategory, setCurrentCategory] = useState("");
   const [responseDrafts, setResponseDrafts] = useState<Record<number, ResponseDraft>>({});
   const [responsesByQuestion, setResponsesByQuestion] = useState<Record<number, ResponseRecord>>({});
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isCreatingVisit, setIsCreatingVisit] = useState(false);
+  const [isCreatingAccountExecutive, setIsCreatingAccountExecutive] = useState(false);
   const [isSubmittingVisit, setIsSubmittingVisit] = useState(false);
   const [savingQuestionId, setSavingQuestionId] = useState<number | null>(null);
   const [submissionSignature, setSubmissionSignature] = useState({ name: "", email: "", submitted_at: "" });
@@ -216,6 +224,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     team_member_names: [""],
   });
   const animationRef = useRef<HTMLDivElement | null>(null);
+  const canManageAccountExecutives = role === "Admin";
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -390,12 +399,62 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       account_executive_name: data.account_executive_name || "",
       team_member_names: Array.isArray(data.team_member_names) && data.team_member_names.length > 0 ? data.team_member_names : [""],
     }));
+    setAccountExecutiveSearch(data.account_executive_name || "");
   };
 
   const resolveBusinessName = (draft: DraftVisit) => {
     if (draft.business_name) return draft.business_name;
     const match = businesses.find((business) => business.id === draft.business_id);
     return match ? match.name : "Business";
+  };
+
+  const resolveActiveBusinessName = () => {
+    if (!visitForm.business_id) return "No active survey selected";
+    const match = businesses.find((business) => String(business.id) === String(visitForm.business_id));
+    return match?.name || "Selected business";
+  };
+
+  const syncAccountExecutiveSelection = (value: string) => {
+    setAccountExecutiveSearch(value);
+    const match = accountExecutives.find((executive) => executive.name === value);
+    setVisitForm((prev) => ({ ...prev, account_executive_name: match ? match.name : value }));
+  };
+
+  const createAccountExecutive = async () => {
+    const trimmedName = newAccountExecutiveName.trim();
+    const trimmedEmail = newAccountExecutiveEmail.trim();
+    if (!trimmedName || !trimmedEmail) {
+      setError("Enter both the account executive name and email before adding a new one.");
+      return;
+    }
+    if (!looksLikeEmail(trimmedEmail)) {
+      setError("Enter a valid account executive email address.");
+      return;
+    }
+
+    setIsCreatingAccountExecutive(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/account-executives`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: trimmedName, email: trimmedEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to create account executive");
+        return;
+      }
+
+      setAccountExecutives((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setVisitForm((prev) => ({ ...prev, account_executive_name: data.name }));
+      setAccountExecutiveSearch(data.name);
+      setNewAccountExecutiveName("");
+      setNewAccountExecutiveEmail("");
+      setMessage(`Account executive added: ${data.name}.`);
+    } finally {
+      setIsCreatingAccountExecutive(false);
+    }
   };
 
   const handleSelectPlannedVisit = async (draft: DraftVisit) => {
@@ -406,7 +465,17 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
     pushToast("info", "Loading planned visit...", 1600);
     setVisitId(selectedId);
     setStatus(draft.status || "Draft");
-    setVisitForm((prev) => ({ ...prev, business_id: String(draft.business_id || ""), visit_date: draft.visit_date || "", visit_type: "Planned" }));
+    setVisitForm((prev) => ({
+      ...prev,
+      business_id: String(draft.business_id || ""),
+      visit_date: draft.visit_date || "",
+      visit_type: "Planned",
+      account_executive_name: draft.account_executive_name || prev.account_executive_name,
+      team_member_names: Array.isArray(draft.team_member_names) && draft.team_member_names.length > 0
+        ? draft.team_member_names
+        : prev.team_member_names,
+    }));
+    setAccountExecutiveSearch(draft.account_executive_name || "");
     await loadVisitResponses(selectedId);
     setMessage(`Loaded planned visit for ${resolveBusinessName(draft)}.`);
     navigate("/survey");
@@ -780,19 +849,28 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
       <PageContainer className="space-y-6">
       {error ? <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
       {message ? <div className="rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success">{message}</div> : null}
+      <datalist id="account-executive-list">
+        {accountExecutives.map((executive) => (
+          <option key={executive.id} value={executive.name} />
+        ))}
+      </datalist>
 
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="animate-target">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4" /> Visit Workspace
+              <Sparkles className="h-4 w-4" /> Current Survey Overview
             </CardTitle>
-            <CardDescription>Create visits, capture responses, and submit for review with mobile-first controls.</CardDescription>
+            <CardDescription>See which survey is currently open, who it belongs to, and what still needs to be completed.</CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-md bg-muted p-3">
-              <p className="text-xs text-muted-foreground">Current Visit</p>
-              <p className="font-semibold">{visitId ? visitId.slice(0, 8) : "Not selected"}</p>
+              <p className="text-xs text-muted-foreground">Active Survey</p>
+              <p className="font-semibold">{resolveActiveBusinessName()}</p>
+            </div>
+            <div className="rounded-md bg-muted p-3">
+              <p className="text-xs text-muted-foreground">Account Executive</p>
+              <p className="font-semibold">{visitForm.account_executive_name || "Not selected yet"}</p>
             </div>
             <div className="rounded-md bg-muted p-3">
               <p className="text-xs text-muted-foreground">Status</p>
@@ -805,6 +883,10 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
               </p>
             </div>
             <div className="rounded-md bg-muted p-3 md:col-span-3">
+              <p className="text-xs text-muted-foreground">Survey Team</p>
+              <p className="font-semibold">{normalizeTeamMemberNames(visitForm.team_member_names).join(", ") || "Not captured yet"}</p>
+            </div>
+            <div className="rounded-md bg-muted p-3 md:col-span-3">
               <p className="text-xs text-muted-foreground">Audit Signature</p>
               <p className="font-semibold">
                 {submissionSignature.name || submissionSignature.email
@@ -812,12 +894,6 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                   : "Not submitted yet"}
               </p>
               {submissionSignature.submitted_at ? <p className="text-xs text-muted-foreground">Submitted at: {submissionSignature.submitted_at}</p> : null}
-            </div>
-            <div className="rounded-md bg-muted p-3 md:col-span-3">
-              <p className="text-xs text-muted-foreground">Account Executive</p>
-              <p className="font-semibold">{visitForm.account_executive_name || "Not captured yet"}</p>
-              <p className="mt-2 text-xs text-muted-foreground">Team Member Names</p>
-              <p className="font-semibold">{normalizeTeamMemberNames(visitForm.team_member_names).join(", ") || "Not captured yet"}</p>
             </div>
           </CardContent>
         </Card>
@@ -1002,13 +1078,14 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
 
           <Card className="animate-target">
             <CardHeader>
-              <CardTitle className="text-xl font-semibold tracking-tight">Create / Prepare Visit</CardTitle>
-              <CardDescription className="text-sm">Use this form to create a new visit or load a selected planned visit.</CardDescription>
+              <CardTitle className="text-xl font-semibold tracking-tight">Start or Continue a Survey</CardTitle>
+              <CardDescription className="text-sm">Choose a planned survey or set up a new one. Save the survey details here before you start answering questions.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium">Source</label>
+                  <p className="mb-2 text-xs text-muted-foreground">Choose whether you are opening an already planned survey or starting a fresh one.</p>
                   <Select value={visitSource} onChange={(event) => setVisitSource(event.target.value as "new" | "planned")}>
                     <option value="new">Create new visit</option>
                     <option value="planned">Use planned visit</option>
@@ -1017,6 +1094,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                 {visitSource === "new" ? (
                   <div>
                     <label className="mb-1 block text-sm font-medium">Business Mode</label>
+                    <p className="mb-2 text-xs text-muted-foreground">Use an existing business or create a new one if it is not listed yet.</p>
                     <Select value={businessMode} onChange={(event) => setBusinessMode(event.target.value as "existing" | "new")}>
                       <option value="existing">Use existing business</option>
                       <option value="new">Create business now</option>
@@ -1026,6 +1104,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                 {visitSource === "new" && businessMode === "existing" ? (
                   <div>
                     <label className="mb-1 block text-sm font-medium">Business</label>
+                    <p className="mb-2 text-xs text-muted-foreground">Pick the customer account this survey is for.</p>
                     <Select value={visitForm.business_id} onChange={(event) => setVisitForm((prev) => ({ ...prev, business_id: event.target.value }))}>
                       {businesses.map((business) => (
                         <option key={business.id} value={String(business.id)}>{business.name}</option>
@@ -1036,16 +1115,19 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                 {visitSource === "new" && businessMode === "new" ? (
                   <div>
                     <label className="mb-1 block text-sm font-medium">New Business Name</label>
+                    <p className="mb-2 text-xs text-muted-foreground">Add the business name exactly as it should appear in reports and review screens.</p>
                     <Input value={newBusinessName} onChange={(event) => setNewBusinessName(event.target.value)} placeholder="Enter business name" />
                   </div>
                 ) : null}
                 {visitSource === "planned" ? null : null}
                 <div>
                   <label className="mb-1 block text-sm font-medium">Visit Date</label>
+                  <p className="mb-2 text-xs text-muted-foreground">Select the date this customer interaction happened or is planned for.</p>
                   <Input type="date" value={visitForm.visit_date} onChange={(event) => setVisitForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">Visit Type</label>
+                  <p className="mb-2 text-xs text-muted-foreground">Use Planned for standard surveys, or switch type if this is a special case.</p>
                   <Select value={visitForm.visit_type} onChange={(event) => setVisitForm((prev) => ({ ...prev, visit_type: event.target.value }))}>
                     <option value="Planned">Planned</option>
                     <option value="Priority">Priority</option>
@@ -1054,15 +1136,25 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                 </div>
                 <div className="md:col-span-2 lg:col-span-4">
                   <label className="mb-1 block text-sm font-medium">Account Executive</label>
-                  <Select
-                    value={visitForm.account_executive_name}
-                    onChange={(event) => setVisitForm((prev) => ({ ...prev, account_executive_name: event.target.value }))}
-                  >
-                    <option value="">Select account executive</option>
-                    {accountExecutives.map((executive) => (
-                      <option key={executive.id} value={executive.name}>{executive.name}</option>
-                    ))}
-                  </Select>
+                  <p className="mb-2 text-xs text-muted-foreground">Search an existing account executive by name, or add a new one if you are an admin.</p>
+                  <Input
+                    type="text"
+                    list="account-executive-list"
+                    value={accountExecutiveSearch}
+                    onChange={(event) => syncAccountExecutiveSelection(event.target.value)}
+                    placeholder="Type to search account executive"
+                  />
+                  {canManageAccountExecutives ? (
+                    <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-[1fr_1fr_auto]">
+                      <Input value={newAccountExecutiveName} onChange={(event) => setNewAccountExecutiveName(event.target.value)} placeholder="New account executive name" />
+                      <Input value={newAccountExecutiveEmail} onChange={(event) => setNewAccountExecutiveEmail(event.target.value)} placeholder="New account executive email" />
+                      <Button type="button" variant="outline" onClick={createAccountExecutive} disabled={isCreatingAccountExecutive} title="Create a new account executive and select them for this survey">
+                        {isCreatingAccountExecutive ? "Adding..." : "Add New"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">Only B2B administrators can create a new account executive from this screen.</p>
+                  )}
                 </div>
                 <div className="md:col-span-2 lg:col-span-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -1095,7 +1187,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                   </div>
                 </div>
               </div>
-              <Button className="w-full sm:w-auto" onClick={handleCreateVisit} disabled={isCreatingVisit || !visitForm.visit_date}>
+              <Button className="w-full sm:w-auto" onClick={handleCreateVisit} disabled={isCreatingVisit || !visitForm.visit_date} title="Save these survey details and open the active survey workspace">
                 {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Prepare Visit
               </Button>
             </CardContent>
@@ -1105,29 +1197,42 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
         <>
           <Card className="animate-target">
             <CardHeader>
-              <CardTitle>Survey Responses</CardTitle>
-              <CardDescription>Capture responses by category. Use save per question, then submit the visit.</CardDescription>
+              <CardTitle>Answer the Survey</CardTitle>
+              <CardDescription>Work through each section below. Save each response when you are happy with it, then submit the full survey for review.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {!visitId ? (
                 <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                  No visit selected. Go to Planned Visits, select or create a visit, then return here.
+                  No survey is active yet. Go to Planned Visits, choose or prepare a survey, then return here to complete the questions.
                 </div>
               ) : (
                 <>
                   <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
+                    <div className="rounded-md border bg-background p-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current Active Survey</p>
+                      <p className="mt-1 text-base font-semibold">{resolveActiveBusinessName()}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Account Executive: {visitForm.account_executive_name || "Not selected yet"}</p>
+                    </div>
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                       <div className="md:col-span-2 lg:col-span-4">
                         <label className="mb-1 block text-sm font-medium">Account Executive</label>
-                        <Select
-                          value={visitForm.account_executive_name}
-                          onChange={(event) => setVisitForm((prev) => ({ ...prev, account_executive_name: event.target.value }))}
-                        >
-                          <option value="">Select account executive</option>
-                          {accountExecutives.map((executive) => (
-                            <option key={executive.id} value={executive.name}>{executive.name}</option>
-                          ))}
-                        </Select>
+                        <p className="mb-2 text-xs text-muted-foreground">Need to change the account executive? Search and update it here, then save the survey details.</p>
+                        <Input
+                          type="text"
+                          list="account-executive-list"
+                          value={accountExecutiveSearch}
+                          onChange={(event) => syncAccountExecutiveSelection(event.target.value)}
+                          placeholder="Type to search account executive"
+                        />
+                        {canManageAccountExecutives ? (
+                          <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-[1fr_1fr_auto]">
+                            <Input value={newAccountExecutiveName} onChange={(event) => setNewAccountExecutiveName(event.target.value)} placeholder="New account executive name" />
+                            <Input value={newAccountExecutiveEmail} onChange={(event) => setNewAccountExecutiveEmail(event.target.value)} placeholder="New account executive email" />
+                            <Button type="button" variant="outline" onClick={createAccountExecutive} disabled={isCreatingAccountExecutive} title="Create a new account executive and assign them to this active survey">
+                              {isCreatingAccountExecutive ? "Adding..." : "Add New"}
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
                       <div className="md:col-span-2 lg:col-span-4 space-y-3">
                         <div className="flex items-center justify-between gap-3">
@@ -1160,7 +1265,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                         </div>
                       </div>
                     </div>
-                    <Button type="button" variant="outline" onClick={handleCreateVisit} disabled={isCreatingVisit}>
+                    <Button type="button" variant="outline" onClick={handleCreateVisit} disabled={isCreatingVisit} title="Save the selected account executive and team members to this active survey">
                       {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Visit Details
                     </Button>
                   </div>
@@ -1290,7 +1395,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                                       ))}
                                     </div>
 
-                                     <Button className="w-full sm:w-auto" onClick={() => handleSaveQuestionResponse(question)} disabled={saving || Boolean(scoreValidationMessage)}>
+                                     <Button className="w-full sm:w-auto" onClick={() => handleSaveQuestionResponse(question)} disabled={saving || Boolean(scoreValidationMessage)} title="Save this answer before moving to the next question">
                                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Response
                                      </Button>
                                   </CardContent>
@@ -1313,7 +1418,7 @@ export default function SurveyWorkspacePage({ headers, userId }: SurveyWorkspace
                 <CardDescription>All required responses must be saved before submitting.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap items-center gap-3">
-                <Button className="w-full sm:w-auto" onClick={handleSubmitVisit} disabled={isSubmittingVisit}>
+                <Button className="w-full sm:w-auto" onClick={handleSubmitVisit} disabled={isSubmittingVisit} title="Send this survey to the review queue once every required answer has been saved">
                   {isSubmittingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Submit for Review
                 </Button>
                 <Badge variant="secondary">Current status: {status}</Badge>
