@@ -1,3 +1,6 @@
+import logging
+
+logger = logging.getLogger(__name__)
 """
 Users compatibility endpoint for dashboard
 Provides /users endpoint that frontend expects
@@ -41,5 +44,5 @@ async def get_users(db: Session = Depends(get_db)):
             for row in rows
         ]
     except Exception as e:
-        print(f"Error fetching users: {e}")
+        logger.exception("Error fetching users: %s", e)
         return []

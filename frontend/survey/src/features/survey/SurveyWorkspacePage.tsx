@@ -555,7 +555,6 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
         survey_type: SURVEY_TYPE,
         account_executive_name: visitForm.account_executive_name.trim() || null,
         team_member_names: normalizeTeamMemberNames(visitForm.team_member_names),
-        meeting_attendees: normalizeTeamMemberNames(visitForm.team_member_names).map((name) => ({ name, role: "Team Member" })),
       };
       const res = await fetch(`${API_BASE}/dashboard-visits?_cb=${Date.now()}`, { method: "POST", headers, body: JSON.stringify(payload) });
       const data = await res.json();
@@ -588,6 +587,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
         method: "PUT",
         headers,
         body: JSON.stringify({
+          representative_id: Number(visitForm.representative_id || userId),
           visit_date: visitForm.visit_date,
           visit_type: visitForm.visit_type,
           account_executive_name: visitForm.account_executive_name.trim() || null,

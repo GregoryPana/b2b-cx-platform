@@ -11,26 +11,7 @@ from ..core.database import get_db
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
-def has_table(db: Session, table_name: str) -> bool:
-    return bool(db.execute(text(
-        """
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_name = :table_name
-        LIMIT 1
-        """
-    ), {"table_name": table_name}).scalar())
-
-
-def has_column(db: Session, table_name: str, column_name: str) -> bool:
-    return bool(db.execute(text(
-        """
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = :table_name AND column_name = :column_name
-        LIMIT 1
-        """
-    ), {"table_name": table_name, "column_name": column_name}).scalar())
+from ..core.db_inspect import has_column, has_table  # noqa: E402  (replaces local helpers)
 
 
 def resolve_survey_type_id(db: Session, survey_type: str | None) -> int | None:
@@ -218,38 +199,27 @@ def get_comprehensive_analytics(
 
         has_question_key, has_order_index, has_question_number = detect_question_columns(db)
 
-        if has_question_key:
-            q12_filter = "q.question_key = 'q12_overall_satisfaction'"
-            q16_filter = "q.question_key = 'q16_other_provider_products'"
-            ms_csat_filter = "q.question_key IN ('ms_staff_interaction_satisfaction','ms_store_environment_satisfaction')"
-            ms_waiting_time_filter = "q.question_key = 'ms_waiting_time'"
-            ms_service_completion_filter = "q.question_key = 'ms_service_completion_time'"
-            relationship_filter = (
-                "q.question_key IN ("
-                "'q01_relationship_strength',"
-                "'q02_ae_information_updates',"
-                "'q03_ae_professionalism',"
-                "'q04_ae_business_understanding',"
-                "'q05_contacts_visit_satisfaction',"
-                "'q06_regular_updates'"
-                ")"
+        if not has_question_key:
+            raise Exception(
+                "questions table missing question_key column; run alembic upgrade head "
+                "before calling /api/analytics"
             )
-        elif has_order_index:
-            q12_filter = "q.order_index = 13"
-            q16_filter = "q.order_index = 16"
-            ms_csat_filter = "q.order_index IN (24,25)"
-            ms_waiting_time_filter = "q.order_index = 22"
-            ms_service_completion_filter = "q.order_index = 23"
-            relationship_filter = "q.order_index BETWEEN 1 AND 6"
-        elif has_question_number:
-            q12_filter = "q.question_number = 13"
-            q16_filter = "q.question_number = 16"
-            ms_csat_filter = "q.question_number IN (24,25)"
-            ms_waiting_time_filter = "q.question_number = 22"
-            ms_service_completion_filter = "q.question_number = 23"
-            relationship_filter = "q.question_number BETWEEN 1 AND 6"
-        else:
-            raise Exception("questions table missing question_key/order_index/question_number columns")
+
+        q12_filter = "q.question_key = 'q12_overall_satisfaction'"
+        q16_filter = "q.question_key = 'q16_other_provider_products'"
+        ms_csat_filter = "q.question_key IN ('ms_staff_interaction_satisfaction','ms_store_environment_satisfaction')"
+        ms_waiting_time_filter = "q.question_key = 'ms_waiting_time'"
+        ms_service_completion_filter = "q.question_key = 'ms_service_completion_time'"
+        relationship_filter = (
+            "q.question_key IN ("
+            "'q01_relationship_strength',"
+            "'q02_ae_information_updates',"
+            "'q03_ae_professionalism',"
+            "'q04_ae_business_understanding',"
+            "'q05_contacts_visit_satisfaction',"
+            "'q06_regular_updates'"
+            ")"
+        )
         
         # Get visit statistics
         visit_stats = db.execute(text(f"""

@@ -9,6 +9,7 @@ from sqlalchemy import text
 from typing import List, Dict, Optional
 import base64
 import json
+import logging
 import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -20,6 +21,8 @@ from ..core.models import User
 from ..core.traffic_light import get_b2b_metric_grade
 from ..routers.analytics import get_comprehensive_analytics, get_question_averages, get_yes_no_question_analytics
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/dashboard-visits", tags=["dashboard-visits"])
 
 _visit_signature_columns_checked = False
@@ -27,26 +30,7 @@ _visit_metadata_columns_checked = False
 _visit_edit_audit_columns_checked = False
 
 
-def has_table(db: Session, table_name: str) -> bool:
-    return bool(db.execute(text(
-        """
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_name = :table_name
-        LIMIT 1
-        """
-    ), {"table_name": table_name}).scalar())
-
-
-def has_column(db: Session, table_name: str, column_name: str) -> bool:
-    return bool(db.execute(text(
-        """
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = :table_name AND column_name = :column_name
-        LIMIT 1
-        """
-    ), {"table_name": table_name, "column_name": column_name}).scalar())
+from ..core.db_inspect import has_column, has_table
 
 
 def get_response_table(db: Session) -> str | None:
@@ -515,7 +499,7 @@ def check_duplicate_visit(
         
         return count > 0
     except Exception as e:
-        print(f"Error checking duplicate visit: {e}")
+        logger.exception("Error checking duplicate visit: %s", e)
         return False
 
 
@@ -536,7 +520,7 @@ def create_visit(
         survey_type_id = visit_data.get("survey_type_id")
         survey_type = visit_data.get("survey_type")
         account_executive_name = str(visit_data.get("account_executive_name") or "").strip() or None
-        team_member_names = normalize_team_member_names(visit_data.get("team_member_names") or visit_data.get("meeting_attendees") or [])
+        team_member_names = normalize_team_member_names(visit_data.get("team_member_names") or [])
         
         if not business_id or not visit_date:
             raise HTTPException(status_code=400, detail="business_id and visit_date are required")
@@ -625,7 +609,7 @@ def create_visit(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error creating visit: {e}")
+        logger.exception("Error creating visit: %s", e)
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to create visit")
 
@@ -684,8 +668,20 @@ def get_all_visits(
         if response_table:
             response_join = f"LEFT JOIN {response_table} r ON v.id = r.visit_id"
 
+        team_members_join = ""
+        team_members_select = "ARRAY[]::varchar[]"
+        if has_table(db, "meeting_attendees"):
+            team_members_join = (
+                " LEFT JOIN LATERAL ("
+                "  SELECT COALESCE(array_agg(ma.name ORDER BY ma.id), ARRAY[]::varchar[]) AS members"
+                "  FROM meeting_attendees ma"
+                "  WHERE ma.visit_id = v.id AND ma.role = 'Team Member'"
+                " ) ma ON true"
+            )
+            team_members_select = "ma.members"
+
         query = f"""
-            SELECT 
+            SELECT
                 v.id,
                 v.business_id,
                 b.name as business_name,
@@ -703,14 +699,16 @@ def get_all_visits(
                 COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
                 {mandatory_total_expr} as mandatory_total_count,
                 false as is_started,
-                false as is_completed
+                false as is_completed,
+                {team_members_select} as team_member_names
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             LEFT JOIN users u ON v.representative_id = u.id
             {response_join}
             LEFT JOIN questions q ON r.question_id = q.id
+            {team_members_join}
             {where_clause}
-            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.account_executive_name, v.submitted_by_name, v.submitted_by_email, v.submitted_at
+            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.account_executive_name, v.submitted_by_name, v.submitted_by_email, v.submitted_at, {team_members_select}
             ORDER BY v.visit_date DESC
         """
         
@@ -732,21 +730,21 @@ def get_all_visits(
                 "status": row[7],
                 "business_priority": row[8],
                 "account_executive_name": row[9],
-                "team_member_names": fetch_visit_team_members(db, str(visit_id)),
+                "team_member_names": list(row[18] or []) if len(row) > 18 else [],
                 "submitted_by_name": row[10],
                 "submitted_by_email": row[11],
                 "submitted_at": row[12].isoformat() if row[12] else None,
                 "response_count": row[13],
                 "mandatory_answered_count": row[14] if len(row) > 14 else 0,
-                "mandatory_total_count": row[15] if len(row) > 15 else 24,
-                "is_started": row[13] > 0,
-                "is_completed": row[17] if len(row) > 17 else False
+                "mandatory_total_count": row[15] if len(row) > 15 else 0,
+                "is_started": (row[13] or 0) > 0,
+                "is_completed": (row[15] or 0) > 0 and (row[14] or 0) >= (row[15] or 0),
             })
         
         return visits
         
     except Exception as e:
-        print(f"Error getting all visits: {e}")
+        logger.exception("Error getting all visits: %s", e)
         raise HTTPException(status_code=500, detail="Failed to get visits")
 
 
@@ -813,7 +811,7 @@ def get_actions_dashboard(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error fetching actions dashboard: {e}")
+        logger.exception("Error fetching actions dashboard: %s", e)
         raise HTTPException(status_code=500, detail=f"Failed to fetch actions dashboard: {str(e)}")
 
 
@@ -2465,6 +2463,18 @@ def get_draft_visits(db: Session = Depends(get_db)):
         if response_table:
             response_join = f"LEFT JOIN {response_table} r ON v.id = r.visit_id"
 
+        team_members_join = ""
+        team_members_select = "ARRAY[]::varchar[]"
+        if has_table(db, "meeting_attendees"):
+            team_members_join = (
+                " LEFT JOIN LATERAL ("
+                "  SELECT COALESCE(array_agg(ma.name ORDER BY ma.id), ARRAY[]::varchar[]) AS members"
+                "  FROM meeting_attendees ma"
+                "  WHERE ma.visit_id = v.id AND ma.role = 'Team Member'"
+                " ) ma ON true"
+            )
+            team_members_select = "ma.members"
+
         rows = db.execute(text(
             f"""
             SELECT
@@ -2482,14 +2492,17 @@ def get_draft_visits(db: Session = Depends(get_db)):
                 v.submitted_at,
                 COUNT(r.id) as response_count,
                 COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
-                {mandatory_total_expr} as mandatory_total_count
+                {mandatory_total_expr} as mandatory_total_count,
+                v.account_executive_name,
+                {team_members_select} as team_member_names
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             LEFT JOIN users u ON v.representative_id = u.id
             {response_join}
             LEFT JOIN questions q ON r.question_id = q.id
+            {team_members_join}
             WHERE v.status = 'Draft'
-            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.submitted_by_name, v.submitted_by_email, v.submitted_at
+            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.submitted_by_name, v.submitted_by_email, v.submitted_at, v.account_executive_name, {team_members_select}
             ORDER BY v.visit_date DESC
             """
         )).all()
@@ -2512,14 +2525,16 @@ def get_draft_visits(db: Session = Depends(get_db)):
                 "response_count": row[12],
                 "mandatory_answered_count": row[13],
                 "mandatory_total_count": row[14],
-                "is_started": row[12] > 0,
-                "is_completed": False
+                "account_executive_name": row[15],
+                "team_member_names": list(row[16] or []),
+                "is_started": (row[12] or 0) > 0,
+                "is_completed": (row[14] or 0) > 0 and (row[13] or 0) >= (row[14] or 0),
             }
             for row in rows
         ]
         
     except Exception as e:
-        print(f"Error fetching draft visits: {e}")
+        logger.exception("Error fetching draft visits: %s", e)
         return []
 
 
@@ -2532,9 +2547,18 @@ def get_pending_visits(
     """Get pending visits for dashboard - requires Manager role."""
     try:
         ensure_visit_submission_columns(db)
+        team_members_join = ""
+        if has_table(db, "meeting_attendees"):
+            team_members_join = (
+                " LEFT JOIN LATERAL ("
+                "  SELECT COALESCE(array_agg(ma.name ORDER BY ma.id), ARRAY[]::varchar[]) AS members"
+                "  FROM meeting_attendees ma"
+                "  WHERE ma.visit_id = v.id AND ma.role = 'Team Member'"
+                " ) ma ON true"
+            )
         rows = db.execute(text(
-            """
-            SELECT 
+            f"""
+            SELECT
                 v.id,
                 v.business_id,
                 b.name as business_name,
@@ -2545,14 +2569,17 @@ def get_pending_visits(
                 b.priority_level as business_priority,
                 v.submitted_by_name,
                 v.submitted_by_email,
-                v.submitted_at
+                v.submitted_at,
+                v.account_executive_name,
+                {"ma.members" if team_members_join else "ARRAY[]::varchar[]"} AS team_member_names
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
+            {team_members_join}
             WHERE v.status = 'Pending'
             ORDER BY v.visit_date DESC
             """
         )).all()
-        
+
         return [
             {
                 "visit_id": row[0],
@@ -2566,17 +2593,19 @@ def get_pending_visits(
                 "submitted_by_name": row[8],
                 "submitted_by_email": row[9],
                 "submitted_at": row[10].isoformat() if row[10] else None,
+                "account_executive_name": row[11],
+                "team_member_names": list(row[12] or []),
                 "reviewer_id": None,
                 "review_timestamp": None,
                 "change_notes": None,
                 "approval_timestamp": None,
                 "approval_notes": None,
-                "rejection_notes": None
+                "rejection_notes": None,
             }
             for row in rows
         ]
     except Exception as e:
-        print(f"Error fetching pending visits: {e}")
+        logger.exception("Error fetching pending visits: %s", e)
         return []
 
 
@@ -2630,11 +2659,11 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
         query = f"UPDATE visits SET {', '.join(update_fields)} WHERE id = :visit_id"
         db.execute(text(query), params)
 
-        if "team_member_names" in visit_data or "meeting_attendees" in visit_data:
+        if "team_member_names" in visit_data:
             sync_visit_team_members(
                 db,
                 visit_id,
-                visit_data.get("team_member_names") or visit_data.get("meeting_attendees") or [],
+                visit_data.get("team_member_names") or [],
             )
         
         # Commit the transaction to ensure changes persist
@@ -2689,18 +2718,26 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error updating visit: {e}")
+        logger.exception("Error updating visit: %s", e)
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to update visit")
 
 
 @router.delete("/{visit_id}")
-def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
-    """Delete a draft (planned) visit and its responses."""
+def delete_draft_visit(
+    visit_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a draft (planned) visit and its responses.
+
+    The visit's creator (or any admin role) may delete it. Other surveyors
+    cannot remove drafts they did not create.
+    """
     try:
         response_table = get_response_table(db)
         visit_row = db.execute(text(
-            "SELECT status FROM visits WHERE id = :visit_id"
+            "SELECT status, created_by, representative_id FROM visits WHERE id = :visit_id"
         ), {"visit_id": visit_id}).fetchone()
 
         if not visit_row:
@@ -2709,6 +2746,18 @@ def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
         status_value = visit_row[0]
         if status_value != "Draft":
             raise HTTPException(status_code=400, detail="Only Draft visits can be deleted")
+
+        admin_roles = ("CX_SUPER_ADMIN", "B2B_ADMIN", "MYSTERY_ADMIN", "INSTALL_ADMIN")
+        is_admin = bool(getattr(current_user, "has_any_role", lambda _r: False)(admin_roles))
+        if not is_admin:
+            actor_user_id = resolve_actor_user_id(db, current_user)
+            owner_ids = {visit_row[1], visit_row[2]}
+            owner_ids.discard(None)
+            if actor_user_id not in owner_ids:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You can only delete draft visits that you created.",
+                )
 
         if response_table:
             db.execute(text(
@@ -2723,7 +2772,7 @@ def delete_draft_visit(visit_id: str, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error deleting visit: {e}")
+        logger.exception("Error deleting visit: %s", e)
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete visit")
 
@@ -2777,10 +2826,12 @@ def create_response(
             })
         else:
             raise HTTPException(status_code=500, detail="No response table found")
-        
+
+        mark_visit_edited(db, visit_id, current_user)
+
         # Commit the transaction to save changes
         db.commit()
-        
+
         # Get the inserted response
         row = result.fetchone()
         payload = {
@@ -2799,7 +2850,7 @@ def create_response(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error creating response: {e}")
+        logger.exception("Error creating response: %s", e)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create response: {str(e)}")
 
@@ -2895,7 +2946,7 @@ def update_response(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error updating response: {e}")
+        logger.exception("Error updating response: %s", e)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update response: {str(e)}")
 
@@ -2945,12 +2996,17 @@ def submit_visit(
             "message": "Visit submitted for review"
         }
     except Exception as e:
-        print(f"Error submitting visit: {e}")
+        logger.exception("Error submitting visit: %s", e)
         return {"detail": "Failed to submit visit"}
 
 
 @router.put("/{visit_id}/approve")
-def approve_visit(visit_id: str, approval_data: dict, db: Session = Depends(get_db)):
+def approve_visit(
+    visit_id: str,
+    approval_data: dict,
+    db: Session = Depends(get_db),
+    _manager_access: bool = Depends(require_role("Manager")),
+):
     """Approve a visit."""
     try:
         # Update visit status to Approved
@@ -2976,13 +3032,18 @@ def approve_visit(visit_id: str, approval_data: dict, db: Session = Depends(get_
             "message": "Visit approved successfully"
         }
     except Exception as e:
-        print(f"Error approving visit: {e}")
+        logger.exception("Error approving visit: %s", e)
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to approve visit")
 
 
 @router.put("/{visit_id}/reject")
-def reject_visit(visit_id: str, rejection_data: dict, db: Session = Depends(get_db)):
+def reject_visit(
+    visit_id: str,
+    rejection_data: dict,
+    db: Session = Depends(get_db),
+    _manager_access: bool = Depends(require_role("Manager")),
+):
     """Reject a visit."""
     try:
         # Update visit status to Rejected
@@ -3008,13 +3069,18 @@ def reject_visit(visit_id: str, rejection_data: dict, db: Session = Depends(get_
             "message": "Visit rejected successfully"
         }
     except Exception as e:
-        print(f"Error rejecting visit: {e}")
+        logger.exception("Error rejecting visit: %s", e)
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to reject visit")
 
 
 @router.put("/{visit_id}/needs-changes")
-def request_changes(visit_id: str, changes_data: dict, db: Session = Depends(get_db)):
+def request_changes(
+    visit_id: str,
+    changes_data: dict,
+    db: Session = Depends(get_db),
+    _manager_access: bool = Depends(require_role("Manager")),
+):
     """Request changes for a visit."""
     try:
         # Update visit status back to Draft with change notes
@@ -3040,7 +3106,7 @@ def request_changes(visit_id: str, changes_data: dict, db: Session = Depends(get
             "message": "Changes requested successfully"
         }
     except Exception as e:
-        print(f"Error requesting changes: {e}")
+        logger.exception("Error requesting changes: %s", e)
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to request changes")
 
@@ -3060,7 +3126,7 @@ def get_visit_detail(
         ensure_visit_submission_columns(db)
         ensure_visit_metadata_columns(db)
         ensure_visit_edit_audit_columns(db)
-        print(f"DEBUG: Getting visit detail for visit_id: {visit_id}")
+        logger.debug("Getting visit detail for visit_id: {visit_id}")
         edited_by_name_col = "v.edited_by_name" if has_column(db, "visits", "edited_by_name") else "NULL AS edited_by_name"
         edited_by_email_col = "v.edited_by_email" if has_column(db, "visits", "edited_by_email") else "NULL AS edited_by_email"
         edited_at_col = "v.edited_at" if has_column(db, "visits", "edited_at") else "NULL AS edited_at"
@@ -3099,10 +3165,10 @@ def get_visit_detail(
         visit_row = db.execute(text(visit_query), {"visit_id": visit_id}).mappings().first()
 
         if not visit_row:
-            print(f"DEBUG: Visit not found for ID: {visit_id}")
+            logger.debug("Visit not found for ID: {visit_id}")
             raise HTTPException(status_code=404, detail="Visit not found")
 
-        print(f"DEBUG: Visit found: {visit_row['business_name']}")
+        logger.debug("Visit found: {visit_row['business_name']}")
 
         response_table = get_response_table(db)
         if not response_table:
@@ -3130,7 +3196,7 @@ def get_visit_detail(
             """
         ), {"visit_id": visit_id}).mappings().all()
 
-        print(f"DEBUG: Found {len(response_rows)} response rows")
+        logger.debug("Found {len(response_rows)} response rows")
 
         responses = []
         for row in response_rows:
@@ -3167,7 +3233,10 @@ def get_visit_detail(
                         COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
                         COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
                     FROM questions q
-                    JOIN visits v ON v.survey_type_id = q.survey_type_id
+                    JOIN visits v ON (
+                        v.survey_type_id = q.survey_type_id
+                        OR (v.survey_type_id IS NULL AND q.survey_type_id IS NULL)
+                    )
                     LEFT JOIN {response_table} r
                         ON r.visit_id = v.id
                         AND r.question_id = q.id
@@ -3177,6 +3246,10 @@ def get_visit_detail(
                 {"visit_id": visit_id},
             ).fetchone()
         else:
+            # Legacy schema without survey_type_id: restrict the mandatory count
+            # to questions that actually appear on the visit (any response, even
+            # blank) so we don't accidentally sum mandatory questions from the
+            # other programs that share the questions table.
             mandatory_counts_row = db.execute(
                 text(
                     f"""
@@ -3184,7 +3257,7 @@ def get_visit_detail(
                         COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
                         COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
                     FROM questions q
-                    LEFT JOIN {response_table} r
+                    JOIN {response_table} r
                         ON r.question_id = q.id
                         AND r.visit_id = :visit_id
                     """
@@ -3223,5 +3296,5 @@ def get_visit_detail(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error getting visit detail: {e}")
+        logger.exception("Error getting visit detail: %s", e)
         raise HTTPException(status_code=500, detail=f"Failed to get visit detail: {str(e)}")

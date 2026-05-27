@@ -117,12 +117,15 @@ def require_role(required_role: str):
             admin_roles = DASHBOARD_ROLES
             survey_roles = ALL_PLATFORM_ROLES
 
-        if normalized in {"admin"}:
+        if normalized in {"admin", "manager", "approver", "reviewer"}:
             allowed = admin_roles
         elif normalized in {"representative", "surveyor"}:
             allowed = survey_roles
         else:
-            allowed = survey_roles
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Unknown role guard '{required_role}' configured on this endpoint",
+            )
 
         if current_user.has_any_role(allowed):
             return True

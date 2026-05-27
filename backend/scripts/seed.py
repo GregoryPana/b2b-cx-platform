@@ -182,7 +182,7 @@ QUESTION_BLUEPRINT = [
         "order_index": 18,
     },
     {
-        "question_key": "q18_product_review_needed",
+        "question_key": "q19_product_review_needed",
         "category": "Category 4: Competitive & Portfolio Intelligence",
         "question_text": "Which product would you want us to review to bring you to CWS?.",
         "input_type": "text",
@@ -203,7 +203,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "Types of products and services are required for any expansion in 6 to 12 months.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 22,
+        "order_index": 21,
     },
     {
         "question_key": "q21_expansion_types",
@@ -211,7 +211,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "What kinds of expansions are you plannning for in the next 6-12 months.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 21,
+        "order_index": 22,
     },
     {
         "question_key": "q22_more_from_us",

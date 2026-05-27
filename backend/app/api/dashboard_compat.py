@@ -1,3 +1,6 @@
+import logging
+
+logger = logging.getLogger(__name__)
 """
 Dashboard compatibility endpoints for B2B data
 Provides /dashboard/* endpoints that the frontend expects
@@ -12,26 +15,7 @@ from ..core.database import get_db
 router = APIRouter(prefix="/dashboard", tags=["dashboard-compat"])
 
 
-def has_table(db: Session, table_name: str) -> bool:
-    return bool(db.execute(text(
-        """
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_name = :table_name
-        LIMIT 1
-        """
-    ), {"table_name": table_name}).scalar())
-
-
-def has_column(db: Session, table_name: str, column_name: str) -> bool:
-    return bool(db.execute(text(
-        """
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = :table_name AND column_name = :column_name
-        LIMIT 1
-        """
-    ), {"table_name": table_name, "column_name": column_name}).scalar())
+from ..core.db_inspect import has_column, has_table  # noqa: E402  (replaces local helpers)
 
 
 def response_table(db: Session) -> str | None:
@@ -132,7 +116,7 @@ def get_nps(
             "total_responses": int(total)
         }
     except Exception as e:
-        print(f"Error calculating NPS: {e}")
+        logger.exception("Error calculating NPS: %s", e)
         return {"nps": None, "promoters": 0, "detractors": 0, "passives": 0, "total_responses": 0}
 
 
@@ -183,7 +167,7 @@ def get_coverage(
             "repeat_visits": 0  # TODO: calculate repeat visits
         }
     except Exception as e:
-        print(f"Error calculating coverage: {e}")
+        logger.exception("Error calculating coverage: %s", e)
         return {
             "total_active_businesses": 0,
             "businesses_visited_ytd": 0, 
@@ -248,5 +232,5 @@ def get_category_breakdown(
             for row in rows
         ]
     except Exception as e:
-        print(f"Error getting category breakdown: {e}")
+        logger.exception("Error getting category breakdown: %s", e)
         return []

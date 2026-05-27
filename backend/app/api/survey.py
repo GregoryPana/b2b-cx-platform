@@ -3,6 +3,9 @@ Additional endpoints for the survey interface
 """
 
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
@@ -31,26 +34,7 @@ DEFAULT_SURVEY_TYPES = [
 ]
 
 
-def has_table(db: Session, table_name: str) -> bool:
-    return bool(db.execute(text(
-        """
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_name = :table_name
-        LIMIT 1
-        """
-    ), {"table_name": table_name}).scalar())
-
-
-def has_column(db: Session, table_name: str, column_name: str) -> bool:
-    return bool(db.execute(text(
-        """
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = :table_name AND column_name = :column_name
-        LIMIT 1
-        """
-    ), {"table_name": table_name, "column_name": column_name}).scalar())
+from ..core.db_inspect import has_column, has_table  # noqa: E402  (replaces local helpers)
 
 
 def is_b2b_survey_type(value: str | None) -> bool:
@@ -89,7 +73,7 @@ async def get_survey_types(db: Session = Depends(get_db)):
             for row in rows
         ]
     except Exception as e:
-        print(f"Error fetching survey types: {e}")
+        logger.exception("Error fetching survey types: %s", e)
         return [
             {"id": idx + 1, **survey_type}
             for idx, survey_type in enumerate(DEFAULT_SURVEY_TYPES)
@@ -428,7 +412,7 @@ async def create_business(
             "account_executive_id": business_data.get("account_executive_id")
         }
     except Exception as e:
-        print(f"Error creating business: {e}")
+        logger.exception("Error creating business: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create business")
 
 @router.put("/businesses/{business_id}")
@@ -485,7 +469,7 @@ async def update_business(
             "account_executive_id": updated_business[5]
         }
     except Exception as e:
-        print(f"Error updating business: {e}")
+        logger.exception("Error updating business: %s", e)
         raise HTTPException(status_code=500, detail="Failed to update business")
 
 @router.get("/survey-businesses", response_model=List[Dict])
@@ -539,7 +523,7 @@ async def get_survey_businesses(
                 for row in rows
             ]
     except Exception as e:
-        print(f"Error fetching survey businesses from database: {e}")
+        logger.exception("Error fetching survey businesses from database: %s", e)
 
     # Fallback: legacy SQLite
     try:
@@ -588,7 +572,7 @@ async def get_survey_businesses(
             for row in rows
         ]
     except Exception as e:
-        print(f"Error fetching survey businesses from SQLite: {e}")
+        logger.exception("Error fetching survey businesses from SQLite: %s", e)
         return []
 
 @router.get("/questions")
@@ -707,7 +691,7 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
         return questions
         
     except Exception as e:
-        print(f"Error fetching questions from new database: {e}")
+        logger.exception("Error fetching questions from new database: %s", e)
         normalized = (survey_type or "B2B").strip().lower().replace(" ", "")
         if normalized in {"mysteryshopper", "mystery_shopper", "mystery"}:
             fallback = []
@@ -790,7 +774,7 @@ async def get_draft_visits(
         return visits
         
     except Exception as e:
-        print(f"Error fetching draft visits: {e}")
+        logger.exception("Error fetching draft visits: %s", e)
         # Return empty list if there's an error
         return []
 
@@ -840,7 +824,7 @@ async def get_visit_details(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error fetching visit details: {e}")
+        logger.exception("Error fetching visit details: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/survey-responses/{visit_id}")
@@ -905,7 +889,7 @@ async def get_survey_responses(
         return responses
         
     except Exception as e:
-        print(f"Error fetching survey responses: {e}")
+        logger.exception("Error fetching survey responses: %s", e)
         return []
 
 @router.get("/survey-actions/{visit_id}")
@@ -953,7 +937,7 @@ async def get_survey_actions(
         return actions
         
     except Exception as e:
-        print(f"Error fetching survey actions: {e}")
+        logger.exception("Error fetching survey actions: %s", e)
         return []
 
 @router.get("/historical-surveys")
@@ -1002,7 +986,7 @@ async def get_historical_surveys(
         return surveys
         
     except Exception as e:
-        print(f"Error fetching historical surveys: {e}")
+        logger.exception("Error fetching historical surveys: %s", e)
         return []
 async def save_visit_responses(visit_id: int, responses: Dict[str, Any], db: Session = Depends(get_db)):
     """Save responses for a visit."""
@@ -1012,7 +996,7 @@ async def save_visit_responses(visit_id: int, responses: Dict[str, Any], db: Ses
         return {"message": "Responses saved successfully", "visit_id": visit_id}
         
     except Exception as e:
-        print(f"Error saving responses: {e}")
+        logger.exception("Error saving responses: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save responses")
 
 @router.put("/visits/{visit_id}")
@@ -1029,5 +1013,5 @@ async def update_visit(
         return {"message": "Visit updated successfully", "visit_id": visit_id}
         
     except Exception as e:
-        print(f"Error updating visit: {e}")
+        logger.exception("Error updating visit: %s", e)
         raise HTTPException(status_code=500, detail="Failed to update visit")

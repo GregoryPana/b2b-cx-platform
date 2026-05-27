@@ -1938,47 +1938,26 @@ const platformAbortRef = useRef(null);
 
   const yesNoQuestionCards = useMemo(() => {
     const requiredQuestions = [
-      {
-        key: "q04_ae_business_understanding",
-        number: 4,
-        text: "Does the C&W Account Executive understand your business?.",
-      },
-      {
-        key: "q06_regular_updates",
-        number: 6,
-        text: "Are you receiving regular updates on your account? (Y or N).",
-      },
-      {
-        key: "q09_issues_resolved_on_time",
-        number: 9,
-        text: "Are your issues resolved on time? (Y/N)",
-      },
-      {
-        key: "q16_other_provider_products",
-        number: 16,
-        text: "Do you have other products and services from other service providers? (Yes or No)",
-      },
-      {
-        key: "q18_competitor_service_with_cws",
-        number: 18,
-        text: "Would you consider taking this service with CWS?",
-      },
+      { key: "q04_ae_business_understanding", text: "Does the C&W Account Executive understand your business?." },
+      { key: "q06_regular_updates", text: "Are you receiving regular updates on your account? (Y or N)." },
+      { key: "q09_issues_resolved_on_time", text: "Are your issues resolved on time? (Y/N)" },
+      { key: "q16_other_provider_products", text: "Do you have other products and services from other service providers? (Yes or No)" },
+      { key: "q18_competitor_service_with_cws", text: "Would you consider taking this service with CWS?" },
     ];
 
     return requiredQuestions.map((required) => {
-      const matched = yesNoBarChartData.find(
-        (item) => item.question_key === required.key || item.question_number === required.number
-      );
+      const matched = yesNoBarChartData.find((item) => item.question_key === required.key);
 
       const yesCount = Number(matched?.yes_count || 0);
       const noCount = Number(matched?.no_count || 0);
       const totalCount = Number(matched?.total_count || 0);
       const yesPercent = totalCount > 0 ? (yesCount / totalCount) * 100 : 0;
       const noPercent = totalCount > 0 ? (noCount / totalCount) * 100 : 0;
+      const displayNumber = matched?.question_number;
 
       return {
         key: required.key,
-        label: `Question ${required.number}`,
+        label: displayNumber ? `Question ${displayNumber}` : "Question",
         question_text: matched?.question_text || required.text,
         yes_count: yesCount,
         no_count: noCount,

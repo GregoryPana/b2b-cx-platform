@@ -78,36 +78,7 @@ class MysteryReportEmailRequest(BaseModel):
     message: str | None = None
 
 
-def has_table(db: Session, table_name: str) -> bool:
-    return bool(
-        db.execute(
-            text(
-                """
-                SELECT 1
-                FROM information_schema.tables
-                WHERE table_name = :table_name
-                LIMIT 1
-                """
-            ),
-            {"table_name": table_name},
-        ).scalar()
-    )
-
-
-def has_column(db: Session, table_name: str, column_name: str) -> bool:
-    return bool(
-        db.execute(
-            text(
-                """
-                SELECT 1
-                FROM information_schema.columns
-                WHERE table_name = :table_name AND column_name = :column_name
-                LIMIT 1
-                """
-            ),
-            {"table_name": table_name, "column_name": column_name},
-        ).scalar()
-    )
+from ..core.db_inspect import has_column, has_table  # noqa: E402  (replaces local helpers)
 
 
 def get_response_table(db: Session) -> str | None:

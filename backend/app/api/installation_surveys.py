@@ -18,6 +18,7 @@ from email.mime.text import MIMEText
 from ..core.auth.dependencies import INSTALL_ROLES, get_current_user, require_roles
 from ..core.auth.entra import AuthUser
 from ..core.database import get_db
+from ..core.db_inspect import has_column
 from ..core.traffic_light import get_installation_metric_grade
 
 router = APIRouter(prefix="/installation", tags=["installation"])
@@ -329,10 +330,11 @@ def _build_installation_where_clause(
 
 def _get_installation_questions(db: Session) -> list[dict]:
     try:
+        question_key_select = "question_key" if has_column(db, "installation_questions", "question_key") else "NULL AS question_key"
         rows = db.execute(
             text(
-                """
-                SELECT question_number, category, question_text, score_min, score_max
+                f"""
+                SELECT question_number, {question_key_select}, category, question_text, score_min, score_max
                 FROM installation_questions
                 WHERE active = true
                 ORDER BY question_number
@@ -344,6 +346,7 @@ def _get_installation_questions(db: Session) -> list[dict]:
         return [
             {
                 "question_number": int(row["question_number"]),
+                "question_key": row["question_key"] or f"inst_q{int(row['question_number'])}",
                 "category": row["category"],
                 "question_text": row["question_text"],
                 "score_min": int(row["score_min"]),
@@ -476,30 +479,63 @@ def create_installation_survey(
         )
 
         question_map = {item["question_number"]: item["question_text"] for item in questions}
+        question_key_map = {
+            item["question_number"]: item.get("question_key") or f"inst_q{item['question_number']}"
+            for item in questions
+        }
+        has_response_question_key = has_column(db, "installation_survey_responses", "question_key")
         for question_number in sorted(expected_numbers):
-            db.execute(
-                text(
-                    """
-                    INSERT INTO installation_survey_responses (
-                        survey_id,
-                        question_number,
-                        question_text,
-                        score
-                    ) VALUES (
-                        CAST(:survey_id AS uuid),
-                        :question_number,
-                        :question_text,
-                        :score
-                    )
-                    """
-                ),
-                {
-                    "survey_id": survey_id,
-                    "question_number": question_number,
-                    "question_text": question_map[question_number],
-                    "score": score_map[question_number],
-                },
-            )
+            if has_response_question_key:
+                db.execute(
+                    text(
+                        """
+                        INSERT INTO installation_survey_responses (
+                            survey_id,
+                            question_number,
+                            question_key,
+                            question_text,
+                            score
+                        ) VALUES (
+                            CAST(:survey_id AS uuid),
+                            :question_number,
+                            :question_key,
+                            :question_text,
+                            :score
+                        )
+                        """
+                    ),
+                    {
+                        "survey_id": survey_id,
+                        "question_number": question_number,
+                        "question_key": question_key_map[question_number],
+                        "question_text": question_map[question_number],
+                        "score": score_map[question_number],
+                    },
+                )
+            else:
+                db.execute(
+                    text(
+                        """
+                        INSERT INTO installation_survey_responses (
+                            survey_id,
+                            question_number,
+                            question_text,
+                            score
+                        ) VALUES (
+                            CAST(:survey_id AS uuid),
+                            :question_number,
+                            :question_text,
+                            :score
+                        )
+                        """
+                    ),
+                    {
+                        "survey_id": survey_id,
+                        "question_number": question_number,
+                        "question_text": question_map[question_number],
+                        "score": score_map[question_number],
+                    },
+                )
 
         db.commit()
         return {
@@ -664,7 +700,7 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
                     r.score,
                     q.category
                 FROM installation_survey_responses r
-                LEFT JOIN installation_questions q ON r.question_number = q.question_number
+                LEFT JOIN installation_questions q ON COALESCE(r.question_key, 'inst_q' || r.question_number::text) = COALESCE(q.question_key, 'inst_q' || q.question_number::text)
                 WHERE r.survey_id = CAST(:survey_id AS uuid)
                 ORDER BY r.question_number
                 """
@@ -824,7 +860,7 @@ def get_installation_analytics(
                     COUNT(*) AS response_count
                 FROM installation_survey_responses r
                 JOIN installation_surveys s ON s.id = r.survey_id
-                JOIN installation_questions q ON q.question_number = r.question_number
+                JOIN installation_questions q ON COALESCE(q.question_key, 'inst_q' || q.question_number::text) = COALESCE(r.question_key, 'inst_q' || r.question_number::text)
                 WHERE {where_sql}
                 GROUP BY q.category
                 ORDER BY q.category
@@ -989,7 +1025,7 @@ def get_installation_trends(
                     AVG(r.score)::numeric(10,2) AS average_score
                 FROM installation_survey_responses r
                 JOIN installation_surveys s ON s.id = r.survey_id
-                JOIN installation_questions q ON q.question_number = r.question_number
+                JOIN installation_questions q ON COALESCE(q.question_key, 'inst_q' || q.question_number::text) = COALESCE(r.question_key, 'inst_q' || r.question_number::text)
                 WHERE {where_sql}
                 GROUP BY date_trunc('month', s.date_work_done), r.question_number, q.question_text
                 ORDER BY period, r.question_number
@@ -1169,7 +1205,7 @@ def export_installation_report(
                 SELECT q.category, AVG(r.score)::numeric(10,2) AS average_score, COUNT(*) AS response_count
                 FROM installation_survey_responses r
                 JOIN installation_surveys s ON s.id = r.survey_id
-                JOIN installation_questions q ON r.question_number = q.question_number
+                JOIN installation_questions q ON COALESCE(r.question_key, 'inst_q' || r.question_number::text) = COALESCE(q.question_key, 'inst_q' || q.question_number::text)
                 WHERE {where_sql}
                 GROUP BY q.category
                 ORDER BY q.category
@@ -1244,7 +1280,7 @@ def export_installation_report(
                         """
                         SELECT r.question_number, r.question_text, r.score, q.category
                         FROM installation_survey_responses r
-                        LEFT JOIN installation_questions q ON r.question_number = q.question_number
+                        LEFT JOIN installation_questions q ON COALESCE(r.question_key, 'inst_q' || r.question_number::text) = COALESCE(q.question_key, 'inst_q' || q.question_number::text)
                         WHERE r.survey_id = CAST(:survey_id AS uuid)
                         ORDER BY r.question_number
                         """

@@ -106,7 +106,7 @@ def text_answer(question_key: str, business_name: str) -> str:
         "q13_top_3_important_factors": "Service reliability, response time, and transparent billing.",
         "q15_current_products_services": "Dedicated internet, SIP trunks, and managed LAN.",
         "q17_competitor_products_services": "Backup mobile data from another provider at one site.",
-        "q18_product_review_needed": "Review managed SD-WAN package for branch resilience.",
+        "q19_product_review_needed": "Review managed SD-WAN package for branch resilience.",
         "q19_new_requirements": "Need cloud voice integration and improved branch Wi-Fi analytics.",
         "q20_expansion_services_required": "Additional fiber ports and secure remote access for new offices.",
         "q21_expansion_types": "Opening one satellite office and upgrading two existing locations.",
