@@ -23,7 +23,7 @@ function draftKey(item) {
 export default function ActionPointsDataTable({ data, statusOptions, onSaveActionPoint }) {
   const [sorting, setSorting] = useState([{ id: "visit_date", desc: true }]);
   const [columnFilters, setColumnFilters] = useState([]);
-  const [columnVisibility, setColumnVisibility] = useState({});
+  const [columnVisibility, setColumnVisibility] = useState({ visit_id: false });
   const [filterColumn, setFilterColumn] = useState("action_required");
   const [drafts, setDrafts] = useState({});
 
@@ -119,7 +119,7 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
           </div>
           <div className="flex gap-2">
             <DataTableViewOptions table={table} />
-            <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setColumnVisibility({}); setSorting([{ id: "visit_date", desc: true }]); setFilterColumn("action_required"); }}>
+            <Button type="button" variant="ghost" onClick={() => { setColumnFilters([]); setColumnVisibility({ visit_id: false }); setSorting([{ id: "visit_date", desc: true }]); setFilterColumn("action_required"); }}>
               Reset Table
             </Button>
           </div>

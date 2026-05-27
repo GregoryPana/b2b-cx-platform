@@ -18,9 +18,13 @@ import { DataTableViewOptions } from "../ui/data-table-view-options";
 
 export default function PlannedVisitsDataTable({
   data,
+  representatives,
   editingVisitId,
   editForm,
   onEditFormChange,
+  onAddTeamMember,
+  onRemoveTeamMember,
+  onUpdateTeamMember,
   onStartEdit,
   onSaveEdit,
   onCancelEdit,
@@ -36,11 +40,15 @@ export default function PlannedVisitsDataTable({
     editingVisitId,
     editForm,
     onEditFormChange,
+    onAddTeamMember,
+    onRemoveTeamMember,
+    onUpdateTeamMember,
     onStartEdit,
     onSaveEdit,
     onCancelEdit,
     onDelete,
-  }), [editForm, editingVisitId, onCancelEdit, onDelete, onEditFormChange, onSaveEdit, onStartEdit]);
+    representatives,
+  }), [editForm, editingVisitId, onAddTeamMember, onCancelEdit, onDelete, onEditFormChange, onRemoveTeamMember, onSaveEdit, onStartEdit, onUpdateTeamMember, representatives]);
 
   const columns = useMemo(() => [
     {
@@ -90,12 +98,21 @@ export default function PlannedVisitsDataTable({
         const visitKey = String(visit.id || visit.visit_id);
         const isEditing = visitKey === table.options.meta?.editingVisitId;
         const form = table.options.meta?.editForm;
+        const options = Array.isArray(table.options.meta?.representatives) ? table.options.meta.representatives : [];
         return isEditing ? (
-          <Input
-            value={form?.account_executive_name || ""}
-            onChange={(event) => table.options.meta?.onEditFormChange({ ...form, account_executive_name: event.target.value })}
-            placeholder="Account executive"
-          />
+          <>
+            <Input
+              list={`planned-edit-account-executives-${visitKey}`}
+              value={form?.account_executive_name || ""}
+              onChange={(event) => table.options.meta?.onEditFormChange({ ...form, account_executive_name: event.target.value })}
+              placeholder="Account executive"
+            />
+            <datalist id={`planned-edit-account-executives-${visitKey}`}>
+              {options.map((executive) => (
+                <option key={`${visitKey}-exec-${executive.id}`} value={executive.name || executive.full_name || executive.display_name || executive.email || ""} />
+              ))}
+            </datalist>
+          </>
         ) : (visit.account_executive_name || "--");
       },
     },
@@ -109,11 +126,29 @@ export default function PlannedVisitsDataTable({
         const isEditing = visitKey === table.options.meta?.editingVisitId;
         const form = table.options.meta?.editForm;
         return isEditing ? (
-          <Input
-            value={form?.team_member_names || ""}
-            onChange={(event) => table.options.meta?.onEditFormChange({ ...form, team_member_names: event.target.value })}
-            placeholder="Comma separated names"
-          />
+          <div className="space-y-2">
+            {(Array.isArray(form?.team_member_names) ? form.team_member_names : [""]).map((memberName, index) => (
+              <div key={`${visitKey}-member-${index}`} className="flex gap-2">
+                <Input
+                  value={memberName}
+                  onChange={(event) => table.options.meta?.onUpdateTeamMember(index, event.target.value)}
+                  placeholder={`Team member ${index + 1}`}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => table.options.meta?.onRemoveTeamMember(index)}
+                  disabled={(form?.team_member_names || []).length === 1 && !String((form?.team_member_names || [""])[0] || "").trim()}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            <Button type="button" size="sm" variant="outline" onClick={() => table.options.meta?.onAddTeamMember()}>
+              Add Team Member
+            </Button>
+          </div>
         ) : ((row.original.team_member_names || []).join(", ") || "--");
       },
       filterFn: (row, _id, value) => String((row.original.team_member_names || []).join(", ")).toLowerCase().includes(String(value || "").toLowerCase()),

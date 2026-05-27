@@ -40,15 +40,9 @@ const REPORT_TYPE_OPTIONS = [
   { key: "action_points", label: "Action Points", description: "All outstanding and completed action points. Filter by business, date range, or status." },
 ];
 
-function formatTeamMembersForInput(values) {
-  return Array.isArray(values) ? values.filter(Boolean).join(", ") : "";
-}
-
-function parseTeamMembersFromInput(value) {
-  return String(value || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+function normalizeTeamMembers(values) {
+  if (!Array.isArray(values)) return [];
+  return values.map((item) => String(item || "").trim()).filter(Boolean);
 }
 const INSTALL_REPORT_TYPE_OPTIONS = [
   { key: "lifetime", label: "Lifetime Summary", description: "Complete analytics overview of all installation assessments with clear, easy-to-understand metrics and explanations." },
@@ -192,9 +186,12 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   });
   const [plannedVisits, setPlannedVisits] = useState([]);
   const [plannedLoading, setPlannedLoading] = useState(false);
-  const [plannedForm, setPlannedForm] = useState({ business_id: "", visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: "" });
+  const [plannedForm, setPlannedForm] = useState({ business_id: "", visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: [""] });
   const [editingPlannedVisitId, setEditingPlannedVisitId] = useState("");
-  const [plannedEditForm, setPlannedEditForm] = useState({ visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: "" });
+  const [plannedEditForm, setPlannedEditForm] = useState({ visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: [""] });
+  const [newPlannedExecutiveName, setNewPlannedExecutiveName] = useState("");
+  const [newPlannedExecutiveEmail, setNewPlannedExecutiveEmail] = useState("");
+  const [plannedExecutiveSaving, setPlannedExecutiveSaving] = useState(false);
   const [surveyStatusFilter, setSurveyStatusFilter] = useState("all");
   const [selectedSurveyBusiness, setSelectedSurveyBusiness] = useState("");
   const [selectedSurveyLocation, setSelectedSurveyLocation] = useState("");
@@ -1259,6 +1256,67 @@ const platformAbortRef = useRef(null);
     setPlannedVisits(rows);
   };
 
+  const updateEditingPlannedTeamMember = (index, value) => updatePlannedTeamMember(index, value, true);
+  const addEditingPlannedTeamMember = () => addPlannedTeamMember(true);
+  const removeEditingPlannedTeamMember = (index) => removePlannedTeamMember(index, true);
+
+  const updatePlannedTeamMember = (index, value, isEdit = false) => {
+    const setter = isEdit ? setPlannedEditForm : setPlannedForm;
+    setter((prev) => {
+      const next = [...(Array.isArray(prev.team_member_names) ? prev.team_member_names : [""])];
+      next[index] = value;
+      return { ...prev, team_member_names: next };
+    });
+  };
+
+  const addPlannedTeamMember = (isEdit = false) => {
+    const setter = isEdit ? setPlannedEditForm : setPlannedForm;
+    setter((prev) => ({
+      ...prev,
+      team_member_names: [...(Array.isArray(prev.team_member_names) ? prev.team_member_names : [""]), ""],
+    }));
+  };
+
+  const removePlannedTeamMember = (index, isEdit = false) => {
+    const setter = isEdit ? setPlannedEditForm : setPlannedForm;
+    setter((prev) => {
+      const current = Array.isArray(prev.team_member_names) ? prev.team_member_names : [""];
+      const next = current.filter((_, itemIndex) => itemIndex !== index);
+      return { ...prev, team_member_names: next.length > 0 ? next : [""] };
+    });
+  };
+
+  const createPlannedAccountExecutive = async () => {
+    const name = newPlannedExecutiveName.trim();
+    const email = newPlannedExecutiveEmail.trim();
+    if (!name || !email) {
+      setError("Account executive name and email are required.");
+      return;
+    }
+    setPlannedExecutiveSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/account-executives`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name, email }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.detail || "Failed to create account executive");
+        return;
+      }
+      await loadRepresentatives();
+      setPlannedForm((prev) => ({ ...prev, account_executive_name: data.name }));
+      setPlannedEditForm((prev) => ({ ...prev, account_executive_name: prev.account_executive_name || data.name }));
+      setNewPlannedExecutiveName("");
+      setNewPlannedExecutiveEmail("");
+      pushToast("success", `Account executive added: ${data.name}`);
+    } finally {
+      setPlannedExecutiveSaving(false);
+    }
+  };
+
   const handleCreatePlannedVisit = async () => {
     if (!isB2BPlatform) return;
     if (!plannedForm.business_id || !plannedForm.visit_date) {
@@ -1275,7 +1333,7 @@ const platformAbortRef = useRef(null);
       visit_type: plannedForm.visit_type,
       survey_type: "B2B",
       account_executive_name: plannedForm.account_executive_name.trim() || null,
-      team_member_names: parseTeamMembersFromInput(plannedForm.team_member_names),
+      team_member_names: normalizeTeamMembers(plannedForm.team_member_names),
     };
     const res = await fetch(`${API_BASE}/dashboard-visits?_cb=${Date.now()}`, {
       method: "POST",
@@ -1287,7 +1345,7 @@ const platformAbortRef = useRef(null);
       setError(data.detail || "Failed to create planned visit");
       return;
     }
-    setPlannedForm({ business_id: plannedForm.business_id, visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: "" });
+    setPlannedForm({ business_id: plannedForm.business_id, visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: [""] });
     setMessage("Planned visit created.");
     await loadPlannedVisits();
   };
@@ -1312,13 +1370,13 @@ const platformAbortRef = useRef(null);
       visit_date: visit.visit_date || "",
       visit_type: visit.visit_type || "Planned",
       account_executive_name: visit.account_executive_name || "",
-      team_member_names: formatTeamMembersForInput(visit.team_member_names),
+      team_member_names: Array.isArray(visit.team_member_names) && visit.team_member_names.length > 0 ? visit.team_member_names : [""],
     });
   };
 
   const cancelEditPlannedVisit = () => {
     setEditingPlannedVisitId("");
-    setPlannedEditForm({ visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: "" });
+    setPlannedEditForm({ visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: [""] });
   };
 
   const savePlannedVisitEdit = async (visitId) => {
@@ -1334,7 +1392,7 @@ const platformAbortRef = useRef(null);
         visit_date: plannedEditForm.visit_date,
         visit_type: plannedEditForm.visit_type,
         account_executive_name: plannedEditForm.account_executive_name.trim() || null,
-        team_member_names: parseTeamMembersFromInput(plannedEditForm.team_member_names),
+        team_member_names: normalizeTeamMembers(plannedEditForm.team_member_names),
       }),
     });
     const data = await res.json();
@@ -2352,6 +2410,23 @@ const platformAbortRef = useRef(null);
                   value={analyticsBusinessSearch}
                   onChange={(event) => setAnalyticsBusinessSearch(event.target.value)}
                 />
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedAnalyticsBusinessIds([])}
+                    disabled={selectedAnalyticsBusinessIds.length === 0}
+                    title="Clear the selected businesses and return to the full business overview"
+                  >
+                    Clear Business Selection
+                  </Button>
+                  <span className="text-muted-foreground">
+                    {selectedAnalyticsBusinessIds.length === 0
+                      ? "Showing all businesses"
+                      : `Showing ${selectedAnalyticsBusinessIds.length} selected business${selectedAnalyticsBusinessIds.length === 1 ? "" : "es"}`}
+                  </span>
+                </div>
                 <div className="max-h-52 space-y-2 overflow-y-auto rounded-md border p-3">
                   {filteredAnalyticsBusinesses.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No businesses match this search.</p>
@@ -3001,6 +3076,12 @@ const platformAbortRef = useRef(null);
                   </Select>
                   <Button type="button" onClick={handleCreatePlannedVisit}>Create Draft Visit</Button>
                 </div>
+                <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">Quick tips</p>
+                  <p className="mt-1">1. Add the account executive responsible for this customer before creating the draft visit.</p>
+                  <p className="mt-1">2. Add each team member separately so they stay visible in the dashboard and the survey workspace.</p>
+                  <p className="mt-1">3. After the draft is created, surveyors can open it and continue with the full response flow.</p>
+                </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">Account Executive</label>
@@ -3020,13 +3101,37 @@ const platformAbortRef = useRef(null);
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">Team Members</label>
-                    <Input
-                      value={plannedForm.team_member_names}
-                      onChange={(event) => setPlannedForm((prev) => ({ ...prev, team_member_names: event.target.value }))}
-                      placeholder="Comma separated team members"
-                      title="Add the team members who will take part in this visit, separated by commas"
-                    />
+                    <div className="space-y-2">
+                      {plannedForm.team_member_names.map((memberName, index) => (
+                        <div key={`planned-form-member-${index}`} className="flex gap-2">
+                          <Input
+                            value={memberName}
+                            onChange={(event) => updatePlannedTeamMember(index, event.target.value)}
+                            placeholder={`Team member ${index + 1}`}
+                            title="Add one team member per row"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => removePlannedTeamMember(index)}
+                            disabled={plannedForm.team_member_names.length === 1 && !String(plannedForm.team_member_names[0] || "").trim()}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                      <Button type="button" size="sm" variant="outline" onClick={() => addPlannedTeamMember()}>
+                        Add Team Member
+                      </Button>
+                    </div>
                   </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-[1fr_1fr_auto]">
+                  <Input value={newPlannedExecutiveName} onChange={(event) => setNewPlannedExecutiveName(event.target.value)} placeholder="New account executive name" />
+                  <Input value={newPlannedExecutiveEmail} onChange={(event) => setNewPlannedExecutiveEmail(event.target.value)} placeholder="New account executive email" />
+                  <Button type="button" variant="outline" onClick={createPlannedAccountExecutive} disabled={plannedExecutiveSaving} title="Create a new account executive and reuse them immediately on this planned visit">
+                    {plannedExecutiveSaving ? "Adding..." : "Add Account Executive"}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -3042,10 +3147,14 @@ const platformAbortRef = useRef(null);
                 </div>
                 <PlannedVisitsDataTable
                   data={plannedVisits}
+                  representatives={representatives}
                   loading={plannedLoading}
                   editingVisitId={editingPlannedVisitId}
                   editForm={plannedEditForm}
                   onEditFormChange={setPlannedEditForm}
+                  onAddTeamMember={addEditingPlannedTeamMember}
+                  onRemoveTeamMember={removeEditingPlannedTeamMember}
+                  onUpdateTeamMember={updateEditingPlannedTeamMember}
                   onStartEdit={startEditPlannedVisit}
                   onSaveEdit={savePlannedVisitEdit}
                   onCancelEdit={cancelEditPlannedVisit}
@@ -3650,7 +3759,7 @@ const platformAbortRef = useRef(null);
                   <p className="text-xs text-muted-foreground">Preview in-page, download as HTML, or send by email.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                  {reportType === "lifetime" || reportType === "survey" ? (
+                  {reportType === "lifetime" ? (
                     <>
                       <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} placeholder="From date (optional)" />
                       <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} placeholder="To date (optional)" />
@@ -3671,6 +3780,14 @@ const platformAbortRef = useRef(null);
                     {reportSending ? "Sending..." : "Email Report"}
                   </Button>
                 </div>
+                {reportType === "survey" ? (
+                  <div className="rounded-md border bg-blue-50 p-3 text-sm text-blue-900">
+                    <p className="font-medium">Quick tips</p>
+                    <p className="mt-1">1. Select the business or location first.</p>
+                    <p className="mt-1">2. Choose one approved survey from the list.</p>
+                    <p className="mt-1">3. You do not need a date range for a single-survey report because the selected survey already fixes the scope.</p>
+                  </div>
+                ) : null}
                     {reportPreview ? (
                   <div className="mt-4 space-y-3 rounded-md border bg-background p-3">
                     <p className="text-sm font-semibold">Report Preview Summary</p>
