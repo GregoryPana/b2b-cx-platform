@@ -235,14 +235,14 @@ def get_comprehensive_analytics(
                 ")"
             )
         elif has_order_index:
-            q12_filter = "q.order_index = 12"
+            q12_filter = "q.order_index = 13"
             q16_filter = "q.order_index = 16"
             ms_csat_filter = "q.order_index IN (24,25)"
             ms_waiting_time_filter = "q.order_index = 22"
             ms_service_completion_filter = "q.order_index = 23"
             relationship_filter = "q.order_index BETWEEN 1 AND 6"
         elif has_question_number:
-            q12_filter = "q.question_number = 12"
+            q12_filter = "q.question_number = 13"
             q16_filter = "q.question_number = 16"
             ms_csat_filter = "q.question_number IN (24,25)"
             ms_waiting_time_filter = "q.question_number = 22"

@@ -48,13 +48,13 @@ def test_analytics():
         print("Testing satisfaction stats...")
         satisfaction_stats = db.execute(text("""
             SELECT 
-                AVG(CASE WHEN q.question_number = 12 AND r.score IS NOT NULL THEN r.score ELSE NULL END) as avg_satisfaction,
-                COUNT(CASE WHEN q.question_number = 12 AND r.score IS NOT NULL THEN 1 ELSE 0 END) as satisfaction_responses
+                AVG(CASE WHEN q.question_key = 'q12_overall_satisfaction' AND r.score IS NOT NULL THEN r.score ELSE NULL END) as avg_satisfaction,
+                COUNT(CASE WHEN q.question_key = 'q12_overall_satisfaction' AND r.score IS NOT NULL THEN 1 ELSE 0 END) as satisfaction_responses
             FROM b2b_visit_responses r
             JOIN questions q ON r.question_id = q.id
             JOIN visits v ON r.visit_id = v.id
             WHERE v.status = 'Approved'
-            AND q.question_number = 12
+            AND q.question_key = 'q12_overall_satisfaction'
             AND r.score IS NOT NULL
         """)).fetchone()
         

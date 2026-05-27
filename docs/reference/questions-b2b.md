@@ -10,21 +10,21 @@
 
 ## Category 2: Service & Operational Performance
 
-7. List your top 3 C&W services most satisfied with in the past 6 months.
-8. List 3 instances you have not been satisfied with C&W if any (Network Quality, Fault resolution, Visits, billing etc) if any be specific..
-9. Are Issues resolved on time? (Always, Sometimes, Never)
-10. How often do you need to call C&W to install new products or resolve issues? (Always, Sometimes, Never)
-11. What is your most recent unresolved issue with C&W?.
-12. Rate your overall C&W Satisfaction. (Very Satisfied). (0-10)
+7. What Products and Services do you currently have with C&W.
+8. List your top 3 C&W services most satisfied with in the past 6 months.
+9. List 3 instances you have not been satisfied with C&W if any (Network Quality, Fault resolution, Visits, billing etc) if any be specific..
+10. Are Issues resolved on time? (Always, Sometimes, Never)
+11. How often do you need to call C&W to install new products or resolve issues? (Always, Sometimes, Never)
+12. What is your most recent unresolved issue with C&W?.
+13. Rate your overall C&W Satisfaction. (Very Satisfied). (0-10)
 
 ## Category 3: Commercial & Billing
 
-13. What are the top 3 most important factors of our services? (e.g.Quality Price, Credit, Information, Faults resolution?)
-14. Is your statement of accounts accurate and up to date?. (Always, Sometimes, Never)
+14. What are the top 3 most important factors of our services? (e.g.Quality Price, Credit, Information, Faults resolution?)
+15. Is your statement of accounts accurate and up to date?. (Always, Sometimes, Never)
 
 ## Category 4: Competitive & Portfolio Intelligence
 
-15. What Products and Services do you currently have with C&W.
 16. Do you have other products and services from other service providers? (Yes or No)
 17. If so, list Products and services from competitor. (Conditional on previous)
 18. Which product would you want us to review to bring you to CWS?.

@@ -574,6 +574,45 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     }
   };
 
+  const saveActiveVisitDetails = async () => {
+    if (!visitId) {
+      setError("No active survey to update.");
+      return;
+    }
+    pushToast("info", "Saving visit details...", 1500);
+    setIsCreatingVisit(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}/draft?_cb=${Date.now()}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          visit_date: visitForm.visit_date,
+          visit_type: visitForm.visit_type,
+          account_executive_name: visitForm.account_executive_name.trim() || null,
+          team_member_names: normalizeTeamMemberNames(visitForm.team_member_names),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Failed to save visit details");
+        return;
+      }
+      setVisitForm((prev) => ({
+        ...prev,
+        account_executive_name: data.account_executive_name ?? prev.account_executive_name,
+        team_member_names: Array.isArray(data.team_member_names) && data.team_member_names.length > 0
+          ? data.team_member_names
+          : prev.team_member_names,
+      }));
+      await loadDrafts();
+      setMessage("Visit details saved.");
+    } finally {
+      setIsCreatingVisit(false);
+    }
+  };
+
   const updateQuestionDraft = (questionId: number, field: keyof ResponseDraft, value: string) => {
     setResponseDrafts((prev) => ({
       ...prev,
@@ -1265,7 +1304,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                         </div>
                       </div>
                     </div>
-                    <Button type="button" variant="outline" onClick={handleCreateVisit} disabled={isCreatingVisit} title="Save the selected account executive and team members to this active survey">
+                    <Button type="button" variant="outline" onClick={saveActiveVisitDetails} disabled={isCreatingVisit || !visitId} title="Save the selected account executive and team members to this active survey">
                       {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Visit Details
                     </Button>
                   </div>

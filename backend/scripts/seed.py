@@ -75,12 +75,20 @@ QUESTION_BLUEPRINT = [
         "order_index": 6,
     },
     {
+        "question_key": "q15_current_products_services",
+        "category": "Category 2: Service & Operational Performance",
+        "question_text": "What Products and Services do you currently have with C&W.",
+        "input_type": "text",
+        "is_mandatory": True,
+        "order_index": 7,
+    },
+    {
         "question_key": "q07_top_3_satisfied_services",
         "category": "Category 2: Service & Operational Performance",
         "question_text": "List your top 3 C&W services most satisfied with in the past 6 months.",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 7,
+        "order_index": 8,
     },
     {
         "question_key": "q08_top_3_unsatisfied_instances",
@@ -88,7 +96,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "List 3 instances you have not been satisfied with C&W if any (Network Quality, Fault resolution, Visits, billing etc) if any be specific..",
         "input_type": "text",
         "is_mandatory": False,
-        "order_index": 8,
+        "order_index": 9,
     },
     {
         "question_key": "q09_issues_resolved_on_time",
@@ -98,7 +106,7 @@ QUESTION_BLUEPRINT = [
         "choices": ["Y", "N"],
         "helper_text": "Select Y or N",
         "is_mandatory": True,
-        "order_index": 9,
+        "order_index": 10,
     },
     {
         "question_key": "q10_call_frequency",
@@ -108,7 +116,7 @@ QUESTION_BLUEPRINT = [
         "helper_text": "Select one option",
         "category": "Category 2: Service & Operational Performance",
         "is_mandatory": True,
-        "order_index": 10,
+        "order_index": 11,
     },
     {
         "question_key": "q11_recent_unresolved_issue",
@@ -116,7 +124,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "What is your most recent unresolved issue with C&W?.",
         "input_type": "text",
         "is_mandatory": False,
-        "order_index": 11,
+        "order_index": 12,
     },
     {
         "question_key": "q12_overall_satisfaction",
@@ -126,7 +134,7 @@ QUESTION_BLUEPRINT = [
         "score_min": 0,
         "score_max": 10,
         "is_mandatory": True,
-        "order_index": 12,
+        "order_index": 13,
     },
     {
         "question_key": "q13_top_3_important_factors",
@@ -134,7 +142,7 @@ QUESTION_BLUEPRINT = [
         "question_text": "What are the top 3 most important factors of our services? (e.g.Quality Price, Credit, Information, Faults resolution?)",
         "input_type": "text",
         "is_mandatory": True,
-        "order_index": 13,
+        "order_index": 14,
     },
     {
         "question_key": "q14_statement_accuracy",
@@ -142,14 +150,6 @@ QUESTION_BLUEPRINT = [
         "question_text": "Is your statement of accounts accurate and up to date?.",
         "input_type": "always_sometimes_never",
         "helper_text": "Choose: Always, Sometimes, or Never",
-        "is_mandatory": True,
-        "order_index": 14,
-    },
-    {
-        "question_key": "q15_current_products_services",
-        "category": "Category 4: Competitive & Portfolio Intelligence",
-        "question_text": "What Products and Services do you currently have with C&W.",
-        "input_type": "text",
         "is_mandatory": True,
         "order_index": 15,
     },
