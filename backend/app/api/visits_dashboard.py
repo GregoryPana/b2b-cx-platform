@@ -2673,16 +2673,16 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
         row = rows[0]
         team_member_names = fetch_visit_team_members(db, visit_id)
         return {
-            "visit_id": row[0],
-            "business_id": row[1],
-            "business_name": row[2],
-            "representative_id": row[3],
-            "representative_name": row[4],
-            "visit_date": row[5],
-            "visit_type": row[6],
-            "status": row[7],
-            "business_priority": row[8],
-            "account_executive_name": row[9],
+            "visit_id": row["id"],
+            "business_id": row["business_id"],
+            "business_name": row["business_name"],
+            "representative_id": row["representative_id"],
+            "representative_name": row["representative_name"],
+            "visit_date": row["visit_date"],
+            "visit_type": row["visit_type"],
+            "status": row["status"],
+            "business_priority": row["business_priority"],
+            "account_executive_name": row["account_executive_name"],
             "team_member_names": team_member_names,
         }
         
