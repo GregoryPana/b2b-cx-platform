@@ -9,7 +9,7 @@ fi
 VENV_DIR="${BACKEND_DIR}/venv"
 ENV_FILE="${REPO_DIR}/.env"
 SERVICE_FILE="/etc/systemd/system/cwscx-backend.service"
-ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260424_000019}"
+ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260527_000020}"
 
 run_as_root() {
   if [[ "${EUID}" -eq 0 ]]; then
