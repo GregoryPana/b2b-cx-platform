@@ -82,6 +82,43 @@ export default function PlannedVisitsDataTable({
       },
     },
     {
+      accessorKey: "account_executive_name",
+      headerTitle: "Account Executive",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Account Executive" />,
+      cell: ({ row, table }) => {
+        const visit = row.original;
+        const visitKey = String(visit.id || visit.visit_id);
+        const isEditing = visitKey === table.options.meta?.editingVisitId;
+        const form = table.options.meta?.editForm;
+        return isEditing ? (
+          <Input
+            value={form?.account_executive_name || ""}
+            onChange={(event) => table.options.meta?.onEditFormChange({ ...form, account_executive_name: event.target.value })}
+            placeholder="Account executive"
+          />
+        ) : (visit.account_executive_name || "--");
+      },
+    },
+    {
+      accessorKey: "team_member_names",
+      headerTitle: "Team Members",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Team Members" />,
+      cell: ({ row, table }) => {
+        const visit = row.original;
+        const visitKey = String(visit.id || visit.visit_id);
+        const isEditing = visitKey === table.options.meta?.editingVisitId;
+        const form = table.options.meta?.editForm;
+        return isEditing ? (
+          <Input
+            value={form?.team_member_names || ""}
+            onChange={(event) => table.options.meta?.onEditFormChange({ ...form, team_member_names: event.target.value })}
+            placeholder="Comma separated names"
+          />
+        ) : ((row.original.team_member_names || []).join(", ") || "--");
+      },
+      filterFn: (row, _id, value) => String((row.original.team_member_names || []).join(", ")).toLowerCase().includes(String(value || "").toLowerCase()),
+    },
+    {
       accessorKey: "status",
       headerTitle: "Status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
@@ -146,6 +183,8 @@ export default function PlannedVisitsDataTable({
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
             <Select value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
               <option value="business_name">Filter by business</option>
+              <option value="account_executive_name">Filter by account executive</option>
+              <option value="team_member_names">Filter by team members</option>
               <option value="visit_date">Filter by date</option>
               <option value="visit_type">Filter by type</option>
               <option value="status">Filter by status</option>

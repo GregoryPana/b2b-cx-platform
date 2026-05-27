@@ -39,6 +39,17 @@ const REPORT_TYPE_OPTIONS = [
   { key: "lifetime", label: "Lifetime Overview", description: "Full lifetime metrics, visits per business, and any pending visits across the platform." },
   { key: "action_points", label: "Action Points", description: "All outstanding and completed action points. Filter by business, date range, or status." },
 ];
+
+function formatTeamMembersForInput(values) {
+  return Array.isArray(values) ? values.filter(Boolean).join(", ") : "";
+}
+
+function parseTeamMembersFromInput(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 const INSTALL_REPORT_TYPE_OPTIONS = [
   { key: "lifetime", label: "Lifetime Summary", description: "Complete analytics overview of all installation assessments with clear, easy-to-understand metrics and explanations." },
   { key: "survey", label: "Single Survey Report", description: "Detailed report for a specific installation survey, including all question scores and overall assessment." },
@@ -181,9 +192,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   });
   const [plannedVisits, setPlannedVisits] = useState([]);
   const [plannedLoading, setPlannedLoading] = useState(false);
-  const [plannedForm, setPlannedForm] = useState({ business_id: "", visit_date: "", visit_type: "Planned" });
+  const [plannedForm, setPlannedForm] = useState({ business_id: "", visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: "" });
   const [editingPlannedVisitId, setEditingPlannedVisitId] = useState("");
-  const [plannedEditForm, setPlannedEditForm] = useState({ visit_date: "", visit_type: "Planned" });
+  const [plannedEditForm, setPlannedEditForm] = useState({ visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: "" });
   const [surveyStatusFilter, setSurveyStatusFilter] = useState("all");
   const [selectedSurveyBusiness, setSelectedSurveyBusiness] = useState("");
   const [selectedSurveyLocation, setSelectedSurveyLocation] = useState("");
@@ -1263,6 +1274,8 @@ const platformAbortRef = useRef(null);
       visit_date: plannedForm.visit_date,
       visit_type: plannedForm.visit_type,
       survey_type: "B2B",
+      account_executive_name: plannedForm.account_executive_name.trim() || null,
+      team_member_names: parseTeamMembersFromInput(plannedForm.team_member_names),
     };
     const res = await fetch(`${API_BASE}/dashboard-visits?_cb=${Date.now()}`, {
       method: "POST",
@@ -1274,6 +1287,7 @@ const platformAbortRef = useRef(null);
       setError(data.detail || "Failed to create planned visit");
       return;
     }
+    setPlannedForm({ business_id: plannedForm.business_id, visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: "" });
     setMessage("Planned visit created.");
     await loadPlannedVisits();
   };
@@ -1294,12 +1308,17 @@ const platformAbortRef = useRef(null);
   const startEditPlannedVisit = (visit) => {
     const visitId = String(visit.id || visit.visit_id || "");
     setEditingPlannedVisitId(visitId);
-    setPlannedEditForm({ visit_date: visit.visit_date || "", visit_type: visit.visit_type || "Planned" });
+    setPlannedEditForm({
+      visit_date: visit.visit_date || "",
+      visit_type: visit.visit_type || "Planned",
+      account_executive_name: visit.account_executive_name || "",
+      team_member_names: formatTeamMembersForInput(visit.team_member_names),
+    });
   };
 
   const cancelEditPlannedVisit = () => {
     setEditingPlannedVisitId("");
-    setPlannedEditForm({ visit_date: "", visit_type: "Planned" });
+    setPlannedEditForm({ visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: "" });
   };
 
   const savePlannedVisitEdit = async (visitId) => {
@@ -1311,7 +1330,12 @@ const platformAbortRef = useRef(null);
     const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}/draft?_cb=${Date.now()}`, {
       method: "PUT",
       headers,
-      body: JSON.stringify({ visit_date: plannedEditForm.visit_date, visit_type: plannedEditForm.visit_type }),
+      body: JSON.stringify({
+        visit_date: plannedEditForm.visit_date,
+        visit_type: plannedEditForm.visit_type,
+        account_executive_name: plannedEditForm.account_executive_name.trim() || null,
+        team_member_names: parseTeamMembersFromInput(plannedEditForm.team_member_names),
+      }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -2976,6 +3000,33 @@ const platformAbortRef = useRef(null);
                     <option value="Substitution">Substitution</option>
                   </Select>
                   <Button type="button" onClick={handleCreatePlannedVisit}>Create Draft Visit</Button>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Account Executive</label>
+                    <Input
+                      type="text"
+                      list="planned-account-executive-list"
+                      value={plannedForm.account_executive_name}
+                      onChange={(event) => setPlannedForm((prev) => ({ ...prev, account_executive_name: event.target.value }))}
+                      placeholder="Select or type account executive"
+                      title="Associate an account executive with this planned visit"
+                    />
+                    <datalist id="planned-account-executive-list">
+                      {representatives.map((executive) => (
+                        <option key={`planned-exec-${executive.id}`} value={executive.name || executive.full_name || executive.display_name || executive.email || ""} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Team Members</label>
+                    <Input
+                      value={plannedForm.team_member_names}
+                      onChange={(event) => setPlannedForm((prev) => ({ ...prev, team_member_names: event.target.value }))}
+                      placeholder="Comma separated team members"
+                      title="Add the team members who will take part in this visit, separated by commas"
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>
