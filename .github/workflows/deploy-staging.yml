@@ -302,7 +302,7 @@ jobs:
             fi
 
             echo "Rolling back using ${PREV_BUNDLE}"
-            bash scripts/linux/install_release_bundle.sh "${PREV_BUNDLE}"
+            sudo bash scripts/linux/install_release_bundle.sh "${PREV_BUNDLE}"
             bash scripts/linux/deploy_backend.sh || true
             bash scripts/linux/deploy_frontends.sh || true
             sudo bash scripts/linux/deploy_nginx.sh || true
