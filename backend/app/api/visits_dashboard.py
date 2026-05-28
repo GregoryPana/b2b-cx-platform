@@ -2614,6 +2614,7 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
     """Update a draft visit."""
     try:
         ensure_visit_metadata_columns(db)
+        ensure_visit_edit_audit_columns(db)
         # Get current visit details to check business_id
         current_visit = db.execute(text(
             "SELECT business_id FROM visits WHERE id = :visit_id"
@@ -2668,10 +2669,14 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
         
         # Commit the transaction to ensure changes persist
         db.commit()
+
+        edited_by_name_col = "v.edited_by_name" if has_column(db, "visits", "edited_by_name") else "NULL AS edited_by_name"
+        edited_by_email_col = "v.edited_by_email" if has_column(db, "visits", "edited_by_email") else "NULL AS edited_by_email"
+        edited_at_col = "v.edited_at" if has_column(db, "visits", "edited_at") else "NULL AS edited_at"
         
         # Get updated visit details
         rows = db.execute(text(
-            """
+            f"""
             SELECT 
                 v.id,
                 v.business_id,
@@ -2683,9 +2688,9 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
                 v.status,
                 b.priority_level as business_priority,
                 v.account_executive_name,
-                v.edited_by_name,
-                v.edited_by_email,
-                v.edited_at,
+                {edited_by_name_col},
+                {edited_by_email_col},
+                {edited_at_col},
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at
