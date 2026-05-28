@@ -169,7 +169,7 @@ jobs:
         working-directory: frontend/mystery-shopper
 
   deploy:
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted, linux, cwscx-tst01]
     environment: staging
     needs: [changes, backend_ci, dashboard_ci, survey_ci]
     if: ${{ needs.changes.outputs.should_deploy == 'true' && needs.backend_ci.result == 'success' && needs.dashboard_ci.result == 'success' && needs.survey_ci.result == 'success' }}
@@ -208,6 +208,18 @@ jobs:
           git checkout --force "${GITHUB_SHA}"
           git clean -ffdx
           echo "Deploying commit: $(git rev-parse --short HEAD)"
+
+      - name: Guard expected staging host
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_HOSTNAME="cwscx-tst01"
+          ACTUAL_HOSTNAME="$(hostname -s)"
+          if [[ "${ACTUAL_HOSTNAME}" != "${EXPECTED_HOSTNAME}" ]]; then
+            echo "::error::Staging deploy landed on unexpected host '${ACTUAL_HOSTNAME}'. Expected '${EXPECTED_HOSTNAME}'."
+            exit 1
+          fi
+          echo "Confirmed staging deploy host: ${ACTUAL_HOSTNAME}"
 
       - name: Validate workspace sources for build
         shell: bash
