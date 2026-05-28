@@ -47,7 +47,14 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onCloseMobile
           return (
             <NavLink key={item.to} to={item.to} onClick={onCloseMobile}>
               {({ isActive }) => (
-                <Button variant={isActive ? "secondary" : "ghost"} className={cn("w-full justify-start gap-3", collapsed && "justify-center px-0")}>
+                <Button
+                  variant={isActive ? "default" : "ghost"}
+                  className={cn(
+                    "w-full justify-start gap-3",
+                    isActive ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90" : "",
+                    collapsed && "justify-center px-0"
+                  )}
+                >
                   <Icon className="h-4 w-4" />
                   {!collapsed ? <span>{item.label}</span> : null}
                 </Button>

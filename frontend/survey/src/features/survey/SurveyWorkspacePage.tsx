@@ -185,6 +185,24 @@ function looksLikeEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
+function normalizeResponseDraftForCompare(draft: ResponseDraft) {
+  return {
+    score: String(draft?.score ?? ""),
+    answer_text: String(draft?.answer_text ?? "").trim(),
+    verbatim: String(draft?.verbatim ?? "").trim(),
+    actions: JSON.stringify(draft?.actions || []),
+  };
+}
+
+function normalizeResponseRecordForCompare(record?: ResponseRecord | null) {
+  return {
+    score: String(record?.score ?? ""),
+    answer_text: String(record?.answer_text ?? "").trim(),
+    verbatim: String(record?.verbatim ?? "").trim(),
+    actions: JSON.stringify(record?.actions || []),
+  };
+}
+
 export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWorkspacePageProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -785,11 +803,22 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     return { ok: true, data };
   };
 
+  const isQuestionSaved = (question: Question) => {
+    const draft = responseDrafts[question.id] || { ...emptyDraft };
+    const existing = responsesByQuestion[question.id];
+    if (!existing) return false;
+    const left = normalizeResponseDraftForCompare(draft);
+    const right = normalizeResponseRecordForCompare(existing);
+    return left.score === right.score
+      && left.answer_text === right.answer_text
+      && left.verbatim === right.verbatim
+      && left.actions === right.actions;
+  };
+
   const handleSaveQuestionResponse = async (question: Question) => {
     const result = await persistQuestionResponse(question);
     if (!result.ok) return;
-    const existing = responsesByQuestion[question.id];
-    setMessage(existing ? "Response updated." : "Response saved.");
+    setMessage("Response saved.");
     await loadVisitResponses(visitId);
   };
 
@@ -853,7 +882,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       return;
     }
     setStatus(data.status || "Pending");
-    setMessage("Visit submitted for review.");
+    setMessage("Survey submitted for review.");
     await loadDrafts();
   };
 
@@ -1349,6 +1378,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                               const draft = responseDrafts[question.id] || { ...emptyDraft };
                               const choices = parseChoices(question);
                               const saving = savingQuestionId === question.id;
+                              const questionSaved = isQuestionSaved(question);
                               const scoreRangeLabel = getScoreRangeLabel(question);
                               const scoreOptions = getScoreOptions(question);
                               const scoreValidationMessage = getScoreValidationMessage(question, draft.score);
@@ -1444,8 +1474,17 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                       ))}
                                     </div>
 
-                                     <Button className="w-full sm:w-auto" onClick={() => handleSaveQuestionResponse(question)} disabled={saving || Boolean(scoreValidationMessage)} title="Save this answer before moving to the next question">
-                                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Response
+                                     <Button
+                                       className={cn(
+                                         "w-full sm:w-auto",
+                                         questionSaved && !saving ? "bg-emerald-600 text-white hover:bg-emerald-700" : ""
+                                       )}
+                                       variant={questionSaved && !saving ? "default" : "outline"}
+                                       onClick={() => handleSaveQuestionResponse(question)}
+                                       disabled={saving || Boolean(scoreValidationMessage)}
+                                       title="Save this answer before moving to the next question"
+                                     >
+                                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {questionSaved && !saving ? "Response Saved" : "Save Response"}
                                      </Button>
                                   </CardContent>
                                 </Card>
@@ -1467,8 +1506,18 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                 <CardDescription>All required responses must be saved before submitting.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap items-center gap-3">
-                <Button className="w-full sm:w-auto" onClick={handleSubmitVisit} disabled={isSubmittingVisit} title="Send this survey to the review queue once every required answer has been saved">
-                  {isSubmittingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Submit for Review
+                <Button
+                  className={cn(
+                    "w-full sm:w-auto",
+                    status === "Pending"
+                      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "bg-amber-600 text-white hover:bg-amber-700"
+                  )}
+                  onClick={handleSubmitVisit}
+                  disabled={isSubmittingVisit || status === "Pending"}
+                  title="Send this survey to the review queue once every required answer has been saved"
+                >
+                  {isSubmittingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} {status === "Pending" ? "Submitted for Review" : "Submit for Review"}
                 </Button>
                 <Badge variant="secondary">Current status: {status}</Badge>
               </CardContent>

@@ -8,13 +8,14 @@ import UserGuidePage from "./features/user-guide/UserGuidePage";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { ensureMsalInitialized, loginRequest } from "./auth";
-import { isTokenExpired } from "./utils/tokenExpiry";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
 const B2B_ALLOWED_ROLES = new Set(["B2B_ADMIN", "B2B_SURVEYOR", "CX_SUPER_ADMIN"]);
 const LOGOUT_FLAG_KEY = "cx.logoutRequested";
+const SESSION_STARTED_AT_KEY = "cx.sessionStartedAt";
+const SESSION_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 function hasB2BAccess(roles: string[]) {
   return Array.isArray(roles) && roles.some((role) => B2B_ALLOWED_ROLES.has(role));
@@ -43,8 +44,8 @@ export default function App() {
 
   useEffect(() => {
     if (isAuthenticated && accounts.length > 0) {
-      const account = accounts[0];
-      if (isTokenExpired(account)) {
+      const sessionStartedAt = Number(sessionStorage.getItem(SESSION_STARTED_AT_KEY) || 0);
+      if (sessionStartedAt > 0 && Date.now() - sessionStartedAt > SESSION_MAX_AGE_MS) {
         instance.logout();
       }
     }
@@ -83,6 +84,11 @@ export default function App() {
       try {
         const result = await instance.acquireTokenSilent({ ...loginRequest, account });
         setAccessToken(result.accessToken || "");
+        try {
+          sessionStorage.setItem(SESSION_STARTED_AT_KEY, String(Date.now()));
+        } catch {
+          // Ignore sessionStorage errors
+        }
       } catch (error) {
         if (error instanceof InteractionRequiredAuthError) {
           instance.acquireTokenRedirect(loginRequest);
@@ -110,6 +116,7 @@ export default function App() {
   const handleLogout = () => {
     try {
       sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
+      sessionStorage.removeItem(SESSION_STARTED_AT_KEY);
     } catch {
       // Ignore sessionStorage errors
     }
@@ -120,6 +127,7 @@ export default function App() {
   const handleSignInAgain = () => {
     try {
       sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+      sessionStorage.removeItem(SESSION_STARTED_AT_KEY);
     } catch {
       // Ignore sessionStorage errors
     }
