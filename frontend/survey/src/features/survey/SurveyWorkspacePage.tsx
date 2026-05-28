@@ -576,7 +576,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   const saveActiveVisitDetails = async () => {
     if (!visitId) {
       setError("No active survey to update.");
-      return;
+      return false;
     }
     pushToast("info", "Saving visit details...", 1500);
     setIsCreatingVisit(true);
@@ -597,17 +597,22 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       const data = await res.json();
       if (!res.ok) {
         setError(data.detail || "Failed to save visit details");
-        return;
+        return false;
       }
       setVisitForm((prev) => ({
         ...prev,
+        business_id: data.business_id ? String(data.business_id) : prev.business_id,
+        visit_date: data.visit_date || prev.visit_date,
+        visit_type: data.visit_type || prev.visit_type,
         account_executive_name: data.account_executive_name ?? prev.account_executive_name,
         team_member_names: Array.isArray(data.team_member_names) && data.team_member_names.length > 0
           ? data.team_member_names
           : prev.team_member_names,
       }));
+      setAccountExecutiveSearch(data.account_executive_name || "");
       await loadDrafts();
       setMessage("Visit details saved.");
+      return true;
     } finally {
       setIsCreatingVisit(false);
     }
@@ -793,6 +798,11 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       setError("Create a visit first.");
       return;
     }
+    const visitDetailsSaved = await saveActiveVisitDetails();
+    if (!visitDetailsSaved) {
+      return;
+    }
+
     const draftQuestions = visibleQuestions.filter((question) => {
       const draft = responseDrafts[question.id] || emptyDraft;
       const hasDraftContent = Boolean(
