@@ -1,4 +1,5 @@
 import os
+import time
 import zlib
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -53,6 +54,8 @@ class EntraTokenValidator:
         self.expected_audiences = self._resolve_audiences()
         self.jwks_url = (os.getenv("ENTRA_JWKS_URL") or f"{authority}/discovery/v2.0/keys").strip()
         self.jwks_timeout_seconds = int(os.getenv("ENTRA_JWKS_TIMEOUT_SECONDS", "5"))
+        self.jwks_retry_attempts = max(1, int(os.getenv("ENTRA_JWKS_RETRY_ATTEMPTS", "3")))
+        self.jwks_retry_backoff_seconds = max(0.0, float(os.getenv("ENTRA_JWKS_RETRY_BACKOFF_SECONDS", "0.5")))
         allow_unverified_raw = os.getenv("ENTRA_ALLOW_STAGING_UNVERIFIED_TOKENS", "true")
         self.allow_staging_unverified_tokens = allow_unverified_raw.strip().lower() in {"1", "true", "yes"}
         self._jwk_client = PyJWKClient(self.jwks_url, timeout=self.jwks_timeout_seconds)
@@ -66,6 +69,8 @@ class EntraTokenValidator:
             print(f"  Expected Audiences: {self.expected_audiences}")
             print(f"  JWKS URL: {self.jwks_url}")
             print(f"  JWKS Timeout (s): {self.jwks_timeout_seconds}")
+            print(f"  JWKS Retry Attempts: {self.jwks_retry_attempts}")
+            print(f"  JWKS Retry Backoff (s): {self.jwks_retry_backoff_seconds}")
             print(f"  Allow staging unverified tokens: {self.allow_staging_unverified_tokens}")
 
     def _resolve_audiences(self) -> tuple[str, ...]:
@@ -85,7 +90,7 @@ class EntraTokenValidator:
 
     def validate(self, token: str) -> AuthUser:
         try:
-            signing_key = self._jwk_client.get_signing_key_from_jwt(token)
+            signing_key = self._get_signing_key_with_retry(token)
             claims = jwt.decode(
                 token,
                 signing_key.key,
@@ -128,6 +133,18 @@ class EntraTokenValidator:
             roles=roles,
             claims=claims,
         )
+
+    def _get_signing_key_with_retry(self, token: str):
+        last_exc = None
+        for attempt in range(1, self.jwks_retry_attempts + 1):
+            try:
+                return self._jwk_client.get_signing_key_from_jwt(token)
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= self.jwks_retry_attempts:
+                    break
+                time.sleep(self.jwks_retry_backoff_seconds * attempt)
+        raise last_exc
 
     def _validate_unverified_staging_token(self, token: str, original_exc: Exception) -> dict | None:
         if self.environment != "staging" or not self.allow_staging_unverified_tokens:
