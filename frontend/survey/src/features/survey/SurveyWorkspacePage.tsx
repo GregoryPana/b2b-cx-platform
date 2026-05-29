@@ -6,6 +6,7 @@ import Lottie from "lottie-react";
 import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Loader2, Plus, Save, Sparkles } from "lucide-react";
 import emptyStateAnimation from "../../assets/empty-state-lottie.json";
 import PageContainer from "../../components/layout/PageContainer";
+import { cn } from "../../lib/utils";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
