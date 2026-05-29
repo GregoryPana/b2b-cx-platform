@@ -35,6 +35,7 @@ Start here:
 
 ## Quick Links
 - Deployment guide: `docs/deployment/DEPLOYMENT_END_TO_END_GUIDE.md`
+- Public Mystery DMZ guide: `docs/deployment/MYSTERY_PUBLIC_DMZ_SETUP.md`
 - Handover guide: `docs/operations/HANDOVER_GUIDE.md`
 - CI/CD setup: `docs/deployment/STAGING_CICD_SETUP.md`
 - Architecture index: `docs/architecture/`

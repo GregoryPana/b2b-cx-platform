@@ -1,0 +1,72 @@
+name: deploy-mystery-public
+
+on:
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build mystery shopper frontend
+        run: npm ci --no-audit --no-fund && npm run build
+        working-directory: frontend/mystery-shopper
+        env:
+          VITE_API_URL: /api
+          VITE_BASE_PATH: /
+
+  deploy:
+    runs-on: [self-hosted, linux, mystery-public]
+    environment: mystery-public
+    needs: ci
+    env:
+      RELEASE_ID: mystery-public-${{ github.run_number }}-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+      - name: Sync workspace to triggering commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --all --tags --prune
+          git checkout --force "${GITHUB_SHA}"
+          git clean -ffdx
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build mystery public release bundle
+        shell: bash
+        run: |
+          bash scripts/linux/build_mystery_public_bundle.sh "${RUNNER_TEMP}/cwscx-mystery-public-release.zip"
+      - name: Install and deploy on DMZ mystery VM
+        shell: bash
+        env:
+          RELEASE_ID: ${{ env.RELEASE_ID }}
+          MYSTERY_PUBLIC_BASE_URL: ${{ secrets.MYSTERY_PUBLIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          TARGET_ROOT="/opt/cwscx-mystery-public"
+          mkdir -p "${TARGET_ROOT}/releases"
+          NEW_BUNDLE="${TARGET_ROOT}/releases/cwscx-mystery-public-${RELEASE_ID}.zip"
+          cp -f "${RUNNER_TEMP}/cwscx-mystery-public-release.zip" "${NEW_BUNDLE}"
+          sudo bash scripts/linux/install_mystery_public_bundle.sh "${NEW_BUNDLE}"
+          bash scripts/linux/deploy_mystery_public_backend.sh
+          SERVER_NAME="${MYSTERY_PUBLIC_BASE_URL#https://}"
+          SERVER_NAME="${SERVER_NAME#http://}"
+          SERVER_NAME="${SERVER_NAME%%/*}"
+          SITE_NAME="cwscx-mystery-public" SERVER_NAME="${SERVER_NAME}" sudo bash scripts/linux/deploy_mystery_public_nginx.sh
+          MYSTERY_PUBLIC_BASE_URL="${MYSTERY_PUBLIC_BASE_URL}" bash scripts/linux/verify_mystery_public.sh
