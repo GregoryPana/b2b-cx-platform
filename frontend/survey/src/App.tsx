@@ -14,8 +14,19 @@ const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "
 const surveyPostLogoutUri = new URL(surveyBasePath === "/" ? "/" : `${surveyBasePath}/`, window.location.origin).toString();
 const B2B_ALLOWED_ROLES = new Set(["B2B_ADMIN", "B2B_SURVEYOR", "CX_SUPER_ADMIN"]);
 const LOGOUT_FLAG_KEY = "cx.logoutRequested";
-const SESSION_STARTED_AT_KEY = "cx.sessionStartedAt";
-const SESSION_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
+function readJwtExpiry(accessToken: string) {
+  try {
+    const payloadPart = String(accessToken || "").split(".")[1] || "";
+    if (!payloadPart) return null;
+    const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    return typeof payload.exp === "number" ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
 
 function hasB2BAccess(roles: string[]) {
   return Array.isArray(roles) && roles.some((role) => B2B_ALLOWED_ROLES.has(role));
@@ -41,15 +52,6 @@ export default function App() {
       return false;
     }
   });
-
-  useEffect(() => {
-    if (isAuthenticated && accounts.length > 0) {
-      const sessionStartedAt = Number(sessionStorage.getItem(SESSION_STARTED_AT_KEY) || 0);
-      if (sessionStartedAt > 0 && Date.now() - sessionStartedAt > SESSION_MAX_AGE_MS) {
-        instance.logout();
-      }
-    }
-  }, [isAuthenticated, accounts, instance]);
 
   useEffect(() => {
     let active = true;
@@ -84,11 +86,6 @@ export default function App() {
       try {
         const result = await instance.acquireTokenSilent({ ...loginRequest, account });
         setAccessToken(result.accessToken || "");
-        try {
-          sessionStorage.setItem(SESSION_STARTED_AT_KEY, String(Date.now()));
-        } catch {
-          // Ignore sessionStorage errors
-        }
       } catch (error) {
         if (error instanceof InteractionRequiredAuthError) {
           instance.acquireTokenRedirect(loginRequest);
@@ -104,6 +101,58 @@ export default function App() {
     setRoleResolved(true);
   }, [accessToken, role, userEmail, userId, userName]);
 
+  useEffect(() => {
+    if (!msalReady || !accounts[0] || !accessToken) return;
+
+    const expiry = readJwtExpiry(accessToken);
+    if (!expiry) return;
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const refreshLeadSeconds = 120;
+    const delayMs = Math.max(1000, (expiry - nowSeconds - refreshLeadSeconds) * 1000);
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      if (cancelled) return;
+      try {
+        const result = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true });
+        if (result?.accessToken) {
+          setAccessToken(result.accessToken);
+        }
+      } catch (error) {
+        if (error instanceof InteractionRequiredAuthError) {
+          instance.acquireTokenRedirect(loginRequest);
+        }
+      }
+    }, delayMs);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [msalReady, accounts, accessToken, instance]);
+
+  useEffect(() => {
+    if (!msalReady || !isAuthenticated || !accounts[0]) return;
+    const interval = window.setInterval(() => {
+      const expiry = readJwtExpiry(accessToken);
+      if (!expiry) return;
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      if (nowSeconds >= expiry - 60) {
+        instance.acquireTokenSilent({ ...loginRequest, account: accounts[0], forceRefresh: true })
+          .then((result) => {
+            if (result?.accessToken) setAccessToken(result.accessToken);
+          })
+          .catch((error) => {
+            if (error instanceof InteractionRequiredAuthError) {
+              instance.acquireTokenRedirect(loginRequest);
+            }
+          });
+      }
+    }, 60000);
+    return () => window.clearInterval(interval);
+  }, [msalReady, isAuthenticated, accounts, accessToken, instance]);
+
   const headers = useMemo(() => {
     return {
       "Content-Type": "application/json",
@@ -116,7 +165,6 @@ export default function App() {
   const handleLogout = () => {
     try {
       sessionStorage.setItem(LOGOUT_FLAG_KEY, "true");
-      sessionStorage.removeItem(SESSION_STARTED_AT_KEY);
     } catch {
       // Ignore sessionStorage errors
     }
@@ -127,7 +175,6 @@ export default function App() {
   const handleSignInAgain = () => {
     try {
       sessionStorage.removeItem(LOGOUT_FLAG_KEY);
-      sessionStorage.removeItem(SESSION_STARTED_AT_KEY);
     } catch {
       // Ignore sessionStorage errors
     }
