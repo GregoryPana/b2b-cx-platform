@@ -751,8 +751,10 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       return `Select Yes or No for Q${question.question_number || question.id}.`;
     }
 
-    if (question.input_type === "always_sometimes_never" && !["Always", "Sometimes", "Never"].includes(responseForm.answer_text || "")) {
-      return `Select Always, Sometimes, or Never for Q${question.question_number || question.id}.`;
+    const explicitChoices = parseChoices(question);
+    const frequencyChoices = explicitChoices.length > 0 ? explicitChoices : ["Always", "Sometimes", "Monthly", "Never"];
+    if (question.input_type === "always_sometimes_never" && !frequencyChoices.includes(responseForm.answer_text || "")) {
+      return `Select ${frequencyChoices.join(", ")} for Q${question.question_number || question.id}.`;
     }
 
     if (normalizedActions.some((action) => !action.action_required || !action.action_owner || !action.action_timeframe)) {
@@ -1423,9 +1425,9 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                     ) : question.input_type === "always_sometimes_never" ? (
                                       <Select value={draft.answer_text} onChange={(event) => updateQuestionDraft(question.id, "answer_text", event.target.value)}>
                                         <option value="">Select one</option>
-                                        <option value="Always">Always</option>
-                                        <option value="Sometimes">Sometimes</option>
-                                        <option value="Never">Never</option>
+                                        {(choices.length > 0 ? choices : ["Always", "Sometimes", "Monthly", "Never"]).map((choice) => (
+                                          <option key={`${question.id}-${choice}`} value={choice}>{choice}</option>
+                                        ))}
                                       </Select>
                                     ) : choices.length > 0 ? (
                                       <div className="flex flex-wrap gap-2">

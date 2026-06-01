@@ -3,15 +3,32 @@ import { cn } from "../../lib/utils";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 
+const THEME_STORAGE_KEY = "cx.dashboardTheme";
+
 export default function MainLayout({ children, onLogout, onSwitchPlatform, userName, userEmail, activePlatform, pendingReviewCount }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [theme, setTheme] = useState("light");
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem(THEME_STORAGE_KEY) || "light";
+    } catch {
+      return "light";
+    }
+  });
+
+  if (typeof document !== "undefined") {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }
 
   const toggleTheme = () => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     document.documentElement.classList.toggle("dark", next === "dark");
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch {
+      // Ignore localStorage errors
+    }
   };
 
   return (

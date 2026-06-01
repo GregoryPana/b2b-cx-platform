@@ -14,7 +14,7 @@
 8. List your top 3 C&W services most satisfied with in the past 6 months.
 9. List 3 instances you have not been satisfied with C&W if any (Network Quality, Fault resolution, Visits, billing etc) if any be specific..
 10. Are Issues resolved on time? (Always, Sometimes, Never)
-11. How often do you need to call C&W to install new products or resolve issues? (Always, Sometimes, Never)
+11. How often do you need to call C&W to install new products or resolve issues? (Always, Sometimes, Monthly, Never)
 12. What is your most recent unresolved issue with C&W?.
 13. Rate your overall C&W Satisfaction. (Very Satisfied). (0-10)
 

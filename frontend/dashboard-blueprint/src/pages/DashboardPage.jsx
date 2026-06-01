@@ -1471,6 +1471,7 @@ const platformAbortRef = useRef(null);
       return {
         label: "Score",
         value: String(response.score),
+        isScore: true,
       };
     }
 
@@ -1479,12 +1480,14 @@ const platformAbortRef = useRef(null);
       return {
         label: "Answer",
         value: answerText,
+        isScore: false,
       };
     }
 
     return {
       label: "Answer",
       value: "--",
+      isScore: false,
     };
   };
 
@@ -2979,7 +2982,7 @@ const platformAbortRef = useRef(null);
                               <Textarea value={draft.answer_text} onChange={(event) => updateReviewDraft(responseId, { ...draft, answer_text: event.target.value })} />
                             </div>
                           ) : (
-                            <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
+                            <p className={cn("mt-1 text-sm", display.isScore ? "font-semibold text-rose-700 dark:text-rose-300" : "text-muted-foreground")}>{display.label}: {display.value}</p>
                           )}
                           <div className="mt-2">
                             <label className="mb-1 block text-sm font-medium">Verbatim</label>
@@ -3857,7 +3860,7 @@ const platformAbortRef = useRef(null);
                                 <p className="text-base font-medium">Question {response.question_number || response.question_id}</p>
                               </div>
                               <p className="text-sm">{response.question_text || "--"}</p>
-                              <p className="mt-1 text-sm text-muted-foreground">{display.label}: {display.value}</p>
+                              <p className={cn("mt-1 text-sm", display.isScore ? "font-semibold text-rose-700 dark:text-rose-300" : "text-muted-foreground")}>{display.label}: {display.value}</p>
                               {response.verbatim ? <p className="mt-1 text-sm text-muted-foreground">Verbatim: {response.verbatim}</p> : null}
                             </div>
                           );

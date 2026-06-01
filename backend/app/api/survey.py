@@ -106,7 +106,7 @@ def _question_row_to_payload(row: Any) -> Dict[str, Any]:
         if payload["input_type"] == "yes_no":
             payload["choices"] = ["Yes", "No"]
         else:
-            payload["choices"] = ["Always", "Sometimes", "Never"]
+            payload["choices"] = ["Always", "Sometimes", "Monthly", "Never"]
 
     return payload
 
@@ -246,7 +246,7 @@ MOCK_QUESTIONS = [
         "min_score": 0,
         "max_score": 0,
         "order": 14,
-        "choices": ["Always", "Sometimes", "Never"]
+        "choices": ["Always", "Sometimes", "Monthly", "Never"]
     },
     
     # Category 4: Competitive & Portfolio Intelligence
@@ -665,7 +665,7 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
                 if row[7] == "yes_no":
                     choices = ["Y", "N"]
                 elif row[7] == "always_sometimes_never":
-                    choices = ["Always", "Sometimes", "Never"]
+                    choices = ["Always", "Sometimes", "Monthly", "Never"]
             
             questions.append({
                 "id": row[0],
