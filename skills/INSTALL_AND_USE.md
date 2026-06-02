@@ -67,13 +67,38 @@ Optional but useful:
 2. Load the supporting references if needed
 3. Tell the agent exactly which skill to follow
 4. Ask the agent to keep the constraints and verification steps
+5. For any meaningful OpenCode task, require `skills/hermes-handoff-after-opencode-task.md` before the session ends
 
 Example:
 
 ```text
 Use skills/nginx-reverse-proxy.md and skills/deploy-verify-rollback.md.
 Apply those rules while updating this application's nginx routing and deploy checks.
+Before ending, use skills/hermes-handoff-after-opencode-task.md and produce the Hermes Update Pack.
 ```
+
+## 5.1 Mandatory Hermes handoff rule
+
+OpenCode is project-local. Hermes is the portfolio/project memory and knowledge-graph layer.
+
+Therefore, every OpenCode session that changes or meaningfully investigates code, docs, deployment, auth, database, architecture, risks, or decisions must end with a **Hermes Update Pack**.
+
+Use:
+
+```text
+Use skills/hermes-handoff-after-opencode-task.md.
+Produce the Hermes Update Pack for this session. Do not include secrets.
+```
+
+Then send/paste that pack to Hermes so Hermes can update:
+
+- project overview
+- technical architecture
+- deployment/CI-CD notes
+- risk/open-question notes
+- decision log
+- EXIT/handover state
+- skill/process notes
 
 ## 6. How to create new skills later
 

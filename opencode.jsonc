@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": [
+      "./skills",
+      "./.opencode/skills"
+    ]
+  },
+  "command": {
+    "hermes-handoff": {
+      "description": "Produce the mandatory Hermes Update Pack for the current CWSCX OpenCode session.",
+      "template": "Use skills/hermes-handoff-after-opencode-task.md and .opencode/skills/hermes-handoff-after-opencode-task/SKILL.md. Produce the Hermes Update Pack for this session. Do not include secrets, tokens, passwords, cookies, connection-string values, .env values, or private keys. If any secret-like value is relevant, replace it with [REDACTED]. Be explicit about branch, commit/PR, files changed, tests run, deployment impact, auth/security/data impact, documentation impact, decisions, risks, and suggested Hermes knowledge graph updates. End by telling Gregory to send this pack to Hermes."
+    }
+  },
+  "agent": {
+    "build": {
+      "prompt": "CWSCX Platform is production-sensitive. Default to branch/PR-safe work. Do not deploy, touch production secrets, run destructive database commands, or commit unrelated dirty worktree files unless Gregory explicitly approves. Before ending any meaningful task that changes or investigates code, docs, deployment, auth, database, architecture, risks, or decisions, produce a Hermes Update Pack using skills/hermes-handoff-after-opencode-task.md. Never include secret values; redact them as [REDACTED]."
+    },
+    "plan": {
+      "prompt": "When planning CWSCX work, include whether the task will require a Hermes Update Pack. Treat OpenCode as project-local and Hermes as the project/portfolio knowledge graph owner. Do not propose deployment, production secret changes, destructive database actions, or direct main-branch pushes without explicit Gregory approval."
+    }
+  }
+}

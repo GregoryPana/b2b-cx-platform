@@ -140,6 +140,7 @@ Review whether this schema change is safe for production deployment and whether 
 ```text
 Use skills/documentation-exit-handover.md.
 Update README, EXIT, deployment documentation, and operations notes so the repository reflects the real current runtime and deployment state.
+Before ending, use skills/hermes-handoff-after-opencode-task.md and produce the Hermes Update Pack.
 ```
 
 ### Build a reusable standards pack
@@ -147,6 +148,19 @@ Update README, EXIT, deployment documentation, and operations notes so the repos
 ```text
 Use skills/documentation-exit-handover.md, skills/platform-architecture.md, and skills/repository-structure.md.
 Create a reusable documentation and templates pack that future applications can follow.
+Before ending, use skills/hermes-handoff-after-opencode-task.md and produce the Hermes Update Pack.
+```
+
+## 9.1 Mandatory Hermes handoff prompt
+
+Use this at the end of every meaningful OpenCode task:
+
+```text
+Use skills/hermes-handoff-after-opencode-task.md.
+Produce the Hermes Update Pack for this session.
+Do not include secrets, tokens, passwords, cookies, connection-string values, `.env` values, or private keys.
+If any secret-like value is relevant, replace it with `[REDACTED]`.
+Be explicit about files changed, tests run, deployment impact, auth/security/data impact, documentation impact, decisions, risks, and suggested Hermes knowledge graph updates.
 ```
 
 ## 10. Presentation Prompts

@@ -46,6 +46,9 @@ Use when diagnosing recurring issues like stale bundles, runner mismatch, auth f
 ### `documentation-exit-handover.md`
 Use when preparing operating docs, EXIT content, handover notes, or consistency trackers.
 
+### `hermes-handoff-after-opencode-task.md`
+Use before ending any OpenCode/coding-agent task that changes code, docs, deployment, auth, data, architecture, risks, or decisions. Produces the structured Hermes Update Pack required to keep the Hermes/Obsidian knowledge graph current.
+
 ## Supporting materials
 
 ### `support/skill-template.md`
