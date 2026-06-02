@@ -15,3 +15,9 @@ frontend/**/dist/
 release/
 everything-claude-code/
 *.patch
+
+# Local agent/session/runtime artifacts
+.claude/settings.local.json
+session-ses_*.md
+*-local.log
+*.local.log
