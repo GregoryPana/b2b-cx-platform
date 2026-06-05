@@ -603,7 +603,7 @@ def list_installation_surveys(
 
         rows = db.execute(
             text(
-                f"""
+                """
                 SELECT
                     s.id,
                     s.inspector_name,
