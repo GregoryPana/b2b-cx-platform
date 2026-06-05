@@ -620,10 +620,11 @@ def list_installation_surveys(
                     s.created_by_email,
                     s.created_at
                 FROM installation_surveys s
-                WHERE {' AND '.join(where)}
+                WHERE {where_sql}
                 ORDER BY s.date_work_done DESC, s.created_at DESC
                 """
                 .format(
+                    where_sql=" AND ".join(where),
                     contractor_name_select="s.contractor_name" if has_contractor_name else "NULL AS contractor_name",
                     field_team_members_select="s.field_team_members" if has_field_team_members else "'[]'::jsonb AS field_team_members",
                 )
