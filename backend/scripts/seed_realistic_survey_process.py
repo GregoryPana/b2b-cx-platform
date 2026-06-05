@@ -101,7 +101,7 @@ def text_answer(question_key: str, business_name: str) -> str:
     templates = {
         "q07_top_3_satisfied_services": f"Reliable data links, account manager support, and enterprise mobile services for {business_name}.",
         "q08_top_3_unsatisfied_instances": "Two delayed fault closures last quarter and one billing correction delay.",
-        "q10_call_frequency": "Rarely",
+        "q10_call_frequency": "Monthly",
         "q11_recent_unresolved_issue": "Intermittent branch connectivity during peak hours; under monitoring.",
         "q13_top_3_important_factors": "Service reliability, response time, and transparent billing.",
         "q15_current_products_services": "Dedicated internet, SIP trunks, and managed LAN.",
