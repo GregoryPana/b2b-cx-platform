@@ -14,7 +14,7 @@ const WORKER_TYPES = ["Field Team", "Contractor"];
 
 function scoreBandLabel(value) {
   if (value >= 4) return "Pass - Excellent";
-  if (value >= 3) return "Pass - Needs Improvement";
+  if (value >= 3 && value < 4) return "Pass - Needs Improvement";
   if (value >= 2) return "Fail - Rework Required";
   return "Critical Fail";
 }

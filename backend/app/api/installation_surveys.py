@@ -936,7 +936,7 @@ def get_installation_analytics(
                 "action": "High-quality install. No further action needed.",
             },
             {
-                "range": "3 to 4",
+                "range": "3",
                 "label": "Pass - Needs Improvement",
                 "action": "Minor issues. Auditor can correct minor items and log feedback.",
             },
