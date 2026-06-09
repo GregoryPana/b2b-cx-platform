@@ -13,7 +13,7 @@ trap cleanup EXIT
 
 pushd "${REPO_ROOT}/frontend/mystery-shopper" >/dev/null
 npm ci --no-audit --no-fund
-VITE_API_URL="/api" VITE_BASE_PATH="/" VITE_APP_VERSION="$(git -C "${REPO_ROOT}" rev-parse --short HEAD)" npm run build
+VITE_API_URL="/api" VITE_BASE_PATH="/" VITE_AUTH_MODE="mystery_public" VITE_APP_VERSION="$(git -C "${REPO_ROOT}" rev-parse --short HEAD)" npm run build
 if [[ ! -f "dist/index.html" ]]; then
   echo "Missing mystery shopper build output"
   exit 1

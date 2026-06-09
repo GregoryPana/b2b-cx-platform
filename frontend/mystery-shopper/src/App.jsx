@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
+import { AUTH_MODE, isMysteryPublicAuthMode } from "./authMode";
 import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
@@ -11,6 +12,10 @@ import { Separator } from "./components/ui/separator";
 import { Textarea } from "./components/ui/textarea";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
+import LoginScreen from "./mysteryAuth/LoginScreen";
+import EnrollScreen from "./mysteryAuth/EnrollScreen";
+import RecoveryScreen from "./mysteryAuth/RecoveryScreen";
+import { useMysteryAuth } from "./mysteryAuth/MysteryAuthContext";
 import { motion } from "framer-motion";
 import { CalendarDays, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
 
@@ -178,7 +183,7 @@ function QuestionField({ question, draft, onUpdate }) {
   return <Textarea value={draft.answer_text || ""} onChange={(event) => onUpdate("answer_text", event.target.value)} />;
 }
 
-export default function App() {
+function EntraMysteryApp() {
   const { instance, accounts, inProgress } = useMsal();
   const isAuthenticated = useIsAuthenticated();
 
@@ -1059,4 +1064,56 @@ export default function App() {
     </div>
     </>
   );
+}
+
+function MysteryPublicApp() {
+  const { isAuthenticated, loading, error, login, submitMfa, logout, mfaPending, startEnrollment, confirmEnrollment, useRecoveryCode } = useMysteryAuth();
+  const [screen, setScreen] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("enroll") ? "enroll" : "login";
+  });
+  const enrollmentToken = useMemo(() => new URLSearchParams(window.location.search).get("enroll") || "", []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <Card className="max-w-lg p-6" role="status" aria-live="polite" aria-atomic="true">
+          <CardContent className="space-y-3 pt-6">
+            <CardTitle className="text-2xl">Loading public Mystery Shopper access...</CardTitle>
+            <p className="text-sm text-muted-foreground">Checking whether you already have an active session.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (screen === "enroll" && enrollmentToken) {
+    return <EnrollScreen enrollmentToken={enrollmentToken} startEnrollment={startEnrollment} confirmEnrollment={confirmEnrollment} error={error} onBackToLogin={() => { window.history.replaceState({}, "", window.location.pathname); setScreen("login"); }} />;
+  }
+
+  if (screen === "recovery") {
+    return <RecoveryScreen error={error} useRecoveryCode={useRecoveryCode} onRecovered={(payload) => { if (payload?.enrollment_token) { window.history.replaceState({}, "", `?enroll=${encodeURIComponent(payload.enrollment_token)}`); window.location.reload(); } }} onBackToLogin={() => setScreen("login")} />;
+  }
+
+  if (!isAuthenticated) {
+    return <LoginScreen login={login} submitMfa={submitMfa} loading={loading} error={error} mfaPending={mfaPending} onShowRecovery={() => setScreen("recovery")} />;
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+      <Card className="max-w-xl p-6" role="status" aria-live="polite">
+        <CardContent className="space-y-4 pt-6">
+          <CardTitle className="text-2xl">Public Mystery auth foundation is active</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            The public password + TOTP mode is now gated and wired into the app shell. Survey session access, enrolment, recovery, and cookie-backed survey runtime are the next implementation slice.
+          </p>
+          <Button type="button" variant="outline" onClick={logout}>Logout</Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export default function App() {
+  return isMysteryPublicAuthMode ? <MysteryPublicApp /> : <EntraMysteryApp />;
 }

@@ -1,9 +1,13 @@
 import os
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
 
+from ...api.mystery_auth import load_mystery_public_auth_user
+from ..database import get_db
 from .entra import AuthUser, get_entra_validator
+from ..settings import get_settings
 
 security = HTTPBearer(auto_error=False)
 
@@ -37,8 +41,11 @@ ALL_PLATFORM_ROLES = tuple(dict.fromkeys((*B2B_ROLES, *MYSTERY_ROLES, *INSTALL_R
 
 
 async def get_current_user(
+    request: Request,
+    db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> AuthUser:
+    settings = get_settings()
     dev_auth_bypass = os.getenv("DEV_AUTH_BYPASS", "false").strip().lower() in {"1", "true", "yes"}
     environment = os.getenv("ENVIRONMENT", "dev").strip().lower()
 
@@ -58,6 +65,9 @@ async def get_current_user(
             roles=roles,
             claims={"dev_auth_bypass": True, "roles": list(roles)},
         )
+
+    if settings.auth_mode == "mystery_public":
+        return load_mystery_public_auth_user(db, request)
 
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
