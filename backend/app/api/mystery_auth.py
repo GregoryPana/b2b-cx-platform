@@ -685,3 +685,96 @@ async def reactivate_public_mystery_user(user_id: str, db: Session = Depends(get
     db.execute(text("UPDATE mystery_users SET status = 'active', locked_until = NULL, updated_at = NOW() WHERE id = :user_id"), {"user_id": user_id})
     db.commit()
     return {"status": "active", "user_id": user_id}
+
+
+def _build_enrollment_email(full_name: str, enroll_url: str, expires_at: datetime, admin_name: str, admin_email: str) -> tuple[str, str, str]:
+    subject = "Your CWSCX Mystery Shopper enrollment link"
+    expiry_text = expires_at.strftime("%d %B %Y at %H:%M UTC")
+    text_body = (
+        f"Hello {full_name},\n"
+        "\n"
+        "You have been invited to the Cable & Wireless Seychelles CX Mystery Shopper platform.\n"
+        "\n"
+        "WHAT THIS EMAIL IS FOR\n"
+        "The link below opens your personal one-time enrollment page. There you will:\n"
+        "  1. Set the password you will use to sign in.\n"
+        "  2. Link an authenticator app (Microsoft Authenticator, Google Authenticator, or\n"
+        "     similar) by scanning a QR code. The app generates the 6-digit codes required\n"
+        "     at every sign-in (two-factor authentication).\n"
+        "  3. Receive one-time recovery codes - save them somewhere safe.\n"
+        "\n"
+        f"ENROLLMENT LINK (expires {expiry_text}, single use):\n"
+        f"{enroll_url}\n"
+        "\n"
+        "IMPORTANT: You must be connected to the company VPN to access the platform.\n"
+        "Connect to the VPN before opening the link and before every future sign-in.\n"
+        "\n"
+        f"If the link has expired or you run into any issues, contact {admin_name} at {admin_email}.\n"
+        "\n"
+        "Kind regards,\n"
+        "CWS CX Team\n"
+        "(This is an automated message sent on behalf of the administrator named above.)\n"
+    )
+    html_body = (
+        f"<p>Hello {full_name},</p>"
+        "<p>You have been invited to the <strong>Cable &amp; Wireless Seychelles CX Mystery Shopper platform</strong>.</p>"
+        "<p><strong>What this email is for</strong><br>"
+        "The button below opens your personal one-time enrollment page. There you will:</p>"
+        "<ol>"
+        "<li>Set the password you will use to sign in.</li>"
+        "<li>Link an authenticator app (Microsoft Authenticator, Google Authenticator, or similar) by scanning a QR code. "
+        "The app generates the 6-digit codes required at every sign-in (two-factor authentication).</li>"
+        "<li>Receive one-time recovery codes &mdash; save them somewhere safe.</li>"
+        "</ol>"
+        f"<p><a href=\"{enroll_url}\" style=\"display:inline-block;padding:10px 18px;background:#0f766e;color:#ffffff;"
+        "border-radius:6px;text-decoration:none;font-weight:bold;\">Open my enrollment page</a></p>"
+        f"<p style=\"font-size:12px;color:#555\">Or copy this link into your browser:<br>{enroll_url}</p>"
+        f"<p>This link expires <strong>{expiry_text}</strong> and can only be used once.</p>"
+        "<p style=\"color:#b91c1c\"><strong>Important:</strong> you must be connected to the company VPN to access the "
+        "platform &mdash; connect before opening the link and before every future sign-in.</p>"
+        f"<p>If the link has expired or you run into any issues, contact {admin_name} at "
+        f"<a href=\"mailto:{admin_email}\">{admin_email}</a>.</p>"
+        "<p>Kind regards,<br>CWS CX Team<br>"
+        "<span style=\"font-size:12px;color:#555\">This is an automated message sent on behalf of the administrator named above.</span></p>"
+    )
+    return subject, text_body, html_body
+
+
+@admin_router.post("/{user_id}/email-enrollment")
+async def email_enrollment_link(user_id: str, request: Request, db: Session = Depends(get_db)):
+    # Late import: app.core.auth.dependencies imports from this module, so a
+    # top-level import here would be circular.
+    from ..core.auth.dependencies import get_current_user, security
+    from ..core.emailer import send_email
+
+    credentials = await security(request)
+    current_user = await get_current_user(request, db, credentials)
+
+    user_row = _fetch_user_by_id(db, user_id)
+    if not user_row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mystery public user not found")
+
+    base_url = os.getenv("MYSTERY_PUBLIC_BASE_URL", "").rstrip("/")
+    if not base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MYSTERY_PUBLIC_BASE_URL is not configured on this backend, so a full enrollment link cannot be emailed.",
+        )
+
+    raw_token, expires_at = _issue_enrollment_token(db, user_id, purpose="enroll")
+    enroll_url = f"{base_url}/?enroll={raw_token}"
+
+    admin_email = current_user.preferred_username or ""
+    admin_name = current_user.name or admin_email or "the CX administrator"
+    subject, text_body, html_body = _build_enrollment_email(
+        user_row.get("full_name") or "there", enroll_url, expires_at, admin_name, admin_email
+    )
+    send_email([user_row["email"]], subject, text_body, html_body, reply_to=admin_email or None)
+    db.commit()
+    return {
+        "status": "sent",
+        "user_id": str(user_row["id"]),
+        "email": user_row.get("email"),
+        "expires_at": expires_at.isoformat(),
+        "contact": admin_email,
+    }

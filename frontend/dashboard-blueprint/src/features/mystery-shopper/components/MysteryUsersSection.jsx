@@ -28,6 +28,7 @@ export default function MysteryUsersSection({
   setNewMysteryUserName,
   inviteMysteryUser,
   reissueMysteryUserLink,
+  emailMysteryUserLink,
   suspendMysteryUser,
   reactivateMysteryUser,
   mysteryEnrollmentLink,
@@ -86,8 +87,16 @@ export default function MysteryUsersSection({
               Send this link to the user over a trusted channel. It is shown once and expires {formatDateTime(mysteryEnrollmentLink.expires_at)}.
               Generating a new link does not invalidate the account — only the previous unused link.
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" onClick={copyLink}>{copied ? "Copied!" : "Copy link"}</Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => emailMysteryUserLink({ id: mysteryEnrollmentLink.user_id, email: mysteryEnrollmentLink.email })}
+              >
+                Email link to user
+              </Button>
               <Button type="button" size="sm" variant="outline" onClick={clearMysteryEnrollmentLink}>Dismiss</Button>
             </div>
           </div>
@@ -129,6 +138,9 @@ export default function MysteryUsersSection({
                       <div className="flex justify-end gap-2">
                         <Button type="button" size="sm" variant="outline" onClick={() => reissueMysteryUserLink(user)}>
                           {status === "invited" ? "Generate link" : "Reset / new link"}
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => emailMysteryUserLink(user)}>
+                          Email link
                         </Button>
                         {status === "suspended" ? (
                           <Button type="button" size="sm" variant="outline" onClick={() => reactivateMysteryUser(user)}>Reactivate</Button>

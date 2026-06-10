@@ -2313,6 +2313,21 @@ const platformAbortRef = useRef(null);
     await loadMysteryUsers();
   };
 
+  const emailMysteryUserLink = async (userItem) => {
+    if (!window.confirm(`Generate a new enrollment link and email it to "${userItem.email}"?`)) return;
+    pushToast("info", "Sending enrollment email...", 2000);
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/email-enrollment`, {
+      method: "POST",
+      headers,
+    }, 45000);
+    if (!res.ok) {
+      setError(data?.detail || "Failed to send enrollment email");
+      return;
+    }
+    setMessage(`Enrollment link emailed to ${data?.email}`);
+    await loadMysteryUsers();
+  };
+
   const suspendMysteryUser = async (userItem) => {
     if (!window.confirm(`Suspend access for "${userItem.email}"? Their active sessions will be revoked.`)) return;
     pushToast("info", "Suspending user...", 1500);
@@ -4196,6 +4211,7 @@ const platformAbortRef = useRef(null);
             setNewMysteryUserName={setNewMysteryUserName}
             inviteMysteryUser={inviteMysteryUser}
             reissueMysteryUserLink={reissueMysteryUserLink}
+            emailMysteryUserLink={emailMysteryUserLink}
             suspendMysteryUser={suspendMysteryUser}
             reactivateMysteryUser={reactivateMysteryUser}
             mysteryEnrollmentLink={mysteryEnrollmentLink}
