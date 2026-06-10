@@ -151,6 +151,13 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const [responseDrafts, setResponseDrafts] = useState({});
   const [responsesByQuestion, setResponsesByQuestion] = useState({});
 
+  // Shopper name comes from the signed-in account and is not editable.
+  useEffect(() => {
+    const name = userInfo?.name || "";
+    if (!name) return;
+    setHeaderForm((prev) => (prev.shopper_name === name ? prev : { ...prev, shopper_name: name }));
+  }, [userInfo?.name]);
+
   const raiseMessage = useCallback((text, tone = "info") => {
     setMessage(text);
     setMessageTone(tone);
@@ -318,12 +325,12 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
       visit_time: visit.visit_time || "",
       purpose_of_visit: visit.purpose_of_visit || purposeOptions[0] || DEFAULT_PURPOSE_OPTIONS[0],
       staff_on_duty: visit.staff_on_duty || "",
-      shopper_name: visit.shopper_name || "",
+      shopper_name: userInfo?.name || visit.shopper_name || "",
     });
     await loadVisitDetail(visit.visit_id);
     setEntryChoicePending(false);
     setActiveTab("survey");
-  }, [purposeOptions, loadVisitDetail]);
+  }, [purposeOptions, loadVisitDetail, userInfo?.name]);
 
   const createVisitFn = useCallback(async () => {
     if (!headerForm.location_id || !headerForm.visit_date || !headerForm.visit_time || !headerForm.staff_on_duty || !headerForm.shopper_name) {
@@ -724,8 +731,8 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                           <Input value={headerForm.staff_on_duty} onChange={(e) => setHeaderForm((prev) => ({ ...prev, staff_on_duty: e.target.value }))} />
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs font-medium text-muted-foreground">Shopper Name</label>
-                          <Input value={headerForm.shopper_name} onChange={(e) => setHeaderForm((prev) => ({ ...prev, shopper_name: e.target.value }))} />
+                          <label className="mb-1 block text-xs font-medium text-muted-foreground">Mystery Shopper Name (You)</label>
+                          <Input value={headerForm.shopper_name} disabled readOnly title="Filled automatically from your account" />
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
