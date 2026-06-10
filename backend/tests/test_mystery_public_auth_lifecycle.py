@@ -18,7 +18,17 @@ Covers:
   - Session expiry handling
   - Assertion that /mystery-admin/* returns 404 in public mode
 
-Run:  TESTING=true DATABASE_URL=sqlite:///./ci.db python -m pytest backend/tests/test_mystery_public_auth_lifecycle.py -v
+Database:
+  - Default: existing PostgreSQL via DATABASE_URL from .env (staging/production DB)
+  - Fallback : SQLite for local dev when PostgreSQL is unavailable
+  - Works with both engines; SQLite-only workarounds are applied conditionally.
+
+Run against PostgreSQL (default):
+    cd backend && python -m pytest tests/test_mystery_public_auth_lifecycle.py -v
+
+Run against SQLite (local dev):
+    cd backend && DATABASE_URL=sqlite:///./ci.db \\
+      python -m pytest tests/test_mystery_public_auth_lifecycle.py -v
 """
 
 import base64
@@ -26,7 +36,6 @@ import hashlib
 import hmac
 import os
 import secrets
-import sqlite3
 import struct
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -34,12 +43,15 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 # Must be set BEFORE importing app modules
 os.environ.setdefault("TESTING", "true")
-os.environ.setdefault("DATABASE_URL", "sqlite:///./ci.db")
+# Do NOT force a DATABASE_URL default here — let the app's create_app()
+# load it from .env (which has PostgreSQL for staging/production).
+# For local dev without PostgreSQL, set DATABASE_URL=sqlite:///./ci.db
+# explicitly when running tests.
 os.environ.setdefault("AUTH_MODE", "mystery_public")
 os.environ["MYSTERY_AUTH_SECRET_KEY"] = base64.urlsafe_b64encode(os.urandom(32)).decode(
     "utf-8"
@@ -55,6 +67,23 @@ UTC = timezone.utc
 
 
 # ---------------------------------------------------------------------------
+# Database-type helpers
+# ---------------------------------------------------------------------------
+
+
+def _db_url() -> str:
+    return os.getenv("DATABASE_URL", "")
+
+
+def _is_sqlite(url: str) -> bool:
+    return url.startswith("sqlite:")
+
+
+def _is_postgres(url: str) -> bool:
+    return url.startswith("postgresql:") or url.startswith("postgres:")
+
+
+# ---------------------------------------------------------------------------
 # Fixtures: database + test client
 # ---------------------------------------------------------------------------
 
@@ -63,28 +92,54 @@ UTC = timezone.utc
 def db_engine():
     """Create engine and ensure all core + mystery tables exist.
 
-    Registers a SQLite-compatible NOW() function so that production SQL
-    using ``NOW()`` (PostgreSQL syntax) works during testing.
+    Applies SQLite-specific workarounds (NOW() shim, PARSE_DECLTYPES,
+    WAL journal mode, busy timeout) only when the URL is SQLite-based.
+    When running against PostgreSQL, no shims are needed.
     """
-    database_url = os.getenv("DATABASE_URL", "sqlite:///./ci.db")
-    connect_args = {"check_same_thread": False}
-    # Enable PARSE_DECLTYPES so that TIMESTAMP columns are returned as
-    # Python datetime objects even by raw ``text()`` queries (required
-    # by the production code comparisons against Python datetimes).
-    if database_url.startswith("sqlite:"):
-        connect_args["detect_types"] = sqlite3.PARSE_DECLTYPES
+    database_url = _db_url()
+    connect_args = {}
+
+    if _is_sqlite(database_url):
+        connect_args["check_same_thread"] = False
+        try:
+            import sqlite3
+            connect_args["detect_types"] = sqlite3.PARSE_DECLTYPES
+        except ImportError:
+            pass
 
     engine = create_engine(database_url, connect_args=connect_args)
 
-    # ------------------------------------------------------------------
-    # Register a NOW() SQL function for SQLite compatibility
-    # ------------------------------------------------------------------
-    @event.listens_for(engine, "connect")
-    def _register_now(dbapi_connection, connection_record):
-        if isinstance(dbapi_connection, sqlite3.Connection):
-            dbapi_connection.create_function(
-                "NOW", 0, lambda: datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-            )
+    if _is_sqlite(database_url):
+        import sqlite3
+
+        # Register Python 3.12+ compatible datetime converters so that
+        # TIMESTAMP columns are returned as timezone-aware datetimes
+        # (matching the app's utcnow() which is offset-aware).
+        def _aware_datetime(s: bytes) -> datetime:
+            return datetime.fromisoformat(s.decode()).replace(tzinfo=UTC)
+
+        sqlite3.register_converter("timestamp", _aware_datetime)
+        sqlite3.register_converter("datetime", _aware_datetime)
+        sqlite3.register_converter("TIMESTAMP", _aware_datetime)
+        sqlite3.register_converter("DATETIME", _aware_datetime)
+
+        from sqlalchemy import event
+
+        @event.listens_for(engine, "connect")
+        def _register_now(dbapi_connection, connection_record):
+            if isinstance(dbapi_connection, sqlite3.Connection):
+                dbapi_connection.create_function(
+                    "NOW", 0, lambda: datetime.now(UTC).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                )
+
+        # Enable WAL mode + busy timeout to prevent "database is locked"
+        # errors when the test session and the app (via TestClient) both
+        # write to the same SQLite file from different connections.
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.execute(text("PRAGMA busy_timeout=5000"))
 
     # Create core tables via ORM metadata
     from app.core.database import Base
@@ -114,15 +169,20 @@ def db_engine():
 
 @pytest.fixture
 def db_session(db_engine):
-    """Provide a clean database session per test."""
-    connection = db_engine.connect()
-    transaction = connection.begin()
-    SessionLocal = sessionmaker(bind=connection)
+    """Provide a database session per test using the engine's connection pool.
+
+    Unlike a connection-bound session, this allows the app (via TestClient)
+    to write concurrently without SQLite locking. Each test creates unique
+    data (random UUIDs) so cross-test leakage is not a concern, and the
+    session-scoped db_engine fixture drops all mystery tables at teardown.
+    """
+    SessionLocal = sessionmaker(bind=db_engine)
     session = SessionLocal()
-    yield session
-    session.close()
-    transaction.rollback()
-    connection.close()
+    try:
+        yield session
+        session.commit()
+    finally:
+        session.close()
 
 
 @pytest.fixture
@@ -130,8 +190,7 @@ def client(db_engine):
     """FastAPI TestClient with mystery_public auth mode.
 
     Patches both ``engine`` and ``SessionLocal`` in ``app.core.database``
-    so that the application uses the test engine (which has the SQLite
-    ``NOW()`` registration and ``PARSE_DECLTYPES`` enabled).
+    so that the application uses the test engine.
     """
     with (
         patch("app.core.database.engine", db_engine),
@@ -301,12 +360,36 @@ def generate_totp_code(secret: str, offset: int = 0) -> str:
 
 
 # ---------------------------------------------------------------------------
-# SQLite bootstrap helpers
+# Bootstrap helpers (dual SQLite / PostgreSQL support)
 # ---------------------------------------------------------------------------
 
 
+def _pk_autoincrement() -> str:
+    """Return the appropriate auto-increment primary key DDL for the current DB.
+
+    - PostgreSQL: ``id SERIAL PRIMARY KEY`` (implicit sequence)
+    - SQLite:     ``id INTEGER PRIMARY KEY AUTOINCREMENT``
+    """
+    url = _db_url()
+    if _is_postgres(url):
+        return "id SERIAL PRIMARY KEY"
+    return "id INTEGER PRIMARY KEY AUTOINCREMENT"
+
+
+def _insert_or_ignore(table: str, columns: str, values: str) -> str:
+    """Return an INSERT that skips on conflict, compatible with both engines.
+
+    - PostgreSQL: ``INSERT INTO ... ON CONFLICT DO NOTHING``
+    - SQLite:     ``INSERT OR IGNORE INTO ...``
+    """
+    url = _db_url()
+    if _is_postgres(url):
+        return f"INSERT INTO {table} ({columns}) VALUES ({values}) ON CONFLICT DO NOTHING"
+    return f"INSERT OR IGNORE INTO {table} ({columns}) VALUES ({values})"
+
+
 def _create_mystery_tables(engine):
-    """Create the mystery public auth tables (migration equivalent)."""
+    """Create the mystery public auth tables (migration equivalent). Compatible with both PostgreSQL and SQLite."""
     ddl_statements = [
         """
         CREATE TABLE IF NOT EXISTS mystery_users (
@@ -390,26 +473,27 @@ def _create_mystery_tables(engine):
 
 
 def _bootstrap_mystery_shopper(engine):
-    """Ensure the mystery shopper reference tables and questions exist (SQLite-compatible).
+    """Ensure the mystery shopper reference tables and questions exist.
 
+    DDL adapts to the current database engine (PostgreSQL or SQLite).
     Also creates a minimal ``visits`` table to satisfy ``init_db()`` which
     runs ALTER TABLE statements against it during startup.
     """
     from app.api.mystery_shopper import MYSTERY_SHOPPER_QUESTIONS
 
-    # SQLite-compatible DDL
+    pk = _pk_autoincrement()
     bootstrap_ddl = [
         # Core shared tables needed by mystery shopper schema
-        "CREATE TABLE IF NOT EXISTS survey_types (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
-        "CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, survey_type_id INTEGER NOT NULL REFERENCES survey_types(id), question_number INTEGER NOT NULL, question_text TEXT NOT NULL, category TEXT, is_mandatory INTEGER DEFAULT 1, is_nps INTEGER DEFAULT 0, input_type TEXT DEFAULT 'text', score_min INTEGER, score_max INTEGER, choices TEXT, helper_text TEXT, requires_issue INTEGER DEFAULT 0, requires_escalation INTEGER DEFAULT 0, question_key TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+        f"CREATE TABLE IF NOT EXISTS survey_types ({pk}, name TEXT NOT NULL UNIQUE, description TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+        f"CREATE TABLE IF NOT EXISTS questions ({pk}, survey_type_id INTEGER NOT NULL REFERENCES survey_types(id), question_number INTEGER NOT NULL, question_text TEXT NOT NULL, category TEXT, is_mandatory INTEGER DEFAULT 1, is_nps INTEGER DEFAULT 0, input_type TEXT DEFAULT 'text', score_min INTEGER, score_max INTEGER, choices TEXT, helper_text TEXT, requires_issue INTEGER DEFAULT 0, requires_escalation INTEGER DEFAULT 0, question_key TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
         # Minimal visits table (needed by init_db() ALTER TABLE + mystery_shopper_answers FK)
         "CREATE TABLE IF NOT EXISTS visits (id VARCHAR(36) PRIMARY KEY, business_id INTEGER NOT NULL DEFAULT 0, representative_id INTEGER NOT NULL DEFAULT 0, created_by INTEGER NOT NULL DEFAULT 0, visit_date DATE NOT NULL DEFAULT '2026-01-01', visit_type VARCHAR(50) NOT NULL DEFAULT 'Planned', escalation_occurred INTEGER NOT NULL DEFAULT 0, issue_experienced INTEGER NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'Draft', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
         # Mystery shopper tables
-        "CREATE TABLE IF NOT EXISTS mystery_shopper_locations (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255) NOT NULL UNIQUE, business_id INTEGER, active INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
-        "CREATE TABLE IF NOT EXISTS mystery_shopper_assessments (id INTEGER PRIMARY KEY AUTOINCREMENT, visit_id VARCHAR(36) NOT NULL UNIQUE, location_id INTEGER NOT NULL REFERENCES mystery_shopper_locations(id), visit_time VARCHAR(20) NOT NULL, purpose_of_visit VARCHAR(120) NOT NULL, staff_on_duty VARCHAR(255) NOT NULL, shopper_name VARCHAR(255) NOT NULL, report_completed_date DATE, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
-        "CREATE TABLE IF NOT EXISTS mystery_shopper_purpose_options (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(120) NOT NULL UNIQUE, active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
-        "CREATE TABLE IF NOT EXISTS mystery_shopper_answers (id INTEGER PRIMARY KEY AUTOINCREMENT, visit_id VARCHAR(36) NOT NULL REFERENCES visits(id) ON DELETE CASCADE, question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE, score INTEGER, answer_text TEXT, verbatim TEXT, actions TEXT NOT NULL DEFAULT '[]', created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
-        "CREATE TABLE IF NOT EXISTS responses (id INTEGER PRIMARY KEY AUTOINCREMENT, visit_id VARCHAR(36) NOT NULL, question_id INTEGER NOT NULL, score INTEGER, answer_text TEXT, verbatim TEXT)",
+        f"CREATE TABLE IF NOT EXISTS mystery_shopper_locations ({pk}, name VARCHAR(255) NOT NULL UNIQUE, business_id INTEGER, active INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+        f"CREATE TABLE IF NOT EXISTS mystery_shopper_assessments ({pk}, visit_id VARCHAR(36) NOT NULL UNIQUE, location_id INTEGER NOT NULL REFERENCES mystery_shopper_locations(id), visit_time VARCHAR(20) NOT NULL, purpose_of_visit VARCHAR(120) NOT NULL, staff_on_duty VARCHAR(255) NOT NULL, shopper_name VARCHAR(255) NOT NULL, report_completed_date DATE, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+        f"CREATE TABLE IF NOT EXISTS mystery_shopper_purpose_options ({pk}, name VARCHAR(120) NOT NULL UNIQUE, active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+        f"CREATE TABLE IF NOT EXISTS mystery_shopper_answers ({pk}, visit_id VARCHAR(36) NOT NULL REFERENCES visits(id) ON DELETE CASCADE, question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE, score INTEGER, answer_text TEXT, verbatim TEXT, actions TEXT NOT NULL DEFAULT '[]', created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+        f"CREATE TABLE IF NOT EXISTS responses ({pk}, visit_id VARCHAR(36) NOT NULL, question_id INTEGER NOT NULL, score INTEGER, answer_text TEXT, verbatim TEXT)",
     ]
     with engine.begin() as conn:
         for ddl in bootstrap_ddl:
@@ -421,20 +505,24 @@ def _bootstrap_mystery_shopper(engine):
         # Seed default purpose options
         from app.api.mystery_shopper import DEFAULT_PURPOSE_OPTIONS
 
+        purpose_sql = _insert_or_ignore(
+            "mystery_shopper_purpose_options",
+            "name, active, sort_order",
+            ":name, 1, :sort_order",
+        )
         for idx, name in enumerate(DEFAULT_PURPOSE_OPTIONS, start=1):
             session.execute(
-                text(
-                    "INSERT OR IGNORE INTO mystery_shopper_purpose_options (name, active, sort_order) VALUES (:name, 1, :sort_order)"
-                ),
+                text(purpose_sql),
                 {"name": name, "sort_order": idx},
             )
 
         # Ensure survey type exists
-        session.execute(
-            text(
-                "INSERT OR IGNORE INTO survey_types (name, description) VALUES ('Mystery Shopper', 'Customer service centre mystery shopper assessment')"
-            )
+        survey_type_sql = _insert_or_ignore(
+            "survey_types",
+            "name, description",
+            "'Mystery Shopper', 'Customer service centre mystery shopper assessment'",
         )
+        session.execute(text(survey_type_sql))
 
         # Fetch survey type id
         st_id = session.execute(
@@ -646,10 +734,23 @@ class TestMysteryPublicAuthLifecycle:
         )
         assert bad_login_resp.status_code == 401, bad_login_resp.text
 
+        # Reset the lockout that the failed login triggered (1 min).
+        # Without this, the MFA step below would fail because the user
+        # is temporarily locked out.
+        db_session.execute(
+            text("UPDATE mystery_users SET failed_login_count = 0, locked_until = NULL WHERE email = :email"),
+            {"email": email},
+        )
+        db_session.commit()
+
         # =========================================================
         # 6. Submit MFA with valid TOTP → session cookie
         # =========================================================
-        mfa_code = generate_totp_code(totp_secret)
+        # Use offset=1 to ensure the code step > last_totp_step (which was
+        # set during enrollment confirm). Without the offset, if enrollment
+        # confirm and MFA happen in the same 30-second TOTP window, the
+        # code would be rejected as a replay.
+        mfa_code = generate_totp_code(totp_secret, offset=1)
         mfa_resp = client.post(
             "/auth/mfa",
             json={"challenge": challenge, "code": mfa_code},

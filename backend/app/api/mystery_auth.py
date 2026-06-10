@@ -387,12 +387,15 @@ def load_session(db: Session, session_id: str | None):
 
 
 def build_auth_user(user_row) -> AuthUser:
+    # The row may come from the mystery_sessions JOIN (user_id) or
+    # directly from the mystery_users table (id).  Accept both.
+    uid = str(user_row.get("user_id") or user_row.get("id"))
     return AuthUser(
-        sub=f"mystery:{user_row['id']}",
+        sub=f"mystery:{uid}",
         name=user_row.get("full_name") or user_row.get("email") or "Mystery User",
         preferred_username=user_row.get("email") or "",
         roles=("MYSTERY_SURVEYOR",),
-        claims={"auth_mode": "mystery_public", "mystery_user_id": str(user_row["id"])},
+        claims={"auth_mode": "mystery_public", "mystery_user_id": uid},
     )
 
 
