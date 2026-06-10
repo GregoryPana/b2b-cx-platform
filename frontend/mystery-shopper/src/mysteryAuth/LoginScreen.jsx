@@ -32,7 +32,9 @@ export default function LoginScreen({ login, submitMfa, loading, error, mfaPendi
             </>
           )}
           <p className="text-sm text-muted-foreground">
-            Public Mystery Shopper password and TOTP mode is scaffolded here. Full enrolment, recovery, and session flows are still being implemented.
+            {!mfaPending
+              ? "Sign in with your registered email and password. You will then be asked for a 6-digit code from your authenticator app."
+              : "Open your authenticator app and enter the current 6-digit code for CWSCX Mystery Shopper."}
           </p>
           {!mfaPending ? <Button type="button" variant="ghost" className="w-full" onClick={onShowRecovery}>Use a recovery code instead</Button> : null}
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
