@@ -10,7 +10,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { CalendarDays, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
+import { BookOpen, CalendarDays, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
+import { GuidePage, ScoringKeyCard } from "./SurveyGuide";
 
 import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
@@ -214,6 +215,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const sidebarPages = [
     { key: "planned", label: "Draft Visits", icon: CalendarDays },
     { key: "survey", label: "Survey", icon: ClipboardCheck },
+    { key: "guide", label: "User Guide", icon: BookOpen },
   ];
 
   useLayoutEffect(() => {
@@ -650,8 +652,13 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                       </button>
                     </CardContent>
                   </Card>
+                  <div className="mt-6">
+                    <ScoringKeyCard />
+                  </div>
                 </motion.div>
               )}
+
+              {activeTab === "guide" && <GuidePage />}
 
               {activeTab === "planned" && (
                 <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -701,6 +708,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
 
               {activeTab === "survey" && (
                 <div className="space-y-6">
+                  <ScoringKeyCard compact />
                   <Card>
                     <CardHeader><CardTitle>Visit Header</CardTitle></CardHeader>
                     <CardContent className="space-y-4">
