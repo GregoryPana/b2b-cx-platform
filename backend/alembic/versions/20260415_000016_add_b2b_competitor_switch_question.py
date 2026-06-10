@@ -150,7 +150,7 @@ def upgrade() -> None:
             {
                 "question_key": NEW_KEY,
                 "category": "Category 4: Competitive & Portfolio Intelligence",
-                "question_text": "Would you consider taking this service with CWS?",
+                "question_text": "Would you consider taking the same  competition services that you have now but with cws?",
                 "input_type": "yes_no",
                 "choices": '["Y", "N"]',
                 "helper_text": "Select Y or N",
@@ -180,7 +180,7 @@ def upgrade() -> None:
     params = {
         "category": "Category 4: Competitive & Portfolio Intelligence",
         "question_key": NEW_KEY,
-        "question_text": "Would you consider taking this service with CWS?",
+        "question_text": "Would you consider taking the same  competition services that you have now but with cws?",
         "input_type": "yes_no",
         "choices": '["Y", "N"]',
         "helper_text": "Select Y or N",

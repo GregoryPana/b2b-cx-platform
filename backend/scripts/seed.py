@@ -174,7 +174,7 @@ QUESTION_BLUEPRINT = [
     {
         "question_key": "q18_competitor_service_with_cws",
         "category": "Category 4: Competitive & Portfolio Intelligence",
-        "question_text": "Would you consider taking this service with CWS?",
+        "question_text": "Would you consider taking the same  competition services that you have now but with cws?",
         "input_type": "yes_no",
         "choices": ["Y", "N"],
         "helper_text": "Select Y or N",

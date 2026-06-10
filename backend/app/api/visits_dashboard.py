@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Dict, Optional
 import base64
+import html as html_lib
 import json
 import logging
 import os
@@ -43,6 +44,42 @@ def get_response_table(db: Session) -> str | None:
 
 ACTION_TIMEFRAME_OPTIONS = {"<1 month", "<3 months", "<6 months", ">6 months"}
 ACTION_STATUS_OPTIONS = {"Outstanding", "In Progress", "Completed"}
+
+
+def _env_first(*names: str) -> str:
+    """Return the first non-empty environment value from a set of aliases."""
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _smtp_config() -> dict[str, object]:
+    """Read SMTP settings, accepting common deployment aliases.
+
+    Staging/production should use the documented SMTP_* names, but older
+    deployments and platform templates sometimes expose MAIL_* or EMAIL_* names.
+    Supporting aliases prevents a configured relay from being treated as missing.
+    """
+    smtp_host = _env_first("SMTP_HOST", "SMTP_SERVER", "MAIL_HOST", "MAIL_SERVER", "EMAIL_HOST")
+    smtp_port = int(_env_first("SMTP_PORT", "MAIL_PORT", "EMAIL_PORT") or "587")
+    smtp_user = _env_first("SMTP_USERNAME", "SMTP_USER", "MAIL_USERNAME", "MAIL_USER", "EMAIL_HOST_USER")
+    smtp_password = _env_first("SMTP_PASSWORD", "SMTP_PASS", "MAIL_PASSWORD", "MAIL_PASS", "EMAIL_HOST_PASSWORD")
+    smtp_from = _env_first("SMTP_FROM", "SMTP_EMAIL", "STMP_EMAIL", "MAIL_FROM", "MAIL_DEFAULT_SENDER", "EMAIL_FROM") or smtp_user
+    smtp_use_tls_raw = _env_first("SMTP_USE_TLS", "MAIL_USE_TLS", "EMAIL_USE_TLS").lower()
+    smtp_use_ssl_raw = _env_first("SMTP_USE_SSL", "MAIL_USE_SSL", "EMAIL_USE_SSL").lower()
+    smtp_use_tls = (smtp_port == 587) if smtp_use_tls_raw == "" else smtp_use_tls_raw in {"1", "true", "yes", "on"}
+    smtp_use_ssl = (smtp_port == 465) if smtp_use_ssl_raw == "" else smtp_use_ssl_raw in {"1", "true", "yes", "on"}
+    return {
+        "host": smtp_host,
+        "port": smtp_port,
+        "user": smtp_user,
+        "password": smtp_password,
+        "from": smtp_from,
+        "use_tls": smtp_use_tls,
+        "use_ssl": smtp_use_ssl,
+    }
 
 
 def normalize_business_type(value: str | None) -> str:
@@ -1475,15 +1512,17 @@ def build_report_payload(
                 "team_member_names": fetch_visit_team_members(db, effective_visit_id),
             }
 
+        has_question_number = has_column(db, "questions", "question_number")
         has_question_order = has_column(db, "questions", "order_index")
-        question_order_col = "q.order_index" if has_question_order else "q.id"
+        question_number_col = "q.question_number" if has_question_number else ("q.order_index" if has_question_order else "q.id")
+        question_order_col = question_number_col
         if response_table == "b2b_visit_responses":
             response_rows = db.execute(
                 text(
                     f"""
                     SELECT
                         q.id as question_id,
-                        {question_order_col} as question_number,
+                        {question_number_col} as question_number,
                         q.category,
                         q.question_text,
                         q.input_type,
@@ -2051,6 +2090,28 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     else:
         cw_logo = _svg_logo
 
+    def _safe(value) -> str:
+        return html_lib.escape(str(value if value not in (None, "") else "--"))
+
+    context_business = selected_visit_info.get("business_name") or (business_rows[0].get("business_name") if len(business_rows) == 1 else "All businesses")
+    context_survey_date = selected_visit_info.get("visit_date") or filters.get("report_date") or filters.get("date_from") or "All dates"
+    if filters.get("date_from") and filters.get("date_to") and filters.get("date_from") != filters.get("date_to") and not selected_visit_info.get("visit_date"):
+        context_survey_date = f"{filters.get('date_from')} to {filters.get('date_to')}"
+    context_team = ", ".join(selected_visit_info.get("team_member_names") or []) or "--"
+    context_account_exec = selected_visit_info.get("account_executive_name") or "--"
+    action_point_count = len(action_points)
+    action_accent = "#dc2626" if action_point_count else "#16a34a"
+    action_bg = "#fef2f2" if action_point_count else "#f0fdf4"
+    report_context_section = (
+        '<div class="report-context">'
+        f'<div class="context-card"><div class="label">Survey Date</div><div class="context-value">{_safe(context_survey_date)}</div></div>'
+        f'<div class="context-card"><div class="label">Survey Business</div><div class="context-value">{_safe(context_business)}</div></div>'
+        f'<div class="context-card"><div class="label">Team Members</div><div class="context-value">{_safe(context_team)}</div></div>'
+        f'<div class="context-card"><div class="label">Account Executive</div><div class="context-value">{_safe(context_account_exec)}</div></div>'
+        f'<div class="context-card important" style="border-color:{action_accent};background:{action_bg};"><div class="label">Action Points</div><div class="context-value" style="color:{action_accent};">{action_point_count}</div></div>'
+        '</div>'
+    )
+
     summary_section = ""
     if not is_single_visit:
         summary_section = (
@@ -2221,6 +2282,9 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     h2 {{ font-size: 19px; line-height: 1.3; margin: 30px 0 10px; color: #0f172a; letter-spacing: -0.01em; }}
     p {{ margin: 4px 0; color: #475569; }}
     .summary {{ display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 12px; margin-top: 14px; }}
+    .report-context {{ display:grid; grid-template-columns: repeat(5, minmax(145px, 1fr)); gap: 12px; margin: 18px 0 10px; }}
+    .context-card {{ border: 1px solid #dbe4ee; border-left: 5px solid #0056A1; border-radius: 10px; padding: 12px 14px; background:#f8fbff; }}
+    .context-value {{ font-size: 16px; font-weight: 800; color:#0f172a; line-height:1.25; margin-top:4px; }}
     .card {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; background: #f9fafb; margin-bottom: 4px; }}
     .label {{ font-size: 12px; color: #64748b; font-weight: 500; }}
     .value {{ font-size: 20px; font-weight: 700; color: #0f172a; line-height: 1.2; }}
@@ -2252,6 +2316,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       body {{ margin: 8px; padding: 0; }}
       .page {{ padding: 16px; border-radius: 10px; }}
       .summary {{ grid-template-columns: 1fr 1fr; gap: 8px; }}
+      .report-context {{ grid-template-columns: 1fr 1fr; gap: 8px; }}
       .viz-grid {{ grid-template-columns: 1fr; gap: 10px; }}
       .mini-grid {{ grid-template-columns: 1fr; gap: 10px; }}
       h1 {{ font-size: 22px; }}
@@ -2266,6 +2331,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       body {{ margin: 4px; }}
       .page {{ padding: 12px; border-radius: 8px; }}
       .summary {{ grid-template-columns: 1fr; }}
+      .report-context {{ grid-template-columns: 1fr; }}
       h1 {{ font-size: 20px; }}
       h2 {{ font-size: 16px; margin-top: 20px; }}
       .bar-row {{ grid-template-columns: 100px 1fr 40px; }}
@@ -2282,8 +2348,9 @@ def render_report_html(payload: dict, generated_by: str) -> str:
       <p style="margin:2px 0 0;color:#64748b;font-size:13px;">Generated by: {generated_by}</p>
     </div>
   </div>
-  <p>Survey Type: {filters.get('survey_type') or 'B2B'} | Date Range: {filters.get('date_from') or 'Any'} to {filters.get('date_to') or 'Any'} | Business ID: {filters.get('business_id') or 'All'}</p>
+  <p>Survey Type: {filters.get('survey_type') or 'B2B'} | Date Scope: {_safe(context_survey_date)} | Business: {_safe(context_business)}</p>
 
+  {report_context_section}
   {summary_section}
   {selected_kpi_section}
   {overall_benchmark_section}
@@ -2369,23 +2436,23 @@ def email_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    smtp_host = os.getenv("SMTP_HOST", "").strip()
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USERNAME", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-    smtp_from = (
-        os.getenv("SMTP_FROM", "").strip()
-        or os.getenv("SMTP_EMAIL", "").strip()
-        or os.getenv("STMP_EMAIL", "").strip()
-        or smtp_user
-    )
-    smtp_use_tls_raw = os.getenv("SMTP_USE_TLS", "").strip().lower()
-    smtp_use_ssl_raw = os.getenv("SMTP_USE_SSL", "").strip().lower()
-    smtp_use_tls = (smtp_port == 587) if smtp_use_tls_raw == "" else smtp_use_tls_raw in {"1", "true", "yes"}
-    smtp_use_ssl = (smtp_port == 465) if smtp_use_ssl_raw == "" else smtp_use_ssl_raw in {"1", "true", "yes"}
+    smtp = _smtp_config()
+    smtp_host = str(smtp["host"])
+    smtp_port = int(smtp["port"])
+    smtp_user = str(smtp["user"])
+    smtp_password = str(smtp["password"])
+    smtp_from = str(smtp["from"])
+    smtp_use_tls = bool(smtp["use_tls"])
+    smtp_use_ssl = bool(smtp["use_ssl"])
 
     if not smtp_host or not smtp_from:
-        raise HTTPException(status_code=400, detail="SMTP is not configured. Set SMTP_HOST and SMTP_FROM (or SMTP_EMAIL/STMP_EMAIL).")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "SMTP is not configured. Set SMTP_HOST and SMTP_FROM, or supported aliases "
+                "SMTP_SERVER/MAIL_HOST/MAIL_SERVER/EMAIL_HOST and MAIL_FROM/EMAIL_FROM/SMTP_EMAIL."
+            ),
+        )
 
     payload = build_report_payload(
         db,

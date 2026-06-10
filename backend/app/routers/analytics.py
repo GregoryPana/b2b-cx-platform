@@ -636,12 +636,12 @@ def get_question_averages(
             params["date_to"] = date_to
 
         has_question_key, has_order_index, has_question_number = detect_question_columns(db)
-        if has_order_index:
-            order_expr = "q.order_index"
-            number_select = "q.order_index AS question_number"
-        elif has_question_number:
+        if has_question_number:
             order_expr = "q.question_number"
             number_select = "q.question_number AS question_number"
+        elif has_order_index:
+            order_expr = "q.order_index"
+            number_select = "q.order_index AS question_number"
         else:
             order_expr = "q.id"
             number_select = "q.id AS question_number"
@@ -736,12 +736,12 @@ def get_yes_no_question_analytics(
             params["date_to"] = date_to
 
         has_question_key, has_order_index, has_question_number = detect_question_columns(db)
-        if has_order_index:
-            order_expr = "q.order_index"
-            number_select = "q.order_index AS question_number"
-        elif has_question_number:
+        if has_question_number:
             order_expr = "q.question_number"
             number_select = "q.question_number AS question_number"
+        elif has_order_index:
+            order_expr = "q.order_index"
+            number_select = "q.order_index AS question_number"
         else:
             order_expr = "q.id"
             number_select = "q.id AS question_number"
@@ -810,7 +810,7 @@ def get_account_executive_yes_no_trends(
         if not response_table or not has_table(db, response_table) or not has_column(db, "visits", "account_executive_name"):
             return {"items": []}
 
-        has_question_number, has_order_index, has_question_key = detect_question_columns(db)
+        has_question_key, has_order_index, has_question_number = detect_question_columns(db)
         if has_question_number:
             number_select = "q.question_number AS question_number"
             order_expr = "q.question_number"

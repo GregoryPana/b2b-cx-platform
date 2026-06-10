@@ -281,7 +281,7 @@ MOCK_QUESTIONS = [
     {
         "id": 18,
         "category": "Category 4: Competitive & Portfolio Intelligence",
-        "question_text": "Would you consider taking this service with CWS?",
+        "question_text": "Would you consider taking the same  competition services that you have now but with cws?",
         "question_type": "choice",
         "min_score": 0,
         "max_score": 0,

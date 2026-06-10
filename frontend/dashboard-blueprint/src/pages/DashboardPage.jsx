@@ -1945,7 +1945,7 @@ const platformAbortRef = useRef(null);
       { key: "q06_regular_updates", text: "Are you receiving regular updates on your account? (Y or N)." },
       { key: "q09_issues_resolved_on_time", text: "Are your issues resolved on time? (Y/N)" },
       { key: "q16_other_provider_products", text: "Do you have other products and services from other service providers? (Yes or No)" },
-      { key: "q18_competitor_service_with_cws", text: "Would you consider taking this service with CWS?" },
+      { key: "q18_competitor_service_with_cws", text: "Would you consider taking the same  competition services that you have now but with cws?" },
     ];
 
     return requiredQuestions.map((required) => {
