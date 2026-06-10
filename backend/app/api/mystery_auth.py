@@ -72,6 +72,15 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def as_aware_utc(value: datetime | None) -> datetime | None:
+    # PostgreSQL TIMESTAMP WITHOUT TIME ZONE columns come back naive (stored
+    # as UTC); SQLite test converters return aware. Normalize before comparing
+    # against utcnow().
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
 def normalize_email(value: str) -> str:
     return (value or "").strip().lower()
 
@@ -225,7 +234,7 @@ def _fetch_user_by_id(db: Session, user_id: str):
 
 
 def _is_locked(user_row, now: datetime) -> bool:
-    locked_until = user_row.get("locked_until")
+    locked_until = as_aware_utc(user_row.get("locked_until"))
     return bool(locked_until and locked_until > now)
 
 
@@ -282,7 +291,7 @@ def _fetch_enrollment_token_row(db: Session, raw_token: str):
 def _assert_valid_enrollment_token(token_row, *, allow_used: bool = False):
     if not token_row:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired enrollment token")
-    if token_row.get("expires_at") <= utcnow():
+    if as_aware_utc(token_row.get("expires_at")) <= utcnow():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired enrollment token")
     if not allow_used and token_row.get("used_at"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enrollment token has already been used")
@@ -369,7 +378,7 @@ def load_session(db: Session, session_id: str | None):
     if not row:
         return None, None
     now = utcnow()
-    if row.get("revoked_at") or row.get("absolute_expires_at") <= now or row.get("idle_expires_at") <= now:
+    if row.get("revoked_at") or as_aware_utc(row.get("absolute_expires_at")) <= now or as_aware_utc(row.get("idle_expires_at")) <= now:
         revoke_session(db, session_id)
         return None, row
     if (row.get("user_status") or "").lower() not in ACTIVE_USER_STATUSES:
@@ -475,7 +484,7 @@ async def verify_public_mfa(payload: MysteryMfaRequest, request: Request, respon
     generic_error = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired MFA challenge/code")
     challenge_row = db.execute(text("SELECT * FROM mystery_mfa_challenges WHERE challenge_id = :challenge_id LIMIT 1"), {"challenge_id": payload.challenge}).mappings().first()
     now = utcnow()
-    if not challenge_row or challenge_row.get("used_at") or challenge_row.get("expires_at") <= now:
+    if not challenge_row or challenge_row.get("used_at") or as_aware_utc(challenge_row.get("expires_at")) <= now:
         raise generic_error
     user_row = _fetch_user_by_id(db, challenge_row["user_id"])
     if not user_row or (user_row.get("status") or "").lower() not in ACTIVE_USER_STATUSES or _is_locked(user_row, now):
