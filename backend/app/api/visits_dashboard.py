@@ -437,6 +437,9 @@ def fetch_dashboard_actions(
 
     has_visit_survey_type = has_column(db, "visits", "survey_type_id")
     resolved_survey_type_id = resolve_survey_type_id(db, survey_type, None)
+    has_question_number = has_column(db, "questions", "question_number")
+    has_question_order = has_column(db, "questions", "order_index")
+    question_number_col = "q.question_number" if has_question_number else ("q.order_index" if has_question_order else "q.id")
     where_clauses = ["1=1"]
     params: dict[str, object] = {}
 
@@ -458,6 +461,7 @@ def fetch_dashboard_actions(
                 b.name as business_name,
                 r.id as response_id,
                 q.id as question_id,
+                {question_number_col} as question_number,
                 q.question_text,
                 r.score,
                 r.answer_text,
@@ -496,6 +500,7 @@ def fetch_dashboard_actions(
                 b.name as business_name,
                 r.id as response_id,
                 q.id as question_id,
+                {question_number_col} as question_number,
                 q.question_text,
                 0 as action_index,
                 r.action_required,
@@ -523,7 +528,10 @@ def fetch_dashboard_actions(
         params["fallback_survey_type"] = survey_type or "B2B"
 
     where_sql = " AND ".join(where_clauses)
-    rows = db.execute(text(sql.format(where_sql=where_sql)), params).mappings().all()
+    rows = db.execute(
+        text(sql.format(where_sql=where_sql, question_number_col=question_number_col)),
+        params,
+    ).mappings().all()
 
     items = []
     for row in rows:
@@ -539,6 +547,7 @@ def fetch_dashboard_actions(
             "survey_type": row["survey_type"],
             "response_id": str(response_id),
             "question_id": row["question_id"],
+            "question_number": row.get("question_number"),
             "question_text": row["question_text"],
             "question_score": row.get("score"),
             "question_answer": row.get("answer_text"),

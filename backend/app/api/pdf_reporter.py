@@ -18,6 +18,7 @@ from reportlab.platypus import (
     Flowable, KeepTogether
 )
 from reportlab.pdfgen import canvas as pdfcanvas
+from xml.sax.saxutils import escape as _xml_escape
 
 
 # Brand colors (hex strings for matplotlib compatibility)
@@ -371,41 +372,57 @@ def render_report_pdf(payload: dict[str, Any], generated_by: str) -> bytes:
             story.append(SectionHeader("ACTION POINTS"))
             story.append(Spacer(1, 4*mm))
 
-            # Build question lookup dictionary
+            # Build question lookup dictionary (fallback for question_number/text)
             question_lookup = {}
             for q in survey_questions:
                 q_id = q.get('question_id')
                 q_num = q.get('question_number')
-                if q_id:
+                if q_id is not None:
                     question_lookup[q_id] = q
-                if q_num:
+                if q_num is not None:
                     question_lookup[q_num] = q
 
-            # Action Points Table with related questions
-            action_data = [["Business", "Question (Q#)", "Action Required", "Timeframe", "Status"]]
-            for item in outstanding[:10]:
+            # Wrapping style for the question cell so full text is preserved
+            question_cell_style = ParagraphStyle(
+                'ActionQuestion', parent=styles['BodyText'],
+                fontSize=7, leading=9, textColor=CWS_SLATE,
+            )
+
+            # Action Points Table with related questions (full text + number)
+            action_data = [["Business", "Related Question", "Action Required", "Timeframe", "Status"]]
+            for item in outstanding[:12]:
                 business = item.get('business_name', '--')[:20]
 
-                # Look up the related question
+                # The action point carries question_id/text/number directly; fall
+                # back to the survey question lookup if any field is missing.
                 q_id = item.get('question_id')
-                related_q = question_lookup.get(q_id, {}) if q_id else {}
-                q_num = related_q.get('question_number', item.get('question_number', '--'))
-                q_text = related_q.get('question_text', '--')[:40] if related_q else '--'
+                related_q = question_lookup.get(q_id, {}) if q_id is not None else {}
+                q_num = item.get('question_number') or related_q.get('question_number')
+                q_text = item.get('question_text') or related_q.get('question_text') or ''
+                q_text_safe = _xml_escape(str(q_text)) if q_text else ''
 
-                question_info = f"Q{q_num}: {q_text}" if q_text != '--' else f"Q{q_num}"
-                action = item.get('action_required', '--')[:35]
+                if q_num and q_text_safe:
+                    question_info = f"<b>Q{q_num}:</b> {q_text_safe}"
+                elif q_num:
+                    question_info = f"<b>Q{q_num}</b>"
+                elif q_text_safe:
+                    question_info = q_text_safe
+                else:
+                    question_info = "--"
+
+                action = _xml_escape(str(item.get('action_required', '--'))[:80])
                 timeframe = item.get('action_timeframe', '--')
                 status = item.get('action_status', '--')
 
                 action_data.append([
                     business,
-                    question_info,
-                    action,
+                    Paragraph(question_info, question_cell_style),
+                    Paragraph(action, question_cell_style),
                     timeframe,
                     status
                 ])
 
-            action_table = Table(action_data, colWidths=[20*mm, 50*mm, 40*mm, 20*mm, 20*mm])
+            action_table = Table(action_data, colWidths=[22*mm, 58*mm, 45*mm, 18*mm, 17*mm])
             action_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), CWS_NAVY),
                 ('TEXTCOLOR', (0, 0), (-1, 0), CWS_WHITE),
