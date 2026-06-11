@@ -52,14 +52,23 @@ def test_installation_report_filename_includes_type_scope_and_date():
 
 
 def test_pdf_renderers_generate_pdf_bytes():
+    """PDF renderers produce valid PDF binary output."""
     b2b_payload = {
         "filters": {"report_type": "survey", "survey_type": "B2B"},
-        "summary": {"total_visits": 1, "total_businesses": 1, "total_responses": 4, "average_score": 8.5},
+        "summary": {"total_visits": 1, "total_businesses": 1, "total_responses": 4, "average_score": 8.5, "status_counts": {"Approved": 1}, "is_single_visit": True},
         "analytics_comparison": {"nps": {"selected": 50, "overall": 42}, "csat": {"selected": 82, "overall": 80}, "relationship_score": {"selected": 4.2, "overall": 4.0}, "competitor_exposure": {"selected": 12, "overall": 18}},
-        "selected_visit_info": {"business_name": "Acme Telecom Ltd", "visit_date": "2026-06-10", "status": "Approved", "team_member_names": ["A", "B"]},
+        "analytics_selected": {"nps": {"promoters": 20, "passives": 15, "detractors": 7}, "customer_satisfaction": {"score_distribution": {"very_satisfied": 15, "satisfied": 20, "neutral": 5, "dissatisfied": 2, "very_dissatisfied": 0}}},
+        "analytics_overall": {},
+        "selected_visit_info": {"business_name": "Acme Telecom Ltd", "visit_date": "2026-06-10", "status": "Approved", "team_member_names": ["A", "B"], "visit_id": "v-001", "account_executive_name": "Exec", "representative_name": "Rep", "edited_by_name": None, "edited_at": None},
         "action_points": [],
         "survey_question_details": [],
         "visit_details": [],
+        "yes_no_comparison": [],
+        "category_comparison": [],
+        "daily_breakdown": [],
+        "business_breakdown": [],
+        "pending_visits": [],
+        "single_visit_scores": {},
     }
     mystery_payload = {
         "filters": {"report_type": "survey", "location_id": 3},
@@ -81,6 +90,14 @@ def test_pdf_renderers_generate_pdf_bytes():
         "scoring_range": "1-5",
     }
 
-    assert render_report_pdf(b2b_payload, "Admin").startswith(b"%PDF")
-    assert render_mystery_report_pdf(mystery_payload, "Admin").startswith(b"%PDF")
-    assert render_installation_report_pdf(installation_payload, "Admin").startswith(b"%PDF")
+    b2b_pdf = render_report_pdf(b2b_payload, "Admin")
+    assert b2b_pdf.startswith(b"%PDF"), "B2B PDF should be valid PDF format"
+    assert len(b2b_pdf) > 1000, "B2B PDF should have substantial content"
+
+    mystery_pdf = render_mystery_report_pdf(mystery_payload, "Admin")
+    assert mystery_pdf.startswith(b"%PDF"), "Mystery PDF should be valid PDF format"
+    assert len(mystery_pdf) > 1000, "Mystery PDF should have substantial content"
+
+    installation_pdf = render_installation_report_pdf(installation_payload, "Admin")
+    assert installation_pdf.startswith(b"%PDF"), "Installation PDF should be valid PDF format"
+    assert len(installation_pdf) > 1000, "Installation PDF should have substantial content"
