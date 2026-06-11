@@ -47,7 +47,7 @@ async def get_current_user(
             "DEV_AUTH_BYPASS_ROLES",
             "CX_SUPER_ADMIN,B2B_ADMIN,MYSTERY_ADMIN,INSTALL_ADMIN,B2B_SURVEYOR,MYSTERY_SURVEYOR,INSTALL_SURVEYOR",
         )
-        roles = tuple(role.strip() for role in roles_raw.split(",") if role.strip())
+        roles = tuple(role.strip().upper() for role in roles_raw.split(",") if role.strip())
         user_name = os.getenv("DEV_AUTH_BYPASS_NAME", "Dev Local User")
         user_email = os.getenv("DEV_AUTH_BYPASS_EMAIL", "dev.local@example.com")
         user_sub = os.getenv("DEV_AUTH_BYPASS_SUB", "dev-auth-bypass-user")

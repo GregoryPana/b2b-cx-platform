@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { ChevronDown, ChevronUp, CircleHelp } from "lucide-react";
+import html2pdf from "html2pdf.js";
 import { useLocation } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PageContainer from "../components/layout/PageContainer";
@@ -89,6 +90,37 @@ function triggerBlobDownload(blob, filename) {
   link.click();
   document.body.removeChild(link);
   window.URL.revokeObjectURL(url);
+}
+
+function pdfFilenameFromHtmlFilename(filename, fallback = "cwscx-report.pdf") {
+  if (!filename) return fallback;
+  return String(filename).endsWith(".html") ? String(filename).replace(/\.html$/i, ".pdf") : String(filename).replace(/\.[^.]+$/, "") + ".pdf";
+}
+
+function buildPdfSourceElement(reportHtml) {
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(reportHtml || "", "text/html");
+  const container = document.createElement("div");
+  container.style.position = "fixed";
+  container.style.left = "-10000px";
+  container.style.top = "0";
+  container.style.width = "1200px";
+  container.style.background = "#ffffff";
+  container.style.zIndex = "-1";
+  const printStyle = document.createElement("style");
+  printStyle.textContent = `
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { margin: 0 !important; background: #ffffff !important; }
+    .page { box-shadow: none !important; }
+  `;
+  container.appendChild(printStyle);
+  Array.from(parsed.head.children).forEach((node) => container.appendChild(node.cloneNode(true)));
+  const bodyWrapper = document.createElement("div");
+  bodyWrapper.innerHTML = parsed.body.innerHTML;
+  bodyWrapper.querySelectorAll("script").forEach((node) => node.remove());
+  container.appendChild(bodyWrapper);
+  document.body.appendChild(container);
+  return container;
 }
 const INSTALL_REPORT_TYPE_OPTIONS = [
   { key: "lifetime", label: "Lifetime Summary", description: "Complete analytics overview of all installation assessments with clear, easy-to-understand metrics and explanations." },
@@ -602,14 +634,26 @@ const platformAbortRef = useRef(null);
     if (installReportDateTo) params.set("date_to", installReportDateTo);
     if (installReportSurveyId) params.set("survey_id", installReportSurveyId);
     try {
-      const res = await fetch(`${API_BASE}/installation/reports/pdf?${params.toString()}`, { headers });
+      const res = await fetch(`${API_BASE}/installation/reports/export?${params.toString()}`, { headers });
       if (!res.ok) {
         const text = await res.text();
         setError(text || "Failed to download PDF report");
         return;
       }
-      const blob = await res.blob();
-      triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), `cwscx-installation-report-${new Date().toISOString().slice(0, 10)}.pdf`));
+      const data = await res.json();
+      const source = buildPdfSourceElement(data?.report_html || "");
+      try {
+        await html2pdf().set({
+          margin: [8, 8, 8, 8],
+          filename: pdfFilenameFromHtmlFilename(data?.filename, `cwscx-installation-report-${new Date().toISOString().slice(0, 10)}.pdf`),
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          pagebreak: { mode: ["css", "legacy"] },
+        }).from(source).save();
+      } finally {
+        document.body.removeChild(source);
+      }
       pushToast("success", "PDF report downloaded");
     } catch {
       setError("Failed to download PDF report");
@@ -1138,16 +1182,28 @@ const platformAbortRef = useRef(null);
     const params = buildReportParams();
     try {
       const endpoint = isMysteryShopperPlatform
-        ? `${API_BASE}/mystery-shopper/reports/pdf?${params.toString()}`
-        : `${API_BASE}/dashboard-visits/reports/pdf?${params.toString()}`;
+        ? `${API_BASE}/mystery-shopper/reports/export?${params.toString()}`
+        : `${API_BASE}/dashboard-visits/reports/export?${params.toString()}`;
       const res = await fetch(endpoint, { headers });
       if (!res.ok) {
         const text = await res.text();
         setError(text || "Failed to download PDF report");
         return;
       }
-      const blob = await res.blob();
-      triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), isMysteryShopperPlatform ? "cwscx-mystery-shopper-report.pdf" : "cwscx-survey-report.pdf"));
+      const data = await res.json();
+      const source = buildPdfSourceElement(data?.report_html || "");
+      try {
+        await html2pdf().set({
+          margin: [8, 8, 8, 8],
+          filename: pdfFilenameFromHtmlFilename(data?.filename, isMysteryShopperPlatform ? "cwscx-mystery-shopper-report.pdf" : "cwscx-survey-report.pdf"),
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          pagebreak: { mode: ["css", "legacy"] },
+        }).from(source).save();
+      } finally {
+        document.body.removeChild(source);
+      }
       setMessage("PDF report downloaded.");
     } catch {
       setError("Failed to download PDF report");

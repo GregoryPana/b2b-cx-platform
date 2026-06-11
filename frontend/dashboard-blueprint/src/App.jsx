@@ -27,12 +27,13 @@ function readJwtExpiry(accessToken) {
 }
 
 function resolvePlatformsFromRoles(entraRoles) {
-  const isSuperAdmin = entraRoles.includes("CX_SUPER_ADMIN");
+  const normalizedRoles = (Array.isArray(entraRoles) ? entraRoles : []).map((role) => String(role || "").trim().toUpperCase());
+  const isSuperAdmin = normalizedRoles.includes("CX_SUPER_ADMIN");
   const canAccess = (platformKey) => {
     if (isSuperAdmin) return true;
-    if (platformKey === "B2B") return entraRoles.includes("B2B_ADMIN");
-    if (platformKey === "Mystery Shopper") return entraRoles.includes("MYSTERY_ADMIN");
-    if (platformKey === "Installation Assessment") return entraRoles.includes("INSTALL_ADMIN");
+    if (platformKey === "B2B") return normalizedRoles.includes("B2B_ADMIN");
+    if (platformKey === "Mystery Shopper") return normalizedRoles.includes("MYSTERY_ADMIN");
+    if (platformKey === "Installation Assessment") return normalizedRoles.includes("INSTALL_ADMIN");
     return false;
   };
 

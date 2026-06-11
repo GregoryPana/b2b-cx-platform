@@ -35,13 +35,18 @@ class AuthUser:
 
     @property
     def is_super_admin(self) -> bool:
-        return "CX_SUPER_ADMIN" in self.roles
+        return "CX_SUPER_ADMIN" in self.normalized_roles
+
+    @property
+    def normalized_roles(self) -> tuple[str, ...]:
+        return tuple(str(role or "").strip().upper() for role in self.roles if str(role or "").strip())
 
     def has_any_role(self, allowed_roles: tuple[str, ...]) -> bool:
         if self.is_super_admin:
             return True
-        user_roles = set(self.roles)
-        return any(role in user_roles for role in allowed_roles)
+        user_roles = set(self.normalized_roles)
+        allowed = {str(role or "").strip().upper() for role in allowed_roles if str(role or "").strip()}
+        return any(role in user_roles for role in allowed)
 
 
 class EntraTokenValidator:
@@ -120,9 +125,9 @@ class EntraTokenValidator:
 
         roles_claim = claims.get("roles") or []
         if isinstance(roles_claim, str):
-            roles = (roles_claim,)
+            roles = (str(roles_claim).strip().upper(),)
         elif isinstance(roles_claim, list):
-            roles = tuple(str(role) for role in roles_claim)
+            roles = tuple(str(role).strip().upper() for role in roles_claim if str(role).strip())
         else:
             roles = tuple()
 
