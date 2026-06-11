@@ -371,30 +371,53 @@ def render_report_pdf(payload: dict[str, Any], generated_by: str) -> bytes:
             story.append(SectionHeader("ACTION POINTS"))
             story.append(Spacer(1, 4*mm))
 
-            # Action Points Table
-            action_data = [["Date", "Business", "Action", "Timeframe", "Status"]]
+            # Build question lookup dictionary
+            question_lookup = {}
+            for q in survey_questions:
+                q_id = q.get('question_id')
+                q_num = q.get('question_number')
+                if q_id:
+                    question_lookup[q_id] = q
+                if q_num:
+                    question_lookup[q_num] = q
+
+            # Action Points Table with related questions
+            action_data = [["Business", "Question (Q#)", "Action Required", "Timeframe", "Status"]]
             for item in outstanding[:10]:
+                business = item.get('business_name', '--')[:20]
+
+                # Look up the related question
+                q_id = item.get('question_id')
+                related_q = question_lookup.get(q_id, {}) if q_id else {}
+                q_num = related_q.get('question_number', item.get('question_number', '--'))
+                q_text = related_q.get('question_text', '--')[:40] if related_q else '--'
+
+                question_info = f"Q{q_num}: {q_text}" if q_text != '--' else f"Q{q_num}"
+                action = item.get('action_required', '--')[:35]
+                timeframe = item.get('action_timeframe', '--')
+                status = item.get('action_status', '--')
+
                 action_data.append([
-                    item.get('survey_date', '--')[:10],
-                    item.get('business_name', '--')[:15],
-                    item.get('action_required', '--')[:30],
-                    item.get('action_timeframe', '--'),
-                    item.get('action_status', '--')
+                    business,
+                    question_info,
+                    action,
+                    timeframe,
+                    status
                 ])
 
-            action_table = Table(action_data, colWidths=[20*mm, 25*mm, 50*mm, 25*mm, 20*mm])
+            action_table = Table(action_data, colWidths=[20*mm, 50*mm, 40*mm, 20*mm, 20*mm])
             action_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), CWS_NAVY),
                 ('TEXTCOLOR', (0, 0), (-1, 0), CWS_WHITE),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),
-                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('FONTSIZE', (0, 1), (-1, -1), 7),
                 ('GRID', (0, 0), (-1, -1), 0.5, CWS_BORDER),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [CWS_WHITE, CWS_LIGHT]),
-                ('TOPPADDING', (0, 0), (-1, -1), 4),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
             ]))
 
             story.append(action_table)
