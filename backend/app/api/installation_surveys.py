@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -25,6 +27,25 @@ router = APIRouter(prefix="/installation", tags=["installation"])
 
 ALLOWED_CUSTOMER_TYPES = {"B2B", "B2C"}
 ALLOWED_WORKER_TYPES = {"Field Team", "Contractor"}
+INSTALLATION_REPORT_TYPE_LABELS = {
+    "lifetime": "lifetime-summary-report",
+    "survey": "single-survey-report",
+}
+
+
+def _slug_filename_part(value: str | None, fallback: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (value or "").strip().lower()).strip("-")
+    return cleaned or fallback
+
+
+def build_installation_report_filename(payload: dict, extension: str) -> str:
+    filters = payload.get("filters") or {}
+    survey_detail = payload.get("survey_detail") or {}
+    report_type = INSTALLATION_REPORT_TYPE_LABELS.get(str(filters.get("report_type") or "lifetime"), "report")
+    scope = _slug_filename_part(str(survey_detail.get("location") or survey_detail.get("customer_name") or "all-installations"), "all-installations")
+    date_label = _slug_filename_part(str(survey_detail.get("date_work_done") or filters.get("date_from") or filters.get("date_to") or datetime.utcnow().date().isoformat()), datetime.utcnow().date().isoformat())
+    generated = datetime.utcnow().date().isoformat()
+    return f"cwscx-installation-{report_type}-{scope}-{date_label}-generated-{generated}.{extension}"
 
 INSTALLATION_QUESTION_FALLBACK = [
     {
@@ -1122,6 +1143,7 @@ def export_installation_report(
     date_from: str | None = None,
     date_to: str | None = None,
     survey_id: str | None = None,
+    download: bool = False,
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
@@ -1315,6 +1337,12 @@ def export_installation_report(
 
         # Build payload
         payload = {
+            "filters": {
+                "report_type": report_type,
+                "date_from": date_from,
+                "date_to": date_to,
+                "survey_id": survey_id,
+            },
             "summary": {
                 "total_surveys": int(summary_row["total_surveys"] or 0) if summary_row else 0,
                 "overall_average_score": _to_float(summary_row["overall_average_score"]) if summary_row else None,
@@ -1374,10 +1402,15 @@ def export_installation_report(
 
         # Render HTML for preview
         report_html = render_installation_report_html(payload, getattr(current_user, "name", "Unknown User"))
+        filename = build_installation_report_filename(payload, "html")
+
+        if download:
+            return HTMLResponse(content=report_html, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
         return {
             "report": payload,
             "report_html": report_html,
+            "filename": filename,
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to build installation report: {exc}")
@@ -1419,7 +1452,9 @@ def email_installation_report(
         date_from=request.date_from,
         date_to=request.date_to,
         survey_id=request.survey_id,
+        download=False,
         db=db,
+        current_user=current_user,
     )
 
     # Render HTML
@@ -1465,6 +1500,30 @@ def email_installation_report(
         raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}")
 
     return {"message": f"Report emailed to {len(request.to)} recipient(s)", "recipients": request.to}
+
+
+@router.get("/reports/pdf", dependencies=[Depends(require_roles(*INSTALL_ROLES))])
+def export_installation_report_pdf(
+    report_type: str = "lifetime",
+    date_from: str | None = None,
+    date_to: str | None = None,
+    survey_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    payload_response = export_installation_report(
+        report_type=report_type,
+        date_from=date_from,
+        date_to=date_to,
+        survey_id=survey_id,
+        download=False,
+        db=db,
+        current_user=current_user,
+    )
+    payload = payload_response.get("report") if isinstance(payload_response, dict) else payload_response
+    pdf_bytes = render_installation_report_pdf(payload or {}, getattr(current_user, "name", "Unknown User"))
+    filename = build_installation_report_filename(payload or {}, "pdf")
+    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 
@@ -1691,3 +1750,155 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
     """
 
     return html
+
+
+def render_installation_report_pdf(payload: dict, generated_by: str) -> bytes:
+    from io import BytesIO
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=32, bottomMargin=32)
+    styles = getSampleStyleSheet()
+    small = ParagraphStyle("InstallSmall", parent=styles["BodyText"], fontSize=9, leading=12)
+    story: list = []
+
+    filters = payload.get("filters") or {}
+    summary = payload.get("summary") or {}
+    survey_detail = payload.get("survey_detail") or {}
+    customer_type_averages = payload.get("customer_type_averages") or []
+    worker_type_averages = payload.get("worker_type_averages") or []
+    category_averages = payload.get("category_averages") or []
+    question_averages = payload.get("question_averages") or []
+    monthly_trend = payload.get("monthly_trend") or []
+    scoring_range = payload.get("scoring_range") or "1-5"
+
+    def fmt(value):
+        if value is None or value == "":
+            return "--"
+        try:
+            return f"{float(value):.2f}"
+        except Exception:
+            return str(value)
+
+    story.append(Paragraph("CWSCX Installation Assessment Report", styles["Title"]))
+    story.append(Paragraph(
+        f"Type: {INSTALLATION_REPORT_TYPE_LABELS.get(str(filters.get('report_type') or 'lifetime'), 'report').replace('-', ' ').title()}",
+        styles["Heading3"],
+    ))
+    story.append(Paragraph(f"Generated by: {generated_by}", styles["BodyText"]))
+    story.append(Paragraph(
+        f"Date scope: {filters.get('date_from') or 'start'} to {filters.get('date_to') or 'latest'} | Survey ID: {filters.get('survey_id') or 'All'}",
+        small,
+    ))
+    story.append(Spacer(1, 12))
+
+    summary_rows = [
+        ["Total Surveys", str(summary.get("total_surveys", 0)), "Overall Average", fmt(summary.get("overall_average_score"))],
+        ["Customer Types", str(len(customer_type_averages)), "Worker Types", str(len(worker_type_averages))],
+        ["Categories", str(len(category_averages)), "Scoring Range", str(scoring_range)],
+    ]
+    summary_table = Table(summary_rows, colWidths=[120, 80, 120, 100])
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("PADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 12))
+
+    if survey_detail:
+        story.append(Paragraph("Single Survey Context", styles["Heading2"]))
+        detail_rows = [
+            ["Customer", survey_detail.get("customer_name") or "--"],
+            ["Location", survey_detail.get("location") or "--"],
+            ["Date Work Done", survey_detail.get("date_work_done") or "--"],
+            ["Inspector", survey_detail.get("inspector_name") or "--"],
+            ["Worker Type", survey_detail.get("job_done_by") or "--"],
+            ["Overall Score", fmt(survey_detail.get("overall_score"))],
+        ]
+        detail_table = Table(detail_rows, colWidths=[140, 360])
+        detail_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("PADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(detail_table)
+        story.append(Spacer(1, 12))
+
+        responses = survey_detail.get("responses") or []
+        if responses:
+            response_rows = [["Question", "Category", "Score"]]
+            for item in responses[:45]:
+                response_rows.append([
+                    Paragraph(f"Q{item.get('question_number')}: {item.get('question_text') or '--'}", small),
+                    Paragraph(str(item.get("category") or "--"), small),
+                    str(item.get("score") or "--"),
+                ])
+            response_table = Table(response_rows, colWidths=[280, 150, 50], repeatRows=1)
+            response_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("PADDING", (0, 0), (-1, -1), 5),
+            ]))
+            story.append(Paragraph("Question Scores", styles["Heading2"]))
+            story.append(response_table)
+    else:
+        story.append(Paragraph("Lifetime Summary", styles["Heading2"]))
+        customer_rows = [["Customer Type", "Average Score", "Survey Count"]] + [
+            [str(row.get("customer_type") or "--"), fmt(row.get("average_score")), str(row.get("survey_count") or 0)]
+            for row in customer_type_averages[:10]
+        ]
+        worker_rows = [["Worker Type", "Average Score", "Survey Count"]] + [
+            [str(row.get("worker_type") or "--"), fmt(row.get("average_score")), str(row.get("survey_count") or 0)]
+            for row in worker_type_averages[:10]
+        ]
+        category_rows = [["Category", "Average Score"]] + [
+            [Paragraph(str(row.get("category") or "--"), small), fmt(row.get("average_score"))]
+            for row in category_averages[:15]
+        ]
+        monthly_rows = [["Month", "Average Score", "Survey Count"]] + [
+            [str(row.get("period") or "--"), fmt(row.get("average_score")), str(row.get("survey_count") or 0)]
+            for row in monthly_trend[:12]
+        ]
+        for title, rows, widths in [
+            ("Customer Type Averages", customer_rows, [180, 120, 100]),
+            ("Worker Type Averages", worker_rows, [180, 120, 100]),
+            ("Category Averages", category_rows, [320, 80]),
+            ("Monthly Trend", monthly_rows, [160, 120, 100]),
+        ]:
+            story.append(Paragraph(title, styles["Heading3"]))
+            table = Table(rows, colWidths=widths, repeatRows=1)
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("PADDING", (0, 0), (-1, -1), 5),
+            ]))
+            story.append(table)
+            story.append(Spacer(1, 10))
+
+        if question_averages:
+            story.append(Paragraph("Question Averages", styles["Heading3"]))
+            q_rows = [["Question", "Average", "Responses"]]
+            for row in question_averages[:25]:
+                q_rows.append([
+                    Paragraph(f"Q{row.get('question_number')}: {row.get('question_text') or '--'}", small),
+                    fmt(row.get("average_score")),
+                    str(row.get("response_count") or 0),
+                ])
+            q_table = Table(q_rows, colWidths=[320, 80, 80], repeatRows=1)
+            q_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("PADDING", (0, 0), (-1, -1), 5),
+            ]))
+            story.append(q_table)
+
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes

@@ -2,6 +2,7 @@ import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
 import { Select } from "../../../components/ui/select";
+import EmailRecipientsInput from "../../../components/shared/EmailRecipientsInput";
 import { cn, getTrafficLightMetric } from "../../../lib/utils";
 
 export default function MysteryReportsSection({
@@ -20,8 +21,11 @@ export default function MysteryReportsSection({
   setReportDateTo,
   reportSurveyLoading,
   reportIneligibleSurveys,
-  reportEmailTo,
-  setReportEmailTo,
+  reportEmailRecipients,
+  reportEmailDraft,
+  setReportEmailDraft,
+  addReportRecipients,
+  removeReportRecipient,
   handlePreviewReport,
   handleDownloadReport,
   handleDownloadPdfReport,
@@ -192,7 +196,16 @@ export default function MysteryReportsSection({
                     <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} placeholder="To date (optional)" />
                   </>
                 ) : null}
-                <Input placeholder="Email recipients (comma separated)" value={reportEmailTo} onChange={(event) => setReportEmailTo(event.target.value)} />
+                <EmailRecipientsInput
+                  label="Email recipients"
+                  placeholder="manager@example.com"
+                  recipients={reportEmailRecipients}
+                  draft={reportEmailDraft}
+                  onDraftChange={setReportEmailDraft}
+                  onAddRecipient={addReportRecipients}
+                  onRemoveRecipient={removeReportRecipient}
+                  onDraftBlur={addReportRecipients}
+                />
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={handlePreviewReport} disabled={reportLoading}>{reportLoading ? "Generating..." : "Preview Report"}</Button>

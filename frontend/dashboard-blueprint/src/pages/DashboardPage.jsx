@@ -22,6 +22,7 @@ import BusinessesDataTable from "../components/b2b/BusinessesDataTable";
 import ExecutivesDataTable from "../components/b2b/ExecutivesDataTable";
 import ActionPointsDataTable from "../components/b2b/ActionPointsDataTable";
 import SimpleStatusDataTable from "../components/shared/SimpleStatusDataTable";
+import EmailRecipientsInput from "../components/shared/EmailRecipientsInput";
 import MysteryReviewQueueSection from "../features/mystery-shopper/components/MysteryReviewQueueSection";
 import MysteryVisitDetailCard from "../features/mystery-shopper/components/MysteryVisitDetailCard";
 import MysterySurveyResultsSection from "../features/mystery-shopper/components/MysterySurveyResultsSection";
@@ -43,6 +44,51 @@ const REPORT_TYPE_OPTIONS = [
 function normalizeTeamMembers(values) {
   if (!Array.isArray(values)) return [];
   return values.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+const EMAIL_SPLIT_REGEX = /[\s,;]+/;
+const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeRecipients(values) {
+  return [...new Set((values || []).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean))];
+}
+
+function splitRecipientDraft(value) {
+  return String(value || "")
+    .split(EMAIL_SPLIT_REGEX)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function collectRecipients(recipients, draft) {
+  const draftItems = splitRecipientDraft(draft);
+  const all = normalizeRecipients([...(recipients || []), ...draftItems]);
+  const invalid = all.filter((item) => !SIMPLE_EMAIL_REGEX.test(item));
+  return {
+    recipients: all.filter((item) => SIMPLE_EMAIL_REGEX.test(item)),
+    invalid,
+  };
+}
+
+function filenameFromDisposition(disposition, fallback) {
+  const match = String(disposition || "").match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+  if (!match) return fallback;
+  try {
+    return decodeURIComponent(match[1].replace(/\"/g, "")).trim();
+  } catch {
+    return match[1].replace(/\"/g, "").trim() || fallback;
+  }
+}
+
+function triggerBlobDownload(blob, filename) {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
 }
 const INSTALL_REPORT_TYPE_OPTIONS = [
   { key: "lifetime", label: "Lifetime Summary", description: "Complete analytics overview of all installation assessments with clear, easy-to-understand metrics and explanations." },
@@ -202,7 +248,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [reportVisitId, setReportVisitId] = useState("");
   const [reportSelectedDate, setReportSelectedDate] = useState("");
   const [reportBusinessId, setReportBusinessId] = useState("");
-  const [reportEmailTo, setReportEmailTo] = useState("");
+  const [reportEmailRecipients, setReportEmailRecipients] = useState([]);
+  const [reportEmailDraft, setReportEmailDraft] = useState("");
   const [reportPreview, setReportPreview] = useState(null);
   const [reportPreviewHtml, setReportPreviewHtml] = useState("");
   const [reportEligibleSurveys, setReportEligibleSurveys] = useState([]);
@@ -247,16 +294,39 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
    const [installReportDateTo, setInstallReportDateTo] = useState("");
    const [installReportMonth, setInstallReportMonth] = useState("");
    const [installReportSurveyId, setInstallReportSurveyId] = useState("");
-   const [installReportEmailTo, setInstallReportEmailTo] = useState("");
+   const [installReportEmailRecipients, setInstallReportEmailRecipients] = useState([]);
+   const [installReportEmailDraft, setInstallReportEmailDraft] = useState("");
    const [installReportPreview, setInstallReportPreview] = useState(null);
    const [installReportPreviewHtml, setInstallReportPreviewHtml] = useState("");
    const [installReportSurveyList, setInstallReportSurveyList] = useState([]);
    const [installReportSurveyListLoading, setInstallReportSurveyListLoading] = useState(false);
    const [installReportLoading, setInstallReportLoading] = useState(false);
    const [installReportSending, setInstallReportSending] = useState(false);
-   const [installationTrendMonth, setInstallationTrendMonth] = useState("");
-   const [installationTrendCustomerType, setInstallationTrendCustomerType] = useState("");
-   const [installationTrendWorkerType, setInstallationTrendWorkerType] = useState("");
+  const [installationTrendMonth, setInstallationTrendMonth] = useState("");
+  const [installationTrendCustomerType, setInstallationTrendCustomerType] = useState("");
+  const [installationTrendWorkerType, setInstallationTrendWorkerType] = useState("");
+
+  const addReportRecipients = useCallback(() => {
+    const items = splitRecipientDraft(reportEmailDraft);
+    if (!items.length) return;
+    setReportEmailRecipients((current) => normalizeRecipients([...current, ...items]));
+    setReportEmailDraft("");
+  }, [reportEmailDraft]);
+
+  const removeReportRecipient = useCallback((recipient) => {
+    setReportEmailRecipients((current) => current.filter((item) => item !== recipient));
+  }, []);
+
+  const addInstallReportRecipients = useCallback(() => {
+    const items = splitRecipientDraft(installReportEmailDraft);
+    if (!items.length) return;
+    setInstallReportEmailRecipients((current) => normalizeRecipients([...current, ...items]));
+    setInstallReportEmailDraft("");
+  }, [installReportEmailDraft]);
+
+  const removeInstallReportRecipient = useCallback((recipient) => {
+    setInstallReportEmailRecipients((current) => current.filter((item) => item !== recipient));
+  }, []);
    const [installationTrends, setInstallationTrends] = useState(null);
    const [installationTrendsLoading, setInstallationTrendsLoading] = useState(false);
    const [installationContractorQuery, setInstallationContractorQuery] = useState("");
@@ -506,25 +576,59 @@ const platformAbortRef = useRef(null);
   }, [installReportType, installReportDateFrom, installReportDateTo, installReportSurveyId, headers, fetchJsonSafe, pushToast]);
 
   const handleInstallationDownloadReport = useCallback(async () => {
-    if (!installReportPreviewHtml) return;
-    const link = document.createElement("a");
-    const blob = new Blob([installReportPreviewHtml], { type: "text/html" });
-    link.href = URL.createObjectURL(blob);
-    link.download = `installation-report-${new Date().toISOString().slice(0,10)}.html`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-    pushToast("success", "Report downloaded");
-  }, [installReportPreviewHtml, pushToast]);
+    const params = new URLSearchParams({ report_type: installReportType });
+    if (installReportDateFrom) params.set("date_from", installReportDateFrom);
+    if (installReportDateTo) params.set("date_to", installReportDateTo);
+    if (installReportSurveyId) params.set("survey_id", installReportSurveyId);
+    params.set("download", "true");
+    try {
+      const res = await fetch(`${API_BASE}/installation/reports/export?${params.toString()}`, { headers });
+      if (!res.ok) {
+        const text = await res.text();
+        setError(text || "Failed to download report");
+        return;
+      }
+      const blob = await res.blob();
+      triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), `cwscx-installation-report-${new Date().toISOString().slice(0, 10)}.html`));
+      pushToast("success", "Report downloaded");
+    } catch {
+      setError("Failed to download report");
+    }
+  }, [headers, installReportDateFrom, installReportDateTo, installReportSurveyId, installReportType, pushToast]);
+
+  const handleInstallationDownloadPdfReport = useCallback(async () => {
+    const params = new URLSearchParams({ report_type: installReportType });
+    if (installReportDateFrom) params.set("date_from", installReportDateFrom);
+    if (installReportDateTo) params.set("date_to", installReportDateTo);
+    if (installReportSurveyId) params.set("survey_id", installReportSurveyId);
+    try {
+      const res = await fetch(`${API_BASE}/installation/reports/pdf?${params.toString()}`, { headers });
+      if (!res.ok) {
+        const text = await res.text();
+        setError(text || "Failed to download PDF report");
+        return;
+      }
+      const blob = await res.blob();
+      triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), `cwscx-installation-report-${new Date().toISOString().slice(0, 10)}.pdf`));
+      pushToast("success", "PDF report downloaded");
+    } catch {
+      setError("Failed to download PDF report");
+    }
+  }, [headers, installReportDateFrom, installReportDateTo, installReportSurveyId, installReportType, pushToast]);
 
   const handleInstallationEmailReport = useCallback(async () => {
-    if (!installReportEmailTo.trim()) {
+    const { recipients, invalid } = collectRecipients(installReportEmailRecipients, installReportEmailDraft);
+    if (invalid.length) {
+      setError(`Fix invalid email address${invalid.length === 1 ? "" : "es"}: ${invalid.join(", ")}`);
+      return;
+    }
+    if (!recipients.length) {
       setError("Please enter at least one email recipient");
       return;
     }
     setInstallReportSending(true);
     setError("");
     try {
-      const recipients = installReportEmailTo.split(",").map((e) => e.trim()).filter(Boolean);
       const payload = {
         report_type: installReportType,
         date_from: installReportDateFrom || null,
@@ -540,7 +644,8 @@ const platformAbortRef = useRef(null);
       if (!res.ok) {
         setError(data?.detail || "Failed to send report email");
       } else {
-        setInstallReportEmailTo("");
+        setInstallReportEmailRecipients([]);
+        setInstallReportEmailDraft("");
         pushToast("success", `Report emailed to ${recipients.join(", ")}`);
       }
     } catch (err) {
@@ -548,7 +653,7 @@ const platformAbortRef = useRef(null);
     } finally {
       setInstallReportSending(false);
     }
-  }, [installReportType, installReportDateFrom, installReportDateTo, installReportSurveyId, installReportEmailTo, headers, fetchJsonSafe, pushToast]);
+  }, [installReportType, installReportDateFrom, installReportDateTo, installReportSurveyId, installReportEmailRecipients, installReportEmailDraft, headers, fetchJsonSafe, pushToast]);
 
   useEffect(() => {
     if (!isInstallationPlatform) {
@@ -1019,14 +1124,7 @@ const platformAbortRef = useRef(null);
         return;
       }
       const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "cwscx-survey-report.html";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), "cwscx-survey-report.html"));
       setMessage("Report downloaded.");
     } catch {
       setError("Failed to download report");
@@ -1041,11 +1139,7 @@ const platformAbortRef = useRef(null);
     try {
       const endpoint = isMysteryShopperPlatform
         ? `${API_BASE}/mystery-shopper/reports/pdf?${params.toString()}`
-        : null;
-      if (!endpoint) {
-        setError("PDF download is not available for this platform yet.");
-        return;
-      }
+        : `${API_BASE}/dashboard-visits/reports/pdf?${params.toString()}`;
       const res = await fetch(endpoint, { headers });
       if (!res.ok) {
         const text = await res.text();
@@ -1053,14 +1147,7 @@ const platformAbortRef = useRef(null);
         return;
       }
       const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "cwscx-mystery-shopper-report.pdf";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), isMysteryShopperPlatform ? "cwscx-mystery-shopper-report.pdf" : "cwscx-survey-report.pdf"));
       setMessage("PDF report downloaded.");
     } catch {
       setError("Failed to download PDF report");
@@ -1069,10 +1156,11 @@ const platformAbortRef = useRef(null);
 
   const handleEmailReport = useCallback(async () => {
     if (!validateReportSelection()) return;
-    const recipients = reportEmailTo
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
+    const { recipients, invalid } = collectRecipients(reportEmailRecipients, reportEmailDraft);
+    if (invalid.length) {
+      setError(`Fix invalid email address${invalid.length === 1 ? "" : "es"}: ${invalid.join(", ")}`);
+      return;
+    }
     if (recipients.length === 0) {
       setError("Enter at least one email address.");
       return;
@@ -1104,11 +1192,13 @@ const platformAbortRef = useRef(null);
         setError(data?.detail || "Failed to send report email");
         return;
       }
+      setReportEmailRecipients([]);
+      setReportEmailDraft("");
       setMessage(`Report emailed to ${recipients.join(", ")}.`);
     } finally {
       setReportSending(false);
     }
-  }, [activePlatform, fetchJsonSafe, headers, isMysteryShopperPlatform, reportBusinessId, reportDateFrom, reportDateTo, reportEmailTo, reportSelectedDate, reportType, reportVisitId, validateReportSelection]);
+  }, [activePlatform, fetchJsonSafe, headers, isMysteryShopperPlatform, reportBusinessId, reportDateFrom, reportDateTo, reportEmailRecipients, reportEmailDraft, reportSelectedDate, reportType, reportVisitId, validateReportSelection]);
 
   useEffect(() => {
     if (location.pathname !== "/reports") return;
@@ -3390,16 +3480,16 @@ const platformAbortRef = useRef(null);
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {(installReportType === "lifetime" || installReportType === "survey") && (
-                  <>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Email Recipients (comma separated)</label>
-                      <Input
-                        placeholder="manager@example.com"
-                        value={installReportEmailTo}
-                        onChange={(e) => setInstallReportEmailTo(e.target.value)}
-                      />
-                    </div>
-                  </>
+                  <EmailRecipientsInput
+                    label="Email recipients"
+                    placeholder="manager@example.com"
+                    recipients={installReportEmailRecipients}
+                    draft={installReportEmailDraft}
+                    onDraftChange={setInstallReportEmailDraft}
+                    onAddRecipient={addInstallReportRecipients}
+                    onRemoveRecipient={removeInstallReportRecipient}
+                    onDraftBlur={addInstallReportRecipients}
+                  />
                 )}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -3407,6 +3497,7 @@ const platformAbortRef = useRef(null);
                   {installReportLoading ? "Generating..." : "Preview Report"}
                 </Button>
                 <Button type="button" variant="outline" onClick={handleInstallationDownloadReport} disabled={!installReportPreviewHtml}>Download HTML</Button>
+                <Button type="button" variant="outline" onClick={handleInstallationDownloadPdfReport}>Download PDF</Button>
                 <Button type="button" onClick={handleInstallationEmailReport} disabled={installReportSending}>
                   {installReportSending ? "Sending..." : "Email Report"}
                 </Button>
@@ -3416,7 +3507,8 @@ const platformAbortRef = useRef(null);
                   setInstallReportDateFrom("");
                   setInstallReportDateTo("");
                   setInstallReportSurveyId("");
-                  setInstallReportEmailTo("");
+                  setInstallReportEmailRecipients([]);
+                  setInstallReportEmailDraft("");
                   setInstallReportPreview(null);
                   setInstallReportPreviewHtml("");
                   setInstallReportSurveyList([]);
@@ -3493,8 +3585,11 @@ const platformAbortRef = useRef(null);
               setReportDateTo={setReportDateTo}
               reportSurveyLoading={reportSurveyLoading}
               reportIneligibleSurveys={reportIneligibleSurveys}
-              reportEmailTo={reportEmailTo}
-              setReportEmailTo={setReportEmailTo}
+              reportEmailRecipients={reportEmailRecipients}
+              reportEmailDraft={reportEmailDraft}
+              setReportEmailDraft={setReportEmailDraft}
+              addReportRecipients={addReportRecipients}
+              removeReportRecipient={removeReportRecipient}
               handlePreviewReport={handlePreviewReport}
               handleDownloadReport={handleDownloadReport}
               handleDownloadPdfReport={handleDownloadPdfReport}
@@ -3747,10 +3842,15 @@ const platformAbortRef = useRef(null);
                       <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} placeholder="To date (optional)" />
                     </>
                   ) : null}
-                  <Input
-                    placeholder="Email recipients (comma separated)"
-                    value={reportEmailTo}
-                    onChange={(event) => setReportEmailTo(event.target.value)}
+                  <EmailRecipientsInput
+                    label="Email recipients"
+                    placeholder="manager@example.com"
+                    recipients={reportEmailRecipients}
+                    draft={reportEmailDraft}
+                    onDraftChange={setReportEmailDraft}
+                    onAddRecipient={addReportRecipients}
+                    onRemoveRecipient={removeReportRecipient}
+                    onDraftBlur={addReportRecipients}
                   />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -3758,6 +3858,7 @@ const platformAbortRef = useRef(null);
                     {reportLoading ? "Generating..." : "Preview Report"}
                   </Button>
                   <Button type="button" variant="outline" onClick={handleDownloadReport} title="Download the current report as an HTML file you can open or share">Download HTML</Button>
+                  <Button type="button" variant="outline" onClick={handleDownloadPdfReport} title="Download the current report as a formatted PDF file">Download PDF</Button>
                   <Button type="button" onClick={handleEmailReport} disabled={reportSending} title="Email the current report to the addresses entered above">
                     {reportSending ? "Sending..." : "Email Report"}
                   </Button>

@@ -2,11 +2,14 @@
 Dashboard visits compatibility endpoint - DIFFERENT PREFIX
 """
 
+from datetime import date, datetime
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 import base64
 import html as html_lib
 import json
@@ -44,6 +47,68 @@ def get_response_table(db: Session) -> str | None:
 
 ACTION_TIMEFRAME_OPTIONS = {"<1 month", "<3 months", "<6 months", ">6 months"}
 ACTION_STATUS_OPTIONS = {"Outstanding", "In Progress", "Completed"}
+
+REPORT_TYPE_LABELS = {
+    "survey": "selected-business-report",
+    "date": "date-range-report",
+    "lifetime": "lifetime-overview-report",
+    "action_points": "action-points-report",
+}
+
+
+def _slug_filename_part(value: str | None, fallback: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (value or "").strip().lower()).strip("-")
+    return cleaned or fallback
+
+
+def _friendly_generated_date() -> str:
+    return datetime.utcnow().date().isoformat()
+
+
+def _b2b_scope_label(payload: dict[str, Any]) -> str:
+    selected_visit = payload.get("selected_visit_info") or {}
+    if selected_visit.get("business_name"):
+        return _slug_filename_part(str(selected_visit.get("business_name")), "selected-business")
+
+    businesses = payload.get("business_breakdown") or []
+    if len(businesses) == 1 and businesses[0].get("business_name"):
+        return _slug_filename_part(str(businesses[0].get("business_name")), "selected-business")
+
+    action_points = payload.get("action_points") or []
+    business_names = sorted({str(item.get("business_name") or "").strip() for item in action_points if item.get("business_name")})
+    if len(business_names) == 1:
+        return _slug_filename_part(business_names[0], "selected-business")
+
+    filters = payload.get("filters") or {}
+    if filters.get("business_id") is not None:
+        return f"business-{filters.get('business_id')}"
+    return "all-businesses"
+
+
+def _b2b_date_label(payload: dict[str, Any]) -> str:
+    filters = payload.get("filters") or {}
+    selected_visit = payload.get("selected_visit_info") or {}
+    if selected_visit.get("visit_date"):
+        return _slug_filename_part(str(selected_visit.get("visit_date")), _friendly_generated_date())
+    if filters.get("report_date"):
+        return _slug_filename_part(str(filters.get("report_date")), _friendly_generated_date())
+    if filters.get("date_from") and filters.get("date_to"):
+        return f"{_slug_filename_part(str(filters.get('date_from')), 'from')}-to-{_slug_filename_part(str(filters.get('date_to')), 'to')}"
+    if filters.get("date_from"):
+        return f"from-{_slug_filename_part(str(filters.get('date_from')), 'from')}"
+    if filters.get("date_to"):
+        return f"through-{_slug_filename_part(str(filters.get('date_to')), 'to')}"
+    return f"generated-{_friendly_generated_date()}"
+
+
+def build_b2b_report_filename(payload: dict[str, Any], extension: str) -> str:
+    filters = payload.get("filters") or {}
+    survey_type = _slug_filename_part(str(filters.get("survey_type") or "b2b"), "b2b")
+    report_type = REPORT_TYPE_LABELS.get(str(filters.get("report_type") or "lifetime"), "report")
+    scope = _b2b_scope_label(payload)
+    date_label = _b2b_date_label(payload)
+    generated = _friendly_generated_date()
+    return f"cwscx-{survey_type}-{report_type}-{scope}-{date_label}-generated-{generated}.{extension}"
 
 
 def _env_first(*names: str) -> str:
@@ -1763,7 +1828,6 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   </div>
 </body>
 </html>"""
-
     def svg_pie_chart(values: list[float], colors: list[str], size: int = 120) -> str:
         """Generate an inline SVG pie chart — compatible with all email clients."""
         import math as _m
@@ -2402,6 +2466,165 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 """
 
 
+def render_report_pdf(payload: dict[str, Any], generated_by: str) -> bytes:
+    from io import BytesIO
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=32, bottomMargin=32)
+    styles = getSampleStyleSheet()
+    small = ParagraphStyle("Small", parent=styles["BodyText"], fontSize=9, leading=12)
+    story: list[Any] = []
+
+    filters = payload.get("filters") or {}
+    summary = payload.get("summary") or {}
+    selected_visit = payload.get("selected_visit_info") or {}
+    action_points = payload.get("action_points") or []
+    questions = payload.get("survey_question_details") or []
+    visit_details = payload.get("visit_details") or []
+    comparison = payload.get("analytics_comparison") or {}
+    report_type = str(filters.get("report_type") or "lifetime")
+
+    def fmt(value: Any, suffix: str = "") -> str:
+        if value is None or value == "":
+            return "--"
+        try:
+            return f"{float(value):.1f}{suffix}"
+        except Exception:
+            return f"{value}{suffix}"
+
+    story.append(Paragraph("CWSCX B2B Report", styles["Title"]))
+    story.append(Paragraph(f"Type: {REPORT_TYPE_LABELS.get(report_type, 'report').replace('-', ' ').title()}", styles["Heading3"]))
+    story.append(Paragraph(f"Generated by: {generated_by}", styles["BodyText"]))
+    story.append(Paragraph(
+        f"Survey: {filters.get('survey_type') or 'B2B'} | Scope: {_b2b_scope_label(payload).replace('-', ' ').title()} | Period: {_b2b_date_label(payload).replace('-', ' ')}",
+        small,
+    ))
+    story.append(Spacer(1, 12))
+
+    summary_rows = [
+        ["Total Visits", str(summary.get("total_visits", 0)), "Total Businesses", str(summary.get("total_businesses", 0))],
+        ["Total Responses", str(summary.get("total_responses", 0)), "Average Score", fmt(summary.get("average_score"))],
+        ["Outstanding Action Points", str(sum(1 for item in action_points if item.get("action_status") != "Completed")), "Completed Action Points", str(sum(1 for item in action_points if item.get("action_status") == "Completed"))],
+    ]
+    summary_table = Table(summary_rows, colWidths=[120, 90, 140, 90])
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("PADDING", (0, 0), (-1, -1), 6),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 12))
+
+    metric_rows = [["Metric", "Selected", "Overall"]]
+    for key, label, suffix in [
+        ("nps", "NPS", ""),
+        ("csat", "CSAT", "%"),
+        ("relationship_score", "Relationship", ""),
+        ("competitor_exposure", "Competitor Exposure", "%"),
+    ]:
+        values = comparison.get(key) or {}
+        metric_rows.append([label, fmt(values.get("selected"), suffix), fmt(values.get("overall"), suffix)])
+    metric_table = Table(metric_rows, colWidths=[180, 140, 140])
+    metric_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("PADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(Paragraph("Key Metrics", styles["Heading2"]))
+    story.append(metric_table)
+    story.append(Spacer(1, 12))
+
+    if selected_visit:
+        story.append(Paragraph("Selected Survey Context", styles["Heading2"]))
+        visit_rows = [
+            ["Business", selected_visit.get("business_name") or "--"],
+            ["Survey Date", selected_visit.get("visit_date") or "--"],
+            ["Status", selected_visit.get("status") or "--"],
+            ["Account Executive", selected_visit.get("account_executive_name") or "--"],
+            ["Representative", selected_visit.get("representative_name") or "--"],
+            ["Team Members", ", ".join(selected_visit.get("team_member_names") or []) or "--"],
+        ]
+        visit_table = Table(visit_rows, colWidths=[130, 380])
+        visit_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("PADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(visit_table)
+        story.append(Spacer(1, 12))
+
+    if action_points:
+        story.append(Paragraph("Action Points", styles["Heading2"]))
+        ap_rows = [["Business", "Date", "Status", "Owner", "Timeline", "Action Point"]]
+        for item in action_points[:30]:
+            ap_rows.append([
+                Paragraph(str(item.get("business_name") or "--"), small),
+                str(item.get("visit_date") or "--"),
+                str(item.get("action_status") or "--"),
+                Paragraph(str(item.get("action_owner") or "--"), small),
+                str(item.get("action_timeframe") or "--"),
+                Paragraph(str(item.get("action_required") or "--"), small),
+            ])
+        ap_table = Table(ap_rows, colWidths=[95, 60, 65, 80, 65, 160], repeatRows=1)
+        ap_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("PADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(ap_table)
+        story.append(Spacer(1, 12))
+
+    if questions:
+        story.append(Paragraph("Survey Questions", styles["Heading2"]))
+        question_rows = [["Question", "Answer", "Verbatim"]]
+        for item in questions[:40]:
+            answer = item.get("answer_text") or (f"{item.get('score')}/{item.get('score_max')}" if item.get("score") is not None else "--")
+            question_rows.append([
+                Paragraph(f"Q{item.get('question_number') or '--'}: {item.get('question_text') or '--'}", small),
+                Paragraph(str(answer), small),
+                Paragraph(str(item.get("verbatim") or "--"), small),
+            ])
+        question_table = Table(question_rows, colWidths=[250, 90, 170], repeatRows=1)
+        question_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("PADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(question_table)
+        story.append(Spacer(1, 12))
+
+    if visit_details:
+        story.append(Paragraph("Visit Summary", styles["Heading2"]))
+        visit_rows = [["Date", "Business", "Status", "Responses", "Average Score"]]
+        for item in visit_details[:40]:
+            visit_rows.append([
+                str(item.get("visit_date") or "--"),
+                Paragraph(str(item.get("business_name") or "--"), small),
+                str(item.get("status") or "--"),
+                str(item.get("response_count") or 0),
+                fmt(item.get("avg_score")),
+            ])
+        visits_table = Table(visit_rows, colWidths=[75, 220, 70, 70, 80], repeatRows=1)
+        visits_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("PADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(visits_table)
+
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
+
+
 @router.get("/reports/export")
 def export_report(
     report_type: str | None = "lifetime",
@@ -2417,7 +2640,7 @@ def export_report(
 ):
     payload = build_report_payload(db, report_type, survey_type, business_id, visit_id, report_date, date_from, date_to)
     report_html = render_report_html(payload, getattr(current_user, "name", "Unknown User"))
-    filename = "cwscx-survey-report.html"
+    filename = build_b2b_report_filename(payload, "html")
     if download:
         return HTMLResponse(
             content=report_html,
@@ -2428,6 +2651,24 @@ def export_report(
         "report_html": report_html,
         "report": payload,
     }
+
+
+@router.get("/reports/pdf")
+def export_report_pdf(
+    report_type: str | None = "lifetime",
+    survey_type: str | None = "B2B",
+    business_id: int | None = None,
+    visit_id: str | None = None,
+    report_date: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payload = build_report_payload(db, report_type, survey_type, business_id, visit_id, report_date, date_from, date_to)
+    pdf_bytes = render_report_pdf(payload, getattr(current_user, "name", "Unknown User"))
+    filename = build_b2b_report_filename(payload, "pdf")
+    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.post("/reports/email")
