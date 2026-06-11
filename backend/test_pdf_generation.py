@@ -35,22 +35,30 @@ payload = {
 
 try:
     print("Testing PDF generation...")
+    print(f"Payload summary:")
+    print(f"  - Visits: {len(payload.get('visit_details', []))}")
+    print(f"  - Businesses: {len(payload.get('business_breakdown', []))}")
+    print(f"  - Summary: {payload.get('summary')}")
+
     pdf_bytes = render_report_pdf(payload, "Test User")
     print(f"[OK] PDF generated successfully")
     print(f"     Size: {len(pdf_bytes)} bytes")
     print(f"     Valid PDF: {pdf_bytes.startswith(b'%PDF')}")
 
-    if len(pdf_bytes) < 1000:
-        print(f"[WARNING] PDF is very small ({len(pdf_bytes)} bytes)")
+    if len(pdf_bytes) < 3000:
+        print(f"[WARNING] PDF is very small ({len(pdf_bytes)} bytes) - may be empty content")
 
     # Write test PDF to verify
     with open("test_report.pdf", "wb") as f:
         f.write(pdf_bytes)
     print(f"     Saved to: test_report.pdf")
 
-    # Check first 500 bytes
-    print(f"\nFirst 200 bytes (hex):")
-    print(f"{pdf_bytes[:200].hex()}")
+    # Check PDF structure
+    print(f"\nPDF Analysis:")
+    print(f"  - Starts with: {pdf_bytes[:10]}")
+    print(f"  - Contains 'endstream': {b'endstream' in pdf_bytes}")
+    print(f"  - Contains 'showpage': {b'showpage' in pdf_bytes}")
+    print(f"  - Stream count: {pdf_bytes.count(b'stream')}")
 
 except Exception as e:
     print(f"[ERROR] {e}")
