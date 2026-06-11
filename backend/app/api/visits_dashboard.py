@@ -1671,6 +1671,25 @@ def build_report_payload(
     }
 
 
+def _linked_question_label(item: dict, *, escape: bool = True) -> str:
+    """Build a 'Q{number}: {full question text}' reference for an action point.
+
+    Falls back gracefully when only the number or only the text is available.
+    HTML-escapes by default so question text containing & or < renders safely.
+    """
+    q_num = item.get("question_number")
+    q_text = item.get("question_text") or ""
+    if q_num and q_text:
+        label = f"Q{q_num}: {q_text}"
+    elif q_num:
+        label = f"Q{q_num}"
+    elif q_text:
+        label = q_text
+    else:
+        label = "--"
+    return html_lib.escape(label) if escape else label
+
+
 def render_report_html(payload: dict, generated_by: str) -> str:
     summary = payload.get("summary", {})
     filters = payload.get("filters", {})
@@ -1768,7 +1787,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
                             f'<td style="background:{tf_bg}">{tf}</td>'
                             f'<td>{item.get("action_support_needed") or "--"}</td>'
                             f'<td>{item.get("action_comments") or "--"}</td>'
-                            f'<td>{item.get("question_text") or "--"}</td>'
+                            f'<td>{_linked_question_label(item)}</td>'
                             f'<td>{_answer_display(item)}</td>'
                             f'</tr>'
                         )
@@ -2022,7 +2041,8 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     action_rows = "".join(
         (
             f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
-            f"<td>{item.get('action_required') or '--'}</td><td>{item.get('action_owner') or '--'}</td>"
+            f"<td>{item.get('action_required') or '--'}</td><td>{_linked_question_label(item)}</td>"
+            f"<td>{item.get('action_owner') or '--'}</td>"
             f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_status') or 'Outstanding'}</td>"
             f"<td>{item.get('action_support_needed') or '--'}</td><td>{item.get('action_comments') or '--'}</td></tr>"
         )
@@ -2270,10 +2290,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f'<tbody>{action_rows_completed or no_completed_actions}</tbody></table></div>'
         )
     else:
-        no_action_points = '<tr><td colspan="8">No action points found for this report scope.</td></tr>'
+        no_action_points = '<tr><td colspan="9">No action points found for this report scope.</td></tr>'
         action_points_section = (
             f'<div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th><th>Comments</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows or no_action_points}</tbody></table></div>'
         )
 
