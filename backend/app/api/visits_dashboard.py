@@ -2792,9 +2792,26 @@ def render_report_pdf(payload: dict[str, Any], generated_by: str) -> bytes:
         ]))
         story.append(sq_table)
 
+    # Ensure story is not empty
+    if not story or len(story) == 0:
+        logger.warning(f"PDF story is empty for report type {report_type}, adding fallback content")
+        story = [
+            Paragraph("Report Generation Error", styles['Heading1']),
+            Paragraph(f"Report type: {report_type}", styles['Normal']),
+            Paragraph(f"Survey type: {filters.get('survey_type') or 'Unknown'}", styles['Normal']),
+            Paragraph("No data available to display", styles['Normal']),
+        ]
+
     doc.build(story)
     pdf_bytes = buffer.getvalue()
     buffer.close()
+
+    # Verify PDF was actually generated
+    if not pdf_bytes or len(pdf_bytes) == 0:
+        logger.error("PDF generation produced empty output")
+        raise ValueError("PDF generation failed - empty output")
+
+    logger.debug(f"Generated PDF report: {len(pdf_bytes)} bytes, report_type={report_type}")
     return pdf_bytes
 
 
@@ -2838,10 +2855,30 @@ def export_report_pdf(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    payload = build_report_payload(db, report_type, survey_type, business_id, visit_id, report_date, date_from, date_to)
-    pdf_bytes = render_report_pdf(payload, getattr(current_user, "name", "Unknown User"))
-    filename = build_b2b_report_filename(payload, "pdf")
-    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    try:
+        payload = build_report_payload(db, report_type, survey_type, business_id, visit_id, report_date, date_from, date_to)
+        pdf_bytes = render_report_pdf(payload, getattr(current_user, "name", "Unknown User"))
+
+        if not pdf_bytes or len(pdf_bytes) == 0:
+            raise HTTPException(status_code=500, detail="PDF generation produced empty output")
+
+        filename = build_b2b_report_filename(payload, "pdf")
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(pdf_bytes)),
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error generating PDF report: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF report: {str(e)}")
 
 
 @router.post("/reports/email")
