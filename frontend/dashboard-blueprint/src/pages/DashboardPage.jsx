@@ -1986,17 +1986,19 @@ const platformAbortRef = useRef(null);
 
   const surveyResponseCategoryGroups = useMemo(() => {
     const responses = Array.isArray(selectedSurveyVisit?.responses) ? selectedSurveyVisit.responses : [];
+
+    // Assign sequential 1-based display numbers sorted by question_number
+    const sortedForNumbering = [...responses].sort(
+      (a, b) => Number(a.question_number || a.question_id || 0) - Number(b.question_number || b.question_id || 0)
+    );
+    const displayNumberMap = new Map(sortedForNumbering.map((r, i) => [r.question_id, i + 1]));
+
     const grouped = responses.reduce((acc, response) => {
       const category = String(response.category || "Uncategorized").trim() || "Uncategorized";
       if (!acc[category]) acc[category] = [];
-      acc[category].push(response);
+      acc[category].push({ ...response, display_number: displayNumberMap.get(response.question_id) ?? response.question_number ?? response.question_id });
       return acc;
     }, {});
-
-    const categorySortValue = (categoryName) => {
-      const match = String(categoryName || "").match(/category\s*(\d+)/i);
-      return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
-    };
 
     return Object.entries(grouped)
       .map(([category, groupedResponses]) => ({
@@ -2004,10 +2006,9 @@ const platformAbortRef = useRef(null);
         responses: groupedResponses.sort((a, b) => Number(a.question_number || a.question_id || 0) - Number(b.question_number || b.question_id || 0)),
       }))
       .sort((a, b) => {
-        const aOrder = categorySortValue(a.category);
-        const bOrder = categorySortValue(b.category);
-        if (aOrder !== bOrder) return aOrder - bOrder;
-        return a.category.localeCompare(b.category);
+        const aMin = Math.min(...a.responses.map((r) => Number(r.question_number || r.question_id || 0)));
+        const bMin = Math.min(...b.responses.map((r) => Number(r.question_number || r.question_id || 0)));
+        return aMin - bMin;
       });
   }, [selectedSurveyVisit]);
 
@@ -3095,7 +3096,7 @@ const platformAbortRef = useRef(null);
                       return (
                         <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
                           <div className="mb-1 flex items-center justify-between">
-                            <p className="text-base font-medium">Question {response.question_number || response.question_id}</p>
+                            <p className="text-base font-medium">Question {response.display_number ?? response.question_number ?? response.question_id}</p>
                           </div>
                           <p className="text-sm">{response.question_text || "--"}</p>
                           {canEditResponseAnswer(response) ? (
@@ -3990,7 +3991,7 @@ const platformAbortRef = useRef(null);
                           return (
                             <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
                               <div className="mb-1 flex items-center justify-between">
-                                <p className="text-base font-medium">Question {response.question_number || response.question_id}</p>
+                                <p className="text-base font-medium">Question {response.display_number ?? response.question_number ?? response.question_id}</p>
                               </div>
                               <p className="text-sm">{response.question_text || "--"}</p>
                               <p className={cn("mt-1 text-sm", display.isScore ? "font-semibold text-rose-700 dark:text-rose-300" : "text-muted-foreground")}>{display.label}: {display.value}</p>

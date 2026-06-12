@@ -12,5 +12,9 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       port: 5177,
     },
+    test: {
+      environment: "node",
+      include: ["src/**/*.test.{js,jsx}"],
+    },
   };
 });

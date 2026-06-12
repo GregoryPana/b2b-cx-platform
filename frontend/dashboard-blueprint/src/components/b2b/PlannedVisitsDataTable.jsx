@@ -68,7 +68,7 @@ export default function PlannedVisitsDataTable({
         const form = table.options.meta?.editForm;
         return isEditing ? (
           <Input type="date" value={form?.visit_date || ""} onChange={(event) => table.options.meta?.onEditFormChange({ ...form, visit_date: event.target.value })} />
-        ) : (visit.visit_date || "--");
+        ) : (() => { const d = visit.visit_date; if (!d) return "--"; const p = String(d).split("-"); return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : d; })();
       },
     },
     {

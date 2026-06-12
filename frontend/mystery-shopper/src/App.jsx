@@ -11,6 +11,7 @@ import { Separator } from "./components/ui/separator";
 import { Textarea } from "./components/ui/textarea";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
+import { computeDisplayNumber, buildDisplayNumbers } from "./utils/questionDisplay";
 import { motion } from "framer-motion";
 import { CalendarDays, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
 
@@ -67,14 +68,6 @@ function categoryToId(value) {
     .replace(/(^-|-$)/g, "")}`;
 }
 
-function displayQuestionNumber(question, fallbackIndex = 0) {
-  const raw = Number(question?.order_index ?? question?.question_number ?? NaN);
-  if (!Number.isFinite(raw)) return fallbackIndex + 1;
-  if (raw >= 2000) return raw - 2000;
-  if (raw >= 1000) return raw - 1000;
-  if (raw > 0) return raw;
-  return fallbackIndex + 1;
-}
 
 function getScoreOptions(question) {
   if (question?.input_type !== "score") return [];
@@ -319,6 +312,8 @@ export default function App() {
   }, [questions]);
 
   const totalMandatory = useMemo(() => questions.filter((question) => question.is_mandatory).length, [questions]);
+
+  const questionDisplayNumbers = useMemo(() => buildDisplayNumbers(questions), [questions]);
 
   const hasMeaningfulAnswer = (question, draft = {}, existing = null) => {
     if (question.input_type === "score") {
@@ -576,7 +571,7 @@ export default function App() {
     const existing = responsesByQuestion[question.id];
     const hasChanges = isQuestionDirty(question, draft, existing);
 
-    const questionLabel = displayQuestionNumber(question);
+    const questionLabel = questionDisplayNumbers[question.id] ?? computeDisplayNumber(question.question_number);
 
     if (!hasChanges) {
       raiseMessage(existing?.response_id
@@ -628,26 +623,78 @@ export default function App() {
 
   const submitVisit = async () => {
     if (!visitId) {
-      setMessage("No visit selected.");
-      return;
-    }
-
-    const unanswered = questions.filter((question) => question.is_mandatory && !responsesByQuestion[question.id]);
-    if (unanswered.length > 0) {
-      setMessage(`Complete all required questions before submit (${unanswered.length} remaining).`);
+      raiseMessage("No visit selected.", "error");
       return;
     }
 
     setSubmitting(true);
+
+    // Track newly saved responses locally (React state batches, so we can't read back mid-loop)
+    const latestResponses = { ...responsesByQuestion };
+
     try {
+      // Step 1: bulk-save every question that has unsaved draft changes
+      const dirtyQuestions = questions.filter((q) =>
+        isQuestionDirty(q, responseDrafts[q.id] || {}, responsesByQuestion[q.id])
+      );
+
+      for (const question of dirtyQuestions) {
+        const draft = responseDrafts[question.id] || {};
+        const existing = latestResponses[question.id];
+        const endpoint = existing
+          ? `${API_BASE}/mystery-shopper/visits/${visitId}/responses/${existing.response_id}`
+          : `${API_BASE}/mystery-shopper/visits/${visitId}/responses`;
+
+        const { res, data } = await fetchJsonSafe(endpoint, {
+          method: existing ? "PUT" : "POST",
+          headers,
+          body: JSON.stringify({
+            question_id: question.id,
+            score: question.input_type === "score" ? Number(draft.score) : null,
+            answer_text: question.input_type === "score" ? null : draft.answer_text || null,
+            verbatim: draft.verbatim || null,
+            actions: [],
+          }),
+        });
+
+        if (!res.ok) {
+          const qLabel = questionDisplayNumbers[question.id] ?? computeDisplayNumber(question.question_number);
+          raiseMessage(`Could not auto-save Q${qLabel}: ${data?.detail || "save failed"}. Save it manually and try again.`, "error");
+          setSubmitting(false);
+          return;
+        }
+
+        latestResponses[question.id] = data;
+        setResponsesByQuestion((prev) => ({ ...prev, [question.id]: data }));
+      }
+
+      // Step 2: check which mandatory questions have no meaningful answer
+      const unanswered = questions.filter((q) => {
+        if (!q.is_mandatory) return false;
+        return !hasMeaningfulAnswer(q, responseDrafts[q.id] || {}, latestResponses[q.id]);
+      });
+
+      if (unanswered.length > 0) {
+        const list = unanswered
+          .map((q) => `Q${questionDisplayNumbers[q.id] ?? computeDisplayNumber(q.question_number)} — ${q.question_text}`)
+          .join("; ");
+        raiseMessage(
+          `${unanswered.length} required question${unanswered.length === 1 ? "" : "s"} still need${unanswered.length === 1 ? "s" : ""} an answer: ${list}`,
+          "error"
+        );
+        setSubmitting(false);
+        return;
+      }
+
+      // Step 3: submit
       const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/visits/${visitId}/submit`, { method: "PUT", headers });
       if (!res.ok) throw new Error(data?.detail || "Failed to submit visit");
 
       setStatus("Pending");
-      setMessage(`Submitted for review. Report date: ${data.report_completed_date} (UTC+4).`);
+      raiseMessage(`Submitted for review. Report date: ${data.report_completed_date} (UTC+4).`, "success");
       await loadDrafts();
     } catch (error) {
-      setMessage(error.message || "Failed to submit visit");
+      raiseMessage(error.message || "Failed to submit visit", "error");
     } finally {
       setSubmitting(false);
     }
@@ -1001,7 +1048,7 @@ export default function App() {
                             const existing = responsesByQuestion[question.id] || null;
                             const hasChanges = isQuestionDirty(question, draft, existing);
                             const hasSavedResponse = Boolean(existing?.response_id);
-                            const questionLabel = displayQuestionNumber(question, questionIndex);
+                            const questionLabel = questionDisplayNumbers[question.id] ?? questionIndex + 1;
                             const saveButtonLabel = savingQuestionId === question.id
                               ? "Saving..."
                               : hasChanges

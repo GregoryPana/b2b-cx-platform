@@ -33,7 +33,12 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
       accessorKey: "visit_date",
       headerTitle: "Date",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
-      cell: ({ row }) => row.original.visit_date || "--",
+      cell: ({ row }) => {
+        const d = row.original.visit_date;
+        if (!d) return "--";
+        const parts = String(d).split("-");
+        return parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : d;
+      },
     },
     {
       accessorKey: "submitted_by_name",

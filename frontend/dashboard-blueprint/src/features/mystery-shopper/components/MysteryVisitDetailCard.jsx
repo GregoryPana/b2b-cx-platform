@@ -65,7 +65,7 @@ export default function MysteryVisitDetailCard({
                 return (
                   <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
                     <div className="mb-1 flex items-center justify-between">
-                      <p className="text-base font-medium">Question {response.question_number || response.question_id}</p>
+                      <p className="text-base font-medium">Question {response.display_number ?? response.question_number ?? response.question_id}</p>
                     </div>
                     <p className="text-sm">{response.question_text || "--"}</p>
 

@@ -33,7 +33,12 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
       accessorKey: "visit_date",
       headerTitle: "Date",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
-      cell: ({ row }) => row.original.visit_date || "--",
+      cell: ({ row }) => {
+        const d = row.original.visit_date;
+        if (!d) return "--";
+        const parts = String(d).split("-");
+        return parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : d;
+      },
     },
     {
       accessorKey: "account_executive_name",
