@@ -2496,9 +2496,15 @@ def render_report_html(payload: dict, generated_by: str) -> str:
 
 
 def render_report_pdf(payload: dict[str, Any], generated_by: str) -> bytes:
-    """Generate PDF report - delegates to pdf_reporter module."""
-    from .pdf_reporter import render_report_pdf as _render_pdf
-    return _render_pdf(payload, generated_by)
+    """Generate the report PDF from the exact HTML view (headless Chromium).
+
+    The PDF is a faithful copy of ``render_report_html`` output, so it matches the
+    dashboard report per report type with no separate layout to maintain.
+    """
+    from .pdf_reporter import html_to_pdf
+
+    report_html = render_report_html(payload, generated_by)
+    return html_to_pdf(report_html)
 
 
 @router.get("/reports/export")

@@ -98,6 +98,8 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
+      - name: Install Playwright Chromium (for PDF rendering)
+        run: python -m playwright install --with-deps chromium
       - name: Run tests
         env:
           PYTHONPATH: backend

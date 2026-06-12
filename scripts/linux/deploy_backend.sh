@@ -101,6 +101,22 @@ source "${VENV_DIR}/bin/activate"
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# Headless Chromium for server-side PDF rendering (Playwright). The browser is
+# installed into a shared path the backend service account can read; the same
+# path is exported to the systemd unit below via PLAYWRIGHT_BROWSERS_PATH so the
+# running service locates it.
+PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${REPO_DIR}/ms-playwright}"
+export PLAYWRIGHT_BROWSERS_PATH
+mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"
+# System libraries Chromium needs (apt-based distros only; best-effort).
+if ! run_as_root env PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH}" "${VENV_DIR}/bin/python" -m playwright install-deps chromium; then
+  echo "WARNING: 'playwright install-deps chromium' failed (non-Debian distro or no apt)."
+  echo "         If PDF export fails at runtime, install Chromium's system libraries manually."
+fi
+"${VENV_DIR}/bin/python" -m playwright install chromium
+# Make the browser cache readable by the service account (service runs as cxadmin).
+chmod -R a+rX "${PLAYWRIGHT_BROWSERS_PATH}" || true
+
 if [[ ! -f "${ENV_FILE}" ]]; then
   cp "${REPO_DIR}/.env.example" "${ENV_FILE}"
   echo "Created ${ENV_FILE} from .env.example. Update real secrets before restart."
@@ -152,6 +168,7 @@ User=cxadmin
 Group=www-data
 WorkingDirectory=${BACKEND_DIR}
 EnvironmentFile=${ENV_FILE}
+Environment=PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH}
 ExecStart=${VENV_DIR}/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=3
