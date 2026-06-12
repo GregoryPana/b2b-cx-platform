@@ -263,6 +263,12 @@ jobs:
         env:
           RELEASE_ID: ${{ env.RELEASE_ID }}
           STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+          SMTP_EMAIL: ${{ vars.SMTP_EMAIL != '' && vars.SMTP_EMAIL || secrets.SMTP_EMAIL }}
+          SMTP_FROM: ${{ vars.SMTP_FROM != '' && vars.SMTP_FROM || secrets.SMTP_FROM }}
+          SMTP_HOST: ${{ vars.SMTP_HOST != '' && vars.SMTP_HOST || secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT != '' && vars.SMTP_PORT || secrets.SMTP_PORT }}
+          SMTP_USE_TLS: "false"
+          SMTP_USE_SSL: "false"
         run: |
           set -euo pipefail
 

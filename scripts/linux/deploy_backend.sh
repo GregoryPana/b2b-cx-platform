@@ -11,6 +11,54 @@ ENV_FILE="${REPO_DIR}/.env"
 SERVICE_FILE="/etc/systemd/system/cwscx-backend.service"
 ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260528_000023}"
 
+upsert_env_value() {
+  local key="$1"
+  local value="$2"
+
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    touch "${ENV_FILE}"
+  fi
+
+  python3 - <<'PY' "${ENV_FILE}" "$key" "$value"
+from pathlib import Path
+import sys
+
+env_path = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
+
+lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+updated = False
+output = []
+for line in lines:
+    if line.startswith(f"{key}="):
+        output.append(f"{key}={value}")
+        updated = True
+    else:
+        output.append(line)
+if not updated:
+    output.append(f"{key}={value}")
+env_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+PY
+}
+
+sync_runtime_env_from_ci() {
+  local synced_any="false"
+  local key
+  for key in SMTP_EMAIL SMTP_FROM SMTP_HOST SMTP_PORT SMTP_USE_TLS SMTP_USE_SSL; do
+    if [[ -n "${!key:-}" ]]; then
+      upsert_env_value "$key" "${!key}"
+      synced_any="true"
+    fi
+  done
+
+  if [[ "${synced_any}" == "true" ]]; then
+    echo "Synced selected CI runtime env keys into ${ENV_FILE}."
+  else
+    echo "No CI runtime env keys provided for sync; existing ${ENV_FILE} values remain unchanged."
+  fi
+}
+
 run_as_root() {
   if [[ "${EUID}" -eq 0 ]]; then
     "$@"
@@ -59,6 +107,11 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 fi
 
 # Normalize potential CRLF line endings to avoid shell/systemd env parse issues
+sed -i 's/\r$//' "${ENV_FILE}"
+
+sync_runtime_env_from_ci
+
+# Normalize again after CI sync writes
 sed -i 's/\r$//' "${ENV_FILE}"
 
 # Load DATABASE_URL for Alembic without sourcing full .env shell content
