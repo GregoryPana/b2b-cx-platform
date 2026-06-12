@@ -17,8 +17,11 @@ import threading
 from typing import Any
 
 
-# A4 print geometry. Margins are intentionally small so the 1200px-max-width
-# ``.page`` container has room to breathe once it reflows to print width.
+# A4 landscape print geometry. Landscape gives the wide action-point / analytics
+# tables room so cells wrap far less, and its >900px width keeps the report's
+# desktop multi-column grid layout instead of collapsing to the responsive
+# tablet layout. Margins are kept small so the 1200px-max-width ``.page``
+# container has room to breathe.
 _PDF_MARGIN = {"top": "8mm", "right": "8mm", "bottom": "8mm", "left": "8mm"}
 
 # Server-friendly Chromium flags. --no-sandbox is required when launching as a
@@ -46,6 +49,7 @@ def _render(html: str) -> bytes:
             page.emulate_media(media="screen")
             pdf_bytes = page.pdf(
                 format="A4",
+                landscape=True,
                 print_background=True,
                 margin=_PDF_MARGIN,
                 prefer_css_page_size=False,
