@@ -47,6 +47,60 @@ function normalizeTeamMembers(values) {
   return values.map((item) => String(item || "").trim()).filter(Boolean);
 }
 
+function surveyScoreColor(score, max) {
+  const s = Number(score);
+  if (Number.isNaN(s)) return null;
+  if (max <= 5) {
+    if (s <= 2) return "red";
+    if (s === 3) return "amber";
+    return "green";
+  }
+  if (s <= 5) return "red";
+  if (s <= 7) return "amber";
+  return "green";
+}
+
+function SurveyScoreBadge({ score, max }) {
+  const color = surveyScoreColor(score, max);
+  const label = `${score} / ${max}`;
+  const colorClass =
+    color === "red"
+      ? "bg-red-100 text-red-700 border-red-300"
+      : color === "amber"
+        ? "bg-amber-100 text-amber-700 border-amber-300"
+        : "bg-emerald-100 text-emerald-700 border-emerald-300";
+  return (
+    <span className={`inline-flex items-center rounded border px-2 py-0.5 text-sm font-semibold tabular-nums ${colorClass}`}>
+      {label}
+    </span>
+  );
+}
+
+function SurveyYesNoBadge({ value }) {
+  const norm = String(value || "").toLowerCase().trim();
+  if (norm === "yes") {
+    return <span className="inline-flex items-center rounded border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-sm font-semibold text-emerald-700">Yes</span>;
+  }
+  if (norm === "no") {
+    return <span className="inline-flex items-center rounded border border-red-300 bg-red-100 px-2 py-0.5 text-sm font-semibold text-red-700">No</span>;
+  }
+  return <span className="text-sm text-muted-foreground">{value || "--"}</span>;
+}
+
+function SurveyResponseDisplay({ response }) {
+  const hasScore = response?.score !== null && response?.score !== undefined;
+  if (hasScore) {
+    const scoreMax = response?.score_max ?? (Number(response?.score) > 5 ? 10 : 5);
+    return <SurveyScoreBadge score={response.score} max={scoreMax} />;
+  }
+  const answerText = typeof response?.answer_text === "string" ? response.answer_text.trim() : (response?.answer_text ?? "");
+  const type = String(response?.question_type || "").toLowerCase();
+  if (type === "yes_no" || ["yes", "no"].includes(String(answerText).toLowerCase().trim())) {
+    return <SurveyYesNoBadge value={answerText} />;
+  }
+  return <span className="text-sm text-foreground">{answerText || "--"}</span>;
+}
+
 const EMAIL_SPLIT_REGEX = /[\s,;]+/;
 const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -830,10 +884,10 @@ const platformAbortRef = useRef(null);
      load();
      }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
-   // Load yes/no question analytics
+   // Load yes/no question analytics (B2B and Mystery Shopper)
     useEffect(() => {
       if (location.pathname !== "/") return;
-      if (!activePlatform || !isB2BPlatform) {
+      if (!activePlatform || (!isB2BPlatform && !isMysteryShopperPlatform)) {
         setYesNoQuestionAnalytics([]);
         return;
      }
@@ -842,9 +896,11 @@ const platformAbortRef = useRef(null);
         const requestVersion = platformRequestVersion.current;
         const isStale = () => requestVersion !== platformRequestVersion.current;
         const params = new URLSearchParams({ survey_type: activePlatform });
-       if (selectedAnalyticsEntityIds.length > 0) {
-         params.set("business_ids", selectedAnalyticsEntityIds.join(","));
-       }
+        if (isMysteryShopperPlatform && selectedAnalyticsEntityIds.length > 0) {
+          params.set("mystery_location_ids", selectedAnalyticsEntityIds.join(","));
+        } else if (selectedAnalyticsEntityIds.length > 0) {
+          params.set("business_ids", selectedAnalyticsEntityIds.join(","));
+        }
         const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/yes-no?${params.toString()}`, { headers });
         if (!res.ok) {
           if (isStale()) return;
@@ -856,7 +912,7 @@ const platformAbortRef = useRef(null);
       };
 
       load();
-    }, [location.pathname, activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
     useEffect(() => {
       if (location.pathname !== "/") return;
@@ -1777,14 +1833,22 @@ const platformAbortRef = useRef(null);
      if (option.key === "survey") {
        return {
          ...option,
-         label: "Selected Location",
-         description: "View survey details for a specific location. Pick a location then select an approved survey.",
+         label: "Single Visit Detail",
+         description: "View the full scorecard for one specific visit. Choose a location, then pick a completed survey to see every question and answer.",
        };
      }
      if (option.key === "lifetime") {
        return {
          ...option,
-         description: "Full lifetime metrics, visits per location, and any pending visits across the platform.",
+         label: "Lifetime Overview",
+         description: "A complete picture of all mystery shopper visits ever recorded. Useful for board-level or management reviews.",
+       };
+     }
+     if (option.key === "date") {
+       return {
+         ...option,
+         label: "Date Range",
+         description: "See all visits that took place on a specific day or within a date range. Useful for monthly or quarterly reviews.",
        };
      }
      return option;
@@ -1802,12 +1866,12 @@ const platformAbortRef = useRef(null);
    ];
 
    const mysteryReportMetricCards = [
-     { title: "Selected NPS", value: reportPreview?.mystery_metrics?.selected_nps ?? "--", metric: "b2b_nps" },
-     ...(reportType === "lifetime" ? [{ title: "Overall NPS", value: reportPreview?.mystery_metrics?.overall_nps ?? "--", metric: "b2b_nps" }] : []),
-     { title: "Selected CSAT Avg", value: reportPreview?.mystery_metrics?.selected_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" },
-     ...(reportType === "lifetime" ? [{ title: "Overall CSAT Avg", value: reportPreview?.mystery_metrics?.overall_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" }] : []),
-     { title: "Overall Experience", value: reportPreview?.mystery_metrics?.selected_overall_experience?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
-     { title: "Service Quality", value: reportPreview?.mystery_metrics?.selected_quality?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
+     { title: "NPS — Would Recommend?", value: reportPreview?.mystery_metrics?.selected_nps ?? "--", metric: "b2b_nps" },
+     ...(reportType === "lifetime" ? [{ title: "Overall NPS (All Time)", value: reportPreview?.mystery_metrics?.overall_nps ?? "--", metric: "b2b_nps" }] : []),
+     { title: "CSAT — Satisfaction (0–10)", value: reportPreview?.mystery_metrics?.selected_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" },
+     ...(reportType === "lifetime" ? [{ title: "Overall CSAT (All Time)", value: reportPreview?.mystery_metrics?.overall_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" }] : []),
+     { title: "Overall Experience Score", value: reportPreview?.mystery_metrics?.selected_overall_experience?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
+     { title: "Service Quality Score", value: reportPreview?.mystery_metrics?.selected_quality?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
    ];
 
    const installPreviewAverage = (items, key, target) => {
@@ -1955,9 +2019,11 @@ const platformAbortRef = useRef(null);
     questionAverages.forEach((question) => {
       const category = question.category || "Uncategorized";
       if (!grouped[category]) grouped[category] = [];
+      const rawNum = Number(question.question_number);
       grouped[category].push({
         id: question.question_id,
-        question_number: question.question_number,
+        question_number: rawNum,
+        display_number: rawNum > 1000 ? rawNum - 2000 : rawNum,
         question_text: question.question_text,
       });
     });
@@ -2662,7 +2728,7 @@ const platformAbortRef = useRef(null);
                           <ul className="space-y-1">
                             {(categoryQuestions[item.category] || []).map((question) => (
                               <li key={`${item.category}-${question.id}`} className="text-muted-foreground">
-                                Q{question.question_number || question.id}: {question.question_text}
+                                Q{question.display_number ?? question.question_number ?? question.id}: {question.question_text}
                               </li>
                             ))}
                           </ul>
@@ -2920,7 +2986,7 @@ const platformAbortRef = useRef(null);
           ) : null}
 
           {isMysteryShopperPlatform ? (
-            <MysteryAnalyticsSummarySection mysteryAnalyticsSummary={mysteryAnalyticsSummary} analytics={analytics} />
+            <MysteryAnalyticsSummarySection mysteryAnalyticsSummary={mysteryAnalyticsSummary} analytics={analytics} questionAverages={questionAverages} yesNoAnalytics={yesNoQuestionAnalytics} />
           ) : null}
         </>
         )
@@ -3105,7 +3171,7 @@ const platformAbortRef = useRef(null);
                               <Textarea value={draft.answer_text} onChange={(event) => updateReviewDraft(responseId, { ...draft, answer_text: event.target.value })} />
                             </div>
                           ) : (
-                            <p className={cn("mt-1 text-sm", display.isScore ? "font-semibold text-rose-700 dark:text-rose-300" : "text-muted-foreground")}>{display.label}: {display.value}</p>
+                            <div className="mt-2"><SurveyResponseDisplay response={response} /></div>
                           )}
                           <div className="mt-2">
                             <label className="mb-1 block text-sm font-medium">Verbatim</label>
@@ -3987,14 +4053,13 @@ const platformAbortRef = useRef(null);
                           <Badge variant="secondary">{responses.length} questions</Badge>
                         </div>
                         {responses.map((response) => {
-                          const display = formatSurveyResponseValue(response);
                           return (
                             <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
-                              <div className="mb-1 flex items-center justify-between">
-                                <p className="text-base font-medium">Question {response.display_number ?? response.question_number ?? response.question_id}</p>
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <p className="text-sm font-medium text-muted-foreground">Question {response.display_number ?? response.question_number ?? response.question_id}</p>
+                                <SurveyResponseDisplay response={response} />
                               </div>
-                              <p className="text-sm">{response.question_text || "--"}</p>
-                              <p className={cn("mt-1 text-sm", display.isScore ? "font-semibold text-rose-700 dark:text-rose-300" : "text-muted-foreground")}>{display.label}: {display.value}</p>
+                              <p className="text-sm font-medium">{response.question_text || "--"}</p>
                               {response.verbatim ? <p className="mt-1 text-sm text-muted-foreground">Verbatim: {response.verbatim}</p> : null}
                             </div>
                           );

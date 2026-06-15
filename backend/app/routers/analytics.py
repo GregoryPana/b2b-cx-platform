@@ -105,6 +105,8 @@ def detect_mystery_tables(db: Session) -> tuple[bool, bool]:
 
 
 def get_response_table(db: Session, is_mystery_survey: bool = False) -> str | None:
+    if is_mystery_survey and has_table(db, "mystery_shopper_answers"):
+        return "mystery_shopper_answers"
     if has_table(db, "b2b_visit_responses"):
         return "b2b_visit_responses"
     if has_table(db, "responses"):
@@ -482,6 +484,35 @@ def get_comprehensive_analytics(
                 LIMIT 14
             """), params).all()
 
+            mystery_purpose_rows = db.execute(text(f"""
+                SELECT
+                    COALESCE(msa.purpose_of_visit, 'Not specified') AS purpose,
+                    COUNT(DISTINCT v.id) AS count
+                FROM visits v
+                LEFT JOIN mystery_shopper_assessments msa ON msa.visit_id = v.id
+                WHERE v.status = 'Approved'
+                {where_visit_alias_extra}
+                GROUP BY COALESCE(msa.purpose_of_visit, 'Not specified')
+                ORDER BY count DESC
+                LIMIT 10
+            """), params).all() if has_mystery_assessments else []
+
+            mystery_staff_rows = db.execute(text(f"""
+                SELECT
+                    COALESCE(msa.staff_on_duty, 'Unknown') AS staff_name,
+                    COUNT(DISTINCT v.id) AS visits,
+                    AVG(CASE WHEN {ms_csat_filter} THEN r.score END)::float AS csat_average
+                FROM visits v
+                LEFT JOIN mystery_shopper_assessments msa ON msa.visit_id = v.id
+                LEFT JOIN {response_table} r ON r.visit_id = v.id
+                LEFT JOIN questions q ON q.id = r.question_id
+                WHERE v.status = 'Approved'
+                {where_extra}
+                GROUP BY COALESCE(msa.staff_on_duty, 'Unknown')
+                ORDER BY csat_average DESC NULLS LAST, visits DESC
+                LIMIT 15
+            """), params).all() if has_mystery_assessments else []
+
             mystery_shopper = {
                 "csat_average": round(float(mystery_csat_stats.avg_score), 2) if mystery_csat_stats.avg_score is not None else None,
                 "csat_response_count": int(mystery_csat_stats.response_count or 0),
@@ -506,6 +537,18 @@ def get_comprehensive_analytics(
                     }
                     for row in reversed(mystery_visit_trend_rows)
                 ],
+                "purpose_distribution": [
+                    {"purpose": row.purpose, "count": int(row.count or 0)}
+                    for row in mystery_purpose_rows
+                ],
+                "staff_breakdown": [
+                    {
+                        "staff_name": row.staff_name,
+                        "visits": int(row.visits or 0),
+                        "csat_average": round(float(row.csat_average), 2) if row.csat_average is not None else None,
+                    }
+                    for row in mystery_staff_rows
+                ],
             }
         else:
             mystery_shopper = {
@@ -515,6 +558,8 @@ def get_comprehensive_analytics(
                 "service_completion_distribution": [],
                 "location_breakdown": [],
                 "visit_trend": [],
+                "purpose_distribution": [],
+                "staff_breakdown": [],
             }
         
         return {
@@ -698,6 +743,7 @@ def get_question_averages(
 def get_yes_no_question_analytics(
     survey_type: str | None = None,
     business_ids: str | None = None,
+    mystery_location_ids: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     db: Session = Depends(get_db),
@@ -727,6 +773,18 @@ def get_yes_no_question_analytics(
                 placeholders.append(f":{key}")
                 params[key] = value
             where_extra += f" AND v.business_id IN ({','.join(placeholders)})"
+
+        location_id_values = parse_location_ids(mystery_location_ids)
+        if is_mystery_survey and location_id_values:
+            placeholders = []
+            for idx, value in enumerate(location_id_values):
+                key = f"mystery_location_id_{idx}"
+                placeholders.append(f":{key}")
+                params[key] = value
+            where_extra += (
+                " AND EXISTS (SELECT 1 FROM mystery_shopper_assessments msa_filter "
+                f"WHERE msa_filter.visit_id = v.id AND msa_filter.location_id IN ({','.join(placeholders)}))"
+            )
 
         if date_from:
             where_extra += " AND v.visit_date >= :date_from"

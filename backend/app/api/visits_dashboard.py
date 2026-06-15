@@ -1993,6 +1993,30 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         except:
             return None
 
+    def _score_badge(score, score_max, answer_text=None):
+        """Return a colour-coded badge for a numeric score, Yes/No, or text answer."""
+        if score is not None:
+            try:
+                sv = float(score)
+                mv = float(score_max) if score_max is not None else 10
+                color = score_color(score, score_max) or "#6b7280"
+                bg_map = {"#22c55e": ("#d1fae5", "#6ee7b7"), "#84cc16": ("#ecfccb", "#bef264"),
+                          "#f59e0b": ("#fef3c7", "#fcd34d"), "#ef4444": ("#fee2e2", "#fca5a5")}
+                bg, bd = bg_map.get(color, ("#f1f5f9", "#cbd5e1"))
+                label = (f"{int(sv)} / {int(mv)}" if sv == int(sv) and mv == int(mv)
+                         else f"{sv:.1f} / {mv:.1f}")
+                return (f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;'
+                        f'background:{bg};color:{color};border:1px solid {bd};'
+                        f'font-weight:700;font-size:12px;white-space:nowrap">{label}</span>')
+            except Exception:
+                pass
+        ans = str(answer_text or "").strip()
+        if ans.lower() == "yes":
+            return '<span style="background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;border-radius:4px;padding:3px 10px;font-weight:700;font-size:12px">Yes ✓</span>'
+        if ans.lower() == "no":
+            return '<span style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:3px 10px;font-weight:700;font-size:12px">No ✗</span>'
+        return f'<span style="font-size:13px;color:#334155">{ans or "—"}</span>'
+
     category_detail_blocks = ""
     for row in category_comparison:
         questions = list(row.get("questions") or [])
@@ -2003,12 +2027,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             avg = q.get('average_score')
             score_max = q.get('score_max')
             color = score_color(avg, score_max)
-            # Build cell: if color, show colored badge
-            if color:
-                avg_display = format_metric(avg)
-                avg_cell = f"<span style='display:inline-block;min-width:60px;text-align:right;margin-right:8px;font-weight:600;color:{color}'>{avg_display}</span>"
-            else:
-                avg_cell = format_metric(avg)
+            avg_cell = _score_badge(avg, score_max) if avg is not None else "—"
             rows_html_parts.append(
                 f"<tr>"
                 f"<td>Q{qnum}: {qtext}</td>"
@@ -2089,29 +2108,13 @@ def render_report_html(payload: dict, generated_by: str) -> str:
                 answer_text = row.get('answer_text') or '--'
                 verbatim = row.get('verbatim') or '--'
 
-                # Determine answer display with range if score is numeric
-                if score is not None:
-                    if score_max is not None:
-                        try:
-                            score_val = float(score)
-                            max_val = float(score_max)
-                            if score_val.is_integer() and max_val.is_integer():
-                                answer_display = f"{int(score_val)} / {int(max_val)}"
-                            else:
-                                answer_display = f"{score_val:.1f} / {max_val:.1f}"
-                        except Exception:
-                            answer_display = f"{score} / {score_max}"
-                    else:
-                        answer_display = format_metric(score)
-                else:
-                    answer_display = answer_text
-
+                answer_badge = _score_badge(score, score_max, answer_text)
                 rows.append(
                     f"<tr>"
-                    f"<td>Q{qnum}</td>"
+                    f"<td style='color:#64748b;font-size:11px;font-weight:600;white-space:nowrap'>Q{qnum}</td>"
                     f"<td>{qtext}</td>"
-                    f"<td>{answer_display}</td>"
-                    f"<td>{verbatim}</td>"
+                    f"<td style='text-align:center'>{answer_badge}</td>"
+                    f"<td style='color:#475569'>{verbatim or '—'}</td>"
                     f"</tr>"
                 )
             table_body = "".join(rows)
@@ -2315,10 +2318,10 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f'<h2>Selected vs Overall Comparison</h2><div class="table-wrap"><table>'
             f'<thead><tr><th>Metric</th><th>Selected Scope</th><th>Overall Scope</th><th>Interpretation</th></tr></thead>'
             f'<tbody>'
-            f'<tr><td>NPS</td><td>{format_metric_html("nps", (comparison.get("nps") or {}).get("selected"))}</td><td>{format_metric_html("nps", (comparison.get("nps") or {}).get("overall"))}</td><td>Higher is better. Positive means more promoters than detractors.</td></tr>'
-            f'<tr><td>CSAT</td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("selected"), "%")}</td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("overall"), "%")}</td><td>Higher means more satisfied accounts.</td></tr>'
-            f'<tr><td>Overall Relationship Score</td><td>{format_metric_html("relationship_score", (comparison.get("relationship_score") or {}).get("selected"))}</td><td>{format_metric_html("relationship_score", (comparison.get("relationship_score") or {}).get("overall"))}</td><td>Composite relationship strength score (0-100).</td></tr>'
-            f'<tr><td>Competitor Exposure</td><td>{format_metric_html("competitor_exposure", (comparison.get("competitor_exposure") or {}).get("selected"), "%")}</td><td>{format_metric_html("competitor_exposure", (comparison.get("competitor_exposure") or {}).get("overall"), "%")}</td><td>Lower is better. Measures accounts using competitor services.</td></tr>'
+            f'<tr><td><strong>NPS</strong><br><span style="font-size:11px;color:#64748b">Net Promoter Score — would customers recommend us?</span></td><td>{format_metric_html("nps", (comparison.get("nps") or {}).get("selected"))}</td><td>{format_metric_html("nps", (comparison.get("nps") or {}).get("overall"))}</td><td>Higher is better. A positive score means more promoters than detractors. Above 50 is excellent.</td></tr>'
+            f'<tr><td><strong>CSAT</strong><br><span style="font-size:11px;color:#64748b">Customer Satisfaction — how happy are customers?</span></td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("selected"), "%")}</td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("overall"), "%")}</td><td>Higher is better. Above 70% means most customers are satisfied.</td></tr>'
+            f'<tr><td><strong>Relationship Score</strong><br><span style="font-size:11px;color:#64748b">How strong is the business relationship?</span></td><td>{format_metric_html("relationship_score", (comparison.get("relationship_score") or {}).get("selected"))}</td><td>{format_metric_html("relationship_score", (comparison.get("relationship_score") or {}).get("overall"))}</td><td>Higher is better. Composite measure of relationship health (0–100).</td></tr>'
+            f'<tr><td><strong>Competitor Exposure</strong><br><span style="font-size:11px;color:#64748b">Are customers using competitor services?</span></td><td>{format_metric_html("competitor_exposure", (comparison.get("competitor_exposure") or {}).get("selected"), "%")}</td><td>{format_metric_html("competitor_exposure", (comparison.get("competitor_exposure") or {}).get("overall"), "%")}</td><td>Lower is better. High percentage means accounts at risk of switching.</td></tr>'
             f'</tbody></table></div>'
         )
 
@@ -2442,6 +2445,12 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     </div>
   </div>
   <p>Survey Type: {filters.get('survey_type') or 'B2B'} | Date Scope: {_safe(context_survey_date)} | Business: {_safe(context_business)}</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:16px 0;padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="width:12px;height:12px;border-radius:50%;background:#22c55e;flex-shrink:0;display:inline-block"></span><div><strong style="font-size:12px;color:#14532d">Excellent</strong><div style="font-size:11px;color:#166534">Score at or above 9/10 — outstanding performance.</div></div></div>
+    <div style="display:flex;align-items:center;gap:10px"><span style="width:12px;height:12px;border-radius:50%;background:#84cc16;flex-shrink:0;display:inline-block"></span><div><strong style="font-size:12px;color:#3f6212">Good</strong><div style="font-size:11px;color:#4d7c0f">Score 7–9 — performing well, room to improve.</div></div></div>
+    <div style="display:flex;align-items:center;gap:10px"><span style="width:12px;height:12px;border-radius:50%;background:#f59e0b;flex-shrink:0;display:inline-block"></span><div><strong style="font-size:12px;color:#92400e">Needs Attention</strong><div style="font-size:11px;color:#b45309">Score 5–7 — improvement required.</div></div></div>
+    <div style="display:flex;align-items:center;gap:10px"><span style="width:12px;height:12px;border-radius:50%;background:#ef4444;flex-shrink:0;display:inline-block"></span><div><strong style="font-size:12px;color:#991b1b">Poor</strong><div style="font-size:11px;color:#b91c1c">Score below 5 — urgent action needed.</div></div></div>
+  </div>
 
   {report_context_section}
   {summary_section}

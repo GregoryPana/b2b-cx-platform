@@ -1,5 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
-import ReviewQueueDataTable from "../../../components/b2b/ReviewQueueDataTable";
+import MysteryReviewQueueTable from "./MysteryReviewQueueTable";
 
 export default function MysteryReviewQueueSection({
   pendingVisits,
@@ -11,13 +11,23 @@ export default function MysteryReviewQueueSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl font-semibold tracking-tight">Review Queue</CardTitle>
-        <CardDescription className="text-sm">These submitted visits are waiting for manager review. You can approve or reject each one.</CardDescription>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <CardTitle className="text-xl font-semibold tracking-tight">Review Queue</CardTitle>
+            <CardDescription className="mt-1 text-sm">
+              Submitted mystery shopper visits waiting for review. Approve, reject, or view each visit in detail.
+            </CardDescription>
+          </div>
+          {pendingVisits.length > 0 && (
+            <span className="inline-flex h-8 min-w-[2rem] items-center justify-center rounded-full bg-red-500 px-2 text-sm font-bold text-white">
+              {pendingVisits.length}
+            </span>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
-        <ReviewQueueDataTable
+        <MysteryReviewQueueTable
           data={pendingVisits}
-          isMysteryShopperPlatform
           loadingVisitId={loadingVisitId}
           onView={onView}
           onApprove={onApprove}

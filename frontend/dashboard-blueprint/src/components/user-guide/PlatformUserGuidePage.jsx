@@ -1,7 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 
 const guideAssetBase = (path) => `${import.meta.env.BASE_URL}guides/${path}`;
+
+function slugify(title) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
 
 const GUIDE_CONTENT = {
   b2b: {
@@ -180,6 +187,51 @@ const GUIDE_CONTENT = {
 export default function PlatformUserGuidePage({ platform }) {
   const guide = GUIDE_CONTENT[platform];
   const [selectedImage, setSelectedImage] = useState(null);
+  const [activeSlug, setActiveSlug] = useState(null);
+  const sectionRefs = useRef({});
+
+  const sectionSlugs = guide ? guide.sections.map((s) => slugify(s.title)) : [];
+
+  /* Scroll to hash on first load */
+  useEffect(() => {
+    if (!guide) return;
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      setActiveSlug(hash);
+      const el = document.getElementById(hash);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (sectionSlugs.length) {
+      setActiveSlug(sectionSlugs[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platform]);
+
+  /* Track active section via IntersectionObserver */
+  useEffect(() => {
+    if (!guide) return;
+    const observers = [];
+    sectionSlugs.forEach((slug) => {
+      const el = document.getElementById(slug);
+      if (!el) return;
+      const obs = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) setActiveSlug(slug);
+        },
+        { rootMargin: "-30% 0px -60% 0px", threshold: 0 },
+      );
+      obs.observe(el);
+      observers.push(obs);
+    });
+    return () => observers.forEach((o) => o.disconnect());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platform, guide]);
+
+  function scrollToSection(slug) {
+    setActiveSlug(slug);
+    window.history.pushState(null, "", `#${slug}`);
+    const el = document.getElementById(slug);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   if (!guide) {
     return (
@@ -193,57 +245,103 @@ export default function PlatformUserGuidePage({ platform }) {
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold tracking-tight">{guide.title}</CardTitle>
-          <CardDescription>{guide.description}</CardDescription>
-        </CardHeader>
-      </Card>
+    <div className="flex gap-6">
+      {/* Sticky TOC sidebar */}
+      <aside className="hidden w-52 flex-shrink-0 lg:block">
+        <div className="sticky top-4 space-y-1">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">On this page</p>
+          {guide.sections.map((section, i) => {
+            const slug = sectionSlugs[i];
+            const isActive = activeSlug === slug;
+            return (
+              <button
+                key={slug}
+                type="button"
+                onClick={() => scrollToSection(slug)}
+                className={[
+                  "block w-full rounded px-3 py-1.5 text-left text-sm transition-colors",
+                  isActive
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                ].join(" ")}
+              >
+                {section.title}
+              </button>
+            );
+          })}
+        </div>
+      </aside>
 
-      {guide.sections.map((section) => (
-        <Card key={section.title}>
+      {/* Main content */}
+      <div className="min-w-0 flex-1 space-y-6">
+        <Card>
           <CardHeader>
-            <CardTitle>{section.title}</CardTitle>
-            <CardDescription>{section.summary}</CardDescription>
+            <CardTitle className="text-xl font-semibold tracking-tight">{guide.title}</CardTitle>
+            <CardDescription>{guide.description}</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <ol className="list-decimal space-y-2 pl-5 text-sm text-foreground">
-              {section.steps.map((step) => (
-                <li key={step}>{step}</li>
-              ))}
-            </ol>
-            <div className="rounded-md border bg-muted/20 p-4 text-sm">
-              <p className="font-medium">Helpful notes</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
-                {section.notes.map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
-            </div>
-            {section.images.length ? (
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                {section.images.map((image) => (
-                  <figure key={image.src} className="space-y-2 rounded-md border p-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedImage(image)}
-                      className="block w-full overflow-hidden rounded border bg-background transition hover:opacity-95"
-                    >
-                      <img src={image.src} alt={image.alt} className="w-full rounded object-contain" />
-                    </button>
-                    <figcaption className="text-xs text-muted-foreground">{image.alt}</figcaption>
-                  </figure>
-                ))}
-              </div>
-            ) : null}
-          </CardContent>
         </Card>
-      ))}
+
+        {guide.sections.map((section, i) => {
+          const slug = sectionSlugs[i];
+          return (
+            <Card key={slug} id={slug} ref={(el) => { sectionRefs.current[slug] = el; }}>
+              <CardHeader>
+                <CardTitle>
+                  <a
+                    href={`#${slug}`}
+                    className="hover:underline"
+                    onClick={(e) => { e.preventDefault(); scrollToSection(slug); }}
+                  >
+                    {section.title}
+                  </a>
+                </CardTitle>
+                <CardDescription>{section.summary}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <ol className="list-decimal space-y-2 pl-5 text-sm text-foreground">
+                  {section.steps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+                <div className="rounded-md border bg-muted/20 p-4 text-sm">
+                  <p className="font-medium">Helpful notes</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+                    {section.notes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                </div>
+                {section.images.length ? (
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    {section.images.map((image) => (
+                      <figure key={image.src} className="space-y-2 rounded-md border p-3">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedImage(image)}
+                          className="block w-full overflow-hidden rounded border bg-background transition hover:opacity-95"
+                        >
+                          <img src={image.src} alt={image.alt} className="w-full rounded object-contain" />
+                        </button>
+                        <figcaption className="text-xs text-muted-foreground">{image.alt}</figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
       {selectedImage ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setSelectedImage(null)}>
-          <div className="relative max-h-full w-full max-w-6xl" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div
+            className="relative max-h-full w-full max-w-6xl"
+            onClick={(event) => event.stopPropagation()}
+          >
             <button
               type="button"
               className="absolute right-2 top-2 rounded bg-black/70 px-3 py-1 text-sm text-white"
@@ -251,7 +349,11 @@ export default function PlatformUserGuidePage({ platform }) {
             >
               Close
             </button>
-            <img src={selectedImage.src} alt={selectedImage.alt} className="max-h-[90vh] w-full rounded object-contain" />
+            <img
+              src={selectedImage.src}
+              alt={selectedImage.alt}
+              className="max-h-[90vh] w-full rounded object-contain"
+            />
           </div>
         </div>
       ) : null}

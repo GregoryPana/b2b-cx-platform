@@ -61,10 +61,6 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
   }, [navigate, setActivePlatform]);
 
   useEffect(() => {
-    if (isMysteryShopperPlatform) {
-      setPendingReviewCount(0);
-      return;
-    }
     let cancelled = false;
     let controller = null;
     let timeoutId = null;
@@ -74,7 +70,9 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
       if (timeoutId) window.clearTimeout(timeoutId);
       timeoutId = window.setTimeout(() => controller?.abort(), 30000);
       try {
-        const endpoint = `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
+        const endpoint = isMysteryShopperPlatform
+          ? `${API_BASE}/mystery-shopper/admin/visits?status=Pending`
+          : `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
         const res = await fetch(endpoint, { headers, signal: controller.signal });
         if (!cancelled && res.ok) {
           const data = await res.json();

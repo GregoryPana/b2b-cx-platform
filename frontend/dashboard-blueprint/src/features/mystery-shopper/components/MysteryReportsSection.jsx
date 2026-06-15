@@ -40,8 +40,8 @@ export default function MysteryReportsSection({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl font-semibold tracking-tight">Survey Reports</CardTitle>
-          <CardDescription>Create Mystery Shopper reports by date or location, then preview, download, or email them.</CardDescription>
+          <CardTitle className="text-xl font-semibold tracking-tight">Mystery Shopper Reports</CardTitle>
+          <CardDescription>Create a report from mystery shopping visits. Choose what you want to see, then preview it on-screen, save it as a file, or send it by email.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-lg border bg-muted/20 p-5 space-y-5">
@@ -54,8 +54,8 @@ export default function MysteryReportsSection({
 
             <section className="rounded-lg border bg-card p-4">
               <div className="mb-3">
-                <p className="text-sm font-semibold tracking-tight">1) Select Report Type</p>
-                <p className="text-xs text-muted-foreground">Pick the report format that matches your reporting objective.</p>
+                <p className="text-sm font-semibold tracking-tight">Step 1 — What kind of report do you need?</p>
+                <p className="text-xs text-muted-foreground">Pick one of the options below. Each type shows a different slice of the mystery shopping data.</p>
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
                 {reportTypeOptions.map((option) => (
@@ -98,19 +98,19 @@ export default function MysteryReportsSection({
 
             <section className="rounded-lg border bg-background p-4 space-y-3">
               <div>
-                <p className="text-sm font-semibold tracking-tight">2) Define Report Scope</p>
+                <p className="text-sm font-semibold tracking-tight">Step 2 — Narrow it down</p>
                 {reportType === "lifetime" ? (
-                  <p className="text-xs text-muted-foreground">Lifetime overview uses all Mystery Shopper data across the selected scope.</p>
+                  <p className="text-xs text-muted-foreground">The Lifetime Overview covers all mystery shopping data. You can optionally filter it to a specific location or date range below.</p>
                 ) : reportType === "survey" ? (
-                  <p className="text-xs text-muted-foreground">Select a location, then pick an approved survey to view its full details.</p>
+                  <p className="text-xs text-muted-foreground">Choose a location first, then pick a completed and approved visit from the list that appears.</p>
                 ) : (
-                  <p className="text-xs text-muted-foreground">Pick a single date to see all surveys completed that day, or a date range to cover multiple days.</p>
+                  <p className="text-xs text-muted-foreground">Enter a start and end date to include all visits that happened in that period. You can use the same date for both fields to see a single day.</p>
                 )}
               </div>
 
               {reportType === "lifetime" ? (
                 <div className="rounded-md border bg-blue-50 p-3">
-                  <p className="text-sm text-blue-900">This report aggregates Mystery Shopper visits across the selected date scope and available locations.</p>
+                  <p className="text-sm text-blue-900">This report brings together all mystery shopping visits into a single summary. It is ideal for management reviews, performance tracking, and sharing with senior stakeholders.</p>
                 </div>
               ) : null}
 
@@ -150,8 +150,8 @@ export default function MysteryReportsSection({
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div className="rounded-md border bg-blue-50 p-3 md:col-span-2">
                     <p className="text-sm font-medium text-blue-900">Single Date vs Date Range</p>
-                    <p className="text-xs text-blue-800 mt-1"><strong>Single date:</strong> Shows all surveys completed on exactly that date.</p>
-                    <p className="text-xs text-blue-800 mt-1"><strong>Date range:</strong> Shows all surveys completed between two dates.</p>
+                    <p className="text-xs text-blue-800 mt-1"><strong>Single day:</strong> Set both dates to the same date to see only that day&apos;s visits.</p>
+                    <p className="text-xs text-blue-800 mt-1"><strong>Date range:</strong> Set different start and end dates to cover a full week, month, or quarter.</p>
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date</label>
@@ -172,10 +172,11 @@ export default function MysteryReportsSection({
                   ) : null}
                   {reportIneligibleSurveys.length > 0 ? (
                     <div className="rounded-md border bg-amber-50 p-3">
-                      <p className="text-sm font-medium text-amber-900">Unavailable surveys (cannot generate report)</p>
-                      <div className="mt-2 space-y-1 text-xs text-amber-800">
+                      <p className="text-sm font-medium text-amber-900">Some visits cannot be included in a report yet</p>
+                      <p className="text-xs text-amber-800 mt-1 mb-2">Reports can only be generated from approved visits. The visits below are not yet approved:</p>
+                      <div className="space-y-1 text-xs text-amber-800">
                         {reportIneligibleSurveys.slice(0, 8).map((visit) => (
-                          <p key={`ineligible-${visit.visit_id}`}>Survey on {visit.visit_date || "--"} ({visit.status}) - {visit.reason || "Not report-eligible"}</p>
+                          <p key={`ineligible-${visit.visit_id}`}>Visit on {visit.visit_date || "--"} — currently <strong>{visit.status}</strong>{visit.reason ? ` (${visit.reason})` : ""}</p>
                         ))}
                       </div>
                     </div>
@@ -186,8 +187,8 @@ export default function MysteryReportsSection({
 
             <section className="rounded-lg border bg-background p-4 space-y-3">
               <div>
-                <p className="text-sm font-semibold tracking-tight">3) Deliver Report</p>
-                <p className="text-xs text-muted-foreground">Preview in-page, download as HTML, or send by email.</p>
+                <p className="text-sm font-semibold tracking-tight">Step 3 — Preview, download, or share</p>
+                <p className="text-xs text-muted-foreground">Click <strong>Preview</strong> to see the report on-screen first. Download it as an HTML file to open in any browser, or as a PDF to print or attach to an email. You can also send it directly to one or more email addresses.</p>
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {(reportType === "lifetime" || reportType === "survey") ? (
@@ -232,7 +233,7 @@ export default function MysteryReportsSection({
                       );
                     })}
                   </div>
-                  <p className="text-xs text-muted-foreground">Includes Mystery Shopper KPI summaries, visit scope details, and survey-level answers in a shareable report format.</p>
+                  <p className="text-xs text-muted-foreground">This is a live preview of what will be included in your report. The colours on each metric tell you at a glance whether the score is good (green), needs attention (yellow), or is a concern (red). Click Download PDF to get a print-ready version.</p>
                   {reportPreviewHtml ? (
                     <div className="rounded-md border">
                       <iframe title="Report Preview" srcDoc={reportPreviewHtml} className="h-[720px] w-full rounded-md bg-white" />

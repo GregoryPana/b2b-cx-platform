@@ -484,7 +484,7 @@ def build_mystery_report_payload(
     }
 
 
-def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> str:
+def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> str:  # noqa: C901
     filters = payload.get("filters", {}) or {}
     summary = payload.get("summary", {}) or {}
     metrics = payload.get("mystery_metrics", {}) or {}
@@ -492,194 +492,377 @@ def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> st
     visit_details = payload.get("visit_details") or []
     survey_question_details = payload.get("survey_question_details") or []
 
-    def fmt(value: Any, suffix: str = "") -> str:
-        if value is None or value == "":
-            return "--"
-        try:
-            return f"{float(value):.1f}{suffix}"
-        except Exception:
-            return f"{value}{suffix}"
+    REPORT_TYPE_LABELS_HUMAN = {
+        "lifetime": "Lifetime Overview",
+        "survey": "Single Visit Detail",
+        "date": "Date Range Summary",
+    }
+    report_type_label = REPORT_TYPE_LABELS_HUMAN.get(str(filters.get("report_type") or "lifetime"), "Report")
+    generated_date = datetime.utcnow().strftime("%d %B %Y at %H:%M UTC")
 
-    visit_rows = "".join(
-        f"<tr><td>{row.get('visit_date') or '--'}</td><td>{row.get('location_name') or '--'}</td><td>{row.get('visit_time') or '--'}</td><td>{row.get('status') or '--'}</td><td>{fmt(row.get('avg_score'))}</td></tr>"
-        for row in visit_details
+    scope_parts = []
+    if selected_visit_info.get("location_name"):
+        scope_parts.append(selected_visit_info["location_name"])
+    elif filters.get("location_id"):
+        scope_parts.append(f"Location {filters['location_id']}")
+    else:
+        scope_parts.append("All Locations")
+    if filters.get("date_from") and filters.get("date_to"):
+        scope_parts.append(f"{filters['date_from']} to {filters['date_to']}")
+    elif filters.get("date_from"):
+        scope_parts.append(f"From {filters['date_from']}")
+    elif filters.get("date_to"):
+        scope_parts.append(f"Up to {filters['date_to']}")
+    else:
+        scope_parts.append("All Dates")
+    scope_label = " · ".join(scope_parts)
+
+    # ── Helper: numeric score → colour tokens ──────────────────────────────
+    def _score_level(score: Any, score_max: Any) -> str:
+        if score is None or score_max is None:
+            return "neutral"
+        s, m = float(score), float(score_max)
+        if m <= 5:
+            return "low" if s <= 2 else ("mid" if s == 3 else "high")
+        return "low" if s <= 5 else ("mid" if s <= 7 else "high")
+
+    _COLORS = {
+        "high":    ("d1fae5", "065f46", "6ee7b7"),
+        "mid":     ("fef3c7", "92400e", "fcd34d"),
+        "low":     ("fee2e2", "991b1b", "fca5a5"),
+        "neutral": ("f1f5f9", "475569", "cbd5e1"),
+    }
+
+    def _badge(text: str, level: str) -> str:
+        bg, fg, bd = _COLORS.get(level, _COLORS["neutral"])
+        return (
+            f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;'
+            f'background:#{bg};color:#{fg};border:1px solid #{bd};'
+            f'font-weight:700;font-size:12px;white-space:nowrap">{text}</span>'
+        )
+
+    def _score_badge(score: Any, score_max: Any) -> str:
+        if score is None:
+            return '<span style="color:#94a3b8">—</span>'
+        return _badge(f"{score} / {score_max}", _score_level(score, score_max))
+
+    def _answer_badge(item: dict[str, Any]) -> str:
+        score = item.get("score")
+        score_max = item.get("score_max")
+        if score is not None and score_max is not None:
+            return _score_badge(score, score_max)
+        answer = str(item.get("answer_text") or "").strip()
+        if answer.lower() == "yes":
+            return _badge("Yes ✓", "high")
+        if answer.lower() == "no":
+            return _badge("No ✗", "low")
+        return f'<span style="font-size:13px;color:#0f172a">{answer or "—"}</span>'
+
+    def _status_badge(status: Any) -> str:
+        s = str(status or "").strip()
+        level_map = {"Approved": "high", "Submitted": "mid", "Pending Review": "mid", "Rejected": "low", "Draft": "neutral"}
+        return _badge(s or "—", level_map.get(s, "neutral"))
+
+    def _nps_level(nps: Any) -> str:
+        if nps is None:
+            return "neutral"
+        n = float(nps)
+        return "high" if n >= 50 else ("mid" if n >= 0 else "low")
+
+    def _csat_level(csat: Any) -> str:
+        if csat is None:
+            return "neutral"
+        c = float(csat)
+        return "high" if c >= 8 else ("mid" if c >= 6 else "low")
+
+    def _avg_score_level(avg: Any) -> str:
+        if avg is None:
+            return "neutral"
+        a = float(avg)
+        return "high" if a >= 8 else ("mid" if a >= 6 else "low")
+
+    def _fmt(value: Any, decimals: int = 1) -> str:
+        if value is None or value == "":
+            return "—"
+        try:
+            return f"{float(value):.{decimals}f}"
+        except Exception:
+            return str(value)
+
+    def _disp_q_num(raw: Any) -> int:
+        n = int(raw or 0)
+        return n - 2000 if n > 1000 else n
+
+    # ── KPI cards ──────────────────────────────────────────────────────────
+    def _kpi_card(label: str, value_str: str, level: str, explanation: str) -> str:
+        bg_map = {"high": "#f0fdf4", "mid": "#fffbeb", "low": "#fef2f2", "neutral": "#f8fafc"}
+        bd_map = {"high": "#bbf7d0", "mid": "#fde68a", "low": "#fecaca", "neutral": "#e2e8f0"}
+        fg_map = {"high": "#14532d", "mid": "#78350f", "low": "#7f1d1d", "neutral": "#0f172a"}
+        bg = bg_map.get(level, "#f8fafc")
+        bd = bd_map.get(level, "#e2e8f0")
+        fg = fg_map.get(level, "#0f172a")
+        return (
+            f'<div style="border-radius:10px;border:1px solid {bd};padding:16px;background:{bg};color:{fg}">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;opacity:0.75">{label}</div>'
+            f'<div style="font-size:28px;font-weight:700;line-height:1">{value_str}</div>'
+            f'<div style="font-size:11px;margin-top:8px;opacity:0.8;line-height:1.4">{explanation}</div>'
+            f'</div>'
+        )
+
+    nps_val = metrics.get("selected_nps")
+    csat_val = metrics.get("selected_csat")
+    oe_val = metrics.get("selected_overall_experience")
+    sq_val = metrics.get("selected_quality")
+
+    kpi_html = (
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px">'
+        + _kpi_card("Total Mystery Visits", str(summary.get("total_visits", 0)), "neutral",
+                    "Number of mystery shopper visits included in this report.")
+        + _kpi_card("Locations Covered", str(summary.get("total_locations", 0)), "neutral",
+                    "How many different Cable & Wireless Seychelles locations were visited.")
+        + _kpi_card("NPS — Would Recommend?", _fmt(nps_val, 0), _nps_level(nps_val),
+                    "Net Promoter Score. Ranges from −100 to +100. "
+                    "Above 50 is excellent; 0–49 is good; below 0 needs immediate attention.")
+        + _kpi_card("CSAT — Satisfaction Score", _fmt(csat_val, 2), _csat_level(csat_val),
+                    "Customer Satisfaction score (0–10 scale). "
+                    "8 or above is excellent; 6–7.9 needs improvement; below 6 is a concern.")
+        + _kpi_card("Overall Experience Score", _fmt(oe_val, 2), _avg_score_level(oe_val),
+                    "Weighted average of NPS and CSAT questions. Reflects how customers felt overall.")
+        + _kpi_card("Service Quality Score", _fmt(sq_val, 2), _avg_score_level(sq_val),
+                    "Average score across service delivery and staff-behaviour questions (scored 0–5 each).")
+        + '</div>'
     )
+
+    # ── Single-visit detail block ──────────────────────────────────────────
+    CATEGORY_ORDER = [
+        "External Environment & First Impression",
+        "Store Environment & Comfort",
+        "Staff Appearance & Professionalism",
+        "Customer Service Interaction",
+        "Time & Efficiency",
+        "Overall Experience (CSAT & NPS)",
+    ]
+    CATEGORY_DESCRIPTIONS = {
+        "External Environment & First Impression": "How the store looks from outside and first impressions when entering — signage, cleanliness, and welcoming atmosphere.",
+        "Store Environment & Comfort": "The inside of the store — tidiness, temperature, seating, displays, and how easy it is to find your way around.",
+        "Staff Appearance & Professionalism": "How staff presented themselves — uniform, grooming, name badge, and professional behaviour.",
+        "Customer Service Interaction": "How well the staff member assisted the customer — knowledge, communication, listening, and problem solving.",
+        "Time & Efficiency": "How long the customer waited and how efficiently the visit was handled from start to finish.",
+        "Overall Experience (CSAT & NPS)": "The customer's overall impression — their satisfaction rating and likelihood to recommend the service to others.",
+    }
 
     grouped_questions: dict[str, list[dict[str, Any]]] = {}
     for row in survey_question_details:
         grouped_questions.setdefault(str(row.get("category") or "Uncategorized"), []).append(row)
 
-    def question_answer_display(item: dict[str, Any]) -> str:
-        if item.get("score") is not None and item.get("score_max") is not None:
-            return f"{item.get('score')} / {item.get('score_max')}"
-        return item.get("answer_text") or "--"
-
-    question_sections = "".join(
-        f"<h3>{category}</h3><table><thead><tr><th>Question</th><th>Answer</th><th>Verbatim</th></tr></thead><tbody>"
-        + "".join(
-            f"<tr><td>Q{int(item.get('question_number') or 0)}: {item.get('question_text') or '--'}</td><td>{question_answer_display(item)}</td><td>{item.get('verbatim') or '--'}</td></tr>"
-            for item in items
+    survey_detail_html = ""
+    if selected_visit_info:
+        vi = selected_visit_info
+        meta_items = [
+            ("Location", vi.get("location_name")),
+            ("Visit Date", vi.get("visit_date")),
+            ("Visit Time", vi.get("visit_time")),
+            ("Purpose of Visit", vi.get("purpose_of_visit")),
+            ("Staff on Duty", vi.get("staff_on_duty")),
+            ("Shopper Name", vi.get("shopper_name")),
+            ("Status", vi.get("status")),
+        ]
+        meta_html = "".join(
+            f'<div style="padding:8px 12px;background:#f8fafc;border-radius:6px">'
+            f'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;margin-bottom:2px">{label}</div>'
+            f'<div style="font-size:14px;font-weight:500;color:#0f172a">{val or "—"}</div>'
+            f'</div>'
+            for label, val in meta_items if val
         )
-        + "</tbody></table>"
-        for category, items in grouped_questions.items()
+        survey_detail_html = (
+            '<div style="margin-top:0">'
+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:20px">'
+            + meta_html + '</div>'
+        )
+
+        if grouped_questions:
+            ordered_cats = [c for c in CATEGORY_ORDER if c in grouped_questions] + [c for c in grouped_questions if c not in CATEGORY_ORDER]
+            for category in ordered_cats:
+                items = grouped_questions[category]
+                cat_desc = CATEGORY_DESCRIPTIONS.get(category, "")
+                q_rows = "".join(
+                    f'<tr>'
+                    f'<td style="width:40%;vertical-align:top;padding:10px 12px">'
+                    f'<div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:2px">Q{_disp_q_num(item.get("question_number"))}</div>'
+                    f'<div style="font-size:13px;color:#0f172a">{item.get("question_text") or "—"}</div>'
+                    f'</td>'
+                    f'<td style="width:20%;vertical-align:top;padding:10px 12px;text-align:center">{_answer_badge(item)}</td>'
+                    f'<td style="width:40%;vertical-align:top;padding:10px 12px;font-size:13px;color:#475569">{item.get("verbatim") or "—"}</td>'
+                    f'</tr>'
+                    for item in items
+                )
+                survey_detail_html += (
+                    f'<div style="margin-bottom:24px">'
+                    f'<div style="background:#f1f5f9;border-radius:8px 8px 0 0;padding:10px 14px;border-bottom:2px solid #e2e8f0">'
+                    f'<div style="font-size:14px;font-weight:700;color:#0f172a">{category}</div>'
+                    f'{"<div style=font-size:12px;color:#64748b;margin-top:2px>" + cat_desc + "</div>" if cat_desc else ""}'
+                    f'</div>'
+                    f'<table style="width:100%;border-collapse:collapse">'
+                    f'<thead><tr>'
+                    f'<th style="width:40%;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;text-align:left;border-bottom:1px solid #e2e8f0">Question</th>'
+                    f'<th style="width:20%;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;text-align:center;border-bottom:1px solid #e2e8f0">Score / Answer</th>'
+                    f'<th style="width:40%;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;text-align:left;border-bottom:1px solid #e2e8f0">Customer Comment</th>'
+                    f'</tr></thead>'
+                    f'<tbody>{q_rows}</tbody>'
+                    f'</table>'
+                    f'</div>'
+                )
+        survey_detail_html += '</div>'
+
+    # ── Visit summary table ────────────────────────────────────────────────
+    visit_rows_html = ""
+    for row in visit_details:
+        avg = row.get("avg_score")
+        avg_level = _avg_score_level(avg)
+        bg, fg, bd = _COLORS.get(avg_level, _COLORS["neutral"])
+        avg_cell = (
+            f'<span style="background:#{bg};color:#{fg};border:1px solid #{bd};border-radius:4px;padding:2px 8px;font-weight:700;font-size:12px">{_fmt(avg, 2)}</span>'
+            if avg is not None else '<span style="color:#94a3b8">—</span>'
+        )
+        visit_rows_html += (
+            f'<tr>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px">{row.get("visit_date") or "—"}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px">{row.get("location_name") or "—"}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px">{row.get("visit_time") or "—"}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px">{row.get("staff_on_duty") or "—"}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px">{row.get("purpose_of_visit") or "—"}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f1f5f9">{_status_badge(row.get("status"))}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;text-align:center">{avg_cell}</td>'
+            f'</tr>'
+        )
+
+    # ── CSS (plain string, no f-string so no brace escaping needed) ────────
+    css = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+       background: #f1f5f9; padding: 24px; color: #0f172a; }
+.page { max-width: 1100px; margin: 0 auto; background: #fff;
+        border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+.hdr { background: #0b1f3a; color: #fff; padding: 24px 32px; }
+.hdr h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.hdr p { font-size: 13px; opacity: 0.75; margin-top: 4px; }
+.section { padding: 24px 32px; border-bottom: 1px solid #e2e8f0; }
+.section:last-child { border-bottom: none; }
+.section-title { font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+.section-sub { font-size: 13px; color: #64748b; margin-bottom: 14px; line-height: 1.5; }
+.intro-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
+             padding: 14px 16px; font-size: 13px; color: #1e3a5f; line-height: 1.6; }
+th { background: #f8fafc; padding: 10px 12px; text-align: left; font-size: 11px;
+     font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+     color: #64748b; border-bottom: 1px solid #e2e8f0; }
+.ftr { padding: 16px 32px; background: #f8fafc; font-size: 11px; color: #94a3b8; }
+@media print { body { background: #fff; padding: 0; }
+               .page { border: none; border-radius: 0; } }
+"""
+
+    scoring_guide_html = (
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px">'
+        + ''.join(
+            f'<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:{bg};border:1px solid #{bd}">'
+            f'<div style="width:14px;height:14px;border-radius:50%;background:#{clr};flex-shrink:0"></div>'
+            f'<div><div style="font-size:12px;font-weight:700;color:#{fg}">{label}</div>'
+            f'<div style="font-size:11px;color:#{fg};opacity:0.8">{desc}</div></div>'
+            f'</div>'
+            for label, desc, bg, fg, bd, clr in [
+                ("Good / Pass", "Performing well — keep it up.", "#f0fdf4", "14532d", "bbf7d0", "10b981"),
+                ("Needs Attention", "Room for improvement.", "#fffbeb", "78350f", "fde68a", "f59e0b"),
+                ("Poor / Fail", "Priority area — action needed.", "#fef2f2", "7f1d1d", "fecaca", "ef4444"),
+            ]
+        )
+        + '</div>'
     )
 
-    return f"""<!doctype html>
-<html>
-<head>
-  <meta charset=\"utf-8\" />
-  <title>CWSCX Mystery Shopper Report</title>
-  <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; color: #0f172a; background:#f8fafc; }}
-    .page {{ max-width: 1120px; margin: 0 auto; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:28px; }}
-    h1,h2,h3 {{ color:#0f172a; }}
-    .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }}
-    .card {{ border:1px solid #e2e8f0; border-radius:10px; padding:14px; background:#fff; }}
-    .label {{ font-size:12px; color:#64748b; margin-bottom:6px; }}
-    .value {{ font-size:24px; font-weight:700; color:#0b1220; }}
-    table {{ width:100%; border-collapse:collapse; margin-top:10px; }}
-    th, td {{ border:1px solid #e5e7eb; padding:10px 12px; font-size:13px; text-align:left; }}
-    th {{ background:#f1f5f9; }}
-  </style>
-</head>
-<body>
-  <div class=\"page\">
-    <h1>Mystery Shopper Report</h1>
-    <p>Generated by: {generated_by}</p>
-    <p>Scope: Location {filters.get('location_id') or 'All'} | Date range: {filters.get('date_from') or 'Any'} to {filters.get('date_to') or 'Any'}</p>
-    <div class=\"grid\">
-      <div class=\"card\"><div class=\"label\">Total Visits</div><div class=\"value\">{summary.get('total_visits', 0)}</div></div>
-      <div class=\"card\"><div class=\"label\">Locations</div><div class=\"value\">{summary.get('total_locations', 0)}</div></div>
-      <div class=\"card\"><div class=\"label\">Average Score</div><div class=\"value\">{fmt(summary.get('average_score'))}</div></div>
-      <div class=\"card\"><div class=\"label\">Selected NPS</div><div class=\"value\">{fmt(metrics.get('selected_nps'))}</div></div>
-      <div class=\"card\"><div class=\"label\">Selected CSAT Avg</div><div class=\"value\">{fmt(metrics.get('selected_csat'))}</div></div>
-      <div class=\"card\"><div class=\"label\">Overall Experience</div><div class=\"value\">{fmt(metrics.get('selected_overall_experience'))}</div></div>
-    </div>
-    {f"<h2>Selected Survey</h2><p>{selected_visit_info.get('location_name') or '--'} | {selected_visit_info.get('visit_date') or '--'} | {selected_visit_info.get('status') or '--'} | {selected_visit_info.get('purpose_of_visit') or '--'}</p>" if selected_visit_info else ""}
-    {f"<h2>Survey Details</h2>{question_sections}" if question_sections else ""}
-    <h2>Visit Summary</h2>
-    <table>
-      <thead><tr><th>Date</th><th>Location</th><th>Time</th><th>Status</th><th>Avg Score</th></tr></thead>
-      <tbody>{visit_rows or '<tr><td colspan="5">No visits found.</td></tr>'}</tbody>
-    </table>
-  </div>
-</body>
-</html>"""
+    no_visits_html = '<p style="color:#94a3b8;font-size:13px;padding:16px 0">No visits found for the selected scope.</p>'
+
+    return (
+        "<!doctype html>\n<html lang='en'>\n<head>\n"
+        "<meta charset='utf-8' />\n"
+        "<meta name='viewport' content='width=device-width,initial-scale=1' />\n"
+        "<title>CW Seychelles — Mystery Shopper Report</title>\n"
+        f"<style>{css}</style>\n"
+        "</head>\n<body>\n<div class='page'>\n"
+
+        # Header
+        "<div class='hdr'>\n"
+        f"<h1>Mystery Shopper Report &mdash; {report_type_label}</h1>\n"
+        f"<p>Cable &amp; Wireless Seychelles &middot; {scope_label}</p>\n"
+        f"<p>Generated by {generated_by} &middot; {generated_date}</p>\n"
+        "</div>\n"
+
+        # About this report
+        "<div class='section'>\n"
+        "<div class='section-title'>About This Report</div>\n"
+        "<div class='section-sub'>What do the colours mean?</div>\n"
+        + scoring_guide_html +
+        "<div class='intro-box' style='margin-top:14px'>"
+        "This report was created from anonymous mystery shopping visits to Cable &amp; Wireless Seychelles locations. "
+        "During each visit, a trained mystery shopper evaluates the store, staff, and service using a standard checklist. "
+        "Questions scored 0&ndash;5 measure specific behaviours; questions scored 0&ndash;10 measure overall satisfaction. "
+        "Yes/No questions check whether a specific standard was met."
+        "</div>\n"
+        "</div>\n"
+
+        # KPI Summary
+        "<div class='section'>\n"
+        "<div class='section-title'>Performance Summary</div>\n"
+        "<div class='section-sub'>"
+        "These headline numbers give a quick view of how well the mystery shopping visits performed. "
+        "Each number has a colour: green is good, yellow needs attention, and red needs urgent action."
+        "</div>\n"
+        + kpi_html +
+        "</div>\n"
+
+        # Single-visit detail OR visit table
+        + (
+            "<div class='section'>\n"
+            "<div class='section-title'>Visit Information &amp; Survey Answers</div>\n"
+            "<div class='section-sub'>"
+            "Full details for the selected mystery shopping visit, including all question scores and any comments left by the shopper."
+            "</div>\n"
+            + survey_detail_html +
+            "</div>\n"
+            if selected_visit_info and survey_detail_html else ""
+        )
+
+        + (
+            "<div class='section'>\n"
+            "<div class='section-title'>All Visits</div>\n"
+            "<div class='section-sub'>"
+            "A summary of every mystery shopping visit included in this report. "
+            "The average score reflects all scored questions across the visit. "
+            "Only visits marked as <strong>Approved</strong> are counted in KPI calculations."
+            "</div>\n"
+            + (
+                "<table style='width:100%;border-collapse:collapse'>"
+                "<thead><tr>"
+                "<th>Date</th><th>Location</th><th>Time</th><th>Staff on Duty</th>"
+                "<th>Purpose of Visit</th><th>Status</th><th style='text-align:center'>Avg Score</th>"
+                "</tr></thead>"
+                f"<tbody>{visit_rows_html}</tbody>"
+                "</table>"
+                if visit_rows_html else no_visits_html
+            )
+            + "</div>\n"
+            if not selected_visit_info or not survey_detail_html else ""
+        )
+
+        # Footer
+        + "<div class='ftr'>"
+        f"Mystery Shopper Programme &mdash; Cable &amp; Wireless Seychelles &middot; {generated_date} &middot; Confidential"
+        "</div>\n"
+
+        "</div>\n</body>\n</html>"
+    )
 
 
 def render_mystery_report_pdf(payload: dict[str, Any], generated_by: str) -> bytes:
-    from io import BytesIO
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
-    styles = getSampleStyleSheet()
-    story = []
-
-    filters = payload.get("filters", {}) or {}
-    summary = payload.get("summary", {}) or {}
-    metrics = payload.get("mystery_metrics", {}) or {}
-    selected_visit_info = payload.get("selected_visit_info") or {}
-    visit_details = payload.get("visit_details") or []
-    survey_question_details = payload.get("survey_question_details") or []
-
-    def fmt(value: Any) -> str:
-        if value is None or value == "":
-            return "--"
-        try:
-            return f"{float(value):.1f}"
-        except Exception:
-            return str(value)
-
-    story.append(Paragraph("CWSCX Mystery Shopper Report", styles["Title"]))
-    story.append(Paragraph(
-        f"Type: {MYSTERY_REPORT_TYPE_LABELS.get(str(filters.get('report_type') or 'lifetime'), 'report').replace('-', ' ').title()}",
-        styles["Heading3"],
-    ))
-    story.append(Paragraph(f"Generated by: {generated_by}", styles["BodyText"]))
-    story.append(Paragraph(
-        f"Scope: {_mystery_scope_label(payload).replace('-', ' ').title()} | Date scope: {_mystery_date_label(payload).replace('-', ' ')}",
-        styles["BodyText"],
-    ))
-    story.append(Spacer(1, 12))
-
-    summary_rows = [
-        ["Total Visits", str(summary.get("total_visits", 0))],
-        ["Locations", str(summary.get("total_locations", 0))],
-        ["Average Score", fmt(summary.get("average_score"))],
-        ["Selected NPS", fmt(metrics.get("selected_nps"))],
-        ["Selected CSAT Avg", fmt(metrics.get("selected_csat"))],
-        ["Overall Experience", fmt(metrics.get("selected_overall_experience"))],
-        ["Service Quality", fmt(metrics.get("selected_quality"))],
-    ]
-    summary_table = Table(summary_rows, colWidths=[170, 120])
-    summary_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-        ("PADDING", (0, 0), (-1, -1), 6),
-    ]))
-    story.append(summary_table)
-    story.append(Spacer(1, 14))
-
-    if selected_visit_info:
-        story.append(Paragraph("Selected Survey", styles["Heading2"]))
-        story.append(Paragraph(
-            f"{selected_visit_info.get('location_name') or '--'} | {selected_visit_info.get('visit_date') or '--'} | {selected_visit_info.get('status') or '--'} | {selected_visit_info.get('purpose_of_visit') or '--'}",
-            styles["BodyText"],
-        ))
-        story.append(Spacer(1, 10))
-
-    if survey_question_details:
-        story.append(Paragraph("Survey Details", styles["Heading2"]))
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for row in survey_question_details:
-            grouped.setdefault(str(row.get("category") or "Uncategorized"), []).append(row)
-        for category, items in grouped.items():
-            story.append(Paragraph(category, styles["Heading3"]))
-            rows = [["Question", "Answer", "Verbatim"]]
-            for item in items:
-                answer = f"{item.get('score')} / {item.get('score_max')}" if item.get("score") is not None and item.get("score_max") is not None else (item.get("answer_text") or "--")
-                rows.append([
-                    f"Q{int(item.get('question_number') or 0)}: {item.get('question_text') or '--'}",
-                    answer,
-                    item.get("verbatim") or "--",
-                ])
-            table = Table(rows, colWidths=[250, 100, 140])
-            table.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("PADDING", (0, 0), (-1, -1), 5),
-            ]))
-            story.append(table)
-            story.append(Spacer(1, 10))
-
-    story.append(Paragraph("Visit Summary", styles["Heading2"]))
-    visit_rows = [["Date", "Location", "Time", "Status", "Avg Score"]]
-    for row in visit_details:
-        visit_rows.append([
-            row.get("visit_date") or "--",
-            row.get("location_name") or "--",
-            row.get("visit_time") or "--",
-            row.get("status") or "--",
-            fmt(row.get("avg_score")),
-        ])
-    visit_table = Table(visit_rows, colWidths=[80, 170, 70, 90, 70])
-    visit_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        ("PADDING", (0, 0), (-1, -1), 5),
-    ]))
-    story.append(visit_table)
-
-    doc.build(story)
-    pdf_bytes = buffer.getvalue()
-    buffer.close()
-    return pdf_bytes
+    from .pdf_reporter import html_to_pdf
+    return html_to_pdf(render_mystery_report_html(payload, generated_by))
 
 
 MYSTERY_SHOPPER_QUESTIONS: list[dict[str, Any]] = [
@@ -2074,9 +2257,9 @@ async def get_mystery_visit_detail(
 ):
     _ensure_mystery_shopper_schema(db)
     ensure_mystery_visit_access(db, visit_id, current_user)
-    response_table = get_response_table(db)
+    response_table = get_mystery_answer_table(db)
     if not response_table:
-        raise HTTPException(status_code=500, detail="No response table found")
+        raise HTTPException(status_code=500, detail="No mystery shopper answer table found")
 
     question_order_col = "q.question_number" if has_column(db, "questions", "question_number") else "q.id"
 
@@ -2117,9 +2300,9 @@ async def get_mystery_visit_detail(
                 r.score,
                 r.answer_text,
                 r.verbatim,
-                {"r.actions" if response_table == "b2b_visit_responses" else "NULL"} as actions,
-                {"r.created_at" if response_table == "b2b_visit_responses" else "NULL"} as created_at,
-                {"r.updated_at" if response_table == "b2b_visit_responses" else "NULL"} as updated_at,
+                r.actions,
+                r.created_at,
+                r.updated_at,
                 {question_order_col} as question_number,
                 q.question_text,
                 q.input_type,
@@ -2294,9 +2477,6 @@ async def update_mystery_response(
 ):
     _ensure_mystery_shopper_schema(db)
     ensure_mystery_visit_access(db, visit_id, current_user)
-    response_table = get_response_table(db)
-    if not response_table:
-        raise HTTPException(status_code=500, detail="No response table found")
 
     question_row = db.execute(
         text(
@@ -2313,59 +2493,34 @@ async def update_mystery_response(
 
     validate_mystery_response(question_row, payload)
 
-    if response_table == "b2b_visit_responses":
-        row = db.execute(
-            text(
-                """
-                UPDATE b2b_visit_responses
-                SET question_id = :question_id,
-                    score = :score,
-                    answer_text = :answer_text,
-                    verbatim = :verbatim,
-                    actions = :actions,
-                    updated_at = NOW()
-                WHERE id = :response_id AND visit_id = :visit_id
-                RETURNING id, question_id, score, answer_text, verbatim, actions, updated_at
-                """
-            ),
-            {
-                "response_id": response_id,
-                "visit_id": visit_id,
-                "question_id": payload.question_id,
-                "score": payload.score,
-                "answer_text": payload.answer_text,
-                "verbatim": payload.verbatim,
-                "actions": json.dumps(payload.actions or []),
-            },
-        ).fetchone()
-    else:
-        row = db.execute(
-            text(
-                """
-                UPDATE responses
-                SET question_id = :question_id,
-                    score = :score,
-                    answer_text = :answer_text,
-                    verbatim = :verbatim
-                WHERE id = :response_id AND visit_id = :visit_id
-                RETURNING id, question_id, score, answer_text, verbatim
-                """
-            ),
-            {
-                "response_id": response_id,
-                "visit_id": visit_id,
-                "question_id": payload.question_id,
-                "score": payload.score,
-                "answer_text": payload.answer_text,
-                "verbatim": payload.verbatim,
-            },
-        ).fetchone()
+    row = db.execute(
+        text(
+            """
+            UPDATE mystery_shopper_answers
+            SET score = :score,
+                answer_text = :answer_text,
+                verbatim = :verbatim,
+                actions = CAST(:actions AS jsonb),
+                updated_at = NOW()
+            WHERE id = :response_id AND visit_id = :visit_id
+            RETURNING id, question_id, score, answer_text, verbatim, actions, updated_at
+            """
+        ),
+        {
+            "response_id": int(response_id),
+            "visit_id": visit_id,
+            "question_id": payload.question_id,
+            "score": payload.score,
+            "answer_text": payload.answer_text,
+            "verbatim": payload.verbatim,
+            "actions": json.dumps(payload.actions or []),
+        },
+    ).fetchone()
 
     if not row:
         db.rollback()
         raise HTTPException(status_code=404, detail="Response not found")
 
-    upsert_mystery_answer(db, visit_id, payload.question_id, payload.score, payload.answer_text, payload.verbatim, payload.actions)
     db.commit()
 
     response_payload = {
@@ -2375,7 +2530,7 @@ async def update_mystery_response(
         "score": row[2],
         "answer_text": row[3],
         "verbatim": row[4],
-        "actions": normalize_actions_value(row[5]) if response_table == "b2b_visit_responses" else (payload.actions or []),
+        "actions": normalize_actions_value(row[5]),
     }
     return response_payload
 

@@ -13,7 +13,7 @@ import { ensureMsalInitialized, loginRequest } from "./auth";
 import { isTokenExpired } from "./utils/tokenExpiry";
 import { computeDisplayNumber, buildDisplayNumbers } from "./utils/questionDisplay";
 import { motion } from "framer-motion";
-import { CalendarDays, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
+import { BookOpen, CalendarDays, ChevronLeft, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
@@ -171,6 +171,70 @@ function QuestionField({ question, draft, onUpdate }) {
   return <Textarea value={draft.answer_text || ""} onChange={(event) => onUpdate("answer_text", event.target.value)} />;
 }
 
+const SHOPPER_GUIDE = [
+  {
+    id: "what-is-mystery-shopping",
+    title: "What Is Mystery Shopping?",
+    body: [
+      "As a mystery shopper you visit a store as a regular customer and observe how the team performs against set service standards.",
+      "Your visit is anonymous — staff do not know you are a mystery shopper.",
+      "Your observations help the business understand where they are performing well and where they can improve.",
+    ],
+  },
+  {
+    id: "before-your-visit",
+    title: "Before Your Visit",
+    body: [
+      "Check your Draft Visits list to find your upcoming assignment — it shows the date, location, and purpose of your visit.",
+      "Arrive at the scheduled time and act as a normal customer throughout.",
+      "You do not need to buy anything — just interact naturally with staff.",
+    ],
+    link: { label: "View your upcoming visits", tab: "planned" },
+  },
+  {
+    id: "during-your-visit",
+    title: "During Your Visit",
+    body: [
+      "Observe the store environment as soon as you enter — signage, cleanliness, and how staff are presented.",
+      "Allow a staff member to approach you, or approach the service desk as a regular customer would.",
+      "Pay attention to how the interaction flows — the greeting, listening, product knowledge, and whether your service was resolved.",
+      "Note how long you waited and how long the overall service took.",
+    ],
+  },
+  {
+    id: "completing-the-survey",
+    title: "Completing the Survey",
+    body: [
+      "Open the survey after your visit using the Survey tab in the sidebar.",
+      "Work through each question group in order: External Environment, Store Comfort, Staff Appearance, Customer Service, Time, and Overall Experience.",
+      "For scored questions, select a number from 1 to 5 (or 0 to 10 for satisfaction and recommendation questions).",
+      "For yes/no questions, select whether you observed the described behaviour.",
+      "For time questions, select the option that best matches your experience.",
+      "Save each question as you go. Your progress is stored even if you close the app and return later.",
+    ],
+    link: { label: "Go to the survey", tab: "survey" },
+  },
+  {
+    id: "the-scoring-scale",
+    title: "The Scoring Scale",
+    body: [
+      "1 = Very poor  |  2 = Poor  |  3 = Average  |  4 = Good  |  5 = Excellent",
+      "For satisfaction and recommendation questions the scale is 0 to 10, where 0 is the worst and 10 is the best.",
+      "Use the full range honestly. A 3 means the standard was met but nothing stood out. Reserve 1 and 2 for clear failures, and 4 and 5 for genuinely good experiences.",
+    ],
+  },
+  {
+    id: "submitting-your-visit",
+    title: "Submitting Your Visit",
+    body: [
+      "Check the mandatory completion counter at the bottom of the survey before submitting.",
+      "When all mandatory questions are answered, tap Submit for Review.",
+      "Your submission goes to the mystery shopper administrator for review and approval.",
+      "You cannot edit a submitted visit — review your answers carefully before submitting.",
+    ],
+  },
+];
+
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
   const isAuthenticated = useIsAuthenticated();
@@ -203,6 +267,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("planned");
   const [entryChoicePending, setEntryChoicePending] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [fromGuide, setFromGuide] = useState(false);
   const [currentCategory, setCurrentCategory] = useState("");
 
   const [questions, setQuestions] = useState([]);
@@ -364,6 +429,7 @@ export default function App() {
   const sidebarPages = [
     { key: "planned", label: "Draft Visits", icon: CalendarDays },
     { key: "survey", label: "Survey", icon: ClipboardCheck },
+    { key: "guide", label: "User Guide", icon: BookOpen },
   ];
 
   useLayoutEffect(() => {
@@ -1100,10 +1166,64 @@ export default function App() {
                 </div>
               </div>
             ) : null}
+
+            {activeTab === "guide" ? (
+              <div className="space-y-4 pb-10">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Mystery Shopper User Guide</CardTitle>
+                  </CardHeader>
+                </Card>
+
+                {SHOPPER_GUIDE.map((section) => (
+                  <Card key={section.id} id={section.id}>
+                    <CardHeader>
+                      <CardTitle className="text-base">{section.title}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <ul className="space-y-2 text-sm">
+                        {section.body.map((line, i) => (
+                          <li key={i} className="leading-relaxed text-foreground">{line}</li>
+                        ))}
+                      </ul>
+                      {section.link ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setActiveTab(section.link.tab);
+                            setFromGuide(true);
+                            setMobileNavOpen(false);
+                          }}
+                        >
+                          {section.link.label}
+                        </Button>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : null}
           </div>
         </motion.main>
       </div>
     </div>
+
+    {fromGuide && activeTab !== "guide" ? (
+      <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="gap-2 shadow-lg"
+          onClick={() => { setActiveTab("guide"); setFromGuide(false); }}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Back to Guide
+        </Button>
+      </div>
+    ) : null}
     </>
   );
 }
