@@ -16,11 +16,12 @@ export const msalInstance = new PublicClientApplication({
     clientId,
     authority,
     redirectUri,
-    navigateToLoginRequestUrl: false,
+    postLogoutRedirectUri: redirectUri,
+    navigateToLoginRequestUrl: true,
   },
   cache: {
-    cacheLocation: "sessionStorage",
-    storeAuthStateInCookie: false,
+    cacheLocation: "localStorage",
+    storeAuthStateInCookie: true,
   },
 });
 

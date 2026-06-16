@@ -17,7 +17,7 @@ export const msalInstance = new PublicClientApplication({
     authority,
     redirectUri,
     postLogoutRedirectUri: redirectUri,
-    navigateToLoginRequestUrl: false,
+    navigateToLoginRequestUrl: true,
   },
   cache: {
     cacheLocation: "localStorage",
