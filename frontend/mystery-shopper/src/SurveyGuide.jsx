@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 
 export function ScoringKeyCard({ compact = false }) {
@@ -45,6 +46,7 @@ export function ScoringKeyCard({ compact = false }) {
 
 const GUIDE_SECTIONS = [
   {
+    id: "guide-your-role",
     title: "1. Your role as a Mystery Shopper",
     body: [
       "You visit Cable & Wireless Seychelles customer service locations as a normal customer, observe the service you receive, and record your experience honestly in this platform.",
@@ -53,6 +55,7 @@ const GUIDE_SECTIONS = [
     ],
   },
   {
+    id: "guide-getting-access",
     title: "2. Getting access (one-time enrollment)",
     body: [
       "A CX administrator creates your account and sends you a personal enrollment link by email. You cannot register yourself — access is invitation-only.",
@@ -61,6 +64,7 @@ const GUIDE_SECTIONS = [
     ],
   },
   {
+    id: "guide-signing-in",
     title: "3. Signing in (every time)",
     body: [
       "Connect to the company VPN first — the platform is only reachable over the VPN.",
@@ -69,6 +73,7 @@ const GUIDE_SECTIONS = [
     ],
   },
   {
+    id: "guide-starting-a-survey",
     title: "4. Starting a survey",
     body: [
       "After signing in, choose \"Start a new survey\" or resume an existing draft.",
@@ -76,8 +81,10 @@ const GUIDE_SECTIONS = [
       "Locations and visit purposes are managed by the CX administrators — if the location you visited is not in the list, do not guess: contact your administrator so it can be added, then complete the survey.",
       "Click \"Create / Load Visit\" to open the questionnaire. The visit is saved as a draft, so you can stop and come back later.",
     ],
+    link: { label: "View your draft visits", tab: "planned" },
   },
   {
+    id: "guide-answering-questions",
     title: "5. Answering the questions",
     body: [
       "Questions are grouped by section — use the sidebar to jump between sections. Read the scoring key (sidebar or above the questions): on every numeric scale the lowest number means the worst experience and the highest number means the best.",
@@ -85,8 +92,10 @@ const GUIDE_SECTIONS = [
       "Save each answer with its Save button as you go. Saved answers are stored on the server immediately, so nothing is lost if your connection drops.",
       "Use the comment/verbatim boxes to add context — specific details (what was said, how long you waited, what was unclear) make your assessment far more useful than a number alone.",
     ],
+    link: { label: "Go to the survey", tab: "survey" },
   },
   {
+    id: "guide-submitting",
     title: "6. Submitting and what happens next",
     body: [
       "When every mandatory question is answered, press Submit. The visit moves from Draft to Pending and is locked for your edits.",
@@ -95,6 +104,7 @@ const GUIDE_SECTIONS = [
     ],
   },
   {
+    id: "guide-administrators",
     title: "7. What administrators do (so you know who to ask)",
     body: [
       "CX administrators work in a separate internal dashboard. They: create and email your enrollment link, reset your access if you lose your password/authenticator/recovery codes, suspend or reactivate accounts, maintain the list of locations and visit purposes you choose from, review and approve your submitted visits, and produce reports from the results.",
@@ -103,6 +113,7 @@ const GUIDE_SECTIONS = [
     ],
   },
   {
+    id: "guide-account-safety",
     title: "8. Good practice and account safety",
     body: [
       "Complete the survey the same day as the visit while details are fresh.",
@@ -113,7 +124,7 @@ const GUIDE_SECTIONS = [
   },
 ];
 
-export function GuidePage() {
+export function GuidePage({ onNavigateToTab }) {
   return (
     <div className="space-y-6">
       <Card>
@@ -129,16 +140,26 @@ export function GuidePage() {
       <ScoringKeyCard compact />
 
       {GUIDE_SECTIONS.map((section) => (
-        <Card key={section.title}>
+        <Card key={section.id} id={section.id}>
           <CardHeader>
             <CardTitle className="text-base">{section.title}</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
               {section.body.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
+            {section.link && onNavigateToTab ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigateToTab(section.link.tab, section.id)}
+              >
+                {section.link.label}
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
       ))}

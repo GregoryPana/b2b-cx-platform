@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, CalendarDays, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
+import { BookOpen, CalendarDays, ChevronLeft, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
 import { GuidePage, ScoringKeyCard } from "./SurveyGuide";
 
 import { cn } from "./lib/utils";
@@ -126,6 +126,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const [entryChoicePending, setEntryChoicePending] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [currentCategory, setCurrentCategory] = useState("");
+  const [guideReturnAnchor, setGuideReturnAnchor] = useState(null);
 
   const [questions, setQuestions] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -220,12 +221,30 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
+    // Returning to the guide at a specific section is handled by the anchor-scroll
+    // effect below — skip the top-of-page reset so it doesn't fight that scroll.
+    if (activeTab === "guide" && guideReturnAnchor) return;
     if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
     const resetScroll = () => { window.scrollTo(0, 0); document.documentElement.scrollTop = 0; document.body.scrollTop = 0; };
     resetScroll();
     const frame = window.requestAnimationFrame(resetScroll);
     return () => window.cancelAnimationFrame(frame);
-  }, [activeTab]);
+  }, [activeTab, guideReturnAnchor]);
+
+  useEffect(() => {
+    if (activeTab !== "guide" || !guideReturnAnchor) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(guideReturnAnchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setGuideReturnAnchor(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab, guideReturnAnchor]);
+
+  const navigateFromGuide = useCallback((tab, anchorId) => {
+    setActiveTab(tab);
+    setGuideReturnAnchor(anchorId);
+    setMobileNavOpen(false);
+  }, []);
 
   // --- Data initialisation ---
   const initialize = useCallback(async () => {
@@ -658,7 +677,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                 </motion.div>
               )}
 
-              {activeTab === "guide" && <GuidePage />}
+              {activeTab === "guide" && <GuidePage onNavigateToTab={navigateFromGuide} />}
 
               {activeTab === "planned" && (
                 <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -830,6 +849,21 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
           </motion.main>
         </div>
       </div>
+
+      {guideReturnAnchor && activeTab !== "guide" ? (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="gap-2 shadow-lg"
+            onClick={() => setActiveTab("guide")}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back to Guide
+          </Button>
+        </div>
+      ) : null}
     </>
   );
 }
