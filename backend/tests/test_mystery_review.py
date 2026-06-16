@@ -24,7 +24,15 @@ from sqlalchemy import text
 
 @pytest.fixture(scope="module")
 def db_available(client):
-    """Skip all tests in this module if the database is unreachable."""
+    """Skip all tests in this module unless a real PostgreSQL database is reachable.
+
+    These tests rely on Postgres-only syntax (jsonb casts, ON CONFLICT, NOW()) and
+    the full mystery shopper schema, neither of which exist against the SQLite
+    fallback used by CI (DATABASE_URL=sqlite:///./ci.db has no migrations applied).
+    """
+    from app.core.database import engine
+    if engine.dialect.name != "postgresql":
+        pytest.skip("mystery review tests require PostgreSQL — skipping under SQLite/CI")
     response = client.get("/health")
     body = response.json()
     if body.get("checks", {}).get("database", "") == "error":
