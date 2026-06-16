@@ -13,7 +13,12 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from pydantic import BaseModel
 from ..core.database import get_db
-from ..core.auth.dependencies import B2B_ROLES, require_roles
+from ..core.auth.dependencies import (
+    ALL_PLATFORM_ROLES,
+    B2B_ROLES,
+    MYSTERY_ROLES,
+    require_roles,
+)
 from .mystery_shopper import MYSTERY_SHOPPER_QUESTIONS
 import sqlite3
 
@@ -22,15 +27,28 @@ router = APIRouter()
 
 def normalize_business_type(value: str | None) -> str:
     normalized = (value or "").strip().lower()
-    if normalized in {"large_corporate", "large business/corporate", "large corporate", "high"}:
+    if normalized in {
+        "large_corporate",
+        "large business/corporate",
+        "large corporate",
+        "high",
+    }:
         return "large_corporate"
     return "sme"
 
 
 DEFAULT_SURVEY_TYPES = [
     {"code": "B2B", "name": "B2B", "description": "Business-to-Business survey"},
-    {"code": "INSTALLATION", "name": "Installation Assessment", "description": "Installation assessment survey"},
-    {"code": "MYSTERY_SHOPPER", "name": "Mystery Shopper", "description": "Mystery shopper survey"},
+    {
+        "code": "INSTALLATION",
+        "name": "Installation Assessment",
+        "description": "Installation assessment survey",
+    },
+    {
+        "code": "MYSTERY_SHOPPER",
+        "name": "Mystery Shopper",
+        "description": "Mystery shopper survey",
+    },
 ]
 
 
@@ -110,6 +128,7 @@ def _question_row_to_payload(row: Any) -> Dict[str, Any]:
 
     return payload
 
+
 # Actual survey questions from questions.md
 MOCK_QUESTIONS = [
     # Category 1: Relationship Strength
@@ -120,7 +139,7 @@ MOCK_QUESTIONS = [
         "question_type": "score",
         "min_score": 0,
         "max_score": 10,
-        "order": 1
+        "order": 1,
     },
     {
         "id": 2,
@@ -129,7 +148,7 @@ MOCK_QUESTIONS = [
         "question_type": "score",
         "min_score": 0,
         "max_score": 10,
-        "order": 2
+        "order": 2,
     },
     {
         "id": 3,
@@ -138,7 +157,7 @@ MOCK_QUESTIONS = [
         "question_type": "score",
         "min_score": 0,
         "max_score": 10,
-        "order": 3
+        "order": 3,
     },
     {
         "id": 4,
@@ -148,7 +167,7 @@ MOCK_QUESTIONS = [
         "min_score": 0,
         "max_score": 0,
         "order": 4,
-        "choices": ["Yes", "No"]
+        "choices": ["Yes", "No"],
     },
     {
         "id": 5,
@@ -157,7 +176,7 @@ MOCK_QUESTIONS = [
         "question_type": "score",
         "min_score": 0,
         "max_score": 10,
-        "order": 5
+        "order": 5,
     },
     {
         "id": 6,
@@ -167,9 +186,8 @@ MOCK_QUESTIONS = [
         "min_score": 0,
         "max_score": 0,
         "order": 6,
-        "choices": ["Yes", "No"]
+        "choices": ["Yes", "No"],
     },
-    
     # Category 2: Service & Operational Performance
     {
         "id": 7,
@@ -178,7 +196,7 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 7
+        "order": 7,
     },
     {
         "id": 8,
@@ -187,7 +205,7 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 8
+        "order": 8,
     },
     {
         "id": 9,
@@ -197,7 +215,7 @@ MOCK_QUESTIONS = [
         "min_score": 0,
         "max_score": 0,
         "order": 9,
-        "choices": ["Y", "N"]
+        "choices": ["Y", "N"],
     },
     {
         "id": 10,
@@ -207,7 +225,7 @@ MOCK_QUESTIONS = [
         "min_score": 0,
         "max_score": 0,
         "order": 10,
-        "choices": ["3 months", "6 months", "9 months", "Rarely"]
+        "choices": ["3 months", "6 months", "9 months", "Rarely"],
     },
     {
         "id": 11,
@@ -216,7 +234,7 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 11
+        "order": 11,
     },
     {
         "id": 12,
@@ -225,9 +243,8 @@ MOCK_QUESTIONS = [
         "question_type": "score",
         "min_score": 0,
         "max_score": 10,
-        "order": 12
+        "order": 12,
     },
-    
     # Category 3: Commercial & Billing
     {
         "id": 13,
@@ -236,7 +253,7 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 13
+        "order": 13,
     },
     {
         "id": 14,
@@ -246,9 +263,8 @@ MOCK_QUESTIONS = [
         "min_score": 0,
         "max_score": 0,
         "order": 14,
-        "choices": ["Always", "Sometimes", "Monthly", "Never"]
+        "choices": ["Always", "Sometimes", "Monthly", "Never"],
     },
-    
     # Category 4: Competitive & Portfolio Intelligence
     {
         "id": 15,
@@ -257,7 +273,7 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 15
+        "order": 15,
     },
     {
         "id": 16,
@@ -267,7 +283,7 @@ MOCK_QUESTIONS = [
         "min_score": 0,
         "max_score": 0,
         "order": 16,
-        "choices": ["Yes", "No"]
+        "choices": ["Yes", "No"],
     },
     {
         "id": 17,
@@ -276,7 +292,7 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 17
+        "order": 17,
     },
     {
         "id": 18,
@@ -286,7 +302,7 @@ MOCK_QUESTIONS = [
         "min_score": 0,
         "max_score": 0,
         "order": 18,
-        "choices": ["Yes", "No"]
+        "choices": ["Yes", "No"],
     },
     {
         "id": 19,
@@ -295,9 +311,8 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 19
+        "order": 19,
     },
-    
     # Category 5: Growth & Expansion
     {
         "id": 20,
@@ -306,7 +321,7 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 20
+        "order": 20,
     },
     {
         "id": 21,
@@ -315,7 +330,7 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 21
+        "order": 21,
     },
     {
         "id": 22,
@@ -324,7 +339,7 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 22
+        "order": 22,
     },
     {
         "id": 23,
@@ -333,9 +348,8 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 23
+        "order": 23,
     },
-    
     # Category 6: Advocacy
     {
         "id": 24,
@@ -344,7 +358,7 @@ MOCK_QUESTIONS = [
         "question_type": "score",
         "min_score": 0,
         "max_score": 10,
-        "order": 24
+        "order": 24,
     },
     {
         "id": 25,
@@ -353,9 +367,10 @@ MOCK_QUESTIONS = [
         "question_type": "text",
         "min_score": 0,
         "max_score": 0,
-        "order": 25
-    }
+        "order": 25,
+    },
 ]
+
 
 class QuestionResponse(BaseModel):
     id: int
@@ -365,6 +380,7 @@ class QuestionResponse(BaseModel):
     min_score: int = None
     max_score: int = None
     order: int
+
 
 class VisitResponse(BaseModel):
     id: int
@@ -395,25 +411,30 @@ async def create_business(
             {
                 "name": business_data.get("name"),
                 "location": business_data.get("location", ""),
-                "priority_level": normalize_business_type(business_data.get("priority_level", "sme")),
+                "priority_level": normalize_business_type(
+                    business_data.get("priority_level", "sme")
+                ),
                 "active": True,
-                "account_executive_id": business_data.get("account_executive_id")
-            }
+                "account_executive_id": business_data.get("account_executive_id"),
+            },
         )
-        
+
         db.commit()
-        
+
         return {
-            "id": result.lastrowid if hasattr(result, 'lastrowid') else result[0],
+            "id": result.lastrowid if hasattr(result, "lastrowid") else result[0],
             "name": business_data.get("name"),
             "location": business_data.get("location", ""),
-            "priority_level": normalize_business_type(business_data.get("priority_level", "sme")),
+            "priority_level": normalize_business_type(
+                business_data.get("priority_level", "sme")
+            ),
             "active": True,
-            "account_executive_id": business_data.get("account_executive_id")
+            "account_executive_id": business_data.get("account_executive_id"),
         }
     except Exception as e:
         logger.exception("Error creating business: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create business")
+
 
 @router.put("/businesses/{business_id}")
 async def update_business(
@@ -439,17 +460,21 @@ async def update_business(
                 "business_id": business_id,
                 "name": business_data.get("name"),
                 "location": business_data.get("location"),
-                "priority_level": normalize_business_type(business_data.get("priority_level")) if business_data.get("priority_level") is not None else None,
+                "priority_level": normalize_business_type(
+                    business_data.get("priority_level")
+                )
+                if business_data.get("priority_level") is not None
+                else None,
                 "active": business_data.get("active"),
-                "account_executive_id": business_data.get("account_executive_id")
-            }
+                "account_executive_id": business_data.get("account_executive_id"),
+            },
         )
-        
+
         db.commit()
-        
+
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Business not found")
-        
+
         # Get updated business data
         updated_business = db.execute(
             text("""
@@ -457,20 +482,21 @@ async def update_business(
             FROM businesses 
             WHERE id = :business_id
             """),
-            {"business_id": business_id}
+            {"business_id": business_id},
         ).fetchone()
-        
+
         return {
             "id": updated_business[0],
             "name": updated_business[1],
             "location": updated_business[2],
             "priority_level": updated_business[3],
             "active": bool(updated_business[4]),
-            "account_executive_id": updated_business[5]
+            "account_executive_id": updated_business[5],
         }
     except Exception as e:
         logger.exception("Error updating business: %s", e)
         raise HTTPException(status_code=500, detail="Failed to update business")
+
 
 @router.get("/survey-businesses", response_model=List[Dict])
 async def get_survey_businesses(
@@ -527,11 +553,11 @@ async def get_survey_businesses(
 
     # Fallback: legacy SQLite
     try:
-        conn = sqlite3.connect('../dev_cx_platform.db')
+        conn = sqlite3.connect("../dev_cx_platform.db")
         cursor = conn.cursor()
 
         cursor.execute(
-            '''
+            """
             SELECT
                 b.id,
                 b.name,
@@ -553,7 +579,7 @@ async def get_survey_businesses(
                     ELSE 3
                 END,
                 b.name
-            '''
+            """
         )
 
         rows = cursor.fetchall()
@@ -575,14 +601,19 @@ async def get_survey_businesses(
         logger.exception("Error fetching survey businesses from SQLite: %s", e)
         return []
 
+
 @router.get("/questions")
-async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db)):
+async def get_questions(
+    survey_type: str = "B2B",
+    db: Session = Depends(get_db),
+    _access: bool = Depends(require_roles(*ALL_PLATFORM_ROLES)),
+):
     """Get all questions for the survey.
 
     `survey_type` is a codename/name (e.g., B2B, Mystery Shopper, Installation Assessment).
     Defaults to B2B for backward compatibility.
     """
-    
+
     # Use the new database structure
     try:
         normalized_survey_type = (survey_type or "B2B").strip()
@@ -590,7 +621,9 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
         has_order_index = has_column(db, "questions", "order_index")
         has_survey_types = has_table(db, "survey_types")
         has_question_survey_type = has_column(db, "questions", "survey_type_id")
-        has_survey_type_code = has_column(db, "survey_types", "code") if has_survey_types else False
+        has_survey_type_code = (
+            has_column(db, "survey_types", "code") if has_survey_types else False
+        )
 
         question_number_select = "q.id"
         if has_question_number:
@@ -608,14 +641,18 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
             if has_survey_type_code:
                 code_filter = "lower(st.code) = lower(:survey_type)"
             include_untyped_questions = is_b2b_survey_type(normalized_survey_type)
-            null_survey_type_clause = "OR q.survey_type_id IS NULL" if include_untyped_questions else ""
+            null_survey_type_clause = (
+                "OR q.survey_type_id IS NULL" if include_untyped_questions else ""
+            )
             where_clause = """
                 WHERE
                     lower(st.name) = lower(:survey_type)
                     OR {code_filter}
                     OR replace(lower(st.name), ' ', '') = replace(lower(:survey_type), ' ', '')
                     {null_survey_type_clause}
-            """.format(code_filter=code_filter, null_survey_type_clause=null_survey_type_clause)
+            """.format(
+                code_filter=code_filter, null_survey_type_clause=null_survey_type_clause
+            )
         else:
             survey_type_select = "NULL"
 
@@ -646,7 +683,7 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
             ),
             {"survey_type": normalized_survey_type},
         ).all()
-        
+
         questions = []
         for row in rows:
             choices = None
@@ -666,30 +703,32 @@ async def get_questions(survey_type: str = "B2B", db: Session = Depends(get_db))
                     choices = ["Y", "N"]
                 elif row[7] == "always_sometimes_never":
                     choices = ["Always", "Sometimes", "Monthly", "Never"]
-            
-            questions.append({
-                "id": row[0],
-                "survey_type_id": row[1],
-                "question_number": row[2],
-                "order_index": row[2],  # question_number
-                "question_text": row[3],
-                "category": row[4],
-                "is_mandatory": bool(row[5]),
-                "is_nps": bool(row[6]),
-                "input_type": row[7],
-                "score_min": row[8],
-                "score_max": row[9],
-                "choices": choices,
-                "helper_text": row[11],
-                "requires_issue": bool(row[12]),
-                "requires_escalation": bool(row[13]),
-                "question_key": row[14],
-                "order": row[2],  # Backward compatibility
-                "question_type": row[7]  # Backward compatibility
-            })
-        
+
+            questions.append(
+                {
+                    "id": row[0],
+                    "survey_type_id": row[1],
+                    "question_number": row[2],
+                    "order_index": row[2],  # question_number
+                    "question_text": row[3],
+                    "category": row[4],
+                    "is_mandatory": bool(row[5]),
+                    "is_nps": bool(row[6]),
+                    "input_type": row[7],
+                    "score_min": row[8],
+                    "score_max": row[9],
+                    "choices": choices,
+                    "helper_text": row[11],
+                    "requires_issue": bool(row[12]),
+                    "requires_escalation": bool(row[13]),
+                    "question_key": row[14],
+                    "order": row[2],  # Backward compatibility
+                    "question_type": row[7],  # Backward compatibility
+                }
+            )
+
         return questions
-        
+
     except Exception as e:
         logger.exception("Error fetching questions from new database: %s", e)
         normalized = (survey_type or "B2B").strip().lower().replace(" ", "")
@@ -754,29 +793,32 @@ async def get_draft_visits(
         WHERE v.status = 'draft' OR v.status IS NULL
         ORDER BY b.priority_level, v.visit_date
         """
-        
+
         result = db.execute(query)
         visits = []
-        
+
         for row in result:
-            visits.append({
-                "id": row[0],
-                "business_id": row[1],
-                "business_name": row[2] or "Unknown Business",
-                "representative_id": row[3] or 0,
-                "visit_date": row[4] or "",
-                "visit_type": row[5] or "Assessment",
-                "status": row[6] or "draft",
-                "business_priority": row[7] or "medium",
-                "responses": []
-            })
-        
+            visits.append(
+                {
+                    "id": row[0],
+                    "business_id": row[1],
+                    "business_name": row[2] or "Unknown Business",
+                    "representative_id": row[3] or 0,
+                    "visit_date": row[4] or "",
+                    "visit_type": row[5] or "Assessment",
+                    "status": row[6] or "draft",
+                    "business_priority": row[7] or "medium",
+                    "responses": [],
+                }
+            )
+
         return visits
-        
+
     except Exception as e:
         logger.exception("Error fetching draft visits: %s", e)
         # Return empty list if there's an error
         return []
+
 
 @router.get("/visits/{visit_id}")
 async def get_visit_details(
@@ -800,13 +842,13 @@ async def get_visit_details(
         LEFT JOIN businesses b ON v.business_id = b.id
         WHERE v.id = :visit_id
         """
-        
+
         result = db.execute(query, {"visit_id": visit_id})
         row = result.fetchone()
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Visit not found")
-        
+
         visit_data = {
             "id": row[0],
             "business_id": row[1],
@@ -816,16 +858,17 @@ async def get_visit_details(
             "visit_type": row[5] or "Assessment",
             "status": row[6] or "draft",
             "business_priority": row[7] or "medium",
-            "responses": []  # Empty responses for now
+            "responses": [],  # Empty responses for now
         }
-        
+
         return visit_data
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error fetching visit details: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @router.get("/survey-responses/{visit_id}")
 async def get_survey_responses(
@@ -834,10 +877,11 @@ async def get_survey_responses(
 ):
     """Get all survey responses for a specific visit."""
     try:
-        conn = sqlite3.connect('../dev_cx_platform.db')
+        conn = sqlite3.connect("../dev_cx_platform.db")
         cursor = conn.cursor()
-        
-        cursor.execute('''
+
+        cursor.execute(
+            """
             SELECT 
                 sr.id,
                 sr.question_id,
@@ -863,34 +907,39 @@ async def get_survey_responses(
             ) q ON sr.question_id = q.question_id
             WHERE sr.visit_id = ?
             ORDER BY sr.question_id
-        ''', (visit_id,))
-        
+        """,
+            (visit_id,),
+        )
+
         rows = cursor.fetchall()
         conn.close()
-        
+
         responses = []
         for row in rows:
             # Map question_id to question details from our MOCK_QUESTIONS
-            question = next((q for q in MOCK_QUESTIONS if q['id'] == row[1]), None)
+            question = next((q for q in MOCK_QUESTIONS if q["id"] == row[1]), None)
             if question:
-                responses.append({
-                    "id": row[0],
-                    "question_id": row[1],
-                    "score": row[2],
-                    "answer_text": row[3],
-                    "choice_value": row[4],
-                    "verbatim": row[5],
-                    "category": question['category'],
-                    "question_text": question['question_text'],
-                    "question_type": question['question_type'],
-                    "choices": question.get('choices', [])
-                })
-        
+                responses.append(
+                    {
+                        "id": row[0],
+                        "question_id": row[1],
+                        "score": row[2],
+                        "answer_text": row[3],
+                        "choice_value": row[4],
+                        "verbatim": row[5],
+                        "category": question["category"],
+                        "question_text": question["question_text"],
+                        "question_type": question["question_type"],
+                        "choices": question.get("choices", []),
+                    }
+                )
+
         return responses
-        
+
     except Exception as e:
         logger.exception("Error fetching survey responses: %s", e)
         return []
+
 
 @router.get("/survey-actions/{visit_id}")
 async def get_survey_actions(
@@ -899,10 +948,11 @@ async def get_survey_actions(
 ):
     """Get all action items for a specific visit."""
     try:
-        conn = sqlite3.connect('../dev_cx_platform.db')
+        conn = sqlite3.connect("../dev_cx_platform.db")
         cursor = conn.cursor()
-        
-        cursor.execute('''
+
+        cursor.execute(
+            """
             SELECT 
                 sa.id,
                 sa.response_id,
@@ -916,29 +966,34 @@ async def get_survey_actions(
             INNER JOIN survey_responses sr ON sa.response_id = sr.id
             WHERE sr.visit_id = ?
             ORDER BY sa.created_at
-        ''', (visit_id,))
-        
+        """,
+            (visit_id,),
+        )
+
         rows = cursor.fetchall()
         conn.close()
-        
+
         actions = []
         for row in rows:
-            actions.append({
-                "id": row[0],
-                "response_id": row[1],
-                "action_required": row[2],
-                "action_owner": row[3],
-                "action_timeframe": row[4],
-                "action_support_needed": row[5],
-                "status": row[6],
-                "created_at": row[7]
-            })
-        
+            actions.append(
+                {
+                    "id": row[0],
+                    "response_id": row[1],
+                    "action_required": row[2],
+                    "action_owner": row[3],
+                    "action_timeframe": row[4],
+                    "action_support_needed": row[5],
+                    "status": row[6],
+                    "created_at": row[7],
+                }
+            )
+
         return actions
-        
+
     except Exception as e:
         logger.exception("Error fetching survey actions: %s", e)
         return []
+
 
 @router.get("/historical-surveys")
 async def get_historical_surveys(
@@ -946,10 +1001,10 @@ async def get_historical_surveys(
 ):
     """Get all completed surveys with their responses."""
     try:
-        conn = sqlite3.connect('../dev_cx_platform.db')
+        conn = sqlite3.connect("../dev_cx_platform.db")
         cursor = conn.cursor()
-        
-        cursor.execute('''
+
+        cursor.execute("""
             SELECT 
                 v.id,
                 v.business_id,
@@ -965,39 +1020,46 @@ async def get_historical_surveys(
             WHERE v.status = 'completed'
             GROUP BY v.id
             ORDER BY v.visit_date DESC
-        ''')
-        
+        """)
+
         rows = cursor.fetchall()
         conn.close()
-        
+
         surveys = []
         for row in rows:
-            surveys.append({
-                "id": row[0],
-                "business_id": row[1],
-                "business_name": row[2],
-                "representative_id": row[3],
-                "visit_date": row[4],
-                "visit_type": row[5],
-                "status": row[6],
-                "response_count": row[7] or 0
-            })
-        
+            surveys.append(
+                {
+                    "id": row[0],
+                    "business_id": row[1],
+                    "business_name": row[2],
+                    "representative_id": row[3],
+                    "visit_date": row[4],
+                    "visit_type": row[5],
+                    "status": row[6],
+                    "response_count": row[7] or 0,
+                }
+            )
+
         return surveys
-        
+
     except Exception as e:
         logger.exception("Error fetching historical surveys: %s", e)
         return []
-async def save_visit_responses(visit_id: int, responses: Dict[str, Any], db: Session = Depends(get_db)):
+
+
+async def save_visit_responses(
+    visit_id: int, responses: Dict[str, Any], db: Session = Depends(get_db)
+):
     """Save responses for a visit."""
     try:
         # For now, just return success
         # In a real implementation, you would save to a responses table
         return {"message": "Responses saved successfully", "visit_id": visit_id}
-        
+
     except Exception as e:
         logger.exception("Error saving responses: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save responses")
+
 
 @router.put("/visits/{visit_id}")
 async def update_visit(
@@ -1011,7 +1073,7 @@ async def update_visit(
         # For now, just return success
         # In a real implementation, you would update the visit
         return {"message": "Visit updated successfully", "visit_id": visit_id}
-        
+
     except Exception as e:
         logger.exception("Error updating visit: %s", e)
         raise HTTPException(status_code=500, detail="Failed to update visit")

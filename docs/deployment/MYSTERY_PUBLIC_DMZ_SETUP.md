@@ -51,6 +51,20 @@ Internal Production Database
 - keep only the minimum public backend routes open
 - keep authentication implementation independent from internal Entra-only user flows
 
+### Authentication decision (DECIDED)
+
+The public Mystery Shopper uses **Password + TOTP** application 2FA, behind the
+VPN. This is the single chosen design.
+
+- Full design and risks: `docs/architecture/MYSTERY_PUBLIC_AUTH_OPTIONS.md`
+- Step-by-step build guide: `docs/architecture/MYSTERY_PUBLIC_2FA_IMPLEMENTATION.md`
+
+**The test/staging VM must NOT use this authentication.** On the test VM the
+Mystery Shopper frontend runs alongside the other internal frontends and is used
+by internal Entra users — it keeps Entra. The new auth is gated by `AUTH_MODE`
+(backend) and `VITE_AUTH_MODE` (frontend), both defaulting to `entra`. Only the
+DMZ deployment sets `mystery_public`.
+
 ## 5) GitHub and CI/CD setup
 
 ### New workflow
@@ -124,10 +138,16 @@ Path:
 
 This file should include:
 - `ENVIRONMENT=production`
+- `AUTH_MODE=mystery_public`  (DMZ only — switches the app to Password + TOTP)
 - `DATABASE_URL`
 - `CORS_ALLOW_ORIGINS`
+- `MYSTERY_AUTH_SECRET_KEY` (Fernet key for encrypting TOTP secrets at rest)
+- `MYSTERY_SESSION_IDLE_MINUTES`, `MYSTERY_SESSION_ABSOLUTE_HOURS`,
+  `MYSTERY_ENROLL_TOKEN_MINUTES`
 - public base URL settings as needed
-- future public Mystery auth settings once signed-link or OTP implementation is chosen
+- no `ENTRA_*` values are required when `AUTH_MODE=mystery_public`
+
+See `docs/architecture/MYSTERY_PUBLIC_2FA_IMPLEMENTATION.md` §5 for the full list.
 
 ## 10) Database connectivity
 
@@ -163,17 +183,22 @@ The following work is auth-agnostic and can be prepared immediately:
 7. request DB firewall access from the DMZ VM to the internal production DB
 8. add the GitHub environment and base URL secret
 
-## 13) What is blocked on auth decision
+## 13) Auth decision — RESOLVED
 
-These items depend on signed links vs OTP:
+The auth decision is closed: **Password + TOTP** (see
+`docs/architecture/MYSTERY_PUBLIC_AUTH_OPTIONS.md`). What used to be blocked is
+now fully specified in the build guide
+(`docs/architecture/MYSTERY_PUBLIC_2FA_IMPLEMENTATION.md`):
 
-- public authentication endpoints
-- invitation/session model
-- token or OTP storage rules
-- user access flow screens
-- expiry and revocation behavior
+- public authentication endpoints (`/api/auth/login`, `/api/auth/mfa`,
+  `/api/auth/logout`, `/api/auth/enroll/*`, `/api/auth/recovery`)
+- per-user account + server-side session model
+- password (Argon2id), TOTP secret (encrypted at rest), recovery codes (hashed)
+- login / MFA / enrolment / recovery screens
+- idle + absolute session expiry, immediate suspension/revocation
 
-If the hybrid signed-link-plus-OTP option is chosen, implementation must support both invitation-token lifecycle and OTP verification lifecycle handling.
+All of it is gated by `AUTH_MODE` / `VITE_AUTH_MODE` so the test VM continues to
+use Entra unchanged.
 
 ## 14) Verification checklist after first deploy
 

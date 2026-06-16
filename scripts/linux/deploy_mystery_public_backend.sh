@@ -7,7 +7,7 @@ VENV_DIR="${BACKEND_DIR}/venv"
 ENV_FILE="${TARGET_ROOT}/.env"
 SERVICE_NAME="${SERVICE_NAME:-cwscx-mystery-public-backend}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260424_000019}"
+ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260609_000024}"
 
 run_as_root() {
   if [[ "${EUID}" -eq 0 ]]; then
@@ -30,6 +30,13 @@ if [[ -z "${DATABASE_URL_VALUE}" ]]; then
   exit 1
 fi
 export DATABASE_URL="${DATABASE_URL_VALUE}"
+
+AUTH_MODE_VALUE="$(grep -E '^AUTH_MODE=' "${ENV_FILE}" | tail -n1 | cut -d'=' -f2- | sed 's/\r$//' || true)"
+MYSTERY_AUTH_SECRET_KEY_VALUE="$(grep -E '^MYSTERY_AUTH_SECRET_KEY=' "${ENV_FILE}" | tail -n1 | cut -d'=' -f2- | sed 's/\r$//' || true)"
+if [[ "${AUTH_MODE_VALUE}" == "mystery_public" && -z "${MYSTERY_AUTH_SECRET_KEY_VALUE}" ]]; then
+  echo "MYSTERY_AUTH_SECRET_KEY is required when AUTH_MODE=mystery_public in ${ENV_FILE}"
+  exit 1
+fi
 
 "${VENV_DIR}/bin/alembic" upgrade "${ALEMBIC_TARGET_REVISION}"
 

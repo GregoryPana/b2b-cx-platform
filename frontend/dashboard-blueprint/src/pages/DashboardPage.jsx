@@ -31,6 +31,7 @@ import MysteryReportsSection from "../features/mystery-shopper/components/Myster
 import MysteryAnalyticsSummarySection from "../features/mystery-shopper/components/MysteryAnalyticsSummarySection";
 import MysteryLocationsSection from "../features/mystery-shopper/components/MysteryLocationsSection";
 import MysteryPurposesSection from "../features/mystery-shopper/components/MysteryPurposesSection";
+import MysteryUsersSection from "../features/mystery-shopper/components/MysteryUsersSection";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
@@ -353,6 +354,11 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [mysteryLocationsLoading, setMysteryLocationsLoading] = useState(false);
   const [mysteryPurposesLoading, setMysteryPurposesLoading] = useState(false);
   const [mysteryLegacySeeding, setMysteryLegacySeeding] = useState(false);
+  const [mysteryUsers, setMysteryUsers] = useState([]);
+  const [mysteryUsersLoading, setMysteryUsersLoading] = useState(false);
+  const [newMysteryUserEmail, setNewMysteryUserEmail] = useState("");
+  const [newMysteryUserName, setNewMysteryUserName] = useState("");
+  const [mysteryEnrollmentLink, setMysteryEnrollmentLink] = useState(null);
   const [selectedAnalyticsLocationIds, setSelectedAnalyticsLocationIds] = useState([]);
   const [analyticsLocationSearch, setAnalyticsLocationSearch] = useState("");
   const [expandedCategory, setExpandedCategory] = useState("");
@@ -1080,10 +1086,36 @@ const platformAbortRef = useRef(null);
     }
   };
 
+  const loadMysteryUsers = async () => {
+    if (!isMysteryShopperPlatform) {
+      setMysteryUsers([]);
+      return;
+    }
+    const requestVersion = platformRequestVersion.current;
+    const isStale = () => requestVersion !== platformRequestVersion.current;
+    setMysteryUsersLoading(true);
+    try {
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users`, { headers, signal: getPlatformSignal() });
+      if (isStale()) return;
+      if (!res.ok) {
+        setError(data?.detail || "Failed to load mystery shopper users");
+        return;
+      }
+      setMysteryUsers(Array.isArray(data) ? data : []);
+    } catch {
+      if (isStale()) return;
+      setError("Failed to load mystery shopper users");
+    } finally {
+      if (!isStale()) setMysteryUsersLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!isMysteryShopperPlatform) {
       setMysteryLocations([]);
       setMysteryPurposes([]);
+      setMysteryUsers([]);
+      setMysteryEnrollmentLink(null);
       setSelectedAnalyticsLocationIds([]);
       setSelectedSurveyLocation("");
       return;
@@ -1093,6 +1125,9 @@ const platformAbortRef = useRef(null);
     }
     if (location.pathname === "/purposes") {
       loadMysteryPurposes();
+    }
+    if (location.pathname === "/mystery-users") {
+      loadMysteryUsers();
     }
   }, [isMysteryShopperPlatform, headers, location.pathname]);
 
@@ -2426,6 +2461,89 @@ const platformAbortRef = useRef(null);
     }
     setMessage(`Location deleted: ${data?.name}`);
     await loadMysteryLocations();
+  };
+
+  const inviteMysteryUser = async () => {
+    const email = newMysteryUserEmail.trim();
+    const fullName = newMysteryUserName.trim();
+    if (!email || !fullName) {
+      setError("Email and full name are required to invite a user");
+      return;
+    }
+    pushToast("info", "Inviting user...", 1500);
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ email, full_name: fullName }),
+    }, 30000);
+    if (!res.ok) {
+      setError(data?.detail || "Failed to invite user");
+      return;
+    }
+    setNewMysteryUserEmail("");
+    setNewMysteryUserName("");
+    setMysteryEnrollmentLink(data);
+    setMessage(`Invitation created for ${data?.email}`);
+    await loadMysteryUsers();
+  };
+
+  const reissueMysteryUserLink = async (userItem) => {
+    pushToast("info", "Generating enrollment link...", 1500);
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/reissue-enrollment`, {
+      method: "POST",
+      headers,
+    }, 30000);
+    if (!res.ok) {
+      setError(data?.detail || "Failed to generate enrollment link");
+      return;
+    }
+    setMysteryEnrollmentLink(data);
+    setMessage(`New enrollment link generated for ${data?.email}`);
+    await loadMysteryUsers();
+  };
+
+  const emailMysteryUserLink = async (userItem) => {
+    if (!window.confirm(`Generate a new enrollment link and email it to "${userItem.email}"?`)) return;
+    pushToast("info", "Sending enrollment email...", 2000);
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/email-enrollment`, {
+      method: "POST",
+      headers,
+    }, 45000);
+    if (!res.ok) {
+      setError(data?.detail || "Failed to send enrollment email");
+      return;
+    }
+    setMessage(`Enrollment link emailed to ${data?.email}`);
+    await loadMysteryUsers();
+  };
+
+  const suspendMysteryUser = async (userItem) => {
+    if (!window.confirm(`Suspend access for "${userItem.email}"? Their active sessions will be revoked.`)) return;
+    pushToast("info", "Suspending user...", 1500);
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/suspend`, {
+      method: "POST",
+      headers,
+    }, 30000);
+    if (!res.ok) {
+      setError(data?.detail || "Failed to suspend user");
+      return;
+    }
+    setMessage(`User suspended: ${userItem.email}`);
+    await loadMysteryUsers();
+  };
+
+  const reactivateMysteryUser = async (userItem) => {
+    pushToast("info", "Reactivating user...", 1500);
+    const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/reactivate`, {
+      method: "POST",
+      headers,
+    }, 30000);
+    if (!res.ok) {
+      setError(data?.detail || "Failed to reactivate user");
+      return;
+    }
+    setMessage(`User reactivated: ${userItem.email}`);
+    await loadMysteryUsers();
   };
 
   const createMysteryPurpose = async () => {
@@ -4275,6 +4393,34 @@ const platformAbortRef = useRef(null);
             <CardHeader>
               <CardTitle>Purposes</CardTitle>
               <CardDescription>Purpose management is available only for the Mystery Shopper platform.</CardDescription>
+            </CardHeader>
+          </Card>
+        )
+      ) : null}
+
+      {location.pathname === "/mystery-users" ? (
+        isMysteryShopperPlatform ? (
+          <MysteryUsersSection
+            mysteryUsers={mysteryUsers}
+            mysteryUsersLoading={mysteryUsersLoading}
+            loadMysteryUsers={loadMysteryUsers}
+            newMysteryUserEmail={newMysteryUserEmail}
+            setNewMysteryUserEmail={setNewMysteryUserEmail}
+            newMysteryUserName={newMysteryUserName}
+            setNewMysteryUserName={setNewMysteryUserName}
+            inviteMysteryUser={inviteMysteryUser}
+            reissueMysteryUserLink={reissueMysteryUserLink}
+            emailMysteryUserLink={emailMysteryUserLink}
+            suspendMysteryUser={suspendMysteryUser}
+            reactivateMysteryUser={reactivateMysteryUser}
+            mysteryEnrollmentLink={mysteryEnrollmentLink}
+            clearMysteryEnrollmentLink={() => setMysteryEnrollmentLink(null)}
+          />
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Users</CardTitle>
+              <CardDescription>User management is available only for the Mystery Shopper platform.</CardDescription>
             </CardHeader>
           </Card>
         )

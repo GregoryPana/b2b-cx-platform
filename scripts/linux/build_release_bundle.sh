@@ -17,7 +17,12 @@ build_frontend() {
 
   pushd "${app_path}" >/dev/null
   npm ci --no-audit --no-fund
-  VITE_API_URL="/api" VITE_BASE_PATH="${base_path}" VITE_APP_VERSION="$(git -C "${REPO_ROOT}" rev-parse --short HEAD)" npm run build
+  # VITE_AUTH_MODE is pinned to entra: every app in this internal bundle uses
+  # organisation Entra sign-in. Without the explicit pin, a stray .env.local
+  # (Vite reads it during builds) or exported shell var could silently switch
+  # the mystery-shopper app to the public password+TOTP mode and lock
+  # internal admins out. The DMZ bundle pins mystery_public the same way.
+  VITE_API_URL="/api" VITE_BASE_PATH="${base_path}" VITE_AUTH_MODE="entra" VITE_APP_VERSION="$(git -C "${REPO_ROOT}" rev-parse --short HEAD)" npm run build
   if [[ ! -f "dist/index.html" ]]; then
     echo "Missing build output: ${app_path}/dist/index.html"
     exit 1
@@ -44,7 +49,7 @@ echo "Building installation survey frontend..."
 build_frontend "${REPO_ROOT}/frontend/installation-survey" "/surveys/installation/"
 cp -r "${REPO_ROOT}/frontend/installation-survey/dist" "${RELEASE_ROOT}/frontends/internal-surveys/installation/dist"
 
-echo "Building mystery shopper frontend..."
+echo "Building mystery shopper frontend (internal Entra variant - admins/staff sign in with their org account)..."
 build_frontend "${REPO_ROOT}/frontend/mystery-shopper" "/surveys/mystery-shopper/"
 cp -r "${REPO_ROOT}/frontend/mystery-shopper/dist" "${RELEASE_ROOT}/frontends/public/mystery-shopper/dist"
 

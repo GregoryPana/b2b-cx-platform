@@ -4,6 +4,9 @@ Five API modules used to ship their own near-identical ``has_table`` /
 ``has_column`` helpers that round-tripped to ``information_schema`` on every
 call. The schema doesn't change inside a running process, so we cache the
 result for the process lifetime; restarts pick up new columns.
+
+Supports both PostgreSQL (via ``information_schema``) and SQLite (via
+``sqlite_master`` / ``pragma_table_info``).
 """
 
 from __future__ import annotations
@@ -12,7 +15,20 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 
+def _is_sqlite(db: Session) -> bool:
+    return (db.get_bind().dialect.name or "").lower() == "sqlite"
+
+
 def _query_table(db: Session, table_name: str) -> bool:
+    if _is_sqlite(db):
+        return bool(
+            db.execute(
+                text(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name = :table_name"
+                ),
+                {"table_name": table_name},
+            ).scalar()
+        )
     return bool(
         db.execute(
             text(
@@ -29,6 +45,17 @@ def _query_table(db: Session, table_name: str) -> bool:
 
 
 def _query_column(db: Session, table_name: str, column_name: str) -> bool:
+    if _is_sqlite(db):
+        # pragma_table_info(X) is a table-valued function available
+        # in SQLite ≥ 3.16.  Bind parameters work as positional args.
+        return bool(
+            db.execute(
+                text(
+                    "SELECT 1 FROM pragma_table_info(:tn) WHERE name = :cn"
+                ),
+                {"tn": table_name, "cn": column_name},
+            ).scalar()
+        )
     return bool(
         db.execute(
             text(

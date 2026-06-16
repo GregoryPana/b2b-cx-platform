@@ -19,6 +19,7 @@ from app.api.survey import router as survey_router
 from app.api.mystery_shopper import router as mystery_shopper_router
 from app.api.installation_surveys import router as installation_router
 from app.api.auth import router as auth_router
+from app.api.mystery_auth import router as mystery_auth_public_router, admin_router as mystery_auth_admin_router
 
 # Dashboard Compatibility Imports
 from app.api.dashboard_compat import router as dashboard_compat_router
@@ -46,6 +47,7 @@ from app.core.auth.dependencies import (
     require_roles,
 )
 from app.core.health import readiness_check
+from app.core.settings import get_settings
 
 
 def create_app() -> FastAPI:
@@ -61,6 +63,7 @@ def create_app() -> FastAPI:
     ]
     cors_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX", "").strip() or None
     environment = os.getenv("ENVIRONMENT", "dev")
+    settings = get_settings()
 
     if not cors_allow_origins and not cors_origin_regex and environment == "dev":
         cors_origin_regex = (
@@ -77,25 +80,31 @@ def create_app() -> FastAPI:
         missing = []
         if not os.getenv("DATABASE_URL"):
             missing.append("DATABASE_URL")
-        if not os.getenv("ENTRA_TENANT_ID"):
-            missing.append("ENTRA_TENANT_ID")
-        if not os.getenv("ENTRA_CLIENT_ID"):
-            missing.append("ENTRA_CLIENT_ID")
-        if not os.getenv("ENTRA_AUTHORITY"):
-            missing.append("ENTRA_AUTHORITY")
-        if not os.getenv("ENTRA_ISSUER"):
-            missing.append("ENTRA_ISSUER")
-        if not os.getenv("ENTRA_AUDIENCE"):
-            missing.append("ENTRA_AUDIENCE")
+        if settings.auth_mode == "mystery_public":
+            if not settings.mystery_auth_secret_key:
+                missing.append("MYSTERY_AUTH_SECRET_KEY")
+        if settings.auth_mode != "mystery_public":
+            if not os.getenv("ENTRA_TENANT_ID"):
+                missing.append("ENTRA_TENANT_ID")
+            if not os.getenv("ENTRA_CLIENT_ID"):
+                missing.append("ENTRA_CLIENT_ID")
+            if not os.getenv("ENTRA_AUTHORITY"):
+                missing.append("ENTRA_AUTHORITY")
+            if not os.getenv("ENTRA_ISSUER"):
+                missing.append("ENTRA_ISSUER")
+            if not os.getenv("ENTRA_AUDIENCE"):
+                missing.append("ENTRA_AUDIENCE")
         if missing:
             print(f"[STARTUP] Missing required environment variables: {', '.join(missing)}")
             raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 
     # Startup configuration summary (no secrets)
     print("[STARTUP] Environment:", environment)
+    print("[STARTUP] AUTH_MODE:", settings.auth_mode)
     print("[STARTUP] DATABASE_URL: set")
     print("[STARTUP] CORS_ALLOW_ORIGINS:", cors_allow_origins or "(any via regex)")
-    print("[STARTUP] ENTRA_TENANT_ID: set")
+    if settings.auth_mode != "mystery_public":
+        print("[STARTUP] ENTRA_TENANT_ID: set")
 
     app = FastAPI(
         title="CX Assessment Platform",
@@ -146,7 +155,11 @@ def create_app() -> FastAPI:
     app.include_router(survey_router, tags=["survey"], dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
     app.include_router(mystery_shopper_router, dependencies=[Depends(require_roles(*MYSTERY_ROLES))])
     app.include_router(installation_router)
-    app.include_router(auth_router, dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
+    if settings.auth_mode == "mystery_public":
+        app.include_router(mystery_auth_public_router)
+    else:
+        app.include_router(auth_router, dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
+        app.include_router(mystery_auth_admin_router, dependencies=[Depends(require_roles("CX_SUPER_ADMIN", "MYSTERY_ADMIN"))])
     
     # Dashboard Compatibility Routes (for dashboard metrics)
     app.include_router(dashboard_compat_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])

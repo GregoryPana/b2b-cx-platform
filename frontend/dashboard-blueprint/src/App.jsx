@@ -131,6 +131,7 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
         <Route path="/executives" element={<DashboardPage key={`${activePlatform || "none"}-executives`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="/locations" element={<DashboardPage key={`${activePlatform || "none"}-locations`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="/purposes" element={<DashboardPage key={`${activePlatform || "none"}-purposes`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
+        <Route path="/mystery-users" element={<DashboardPage key={`${activePlatform || "none"}-mystery-users`} headers={headers} activePlatform={activePlatform} onSessionExpired={onSessionExpired} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </MainLayout>
