@@ -1715,7 +1715,7 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
           <div class='stat-card' style='border-color:{survey_grade['border']};background:{survey_grade['background']};'><div class='stat-card-top'><div class='stat-title'>Overall Score</div><div class='stat-pill' style='border-color:{survey_grade['border']};color:{survey_grade['text']};background:{survey_grade['background']};'>{survey_grade['label']}</div></div><div class='stat-value' style='color:{survey_grade['text']}'>{number(s['overall_score'])}</div></div>
         </div>
         <p><strong>Inspector/Auditor:</strong> {s['inspector_name']}</p>
-        <p><strong>Customer Type:</strong> {s['customer_type']}</p>
+        <p><strong>Customer Type:</strong> {s.get('customer_type') or '--'}</p>
         <p><strong>Worker Type:</strong> {s['job_done_by']}</p>
         <p><strong>Contractor Name:</strong> {s.get('contractor_name') or '--'}</p>
         <p><strong>Field Team Members:</strong> {member_names or '--'}</p>
