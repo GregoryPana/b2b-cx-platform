@@ -67,7 +67,7 @@ jobs:
           # Write SSH key to a temp file; clean it up on exit regardless
           SSH_KEY_FILE="$(mktemp)"
           trap "rm -f '${SSH_KEY_FILE}'" EXIT
-          echo "${DMZ_SSH_KEY}" > "${SSH_KEY_FILE}"
+          echo "${DMZ_SSH_KEY}" | base64 -d > "${SSH_KEY_FILE}"
           chmod 600 "${SSH_KEY_FILE}"
 
           SSH_OPTS="-i ${SSH_KEY_FILE} -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes"
