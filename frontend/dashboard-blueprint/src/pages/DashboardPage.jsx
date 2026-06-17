@@ -3267,7 +3267,7 @@ const platformAbortRef = useRef(null);
             <CardContent className="space-y-3">
               {surveyResponseCategoryGroups.length > 0 ? (
                 surveyResponseCategoryGroups.map(({ category, responses }) => (
-                  <div key={category} className="space-y-2 rounded-lg border p-3">
+                  <div key={category} className="space-y-3 rounded-lg border p-4">
                     <div className="flex items-center justify-between">
                       <p className="text-base font-semibold tracking-tight">{category}</p>
                       <Badge variant="secondary">{responses.length} questions</Badge>
@@ -3278,21 +3278,24 @@ const platformAbortRef = useRef(null);
                       const draft = reviewResponseDrafts[responseId] || { answer_text: response.answer_text || "", verbatim: response.verbatim || "", actions: response.actions || [] };
                       const isSaving = reviewSavingResponseId === responseId;
                       return (
-                        <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
-                          <div className="mb-1 flex items-center justify-between">
-                            <p className="text-base font-medium">Question {response.display_number ?? response.question_number ?? response.question_id}</p>
+                        <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-4 space-y-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Q{response.display_number ?? response.question_number ?? response.question_id}</p>
+                            <p className="mt-1 text-sm font-semibold leading-snug">{response.question_text || "--"}</p>
                           </div>
-                          <p className="text-sm">{response.question_text || "--"}</p>
                           {canEditResponseAnswer(response) ? (
-                            <div className="mt-2">
-                              <label className="mb-1 block text-sm font-medium">Answer</label>
+                            <div>
+                              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Answer</label>
                               <Textarea value={draft.answer_text} onChange={(event) => updateReviewDraft(responseId, { ...draft, answer_text: event.target.value })} />
                             </div>
                           ) : (
-                            <div className="mt-2"><SurveyResponseDisplay response={response} /></div>
+                            <div className="flex items-start gap-3 rounded bg-muted/30 px-3 py-2">
+                              <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-0.5">Answer</span>
+                              <div className="min-w-0 text-sm"><SurveyResponseDisplay response={response} /></div>
+                            </div>
                           )}
-                          <div className="mt-2">
-                            <label className="mb-1 block text-sm font-medium">Verbatim</label>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Verbatim</label>
                             <Textarea value={draft.verbatim} onChange={(event) => updateReviewDraft(responseId, { ...draft, verbatim: event.target.value })} />
                           </div>
                           {canEditResponseActions(response) ? (
@@ -4165,20 +4168,27 @@ const platformAbortRef = useRef(null);
                 <CardContent className="space-y-3">
                   {surveyResponseCategoryGroups.length > 0 ? (
                     surveyResponseCategoryGroups.map(({ category, responses }) => (
-                      <div key={category} className="space-y-2 rounded-lg border p-3">
+                      <div key={category} className="space-y-3 rounded-lg border p-4">
                         <div className="flex items-center justify-between">
                           <p className="text-base font-semibold tracking-tight">{category}</p>
                           <Badge variant="secondary">{responses.length} questions</Badge>
                         </div>
                         {responses.map((response) => {
+                          const qLabel = response.display_number ?? response.question_number ?? response.question_id;
                           return (
-                            <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-3">
-                              <div className="mb-2 flex items-center justify-between gap-2">
-                                <p className="text-sm font-medium text-muted-foreground">Question {response.display_number ?? response.question_number ?? response.question_id}</p>
-                                <SurveyResponseDisplay response={response} />
+                            <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-4 space-y-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Q{qLabel}</p>
+                              <p className="text-sm font-semibold leading-snug">{response.question_text || "--"}</p>
+                              <div className="flex items-start gap-3 rounded bg-muted/30 px-3 py-2">
+                                <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-0.5">Answer</span>
+                                <div className="min-w-0 text-sm"><SurveyResponseDisplay response={response} /></div>
                               </div>
-                              <p className="text-sm font-medium">{response.question_text || "--"}</p>
-                              {response.verbatim ? <p className="mt-1 text-sm text-muted-foreground">Verbatim: {response.verbatim}</p> : null}
+                              {response.verbatim ? (
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Verbatim</p>
+                                  <p className="mt-0.5 text-sm text-foreground">{response.verbatim}</p>
+                                </div>
+                              ) : null}
                             </div>
                           );
                         })}
