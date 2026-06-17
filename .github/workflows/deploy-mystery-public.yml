@@ -99,7 +99,8 @@ jobs:
           ${SSH} "sudo bash -c 'chown -R cxadmin:www-data /opt/cwscx-mystery-public/backend'"
 
           # Deploy backend: creates venv, installs deps, runs alembic, (re)starts systemd service
-          ${SSH} "bash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_backend.sh"
+          # Run as root so internal run_as_root() calls bypass sudo (cp to /etc/systemd, systemctl)
+          ${SSH} "sudo bash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_backend.sh"
 
           # Deploy nginx with correct self-signed cert paths for cwscx-web01
           SERVER_NAME="${MYSTERY_PUBLIC_BASE_URL#https://}"

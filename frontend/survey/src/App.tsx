@@ -8,6 +8,7 @@ import UserGuidePage from "./features/user-guide/UserGuidePage";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { ensureMsalInitialized, loginRequest } from "./auth";
+import SigningInScreen from "./components/SigningInScreen";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const surveyBasePath = (import.meta.env.VITE_BASE_PATH || "/").replace(/\/+$/, "") || "/";
@@ -183,7 +184,7 @@ export default function App() {
   };
 
   if (!msalReady) {
-    return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
+    return <SigningInScreen />;
   }
 
   if (logoutRequested && !isAuthenticated) {
@@ -201,7 +202,7 @@ export default function App() {
   }
 
   if (!isAuthenticated || !accessToken || !roleResolved) {
-    return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
+    return <SigningInScreen />;
   }
 
   if (!hasB2BAccess(entraRoles)) {

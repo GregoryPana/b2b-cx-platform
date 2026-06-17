@@ -6,6 +6,7 @@ import MainLayout from "./components/layout/MainLayout";
 import DashboardPage from "./pages/DashboardPage";
 import PlatformSelectionPage from "./pages/PlatformSelectionPage";
 import { ensureMsalInitialized, loginRequest } from "./auth";
+import SigningInScreen from "./components/SigningInScreen";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
@@ -338,7 +339,7 @@ function MsalAuthenticatedApp() {
   }, [activePlatform, availablePlatforms]);
 
   if (!msalReady) {
-    return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
+    return <SigningInScreen />;
   }
 
   if (logoutRequested && !isAuthenticated) {
@@ -354,7 +355,7 @@ function MsalAuthenticatedApp() {
   }
 
   if (!isAuthenticated || !accessToken) {
-    return <div className="flex min-h-screen items-center justify-center">Signing you in...</div>;
+    return <SigningInScreen />;
   }
 
   return (

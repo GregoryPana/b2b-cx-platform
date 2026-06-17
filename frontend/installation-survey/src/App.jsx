@@ -8,6 +8,7 @@ import UserGuidePage from "./features/user-guide/UserGuidePage";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
+import SigningInScreen from "./components/SigningInScreen";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const INSTALLATION_ALLOWED_ROLES = new Set(["INSTALL_ADMIN", "INSTALL_SURVEYOR", "CX_SUPER_ADMIN"]);
@@ -180,13 +181,7 @@ export default function App() {
   };
 
   if (!msalReady) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
-        <Card className="p-6">
-          <CardContent className="pt-6">Signing you in...</CardContent>
-        </Card>
-      </div>
-    );
+    return <SigningInScreen />;
   }
 
   if (logoutRequested && !isAuthenticated) {
@@ -204,13 +199,7 @@ export default function App() {
   }
 
   if (!isAuthenticated || !accessToken || !roleResolved) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
-        <Card className="p-6">
-          <CardContent className="pt-6">Signing you in...</CardContent>
-        </Card>
-      </div>
-    );
+    return <SigningInScreen />;
   }
 
   if (!hasInstallationAccess(entraRoles)) {
