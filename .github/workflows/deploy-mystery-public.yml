@@ -104,7 +104,7 @@ jobs:
           SERVER_NAME="${SERVER_NAME#http://}"
           SERVER_NAME="${SERVER_NAME%%/*}"
           NGINX_WRAPPER="$(mktemp)"
-          printf '#!/bin/bash\nexport SSL_CERTIFICATE=/etc/ssl/cwscx/cwscx.crt\nexport SSL_CERTIFICATE_KEY=/etc/ssl/cwscx/cwscx.key\nexport SITE_NAME=cwscx-mystery-public\nexport SERVER_NAME=%s\nbash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_nginx.sh\n' "${SERVER_NAME}" > "${NGINX_WRAPPER}"
+          printf '#!/bin/bash\nexport SITE_NAME=cwscx-mystery-public\nexport SERVER_NAME=%s\nbash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_nginx.sh\n' "${SERVER_NAME}" > "${NGINX_WRAPPER}"
           ${SCP} "${NGINX_WRAPPER}" "${DMZ_USER}@${DMZ_HOST}:/tmp/nginx_deploy_wrapper.sh"
           rm -f "${NGINX_WRAPPER}"
           ${SSH} "sudo bash /tmp/nginx_deploy_wrapper.sh && rm -f /tmp/nginx_deploy_wrapper.sh"
