@@ -106,7 +106,7 @@ jobs:
           SERVER_NAME="${MYSTERY_PUBLIC_BASE_URL#https://}"
           SERVER_NAME="${SERVER_NAME#http://}"
           SERVER_NAME="${SERVER_NAME%%/*}"
-          ${SSH} "sudo bash -c 'SSL_CERTIFICATE=/etc/ssl/cwscx/cwscx.crt SSL_CERTIFICATE_KEY=/etc/ssl/cwscx/cwscx.key SITE_NAME=cwscx-mystery-public SERVER_NAME=${SERVER_NAME} bash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_nginx.sh'"
+          ${SSH} "sudo bash -c 'export SSL_CERTIFICATE=/etc/ssl/cwscx/cwscx.crt; export SSL_CERTIFICATE_KEY=/etc/ssl/cwscx/cwscx.key; export SITE_NAME=cwscx-mystery-public; export SERVER_NAME=${SERVER_NAME}; bash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_nginx.sh'"
 
           # Verify deployment
           ${SSH} "MYSTERY_PUBLIC_BASE_URL=${MYSTERY_PUBLIC_BASE_URL} bash /opt/cwscx-mystery-public/scripts/linux/verify_mystery_public.sh"
