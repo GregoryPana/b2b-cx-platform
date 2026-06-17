@@ -92,6 +92,9 @@ jobs:
           # Install bundle; preserves existing /opt/cwscx-mystery-public/.env if present
           ${SSH} "sudo bash /tmp/install_mystery_public_bundle.sh '${REMOTE_BUNDLE}'"
 
+          # Ensure python3-venv is present on DMZ VM (idempotent)
+          ${SSH} "sudo bash -c 'apt-get install -y python3-venv 2>&1'"
+
           # Fix ownership after root-level install so cxadmin can create the venv
           ${SSH} "sudo bash -c 'chown -R cxadmin:www-data /opt/cwscx-mystery-public/backend'"
 
