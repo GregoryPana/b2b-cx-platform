@@ -93,7 +93,7 @@ jobs:
           ${SSH} "sudo bash /tmp/install_mystery_public_bundle.sh '${REMOTE_BUNDLE}'"
 
           # Fix ownership after root-level install so cxadmin can create the venv
-          ${SSH} "sudo chown -R cxadmin:www-data /opt/cwscx-mystery-public/backend"
+          ${SSH} "sudo bash -c 'chown -R cxadmin:www-data /opt/cwscx-mystery-public/backend'"
 
           # Deploy backend: creates venv, installs deps, runs alembic, (re)starts systemd service
           ${SSH} "bash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_backend.sh"
