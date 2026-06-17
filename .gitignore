@@ -21,3 +21,5 @@ everything-claude-code/
 session-ses_*.md
 *-local.log
 *.local.log
+.codegraph/
+.codegraph-win/

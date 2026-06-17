@@ -115,6 +115,7 @@ class InstallationSurveyCreateRequest(BaseModel):
     job_done_by: str
     contractor_name: str | None = None
     field_team_members: list[str] = Field(default_factory=list)
+    action_points: list[str] = Field(default_factory=list)
     responses: list[InstallationResponseInput]
 
 
@@ -167,6 +168,33 @@ def _read_field_team_members(value) -> list[str]:
             parsed = json.loads(value)
             if isinstance(parsed, list):
                 return _normalize_field_team_members(parsed)
+        except Exception:
+            return []
+    return []
+
+
+def _normalize_action_points(values: list[str] | None) -> list[str]:
+    points: list[str] = []
+    for raw_value in values or []:
+        normalized = (raw_value or "").strip()
+        if not normalized:
+            continue
+        points.append(normalized)
+        if len(points) >= 5:
+            break
+    return points
+
+
+def _read_action_points(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return _normalize_action_points(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return _normalize_action_points(parsed)
         except Exception:
             return []
     return []
@@ -401,6 +429,7 @@ def create_installation_survey(
     worker_type = _normalize_worker_type(payload.job_done_by)
     contractor_name = _normalize_optional_name(payload.contractor_name)
     field_team_members = _normalize_field_team_members(payload.field_team_members)
+    action_points = _normalize_action_points(payload.action_points)
 
     if not inspector_name:
         raise HTTPException(status_code=400, detail="Quality Assurance Inspector name is required")
@@ -447,6 +476,8 @@ def create_installation_survey(
     created_by_name = (getattr(current_user, "name", "") or "").strip() or None
     created_by_email = (getattr(current_user, "email", "") or "").strip() or None
 
+    has_action_points = has_column(db, "installation_surveys", "action_points")
+
     try:
         db.execute(
             text(
@@ -462,6 +493,7 @@ def create_installation_survey(
                     job_done_by,
                     contractor_name,
                     field_team_members,
+                    {action_points_column}
                     overall_score,
                     created_by_name,
                     created_by_email
@@ -476,11 +508,16 @@ def create_installation_survey(
                     :job_done_by,
                     :contractor_name,
                     CAST(:field_team_members AS jsonb),
+                    {action_points_value}
                     :overall_score,
                     :created_by_name,
                     :created_by_email
                 )
                 """
+                .format(
+                    action_points_column="action_points," if has_action_points else "",
+                    action_points_value="CAST(:action_points AS jsonb)," if has_action_points else "",
+                )
             ),
             {
                 "id": survey_id,
@@ -493,6 +530,7 @@ def create_installation_survey(
                 "job_done_by": worker_type,
                 "contractor_name": contractor_name,
                 "field_team_members": json.dumps(field_team_members),
+                **({"action_points": json.dumps(action_points)} if has_action_points else {}),
                 "overall_score": overall_score,
                 "created_by_name": created_by_name,
                 "created_by_email": created_by_email,
@@ -563,6 +601,7 @@ def create_installation_survey(
             "survey_id": survey_id,
             "overall_score": overall_score,
             "total_questions": len(expected_numbers),
+            "action_points": action_points,
             "message": "Installation survey submitted successfully",
         }
     except Exception as exc:
@@ -681,6 +720,7 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
     try:
         has_contractor_name = _has_column(db, "installation_surveys", "contractor_name")
         has_field_team_members = _has_column(db, "installation_surveys", "field_team_members")
+        has_action_points = _has_column(db, "installation_surveys", "action_points")
         survey = db.execute(
             text(
                 """
@@ -695,6 +735,7 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
                     job_done_by,
                     {contractor_name_select},
                     {field_team_members_select},
+                    {action_points_select},
                     overall_score,
                     created_by_name,
                     created_by_email,
@@ -705,6 +746,7 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
                 .format(
                     contractor_name_select="contractor_name" if has_contractor_name else "NULL AS contractor_name",
                     field_team_members_select="field_team_members" if has_field_team_members else "'[]'::jsonb AS field_team_members",
+                    action_points_select="action_points" if has_action_points else "'[]'::jsonb AS action_points",
                 )
             ),
             {"survey_id": survey_id},
@@ -741,6 +783,7 @@ def get_installation_survey_detail(survey_id: str, db: Session = Depends(get_db)
             "job_done_by": survey["job_done_by"],
             "contractor_name": survey["contractor_name"],
             "field_team_members": _read_field_team_members(survey["field_team_members"]),
+            "action_points": _read_action_points(survey["action_points"]),
             "overall_score": _to_float(survey["overall_score"]),
             "created_by_name": survey["created_by_name"],
             "created_by_email": survey["created_by_email"],
@@ -1150,6 +1193,7 @@ def export_installation_report(
     try:
         has_contractor_name = _has_column(db, "installation_surveys", "contractor_name")
         has_field_team_members = _has_column(db, "installation_surveys", "field_team_members")
+        has_action_points = _has_column(db, "installation_surveys", "action_points")
         # Build payload data
         where = ["1=1"]
         params: dict[str, object] = {}
@@ -1285,13 +1329,14 @@ def export_installation_report(
             survey = db.execute(
                 text(
                     """
-                    SELECT id, inspector_name, work_order, customer_name, customer_type, location, date_work_done, job_done_by, {contractor_name_select}, {field_team_members_select}, overall_score, created_at
+                    SELECT id, inspector_name, work_order, customer_name, customer_type, location, date_work_done, job_done_by, {contractor_name_select}, {field_team_members_select}, {action_points_select}, overall_score, created_at
                     FROM installation_surveys
                     WHERE id = CAST(:survey_id AS uuid)
                     """
                     .format(
                         contractor_name_select="contractor_name" if has_contractor_name else "NULL AS contractor_name",
                         field_team_members_select="field_team_members" if has_field_team_members else "'[]'::jsonb AS field_team_members",
+                        action_points_select="action_points" if has_action_points else "'[]'::jsonb AS action_points",
                     )
                 ),
                 {"survey_id": survey_id},
@@ -1322,6 +1367,7 @@ def export_installation_report(
                     "job_done_by": survey["job_done_by"],
                     "contractor_name": survey["contractor_name"],
                     "field_team_members": _read_field_team_members(survey["field_team_members"]),
+                    "action_points": _read_action_points(survey["action_points"]),
                     "overall_score": _to_float(survey["overall_score"]),
                     "created_at": survey["created_at"].isoformat() if survey["created_at"] else None,
                     "responses": [
@@ -1706,6 +1752,12 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
         s = survey_detail
         survey_grade = get_installation_metric_grade(s.get("overall_score"))
         member_names = ", ".join(_read_field_team_members(s.get("field_team_members")))
+        action_points = _read_action_points(s.get("action_points"))
+        action_points_html = (
+            "<ul style='margin:0;padding-left:18px'>" + "".join(f"<li style='padding:2px 0;font-size:13px'>{ap}</li>" for ap in action_points) + "</ul>"
+            if action_points
+            else "<p style='color:#64748b;font-size:13px;margin:0'>No action points recorded.</p>"
+        )
         html += f"""
         <h2>Survey Detail Report</h2>
         <div class='grid'>
@@ -1724,6 +1776,8 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
           <thead><tr><th>Question</th><th>Score</th><th>Range</th></tr></thead>
           <tbody>{question_rows_html}</tbody>
         </table>
+        <h3>Action Points / Recommendations</h3>
+        <div style='border:1px solid #e2e8f0;border-radius:6px;padding:12px 16px;margin-bottom:1rem'>{action_points_html}</div>
         """
     else:
         avg_b2b = find_average(customer_type_averages, "customer_type", "B2B")

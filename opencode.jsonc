@@ -19,5 +19,16 @@
     "plan": {
       "prompt": "When planning CWSCX work, include whether the task will require a Hermes Update Pack. Treat OpenCode as project-local and Hermes as the project/portfolio knowledge graph owner. Do not propose deployment, production secret changes, destructive database actions, or direct main-branch pushes without explicit Gregory approval."
     }
+  },
+  "mcp": {
+    "codegraph": {
+      "type": "local",
+      "command": [
+        "codegraph",
+        "serve",
+        "--mcp"
+      ],
+      "enabled": true
+    }
   }
 }

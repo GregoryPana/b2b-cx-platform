@@ -57,6 +57,7 @@ export default function InstallationSurveyPage({ headers }) {
     job_done_by: "Field Team",
     contractor_name: "",
     field_team_members: [""],
+    action_points: [""],
   });
 
   const loadContractors = async (query = "") => {
@@ -153,6 +154,8 @@ export default function InstallationSurveyPage({ headers }) {
       score: Number(scoresByQuestion[q.question_number]),
     }));
 
+    const actionPoints = (formData.action_points || []).map((point) => point.trim()).filter(Boolean).slice(0, 5);
+
     setSubmitting(true);
     setError("");
     setSuccess(null);
@@ -177,6 +180,7 @@ export default function InstallationSurveyPage({ headers }) {
             formData.job_done_by === "Field Team"
               ? (formData.field_team_members || []).map((member) => member.trim()).filter(Boolean).slice(0, 5)
               : [],
+          action_points: actionPoints,
           responses,
         }),
       });
@@ -187,6 +191,7 @@ export default function InstallationSurveyPage({ headers }) {
       setSuccess({
         survey_id: data.survey_id,
         overall_score: Number(data.overall_score),
+        action_points: actionPoints,
       });
 
       setScoresByQuestion({});
@@ -198,6 +203,7 @@ export default function InstallationSurveyPage({ headers }) {
         date_work_done: "",
         contractor_name: "",
         field_team_members: [""],
+        action_points: [""],
       }));
     } catch (err) {
       setError(err.message);
@@ -227,6 +233,16 @@ export default function InstallationSurveyPage({ headers }) {
                   <div className="rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success">
                     <div>Survey submitted. Reference: <strong>{success.survey_id}</strong></div>
                     <div>Overall score: <strong>{success.overall_score.toFixed(2)}</strong> ({scoreBandLabel(success.overall_score)})</div>
+                    {success.action_points?.length ? (
+                      <div className="mt-2">
+                        <div>Action points / recommendations:</div>
+                        <ul className="list-disc pl-5">
+                          {success.action_points.map((point, index) => (
+                            <li key={index}>{point}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                   </div>
                 )}
 
@@ -408,6 +424,62 @@ export default function InstallationSurveyPage({ headers }) {
                     </div>
                   ))
                 )}
+              </CardContent>
+            </Card>
+
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Action Points / Recommendations</CardTitle>
+                <CardDescription>Optional. Add up to 5 action points or recommendations arising from this assessment.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={(formData.action_points || []).length >= 5}
+                    onClick={() =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        action_points: [...(prev.action_points || []), ""].slice(0, 5),
+                      }))
+                    }
+                  >
+                    Add Action Point
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {(formData.action_points || []).map((point, index) => (
+                    <div key={`action-point-${index}`} className="flex items-center gap-2">
+                      <Input
+                        value={point}
+                        onChange={(event) =>
+                          setFormData((prev) => {
+                            const nextPoints = [...(prev.action_points || [])];
+                            nextPoints[index] = event.target.value;
+                            return { ...prev, action_points: nextPoints.slice(0, 5) };
+                          })
+                        }
+                        placeholder={`Action point ${index + 1}`}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={(formData.action_points || []).length <= 1}
+                        onClick={() =>
+                          setFormData((prev) => {
+                            const nextPoints = (prev.action_points || []).filter((_, itemIndex) => itemIndex !== index);
+                            return { ...prev, action_points: nextPoints.length ? nextPoints : [""] };
+                          })
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           </div>

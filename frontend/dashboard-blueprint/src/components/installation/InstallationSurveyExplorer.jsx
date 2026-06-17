@@ -77,6 +77,19 @@ export default function InstallationSurveyExplorer({
               ));
             })()}
 
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-muted-foreground">Action Points / Recommendations</h4>
+              {Array.isArray(selectedSurvey.action_points) && selectedSurvey.action_points.length ? (
+                <ul className="list-disc pl-5 text-sm">
+                  {selectedSurvey.action_points.map((point, index) => (
+                    <li key={index}>{point}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No action points recorded.</p>
+              )}
+            </div>
+
             <Button type="button" variant="outline" onClick={onCloseDetails}>Close Details</Button>
           </CardContent>
         </Card>

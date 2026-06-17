@@ -23,7 +23,7 @@ jobs:
           VITE_BASE_PATH: /
 
   deploy:
-    runs-on: [self-hosted, linux, mystery-public]
+    runs-on: [self-hosted, linux, production]
     environment: mystery-public
     needs: ci
     env:
@@ -52,21 +52,47 @@ jobs:
         shell: bash
         run: |
           bash scripts/linux/build_mystery_public_bundle.sh "${RUNNER_TEMP}/cwscx-mystery-public-release.zip"
-      - name: Install and deploy on DMZ mystery VM
+      - name: Push and install bundle on DMZ VM via SSH
         shell: bash
         env:
           RELEASE_ID: ${{ env.RELEASE_ID }}
           MYSTERY_PUBLIC_BASE_URL: ${{ secrets.MYSTERY_PUBLIC_BASE_URL }}
+          DMZ_SSH_KEY: ${{ secrets.DMZ_SSH_KEY }}
         run: |
           set -euo pipefail
-          TARGET_ROOT="/opt/cwscx-mystery-public"
-          mkdir -p "${TARGET_ROOT}/releases"
-          NEW_BUNDLE="${TARGET_ROOT}/releases/cwscx-mystery-public-${RELEASE_ID}.zip"
-          cp -f "${RUNNER_TEMP}/cwscx-mystery-public-release.zip" "${NEW_BUNDLE}"
-          sudo bash scripts/linux/install_mystery_public_bundle.sh "${NEW_BUNDLE}"
-          bash scripts/linux/deploy_mystery_public_backend.sh
+
+          DMZ_HOST="172.17.0.200"
+          DMZ_USER="cxadmin"
+
+          # Write SSH key to a temp file; clean it up on exit regardless
+          SSH_KEY_FILE="$(mktemp)"
+          trap "rm -f '${SSH_KEY_FILE}'" EXIT
+          printf '%s\n' "${DMZ_SSH_KEY}" > "${SSH_KEY_FILE}"
+          chmod 600 "${SSH_KEY_FILE}"
+
+          SSH_OPTS="-i ${SSH_KEY_FILE} -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes"
+          SSH="ssh ${SSH_OPTS} ${DMZ_USER}@${DMZ_HOST}"
+          SCP="scp ${SSH_OPTS}"
+
+          # Copy bundle and install script to DMZ
+          REMOTE_BUNDLE="/tmp/cwscx-mystery-public-${RELEASE_ID}.zip"
+          ${SCP} "${RUNNER_TEMP}/cwscx-mystery-public-release.zip" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_BUNDLE}"
+          ${SCP} "scripts/linux/install_mystery_public_bundle.sh" "${DMZ_USER}@${DMZ_HOST}:/tmp/install_mystery_public_bundle.sh"
+
+          # Install bundle; preserves existing /opt/cwscx-mystery-public/.env if present
+          ${SSH} "sudo bash /tmp/install_mystery_public_bundle.sh '${REMOTE_BUNDLE}'"
+
+          # Deploy backend: creates venv, installs deps, runs alembic, (re)starts systemd service
+          ${SSH} "bash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_backend.sh"
+
+          # Deploy nginx with correct self-signed cert paths for cwscx-web01
           SERVER_NAME="${MYSTERY_PUBLIC_BASE_URL#https://}"
           SERVER_NAME="${SERVER_NAME#http://}"
           SERVER_NAME="${SERVER_NAME%%/*}"
-          SITE_NAME="cwscx-mystery-public" SERVER_NAME="${SERVER_NAME}" sudo bash scripts/linux/deploy_mystery_public_nginx.sh
-          MYSTERY_PUBLIC_BASE_URL="${MYSTERY_PUBLIC_BASE_URL}" bash scripts/linux/verify_mystery_public.sh
+          ${SSH} "sudo bash -c 'SSL_CERTIFICATE=/etc/ssl/cwscx/cwscx.crt SSL_CERTIFICATE_KEY=/etc/ssl/cwscx/cwscx.key SITE_NAME=cwscx-mystery-public SERVER_NAME=${SERVER_NAME} bash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_nginx.sh'"
+
+          # Verify deployment
+          ${SSH} "MYSTERY_PUBLIC_BASE_URL=${MYSTERY_PUBLIC_BASE_URL} bash /opt/cwscx-mystery-public/scripts/linux/verify_mystery_public.sh"
+
+          # Clean up temp files on DMZ
+          ${SSH} "rm -f '${REMOTE_BUNDLE}' /tmp/install_mystery_public_bundle.sh" || true
