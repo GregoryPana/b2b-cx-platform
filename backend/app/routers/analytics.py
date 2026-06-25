@@ -322,15 +322,16 @@ def get_comprehensive_analytics(
         
         # Get customer satisfaction from question 12 (10-point scale)
         # Thresholds:
-        # 9-10 Very Satisfied, 7-8 Satisfied, 5-6 Neutral, 3-4 Dissatisfied, 0-2 Very Dissatisfied
+        # 9-10 Very Satisfied, 8 Satisfied, 5-7 Neutral, 3-4 Dissatisfied, 0-2 Very Dissatisfied
+        # CSAT threshold: scores of 8, 9, or 10 count as satisfied.
         satisfaction_stats = db.execute(text(f"""
             SELECT 
                 AVG(CASE WHEN {q12_filter} AND r.score IS NOT NULL THEN r.score ELSE NULL END) as avg_satisfaction,
                 COUNT(CASE WHEN {q12_filter} AND r.score IS NOT NULL THEN 1 ELSE 0 END) as satisfaction_responses,
                 SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 0 AND 2 THEN 1 ELSE 0 END) as very_dissatisfied,
                 SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 3 AND 4 THEN 1 ELSE 0 END) as dissatisfied,
-                SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 5 AND 6 THEN 1 ELSE 0 END) as neutral,
-                SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 7 AND 8 THEN 1 ELSE 0 END) as satisfied,
+                SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 5 AND 7 THEN 1 ELSE 0 END) as neutral,
+                SUM(CASE WHEN {q12_filter} AND r.score = 8 THEN 1 ELSE 0 END) as satisfied,
                 SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 9 AND 10 THEN 1 ELSE 0 END) as very_satisfied
             FROM {response_table} r
             JOIN questions q ON r.question_id = q.id
@@ -588,7 +589,7 @@ def get_comprehensive_analytics(
                 "avg_score": float(satisfaction_stats.avg_satisfaction) if satisfaction_stats.avg_satisfaction else 0,
                 "response_count": satisfaction_response_count,
                 "csat_score": csat_score,
-                "csat_formula": "(Satisfied [7-8] + Very Satisfied [9-10]) / Total responses * 100",
+                "csat_formula": "(Satisfied [8] + Very Satisfied [9-10]) / Total responses * 100",
                 "question_text": "Rate your overall C&W Satisfaction (from question 12)",
                 "score_distribution": {
                     "very_dissatisfied": very_dissatisfied_count,

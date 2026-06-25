@@ -2926,7 +2926,7 @@ const platformAbortRef = useRef(null);
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   Customer Satisfaction
-                  <InfoHint text="CSAT shows the percentage of customers who gave a positive rating. We count Satisfied (7-8) and Very Satisfied (9-10), then divide by all answers. Higher means customers are happier." />
+                  <InfoHint text="CSAT shows the percentage of customers who gave a positive satisfaction rating. We count scores of 8, 9, and 10, then divide by all answers to the satisfaction question. Higher means customers are happier." />
                 </CardTitle>
                 <CardDescription>
                   Based on {analytics?.customer_satisfaction?.response_count ?? 0} answers to the satisfaction question.
@@ -2966,11 +2966,11 @@ const platformAbortRef = useRef(null);
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.satisfied }}></div>
-                      <span className="text-xs">Satisfied (7-8): {analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0}</span>
+                      <span className="text-xs">Satisfied (8): {analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.neutral }}></div>
-                      <span className="text-xs">Neutral (5-6): {analytics?.customer_satisfaction?.score_distribution?.neutral ?? 0}</span>
+                      <span className="text-xs">Neutral (5-7): {analytics?.customer_satisfaction?.score_distribution?.neutral ?? 0}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.dissatisfied }}></div>

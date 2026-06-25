@@ -2577,11 +2577,11 @@ export default function App() {
                     <span className="value">{analytics?.customer_satisfaction?.score_distribution?.dissatisfied ?? 0}</span>
                   </div>
                   <div className="satisfaction-category neutral">
-                    <span className="label">Neutral (5-6)</span>
+                    <span className="label">Neutral (5-7)</span>
                     <span className="value">{analytics?.customer_satisfaction?.score_distribution?.neutral ?? 0}</span>
                   </div>
                   <div className="satisfaction-category satisfied">
-                    <span className="label">Satisfied (7-8)</span>
+                    <span className="label">Satisfied (8)</span>
                     <span className="value">{analytics?.customer_satisfaction?.score_distribution?.satisfied ?? 0}</span>
                   </div>
                   <div className="satisfaction-category very-satisfied">

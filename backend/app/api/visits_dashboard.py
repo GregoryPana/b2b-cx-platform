@@ -2237,6 +2237,17 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f'</div>'
         )
 
+    kpi_explanation_section = ""
+    if has_selected_kpis:
+        kpi_explanation_section = (
+            f'<div class="mini-grid" style="margin-top:12px">'
+            f'<div class="card"><div class="label">How NPS is calculated</div>'
+            f'<p>NPS uses the 0–10 recommendation question. Promoters are scores 9–10, passives are 7–8, and detractors are 0–6. NPS = Promoters% − Detractors%, so the score can range from -100 to +100.</p></div>'
+            f'<div class="card"><div class="label">How CSAT is calculated</div>'
+            f'<p>CSAT uses the overall C&amp;W satisfaction question. Scores of 8, 9, or 10 count as satisfied. CSAT = satisfied responses ÷ all satisfaction responses × 100.</p></div>'
+            f'</div>'
+        )
+
     overall_kpi_values = {
         "nps": (comparison.get("nps") or {}).get("overall"),
         "csat": (comparison.get("csat") or {}).get("overall"),
@@ -2270,9 +2281,9 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f'{overall_nps_benchmark}'
             f'</div></div></div>'
             f'<div class="card"><div class="label">CSAT Distribution</div><div class="pie-wrap">{csat_pie_svg}<div>'
-            f'<p class="label">Very Satisfied: {int(csat_breakdown.get("very_satisfied") or 0)}</p>'
-            f'<p class="label">Satisfied: {int(csat_breakdown.get("satisfied") or 0)}</p>'
-            f'<p class="label">Neutral: {int(csat_breakdown.get("neutral") or 0)}</p>'
+            f'<p class="label">Very Satisfied (9-10): {int(csat_breakdown.get("very_satisfied") or 0)}</p>'
+            f'<p class="label">Satisfied (8): {int(csat_breakdown.get("satisfied") or 0)}</p>'
+            f'<p class="label">Neutral (5-7): {int(csat_breakdown.get("neutral") or 0)}</p>'
             f'<p class="label">Dissatisfied: {int(csat_breakdown.get("dissatisfied") or 0)}</p>'
             f'<p class="label">Very Dissatisfied: {int(csat_breakdown.get("very_dissatisfied") or 0)}</p>'
             f'<p class="label" style="margin-top:8px">Selected CSAT: {format_metric(csat_obj.get("selected"), "%")}</p>'
@@ -2319,7 +2330,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f'<thead><tr><th>Metric</th><th>Selected Scope</th><th>Overall Scope</th><th>Interpretation</th></tr></thead>'
             f'<tbody>'
             f'<tr><td><strong>NPS</strong><br><span style="font-size:11px;color:#64748b">Net Promoter Score — would customers recommend us?</span></td><td>{format_metric_html("nps", (comparison.get("nps") or {}).get("selected"))}</td><td>{format_metric_html("nps", (comparison.get("nps") or {}).get("overall"))}</td><td>Higher is better. A positive score means more promoters than detractors. Above 50 is excellent.</td></tr>'
-            f'<tr><td><strong>CSAT</strong><br><span style="font-size:11px;color:#64748b">Customer Satisfaction — how happy are customers?</span></td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("selected"), "%")}</td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("overall"), "%")}</td><td>Higher is better. Above 70% means most customers are satisfied.</td></tr>'
+            f'<tr><td><strong>CSAT</strong><br><span style="font-size:11px;color:#64748b">Customer Satisfaction — % scoring 8/10 or higher.</span></td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("selected"), "%")}</td><td>{format_metric_html("csat", (comparison.get("csat") or {}).get("overall"), "%")}</td><td>Higher is better. Calculated as scores 8, 9, or 10 divided by all satisfaction responses.</td></tr>'
             f'<tr><td><strong>Relationship Score</strong><br><span style="font-size:11px;color:#64748b">How strong is the business relationship?</span></td><td>{format_metric_html("relationship_score", (comparison.get("relationship_score") or {}).get("selected"))}</td><td>{format_metric_html("relationship_score", (comparison.get("relationship_score") or {}).get("overall"))}</td><td>Higher is better. Composite measure of relationship health (0–100).</td></tr>'
             f'<tr><td><strong>Competitor Exposure</strong><br><span style="font-size:11px;color:#64748b">Are customers using competitor services?</span></td><td>{format_metric_html("competitor_exposure", (comparison.get("competitor_exposure") or {}).get("selected"), "%")}</td><td>{format_metric_html("competitor_exposure", (comparison.get("competitor_exposure") or {}).get("overall"), "%")}</td><td>Lower is better. High percentage means accounts at risk of switching.</td></tr>'
             f'</tbody></table></div>'
@@ -2455,6 +2466,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
   {report_context_section}
   {summary_section}
   {selected_kpi_section}
+  {kpi_explanation_section}
   {overall_benchmark_section}
   {pie_section}
 
