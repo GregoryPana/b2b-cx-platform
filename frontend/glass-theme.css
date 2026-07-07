@@ -42,8 +42,8 @@
   --border-strong: rgba(140, 173, 219, 0.35);
   --border-accent: rgba(79, 141, 228, 0.5);
   --focus-ring: rgba(88, 149, 233, 0.58);
-  --success-bg: rgba(35, 119, 181, 0.24);
-  --success-fg: #d0ecff;
+  --success-bg: rgba(16, 185, 129, 0.24);
+  --success-fg: #a7f3d0;
   --danger-bg: rgba(165, 73, 102, 0.24);
   --danger-fg: #ffd7e2;
   --warning-bg: rgba(169, 132, 67, 0.26);

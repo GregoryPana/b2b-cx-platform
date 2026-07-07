@@ -26,12 +26,6 @@
   --semantic-bad-fg: #991b1b;
   --radius-lg: 10px;
   --radius-md: 8px;
-  --space-1: 8px;
-  --space-2: 13px;
-  --space-3: 21px;
-  --space-4: 34px;
-  --space-5: 55px;
-  --space-6: 89px;
   --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-md: 1.125rem;
@@ -90,16 +84,16 @@ button {
 .page {
   width: min(100%, 1560px);
   margin: 0 auto;
-  padding: var(--space-5) var(--space-4) var(--space-5);
+  padding: var(--space-12) var(--space-8) var(--space-12);
 }
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-5);
+  gap: var(--space-12);
   flex-wrap: wrap;
-  padding-bottom: var(--space-5);
+  padding-bottom: var(--space-12);
   border-bottom: 1px solid rgba(44, 88, 136, 0.22);
 }
 
@@ -121,7 +115,7 @@ h1 {
   background: var(--accent);
   color: #eaf4ff;
   border: none;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-5);
   border-radius: 8px;
   font-size: var(--text-sm);
   cursor: pointer;
@@ -134,20 +128,20 @@ h1 {
 }
 
 .form-cta {
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 .grid {
-  margin-top: var(--space-3);
+  margin-top: var(--space-5);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
+  gap: var(--space-8);
 }
 
 .grid article {
   background: var(--panel);
   border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  padding: var(--space-5);
   border: 1px solid var(--border);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -155,8 +149,8 @@ h1 {
 }
 
 .notice {
-  margin-top: var(--space-4);
-  padding: var(--space-2) var(--space-3);
+  margin-top: var(--space-8);
+  padding: var(--space-3) var(--space-5);
   border-radius: var(--radius-md);
   background: #f8e7e4;
   color: #8c2f21;
@@ -168,8 +162,8 @@ h1 {
 }
 
 .panel {
-  margin-top: var(--space-3);
-  padding: var(--space-3);
+  margin-top: var(--space-5);
+  padding: var(--space-5);
   border-radius: var(--radius-lg);
   background: var(--panel-strong);
   border: 1px solid var(--border);
@@ -179,11 +173,11 @@ h1 {
 }
 
 .top-nav {
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-8);
   flex-wrap: wrap;
   padding: 12px;
   border-radius: 10px;
@@ -395,11 +389,11 @@ textarea:focus-visible,
 }
 
 .subhead {
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-5);
   flex-wrap: wrap;
 }
 
@@ -417,7 +411,7 @@ textarea:focus-visible,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-5);
 }
 
 .panel-header > * {
@@ -425,7 +419,7 @@ textarea:focus-visible,
 }
 
 .panel h2 {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-8);
 }
 
 .panel .caption {
@@ -451,7 +445,7 @@ textarea:focus-visible,
   display: grid;
   grid-template-columns: minmax(280px, 1.1fr) minmax(320px, 1fr);
   gap: clamp(14px, 2vw, 24px);
-  margin-top: var(--space-3);
+  margin-top: var(--space-5);
   align-items: start;
 }
 
@@ -600,7 +594,7 @@ select,
 textarea {
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  padding: 11px var(--space-2);
+  padding: 11px var(--space-3);
   font-size: var(--text-sm);
   background: #fefefe;
   min-height: 44px;
@@ -624,7 +618,7 @@ textarea {
   background: transparent;
   border: 1px solid var(--accent);
   color: var(--accent);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border-radius: 8px;
   cursor: pointer;
 }
@@ -638,17 +632,17 @@ textarea {
 .queue-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
 .queue-item {
   display: flex;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-3);
   background: var(--accent-soft);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  padding: var(--space-2) 14px;
+  padding: var(--space-3) 14px;
   cursor: pointer;
   width: 100%;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
@@ -679,8 +673,8 @@ textarea {
 
 .responses {
   display: grid;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 var(--space-4);
+  gap: var(--space-3);
+  margin: var(--space-5) 0 var(--space-8);
 }
 
 .response-card {
@@ -697,8 +691,8 @@ textarea {
 
 .actions {
   display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
+  gap: var(--space-3);
+  margin-top: var(--space-5);
   flex-wrap: wrap;
   justify-content: flex-start;
 }
@@ -834,7 +828,7 @@ textarea {
 }
 
 .data-table-shell {
-  margin-top: var(--space-3);
+  margin-top: var(--space-5);
   border: 1px solid rgba(109, 131, 161, 0.3);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.72);
@@ -1191,21 +1185,21 @@ textarea {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: var(--space-4);
-  margin-bottom: var(--space-4);
+  padding: var(--space-8);
+  margin-bottom: var(--space-8);
 }
 
 .filters-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-4);
+  gap: var(--space-8);
   align-items: end;
 }
 
 .filter-item {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
 .filter-label {
@@ -1216,7 +1210,7 @@ textarea {
 
 .filter-select,
 .filter-input {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-5);
   border: 1px solid var(--border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.9);
@@ -1281,7 +1275,7 @@ textarea {
 }
 
 .dropdown-item {
-  padding: var(--space-3);
+  padding: var(--space-5);
   cursor: pointer;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   transition: background-color 0.2s ease;
@@ -1300,7 +1294,7 @@ textarea {
 }
 
 .dropdown-item.no-results {
-  padding: var(--space-4);
+  padding: var(--space-8);
   text-align: center;
   color: var(--muted);
   font-style: italic;
@@ -1344,10 +1338,10 @@ textarea {
 .active-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: var(--space-3);
   align-items: center;
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
+  margin-top: var(--space-8);
+  padding-top: var(--space-8);
   border-top: 1px solid var(--border);
 }
 
@@ -1355,14 +1349,14 @@ textarea {
   font-weight: 600;
   color: var(--ink);
   font-size: 0.875rem;
-  margin-right: var(--space-2);
+  margin-right: var(--space-3);
 }
 
 .active-filter-tag {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 4px var(--space-2);
+  gap: var(--space-3);
+  padding: 4px var(--space-3);
   background: var(--accent-soft);
   color: var(--accent);
   border-radius: 12px;
@@ -1394,7 +1388,7 @@ textarea {
 
 /* Survey Results List Improvements */
 .survey-results-list {
-  margin-top: var(--space-3);
+  margin-top: var(--space-5);
 }
 
 .status-badge {
@@ -1417,19 +1411,19 @@ textarea {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: var(--space-5);
-  margin-top: var(--space-4);
+  padding: var(--space-12);
+  margin-top: var(--space-8);
 }
 
 .visit-info {
   background: rgba(255, 255, 255, 0.5);
-  padding: var(--space-3);
+  padding: var(--space-5);
   border-radius: var(--radius-md);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-8);
 }
 
 .visit-info p {
-  margin: 0 0 var(--space-1) 0;
+  margin: 0 0 var(--space-2) 0;
 }
 
 .visit-info p:last-child {
@@ -1437,7 +1431,7 @@ textarea {
 }
 
 .responses h4 {
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-5);
   color: var(--ink);
 }
 
@@ -1445,15 +1439,15 @@ textarea {
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: var(--space-4);
-  margin-bottom: var(--space-3);
+  padding: var(--space-8);
+  margin-bottom: var(--space-5);
 }
 
 .response-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .response-header .score {
@@ -1468,33 +1462,33 @@ textarea {
 .question-text {
   font-weight: 600;
   color: var(--ink);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .answer-text {
   color: var(--muted);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .verbatim {
   font-style: italic;
   color: var(--muted);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 /* NPS Analytics Styles */
 .nps-breakdown {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
+  gap: var(--space-5);
+  margin-top: var(--space-8);
 }
 
 .nps-category {
   background: rgba(255, 255, 255, 0.56);
   border: 1px solid rgba(108, 152, 208, 0.3);
   border-radius: 8px;
-  padding: var(--space-3);
+  padding: var(--space-5);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1522,7 +1516,7 @@ textarea {
   font-size: 0.875rem;
   min-width: 40px;
   text-align: center;
-  margin: 0 var(--space-2);
+  margin: 0 var(--space-3);
 }
 
 .nps-category .percentage {
@@ -1555,15 +1549,15 @@ textarea {
 .satisfaction-breakdown {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-3);
-  margin-top: var(--space-4);
+  gap: var(--space-5);
+  margin-top: var(--space-8);
 }
 
 .satisfaction-category {
   background: rgba(255, 255, 255, 0.56);
   border: 1px solid rgba(108, 152, 208, 0.3);
   border-radius: 8px;
-  padding: var(--space-3);
+  padding: var(--space-5);
   text-align: center;
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
@@ -1577,7 +1571,7 @@ textarea {
   font-weight: 600;
   color: var(--ink);
   font-size: 0.875rem;
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
   display: block;
 }
 
@@ -1608,9 +1602,9 @@ textarea {
 }
 
 .csat-score-wrap {
-  margin-top: var(--space-3);
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-5);
+  padding: var(--space-5);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid rgba(108, 152, 208, 0.32);
@@ -2063,7 +2057,7 @@ textarea {
 
   .nps-category {
     flex-direction: column;
-    gap: var(--space-2);
+    gap: var(--space-3);
     text-align: center;
   }
   
@@ -2078,7 +2072,7 @@ textarea {
   }
   
   .satisfaction-category {
-    padding: var(--space-2);
+    padding: var(--space-3);
   }
 
   .targeted-controls {
@@ -2115,11 +2109,11 @@ textarea {
   }
 
   .nps-breakdown {
-    gap: var(--space-2);
+    gap: var(--space-3);
   }
   
   .nps-category {
-    padding: var(--space-2);
+    padding: var(--space-3);
   }
   
   .nps-category .label {
@@ -2140,12 +2134,41 @@ textarea {
 .timestamp {
   font-size: 0.75rem;
   color: var(--muted);
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 .progress-hint {
   font-size: 0.75rem;
   color: var(--muted);
   font-style: italic;
-  margin-left: var(--space-2);
+  margin-left: var(--space-3);
+}
+
+/* Canonical shadcn token bridge — dark values matching the glass theme.
+   Prefixed --cx-* to avoid colliding with legacy rgba/hex variables above.
+   Consumed by tailwind.config.js (bg-primary, border-input, etc.). */
+:root {
+  --cx-background: 220 45% 10%;
+  --cx-foreground: 210 40% 96%;
+  --cx-card: 220 47% 13%;
+  --cx-card-foreground: 210 40% 96%;
+  --cx-muted: 218 44% 19%;
+  --cx-muted-foreground: 216 31% 70%;
+  --cx-border: 218 41% 24%;
+  --cx-input: 218 41% 24%;
+  --cx-primary: 213 74% 53%;
+  --cx-primary-foreground: 210 40% 98%;
+  --cx-secondary: 214 61% 23%;
+  --cx-secondary-foreground: 210 40% 96%;
+  --cx-destructive: 0 72% 55%;
+  --cx-destructive-foreground: 210 40% 98%;
+  --cx-success: 152 67% 42%;
+  --cx-success-foreground: 210 40% 98%;
+  --cx-warning: 48 100% 53%;
+  --cx-warning-foreground: 222 47% 11%;
+  --cx-accent: 217 33% 17%;
+  --cx-accent-foreground: 210 40% 96%;
+  --cx-popover: 220 47% 13%;
+  --cx-popover-foreground: 210 40% 96%;
+  --cx-ring: 213 74% 53%;
 }

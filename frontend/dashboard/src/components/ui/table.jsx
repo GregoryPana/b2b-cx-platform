@@ -20,7 +20,7 @@ TableBody.displayName = "TableBody";
 export const TableRow = React.forwardRef(({ className = "", ...props }, ref) => (
   <tr
     ref={ref}
-    className={`border-b border-slate-200/70 transition-colors hover:bg-slate-100/50 ${className}`.trim()}
+    className={`border-b transition-colors hover:bg-muted/50 ${className}`.trim()}
     {...props}
   />
 ));
@@ -29,7 +29,7 @@ TableRow.displayName = "TableRow";
 export const TableHead = React.forwardRef(({ className = "", ...props }, ref) => (
   <th
     ref={ref}
-    className={`h-11 px-4 text-left align-middle font-medium text-slate-700 ${className}`.trim()}
+    className={`h-11 px-4 text-left align-middle font-medium text-muted-foreground ${className}`.trim()}
     {...props}
   />
 ));

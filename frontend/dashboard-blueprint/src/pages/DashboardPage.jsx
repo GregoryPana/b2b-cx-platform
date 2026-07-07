@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { ChevronDown, ChevronUp, CircleHelp } from "lucide-react";
 import html2pdf from "html2pdf.js";
 import { useLocation } from "react-router-dom";
+import { Toaster, toast } from "sonner";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PageContainer from "../components/layout/PageContainer";
 import { Badge } from "../components/ui/badge";
@@ -362,7 +363,6 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [selectedAnalyticsLocationIds, setSelectedAnalyticsLocationIds] = useState([]);
   const [analyticsLocationSearch, setAnalyticsLocationSearch] = useState("");
   const [expandedCategory, setExpandedCategory] = useState("");
-  const [toasts, setToasts] = useState([]);
   const [installationAnalytics, setInstallationAnalytics] = useState(null);
   const [installationAnalyticsLoading, setInstallationAnalyticsLoading] = useState(false);
   const [installationSurveyFilters, setInstallationSurveyFilters] = useState({
@@ -433,15 +433,11 @@ const platformAbortRef = useRef(null);
     return platformAbortRef.current.signal;
   };
 
-  const dismissToast = useCallback((id) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  }, []);
-
   const pushToast = useCallback((kind, title, duration = 2600) => {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
-    setToasts((prev) => [...prev, { id, kind, title }]);
-    window.setTimeout(() => dismissToast(id), duration);
-  }, [dismissToast]);
+    if (kind === "success") toast.success(title, { duration });
+    else if (kind === "error") toast.error(title, { duration });
+    else toast.info(title, { duration });
+  }, []);
 
   const loadInstallationAnalytics = useCallback(async () => {
     setInstallationAnalyticsLoading(true);
@@ -2640,24 +2636,7 @@ const platformAbortRef = useRef(null);
 
   return (
     <PageContainer>
-      <div className="fixed right-4 bottom-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 pointer-events-none">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className={`animate-in fade-in slide-in-from-bottom-2 rounded-md border px-3 py-2 text-sm shadow-sm pointer-events-auto ${
-              toast.kind === "success"
-                ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
-                : toast.kind === "error"
-                ? "border-rose-500/50 bg-rose-500/15 text-rose-700 dark:text-rose-100"
-                : "border-sky-500/40 bg-sky-500/15 text-sky-700 dark:text-sky-100"
-            }`}
-            role="status"
-            onClick={() => dismissToast(toast.id)}
-          >
-            {toast.title}
-          </div>
-        ))}
-      </div>
+      <Toaster position="top-right" richColors closeButton />
       {/* Error display */}
       {errorText && (
         <div className="mb-4 p-4 border border-destructive/50 bg-destructive/10 text-destructive rounded">

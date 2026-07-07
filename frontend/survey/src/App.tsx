@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { Toaster } from "sonner";
 import MainLayout from "./components/layout/MainLayout";
 import SurveyWorkspacePage from "./features/survey/SurveyWorkspacePage";
 import UserGuidePage from "./features/user-guide/UserGuidePage";
@@ -226,6 +227,7 @@ export default function App() {
 
   return (
     <>
+      <Toaster position="top-right" richColors closeButton />
       {authProfileError ? <div className="border-b bg-warning/20 px-4 py-2 text-sm text-warning-foreground">{authProfileError}</div> : null}
       <MainLayout onLogout={handleLogout} userName={userName} userEmail={userEmail} statusText={statusText}>
       <Routes>

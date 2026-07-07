@@ -23,3 +23,7 @@ session-ses_*.md
 *.local.log
 .codegraph/
 .codegraph-win/
+
+# Local env files (machine-specific, never commit)
+.env.local
+**/.env.local

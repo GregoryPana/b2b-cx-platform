@@ -19,9 +19,13 @@
     --destructive: 0 63% 47%;
     --destructive-foreground: 210 40% 98%;
     --success: 152 67% 37%;
+    --success-foreground: 210 40% 98%;
     --warning: 48 100% 47%;
-    --accent: 188 100% 39%;
-    --accent-foreground: 210 40% 98%;
+    --warning-foreground: 222 47% 11%;
+    --accent: 214 100% 96%;
+    --accent-foreground: 212 80% 24%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
     --ring: 211 100% 36%;
     --radius: 0.75rem;
   }
@@ -42,9 +46,13 @@
     --destructive: 0 72% 55%;
     --destructive-foreground: 210 40% 98%;
     --success: 152 67% 42%;
+    --success-foreground: 210 40% 98%;
     --warning: 48 100% 53%;
-    --accent: 188 100% 45%;
-    --accent-foreground: 222 47% 11%;
+    --warning-foreground: 222 47% 11%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 96%;
+    --popover: 220 47% 13%;
+    --popover-foreground: 210 40% 96%;
     --ring: 213 74% 53%;
   }
 
@@ -56,6 +64,11 @@
     @apply bg-background text-foreground;
     font-family: "IBM Plex Sans", "Source Sans 3", sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
+    overflow-x: hidden;
+  }
+
+  img {
+    @apply max-w-full;
   }
 }
 
@@ -67,5 +80,10 @@
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
     @apply rounded-full bg-muted-foreground/20 hover:bg-muted-foreground/30;
+  }
+
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
   }
 }

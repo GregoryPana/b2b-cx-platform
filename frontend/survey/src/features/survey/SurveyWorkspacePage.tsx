@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import { gsap } from "gsap";
 import Lottie from "lottie-react";
 import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Loader2, Plus, Save, Sparkles } from "lucide-react";
@@ -100,11 +101,7 @@ type ResponseDraft = {
   actions: ActionItem[];
 };
 
-type ToastItem = {
-  id: number;
-  kind: "info" | "success" | "error";
-  title: string;
-};
+type ToastKind = "info" | "success" | "error";
 
 interface SurveyWorkspacePageProps {
   headers: ApiHeaders;
@@ -233,7 +230,6 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   const [isSubmittingVisit, setIsSubmittingVisit] = useState(false);
   const [savingQuestionId, setSavingQuestionId] = useState<number | null>(null);
   const [submissionSignature, setSubmissionSignature] = useState({ name: "", email: "", submitted_at: "" });
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [visitForm, setVisitForm] = useState({
     business_id: "",
     representative_id: userId,
@@ -245,15 +241,11 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   const animationRef = useRef<HTMLDivElement | null>(null);
   const canManageAccountExecutives = role === "Admin";
 
-  const dismissToast = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  const pushToast = useCallback((kind: ToastKind, title: string, duration = 2600) => {
+    if (kind === "success") toast.success(title, { duration });
+    else if (kind === "error") toast.error(title, { duration });
+    else toast.info(title, { duration });
   }, []);
-
-  const pushToast = useCallback((kind: ToastItem["kind"], title: string, duration = 2600) => {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
-    setToasts((prev) => [...prev, { id, kind, title }]);
-    window.setTimeout(() => dismissToast(id), duration);
-  }, [dismissToast]);
 
   const visibleQuestions = useMemo(() => {
     const q16Question = questions.find((q) => q.question_key === Q16_KEY);
@@ -909,24 +901,6 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
 
   return (
     <div ref={animationRef}>
-      <div className="fixed right-4 top-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className={`animate-in fade-in slide-in-from-top-2 rounded-md border px-3 py-2 text-sm shadow-sm ${
-              toast.kind === "success"
-                ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
-                : toast.kind === "error"
-                ? "border-rose-500/50 bg-rose-500/15 text-rose-700 dark:text-rose-100"
-                : "border-sky-500/40 bg-sky-500/15 text-sky-700 dark:text-sky-100"
-            }`}
-            role="status"
-            onClick={() => dismissToast(toast.id)}
-          >
-            {toast.title}
-          </div>
-        ))}
-      </div>
       <PageContainer className="space-y-6">
       {error ? <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
       {message ? <div className="rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success">{message}</div> : null}
