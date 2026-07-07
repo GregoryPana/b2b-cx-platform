@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-07-07):** This document has been consolidated into [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md), the single source of truth for all frontend design decisions. Kept for history only — where this file disagrees with DESIGN_SYSTEM.md, DESIGN_SYSTEM.md wins.
+
 # CWS Dashboard Design System Blueprint
 
 Executive Summary

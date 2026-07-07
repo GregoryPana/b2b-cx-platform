@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-07-07):** This document has been consolidated into [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md), the single source of truth for all frontend design decisions. Kept for history only — where this file disagrees with DESIGN_SYSTEM.md, DESIGN_SYSTEM.md wins.
+
 # Design System Map
 
 This document maps `claude design.md` sections to implemented files/classes in this repo.

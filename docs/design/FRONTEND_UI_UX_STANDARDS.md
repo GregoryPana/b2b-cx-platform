@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-07-07):** This document has been consolidated into [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md), the single source of truth for all frontend design decisions. Kept for history only — where this file disagrees with DESIGN_SYSTEM.md, DESIGN_SYSTEM.md wins.
+
 # Frontend UI/UX Standards (Cross-Platform)
 
 This document defines the shared design system for all current and future frontend platforms in this repository (B2B, Installation Assessment, B2C/Mystery Shopper, and any future program).

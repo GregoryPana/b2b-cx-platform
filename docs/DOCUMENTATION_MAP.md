@@ -40,9 +40,7 @@ flowchart TD
     REF --> QINSTALL["questions-installation.md"]
     REF --> QMYSTERY["questions-mystery-shopper.md"]
 
-    DESIGN --> DSMAP["DESIGN_SYSTEM_MAP.md"]
-    DESIGN --> UX["UX DESIGN GUIDE.md"]
-    DESIGN --> UI["FRONTEND_UI_UX_STANDARDS.md"]
+    DESIGN --> DS["DESIGN_SYSTEM.md<br/>Canonical design system (single source of truth)"]
 
     ARCHIVE --> OLD["Historical / superseded material"]
 ```
@@ -91,7 +89,8 @@ flowchart TD
 
 ### `docs/design/`
 - UI, UX, and design-system guidance.
-- Useful when working on frontend behavior or visual consistency.
+- **`DESIGN_SYSTEM.md` is the single source of truth** for all frontend design decisions (tokens, components, layout, feedback, language, conversion playbooks).
+- All other files in this folder are superseded and kept for history only.
 
 ### `docs/archive/`
 - Historical material.

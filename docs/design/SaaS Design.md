@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-07-07):** This document has been consolidated into [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md), the single source of truth for all frontend design decisions. Kept for history only — where this file disagrees with DESIGN_SYSTEM.md, DESIGN_SYSTEM.md wins.
+
 ## 1. Visual Language: Icons, Emojis, Colors
 
 Avoid emoji as core UI affordances; use a consistent professional icon set (e.g.,  Lucide, Phosphor) for navigation and key actions.
