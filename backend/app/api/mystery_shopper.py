@@ -2502,6 +2502,13 @@ async def update_mystery_response(
 
     validate_mystery_response(question_row, payload)
 
+    # The mystery survey UI reads/writes mystery_shopper_answers (integer ids),
+    # so response_id here is a mystery_shopper_answers id.
+    try:
+        answer_id = int(response_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Response not found")
+
     row = db.execute(
         text(
             """
@@ -2516,9 +2523,8 @@ async def update_mystery_response(
             """
         ),
         {
-            "response_id": int(response_id),
+            "response_id": answer_id,
             "visit_id": visit_id,
-            "question_id": payload.question_id,
             "score": payload.score,
             "answer_text": payload.answer_text,
             "verbatim": payload.verbatim,
@@ -2529,6 +2535,35 @@ async def update_mystery_response(
     if not row:
         db.rollback()
         raise HTTPException(status_code=404, detail="Response not found")
+
+    # Keep b2b_visit_responses in sync: the dashboard review reads that table,
+    # so without this an edit made in the mystery survey would show stale in
+    # review. Mirrors the dual-write in create_mystery_response. Keyed on
+    # (visit_id, question_id) via the UNIQUE constraint (migration 20260710_000029).
+    response_table = get_response_table(db)
+    if response_table == "b2b_visit_responses":
+        db.execute(
+            text(
+                """
+                INSERT INTO b2b_visit_responses (visit_id, question_id, score, answer_text, verbatim, actions)
+                VALUES (:visit_id, :question_id, :score, :answer_text, :verbatim, CAST(:actions AS jsonb))
+                ON CONFLICT (visit_id, question_id) DO UPDATE SET
+                    score = EXCLUDED.score,
+                    answer_text = EXCLUDED.answer_text,
+                    verbatim = EXCLUDED.verbatim,
+                    actions = EXCLUDED.actions,
+                    updated_at = NOW()
+                """
+            ),
+            {
+                "visit_id": visit_id,
+                "question_id": row[1],
+                "score": payload.score,
+                "answer_text": payload.answer_text,
+                "verbatim": payload.verbatim,
+                "actions": json.dumps(payload.actions or []),
+            },
+        )
 
     db.commit()
 
