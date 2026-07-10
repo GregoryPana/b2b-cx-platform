@@ -92,6 +92,8 @@ type ResponseRecord = {
   answer_text: string | null;
   verbatim: string | null;
   actions?: ActionItem[];
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type ResponseDraft = {
@@ -381,7 +383,16 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
 
     const nextResponses: Record<number, ResponseRecord> = {};
     const nextDrafts: Record<number, ResponseDraft> = {};
+    // Defensive: if the backend ever returns more than one row for a question
+    // (legacy duplicate data prior to the UNIQUE constraint), keep only the
+    // freshest so the review never renders repeated questions.
+    const isFresher = (candidate: ResponseRecord, current: ResponseRecord) => {
+      const key = (r: ResponseRecord) => r.updated_at || r.created_at || "";
+      return key(candidate) >= key(current);
+    };
     (data.responses || []).forEach((response: ResponseRecord) => {
+      const existing = nextResponses[response.question_id];
+      if (existing && !isFresher(response, existing)) return;
       nextResponses[response.question_id] = response;
       nextDrafts[response.question_id] = {
         score: String(response.score ?? ""),

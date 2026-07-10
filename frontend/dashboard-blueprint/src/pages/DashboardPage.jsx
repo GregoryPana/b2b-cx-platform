@@ -2082,7 +2082,21 @@ const platformAbortRef = useRef(null);
   }, [analytics?.nps]);
 
   const surveyResponseCategoryGroups = useMemo(() => {
-    const responses = Array.isArray(selectedSurveyVisit?.responses) ? selectedSurveyVisit.responses : [];
+    const rawResponses = Array.isArray(selectedSurveyVisit?.responses) ? selectedSurveyVisit.responses : [];
+
+    // Defensive dedup: legacy visits (created before the UNIQUE
+    // (visit_id, question_id) constraint) may carry multiple rows per
+    // question. Keep only the freshest per question_id so the review never
+    // shows repeated questions or skewed display numbers.
+    const freshestByQuestion = new Map();
+    for (const response of rawResponses) {
+      const existing = freshestByQuestion.get(response.question_id);
+      const stamp = (r) => r?.updated_at || r?.created_at || "";
+      if (!existing || stamp(response) >= stamp(existing)) {
+        freshestByQuestion.set(response.question_id, response);
+      }
+    }
+    const responses = Array.from(freshestByQuestion.values());
 
     // Assign sequential 1-based display numbers sorted by question_number
     const sortedForNumbering = [...responses].sort(
