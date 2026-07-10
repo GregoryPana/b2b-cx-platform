@@ -3024,11 +3024,20 @@ def create_response(
     try:
         response_table = get_response_table(db)
         if response_table == "b2b_visit_responses":
+            # Upsert on (visit_id, question_id): a re-save updates the existing
+            # row instead of inserting a duplicate. Requires the UNIQUE
+            # (visit_id, question_id) constraint (migration 20260710_000029).
             result = db.execute(text(
                 """
                 INSERT INTO b2b_visit_responses
                 (visit_id, question_id, score, answer_text, verbatim, actions)
                 VALUES (:visit_id, :question_id, :score, :answer_text, :verbatim, :actions)
+                ON CONFLICT (visit_id, question_id) DO UPDATE SET
+                    score = EXCLUDED.score,
+                    answer_text = EXCLUDED.answer_text,
+                    verbatim = EXCLUDED.verbatim,
+                    actions = EXCLUDED.actions,
+                    updated_at = NOW()
                 RETURNING id, question_id, score, answer_text, verbatim, actions, created_at
                 """
             ), {
