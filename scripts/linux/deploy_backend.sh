@@ -9,7 +9,7 @@ fi
 VENV_DIR="${BACKEND_DIR}/venv"
 ENV_FILE="${REPO_DIR}/.env"
 SERVICE_FILE="/etc/systemd/system/cwscx-backend.service"
-ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260710_000029}"
+ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260712_000030}"
 
 upsert_env_value() {
   local key="$1"
