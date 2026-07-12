@@ -72,7 +72,7 @@ INSTALLATION_QUESTION_FALLBACK = [
     {
         "question_number": 4,
         "category": "Technical Performance & Network Standards",
-        "question_text": "Inspector verifies optimal signal (e.g., tests optical power, sound, or runs a speed test). TV displays clear picture/audio on all provisioned channels. Hardware is provisioned correctly on the network.",
+        "question_text": "Assessor verifies optimal signal (e.g., tests optical power, sound, or runs a speed test). TV displays clear picture/audio on all provisioned channels. Hardware is provisioned correctly on the network.",
         "score_min": 1,
         "score_max": 5,
     },
@@ -93,7 +93,7 @@ INSTALLATION_QUESTION_FALLBACK = [
     {
         "question_number": 7,
         "category": "Site Cleanliness & Property Damage",
-        "question_text": "Inspector confirms no leftover dust, drywall debris, wire clippings, or packaging left on the premises. No unauthorized modifications or damage to the customer's walls, skirting boards, or landscaping.",
+        "question_text": "Assessor confirms no leftover dust, drywall debris, wire clippings, or packaging left on the premises. No unauthorized modifications or damage to the customer's walls, skirting boards, or landscaping.",
         "score_min": 1,
         "score_max": 5,
     },
@@ -1003,7 +1003,7 @@ def get_installation_analytics(
             {
                 "range": "3",
                 "label": "Pass - Needs Improvement",
-                "action": "Minor issues. Inspector can correct minor items and log feedback.",
+                "action": "Minor issues. Assessor can correct minor items and log feedback.",
             },
             {
                 "range": "2",
@@ -1766,7 +1766,7 @@ def render_installation_report_html(payload: dict, generated_by: str) -> str:
           <div class='stat-card'><div class='stat-title'>Date Work Done</div><div class='stat-value' style='color:#0f172a'>{s['date_work_done']}</div></div>
           <div class='stat-card' style='border-color:{survey_grade['border']};background:{survey_grade['background']};'><div class='stat-card-top'><div class='stat-title'>Overall Score</div><div class='stat-pill' style='border-color:{survey_grade['border']};color:{survey_grade['text']};background:{survey_grade['background']};'>{survey_grade['label']}</div></div><div class='stat-value' style='color:{survey_grade['text']}'>{number(s['overall_score'])}</div></div>
         </div>
-        <p><strong>Inspector:</strong> {s['inspector_name']}</p>
+        <p><strong>Assessor:</strong> {s['inspector_name']}</p>
         <p><strong>Customer Type:</strong> {s.get('customer_type') or '--'}</p>
         <p><strong>Worker Type:</strong> {s['job_done_by']}</p>
         <p><strong>Contractor Name:</strong> {s.get('contractor_name') or '--'}</p>
