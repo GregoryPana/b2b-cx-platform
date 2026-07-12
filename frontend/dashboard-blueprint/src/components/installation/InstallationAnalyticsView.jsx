@@ -254,7 +254,7 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
       <Card>
         <CardHeader>
           <CardTitle>Scoring Thresholds</CardTitle>
-          <CardDescription>Used by inspectors to determine pass/fail handling after calculating the overall average.</CardDescription>
+          <CardDescription>Used by assessors to determine pass/fail handling after calculating the overall average.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {(analytics?.thresholds || []).map((item) => (
