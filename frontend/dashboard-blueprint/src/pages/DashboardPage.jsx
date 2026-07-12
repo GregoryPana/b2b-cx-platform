@@ -284,6 +284,9 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [accountExecutiveYesNoTrendData, setAccountExecutiveYesNoTrendData] = useState([]);
   const [pendingVisits, setPendingVisits] = useState([]);
   const [businesses, setBusinesses] = useState([]);
+  // Businesses that have at least one Approved (completed + approved) survey.
+  // Used ONLY by the analytics page filter so draft-only businesses are hidden.
+  const [analyticsBusinesses, setAnalyticsBusinesses] = useState([]);
   const [representatives, setRepresentatives] = useState([]);
   const [selectedExecutive, setSelectedExecutive] = useState(null);
   const [executiveForm, setExecutiveForm] = useState({ name: "", email: "" });
@@ -1953,13 +1956,13 @@ const platformAbortRef = useRef(null);
 
   const filteredAnalyticsBusinesses = useMemo(() => {
     const query = analyticsBusinessSearch.trim().toLowerCase();
-    if (!query) return businesses;
-    return businesses.filter((b) => {
+    if (!query) return analyticsBusinesses;
+    return analyticsBusinesses.filter((b) => {
       const name = (b.name || "").toLowerCase();
       const location = (b.location || "").toLowerCase();
       return name.includes(query) || location.includes(query);
     });
-  }, [businesses, analyticsBusinessSearch]);
+  }, [analyticsBusinesses, analyticsBusinessSearch]);
 
   const filteredAnalyticsLocations = useMemo(() => {
     const query = analyticsLocationSearch.trim().toLowerCase();
@@ -2363,6 +2366,28 @@ const platformAbortRef = useRef(null);
      loadBusinesses();
    }, [isB2BPlatform, fetchJsonSafe]);
 
+  // Load the analytics filter list: only businesses with an Approved survey.
+  const loadAnalyticsBusinesses = async () => {
+    if (!isB2BPlatform) {
+      setAnalyticsBusinesses([]);
+      return;
+    }
+    try {
+      const { res, data } = await fetchJsonSafe(
+        `${B2B_API_BASE}/public/businesses?with_approved_surveys=true`,
+        { headers }
+      );
+      if (!res.ok) return;
+      setAnalyticsBusinesses(Array.isArray(data) ? data : []);
+    } catch {
+      // Non-fatal: the analytics filter simply shows nothing selectable.
+    }
+  };
+
+  useEffect(() => {
+    loadAnalyticsBusinesses();
+  }, [isB2BPlatform, fetchJsonSafe]);
+
   const resetExecutiveForm = () => {
     setSelectedExecutive(null);
     setExecutiveForm({ name: "", email: "" });
@@ -2711,7 +2736,11 @@ const platformAbortRef = useRef(null);
                 </div>
                 <div className="max-h-52 space-y-2 overflow-y-auto rounded-md border p-3">
                   {filteredAnalyticsBusinesses.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No businesses match this search.</p>
+                    <p className="text-sm text-muted-foreground">
+                      {analyticsBusinessSearch.trim()
+                        ? "No businesses match this search."
+                        : "No businesses with approved surveys yet."}
+                    </p>
                   ) : (
                     filteredAnalyticsBusinesses.map((business) => {
                       const checked = selectedAnalyticsBusinessIds.includes(business.id);

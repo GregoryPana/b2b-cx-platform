@@ -806,8 +806,8 @@ def get_all_visits(
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at,
-                COUNT(r.id) as response_count,
-                COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
+                COUNT(DISTINCT r.question_id) as response_count,
+                COUNT(DISTINCT CASE WHEN q.is_mandatory = true THEN r.question_id END) as mandatory_answered_count,
                 {mandatory_total_expr} as mandatory_total_count,
                 false as is_started,
                 false as is_completed,
@@ -1591,25 +1591,36 @@ def build_report_payload(
         question_number_col = "q.question_number" if has_question_number else ("q.order_index" if has_question_order else "q.id")
         question_order_col = question_number_col
         if response_table == "b2b_visit_responses":
+            # Defensive dedup: legacy visits (created before the UNIQUE
+            # (visit_id, question_id) constraint of migration 20260710_000029)
+            # may carry multiple response rows per question. DISTINCT ON keeps
+            # only the freshest row per question (same tie-break as the dedup
+            # migration) so the single-survey report never repeats a question.
             response_rows = db.execute(
                 text(
                     f"""
-                    SELECT
-                        q.id as question_id,
-                        {question_number_col} as question_number,
-                        q.category,
-                        q.question_text,
-                        q.input_type,
-                        q.score_min,
-                        q.score_max,
-                        r.score,
-                        r.answer_text,
-                        r.verbatim,
-                        r.actions
-                    FROM b2b_visit_responses r
-                    JOIN questions q ON q.id = r.question_id
-                    WHERE r.visit_id = :visit_id
-                    ORDER BY {question_order_col}, q.id
+                    SELECT * FROM (
+                        SELECT DISTINCT ON (q.id)
+                            q.id as question_id,
+                            {question_number_col} as question_number,
+                            q.category,
+                            q.question_text,
+                            q.input_type,
+                            q.score_min,
+                            q.score_max,
+                            r.score,
+                            r.answer_text,
+                            r.verbatim,
+                            r.actions
+                        FROM b2b_visit_responses r
+                        JOIN questions q ON q.id = r.question_id
+                        WHERE r.visit_id = :visit_id
+                        ORDER BY q.id,
+                                 r.updated_at DESC NULLS LAST,
+                                 r.created_at DESC NULLS LAST,
+                                 r.id DESC
+                    ) deduped
+                    ORDER BY question_number, question_id
                     """
                 ),
                 {"visit_id": effective_visit_id},
@@ -2721,8 +2732,8 @@ def get_draft_visits(db: Session = Depends(get_db)):
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at,
-                COUNT(r.id) as response_count,
-                COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
+                COUNT(DISTINCT r.question_id) as response_count,
+                COUNT(DISTINCT CASE WHEN q.is_mandatory = true THEN r.question_id END) as mandatory_answered_count,
                 {mandatory_total_expr} as mandatory_total_count,
                 v.account_executive_name,
                 {team_members_select} as team_member_names
@@ -2998,6 +3009,13 @@ def delete_draft_visit(
         if response_table:
             db.execute(text(
                 f"DELETE FROM {response_table} WHERE visit_id = :visit_id"
+            ), {"visit_id": visit_id})
+        # meeting_attendees (team members / attendees) references visits.id
+        # without ON DELETE CASCADE, so it must be cleared explicitly or the
+        # visit delete fails with a foreign-key violation (500).
+        if has_table(db, "meeting_attendees"):
+            db.execute(text(
+                "DELETE FROM meeting_attendees WHERE visit_id = :visit_id"
             ), {"visit_id": visit_id})
         db.execute(text(
             "DELETE FROM visits WHERE id = :visit_id"

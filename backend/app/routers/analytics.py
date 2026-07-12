@@ -236,13 +236,14 @@ def get_comprehensive_analytics(
             {where_visits_extra}
         """), params).fetchone()
         
-        # Get response statistics (only for meaningful metrics)
+        # Get response statistics (only for meaningful metrics).
+        # Approved-only so analytics counts never include draft/pending visits.
         response_stats = db.execute(text(f"""
-            SELECT 
+            SELECT
                 COUNT(CASE WHEN answer_text IS NOT NULL AND answer_text != '' THEN 1 ELSE 0 END) as text_responses
             FROM {response_table}
             JOIN visits v ON {response_table}.visit_id = v.id
-            WHERE 1=1
+            WHERE v.status = 'Approved'
             {where_extra}
         """), params).fetchone()
         

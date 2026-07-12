@@ -144,17 +144,32 @@ def list_account_executives(
 
 @router.get("/public/businesses", response_model=List[dict])
 def list_businesses_public(
+    with_approved_surveys: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _access: bool = Depends(require_program_access("B2B")),
 ):
-    """Get all businesses for B2B-authorized users."""
+    """Get businesses for B2B-authorized users.
+
+    When ``with_approved_surveys`` is true, only businesses that have at least
+    one Approved (completed and approved) visit are returned. The analytics
+    page filter uses this so businesses whose surveys are still in Draft do not
+    appear in the selector.
+    """
     print("DEBUG: Public businesses endpoint called")
     try:
+        approved_filter = (
+            "WHERE EXISTS ("
+            "SELECT 1 FROM visits v "
+            "WHERE v.business_id = businesses.id AND v.status = 'Approved'"
+            ")"
+            if with_approved_surveys
+            else ""
+        )
         # Use raw SQL to avoid service issues
         result = db.execute(
-            text("""
-                SELECT 
+            text(f"""
+                SELECT
                     id,
                     name,
                     location,
@@ -162,8 +177,9 @@ def list_businesses_public(
                     active,
                     account_executive_id
                 FROM businesses
-                ORDER BY 
-                    CASE 
+                {approved_filter}
+                ORDER BY
+                    CASE
                         WHEN priority_level = 'high' THEN 0
                         WHEN priority_level = 'medium' THEN 1
                         WHEN priority_level = 'low' THEN 2
