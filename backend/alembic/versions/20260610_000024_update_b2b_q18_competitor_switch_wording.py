@@ -20,16 +20,32 @@ OLD_TEXT = "Would you consider taking this service with CWS?"
 QUESTION_KEY = "q18_competitor_service_with_cws"
 
 
+def _has_question_column(bind, column: str) -> bool:
+    return bind.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = 'questions' AND column_name = :c LIMIT 1"
+        ),
+        {"c": column},
+    ).scalar() is not None
+
+
 def upgrade() -> None:
     bind = op.get_bind()
+    # Some deployments' `questions` table was built from the "unified structure"
+    # lineage and has no order_index (they key on question_number instead), and
+    # older tables may lack updated_at. Only set columns that actually exist so
+    # this data migration is portable across those schema variants.
+    set_parts = ["question_text = :new_text", "question_number = 18"]
+    if _has_question_column(bind, "order_index"):
+        set_parts.append("order_index = 18")
+    if _has_question_column(bind, "updated_at"):
+        set_parts.append("updated_at = CURRENT_TIMESTAMP")
     bind.execute(
         sa.text(
-            """
+            f"""
             UPDATE questions
-            SET question_text = :new_text,
-                question_number = 18,
-                order_index = 18,
-                updated_at = CURRENT_TIMESTAMP
+            SET {', '.join(set_parts)}
             WHERE question_key = :question_key
                OR (question_number = 18 AND question_text = :old_text)
             """
