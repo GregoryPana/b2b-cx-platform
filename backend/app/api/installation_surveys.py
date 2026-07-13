@@ -123,6 +123,10 @@ class InstallationContractorCreateRequest(BaseModel):
     name: str
 
 
+class FieldTeamMemberCreateRequest(BaseModel):
+    name: str
+
+
 def _normalize_worker_type(value: str | None) -> str:
     normalized = (value or "").strip().lower()
     if normalized in {"field team", "field_team", "field-team"}:
@@ -351,6 +355,129 @@ def create_installation_contractor(
         raise HTTPException(status_code=500, detail=f"Failed to create contractor: {exc}")
 
 
+@router.get("/field-team-members", dependencies=[Depends(require_roles(*INSTALL_ROLES))])
+def list_field_team_members(
+    q: str | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    try:
+        if not _has_table(db, "field_team_members"):
+            return []
+        effective_limit = max(1, min(limit, 100))
+        query = (q or "").strip()
+        params: dict[str, object] = {"limit": effective_limit}
+        where_clause = "WHERE active = true"
+        if query:
+            where_clause += " AND lower(name) LIKE lower(:query)"
+            params["query"] = f"%{query}%"
+
+        rows = db.execute(
+            text(
+                f"""
+                SELECT id, name, created_at
+                FROM field_team_members
+                {where_clause}
+                ORDER BY name ASC
+                LIMIT :limit
+                """
+            ),
+            params,
+        ).mappings().all()
+
+        return [
+            {
+                "id": int(row["id"]),
+                "name": row["name"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            }
+            for row in rows
+        ]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load field team members: {exc}")
+
+
+@router.post("/field-team-members", dependencies=[Depends(require_roles(*INSTALL_ROLES))])
+def create_field_team_member(
+    payload: FieldTeamMemberCreateRequest,
+    db: Session = Depends(get_db),
+):
+    member_name = (payload.name or "").strip()
+    if not member_name:
+        raise HTTPException(status_code=400, detail="Field team member name is required")
+    if not _has_table(db, "field_team_members"):
+        raise HTTPException(status_code=400, detail="Field team member directory is not available until the latest installation migration is applied")
+
+    try:
+        row = _upsert_field_team_member(db, member_name)
+        db.commit()
+        return {
+            "id": int(row["id"]),
+            "name": row["name"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "message": "Field team member created",
+        }
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create field team member: {exc}")
+
+
+def _upsert_field_team_member(db: Session, name: str):
+    row = db.execute(
+        text(
+            """
+            INSERT INTO field_team_members (name, active)
+            VALUES (:name, true)
+            ON CONFLICT DO NOTHING
+            RETURNING id, name, created_at
+            """
+        ),
+        {"name": name},
+    ).mappings().first()
+
+    if not row:
+        row = db.execute(
+            text(
+                """
+                SELECT id, name, created_at
+                FROM field_team_members
+                WHERE lower(name) = lower(:name)
+                LIMIT 1
+                """
+            ),
+            {"name": name},
+        ).mappings().first()
+
+    return row
+
+
+def _resolve_field_team_members(db: Session, names: list[str]) -> list[str]:
+    """Canonicalize each name against the field_team_members directory, adding
+    new names to it, so the same person is stored with consistent spelling
+    across surveys (required for reliable per-person analytics)."""
+    if not _has_table(db, "field_team_members"):
+        return names
+
+    resolved: list[str] = []
+    for name in names:
+        row = db.execute(
+            text(
+                """
+                SELECT name FROM field_team_members
+                WHERE active = true AND lower(name) = lower(:name)
+                LIMIT 1
+                """
+            ),
+            {"name": name},
+        ).mappings().first()
+        if row:
+            resolved.append(row["name"])
+        else:
+            new_row = _upsert_field_team_member(db, name)
+            resolved.append(new_row["name"] if new_row else name)
+    return resolved
+
+
 def _build_installation_where_clause(
     *,
     date_from: str | None = None,
@@ -444,6 +571,22 @@ def create_installation_survey(
     if worker_type not in ALLOWED_WORKER_TYPES:
         raise HTTPException(status_code=400, detail="job_done_by must be Field Team or Contractor")
 
+    existing_survey_id = db.execute(
+        text(
+            """
+            SELECT id FROM installation_surveys
+            WHERE lower(work_order) = lower(:work_order)
+            LIMIT 1
+            """
+        ),
+        {"work_order": work_order},
+    ).scalar()
+    if existing_survey_id:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A survey for work order '{work_order}' already exists. Resubmitting would create a duplicate record.",
+        )
+
     if worker_type == "Contractor":
         if not contractor_name:
             raise HTTPException(status_code=400, detail="Contractor name is required when job_done_by is Contractor")
@@ -456,6 +599,7 @@ def create_installation_survey(
             raise HTTPException(status_code=400, detail="At least one field team member name is required when job_done_by is Field Team")
         if len(field_team_members) > 5:
             raise HTTPException(status_code=400, detail="A maximum of 5 field team member names is allowed")
+        field_team_members = _resolve_field_team_members(db, field_team_members)
 
     questions = _get_installation_questions(db)
     if not questions:
@@ -604,8 +748,16 @@ def create_installation_survey(
             "action_points": action_points,
             "message": "Installation survey submitted successfully",
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as exc:
         db.rollback()
+        if "ux_installation_surveys_work_order_ci" in str(exc):
+            raise HTTPException(
+                status_code=409,
+                detail=f"A survey for work order '{work_order}' already exists. Resubmitting would create a duplicate record.",
+            )
         raise HTTPException(status_code=500, detail=f"Failed to save installation survey: {exc}")
 
 
