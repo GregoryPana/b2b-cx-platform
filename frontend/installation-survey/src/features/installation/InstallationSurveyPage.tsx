@@ -41,6 +41,7 @@ export default function InstallationSurveyPage({ headers }) {
   const [questions, setQuestions] = useState([]);
   const [contractors, setContractors] = useState([]);
   const [loadingContractors, setLoadingContractors] = useState(false);
+  const [fieldTeamMemberOptions, setFieldTeamMemberOptions] = useState([]);
   const [scoresByQuestion, setScoresByQuestion] = useState({});
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -76,6 +77,19 @@ export default function InstallationSurveyPage({ headers }) {
     }
   };
 
+  const loadFieldTeamMembers = async (query = "") => {
+    try {
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      const res = await fetch(`${API_BASE}/installation/field-team-members${params.toString() ? `?${params.toString()}` : ""}`, { headers });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || "Failed to load field team members");
+      setFieldTeamMemberOptions(Array.isArray(data) ? data : []);
+    } catch {
+      setFieldTeamMemberOptions([]);
+    }
+  };
+
   useEffect(() => {
     const loadQuestions = async () => {
       setLoadingQuestions(true);
@@ -93,6 +107,7 @@ export default function InstallationSurveyPage({ headers }) {
     };
     loadQuestions();
     loadContractors();
+    loadFieldTeamMembers();
   }, [headers]);
 
   const answeredCount = useMemo(() => {
@@ -354,13 +369,16 @@ export default function InstallationSurveyPage({ headers }) {
                           <div key={`member-${index}`} className="flex items-center gap-2">
                             <Input
                               value={memberName}
-                              onChange={(event) =>
+                              list="field-team-member-options"
+                              onChange={(event) => {
+                                const { value } = event.target;
                                 setFormData((prev) => {
                                   const nextMembers = [...(prev.field_team_members || [])];
-                                  nextMembers[index] = event.target.value;
+                                  nextMembers[index] = value;
                                   return { ...prev, field_team_members: nextMembers.slice(0, 5) };
-                                })
-                              }
+                                });
+                                loadFieldTeamMembers(value);
+                              }}
                               placeholder={`Member ${index + 1} name`}
                               required={index === 0}
                             />
@@ -381,6 +399,14 @@ export default function InstallationSurveyPage({ headers }) {
                           </div>
                         ))}
                       </div>
+                      <datalist id="field-team-member-options">
+                        {fieldTeamMemberOptions.map((member) => (
+                          <option key={member.id} value={member.name} />
+                        ))}
+                      </datalist>
+                      <p className="text-xs text-muted-foreground">
+                        Start typing to reuse an existing field team member name, or add a new one.
+                      </p>
                     </div>
                   )}
                 </div>
