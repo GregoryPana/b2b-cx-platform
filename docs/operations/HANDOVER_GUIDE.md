@@ -117,6 +117,27 @@ Backup and recovery checks:
   - `/opt/backups/postgres/monthly/`
 - restore-readiness should be verified periodically with `pg_restore --list` and a full restore drill
 
+Production → staging nightly clone (added 2026-07-16):
+- production (`cwscx-app01`) runs the same `backup.sh` nightly at 02:00, then a second job
+  streams that day's dump to staging and restores it, so `cwscx-tst01`'s `cwscx-postgres`
+  is a nightly raw clone of production
+- production-side script: `/opt/cwscx/scripts/sync_prod_to_staging.sh` (source:
+  `scripts/linux/sync_prod_to_staging.sh`), production cron at `02:10`
+- production-side log: `/opt/backups/postgres/staging-sync.log`
+- staging-side script: `/opt/cwscx/staging-sync/receive_and_restore.sh` (source:
+  `scripts/linux/receive_and_restore_staging.sh`), invoked only via a forced SSH command —
+  never run directly
+- staging-side log: `/opt/cwscx/staging-sync/sync.log`
+- transport is a dedicated SSH keypair (`staging_sync_key`, private half lives only on
+  production) whose `authorized_keys` entry on staging is restricted to that one forced
+  command with `no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding` — it cannot
+  be used for anything else even if the key leaked
+- the sync fails loudly (non-zero exit, clear log line) rather than silently skipping if
+  today's dump is missing, the checksum doesn't match, or the restore fails — no PII
+  scrubbing is applied, this is a raw copy for internal use only
+- this does not touch any other project sharing `cwscx-tst01` (VAS Network Check, Pulse
+  Awards, etc.) — only the `cwscx-postgres` container and `/opt/cwscx/staging-sync/` are used
+
 These paths and runtime details describe the current staging VM only. Production should be documented separately once the live environment is provisioned.
 
 ## 10) Incident handling playbook
