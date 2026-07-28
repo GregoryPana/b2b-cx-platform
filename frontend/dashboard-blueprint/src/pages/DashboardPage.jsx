@@ -1620,9 +1620,9 @@ const platformAbortRef = useRef(null);
   const loadSurveyVisitDetails = async (visitId) => {
     pushToast("info", "Loading full survey details...", 1400);
     const endpoint = isMysteryShopperPlatform
-      ? `${API_BASE}/mystery-shopper/visits/${visitId}`
-      : `${API_BASE}/dashboard-visits/${visitId}`;
-    const res = await fetch(endpoint, { headers });
+      ? `${API_BASE}/mystery-shopper/visits/${visitId}?_cb=${Date.now()}`
+      : `${API_BASE}/dashboard-visits/${visitId}?_cb=${Date.now()}`;
+    const res = await fetch(endpoint, { headers, cache: "no-store" });
     const data = await res.json();
     if (!res.ok) {
       setError(data.detail || "Failed to load survey details");
