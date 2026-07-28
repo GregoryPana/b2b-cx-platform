@@ -3559,13 +3559,7 @@ def get_visit_detail(
 
         responses = []
         for row in response_rows:
-            actions = []
-            if row["actions"]:
-                try:
-                    import json
-                    actions = json.loads(row["actions"])
-                except Exception:
-                    actions = []
+            actions = normalize_actions_value(row["actions"])
 
             responses.append({
                 "response_id": row["id"],
