@@ -203,10 +203,20 @@ export default function InstallationSurveyPage({ headers }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || "Failed to submit survey");
 
+      let saveVerified = true;
+      try {
+        const verifyRes = await fetch(`${API_BASE}/installation/surveys/${data.survey_id}`, { headers });
+        const verifyData = await verifyRes.json();
+        saveVerified = verifyRes.ok && (verifyData.responses || []).length === responses.length;
+      } catch {
+        saveVerified = false;
+      }
+
       setSuccess({
         survey_id: data.survey_id,
         overall_score: Number(data.overall_score),
         action_points: actionPoints,
+        saveVerified,
       });
 
       setScoresByQuestion({});
@@ -244,6 +254,12 @@ export default function InstallationSurveyPage({ headers }) {
               </CardHeader>
               <CardContent className="space-y-6">
                 {error && <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+                {success && !success.saveVerified && (
+                  <div className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
+                    <div>Survey submitted (Reference: <strong>{success.survey_id}</strong>), but we couldn't confirm all responses were saved.</div>
+                    <div>This may be due to a connection issue. Please check with an admin or re-submit to be safe.</div>
+                  </div>
+                )}
                 {success && (
                   <div className="rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success">
                     <div>Survey submitted. Reference: <strong>{success.survey_id}</strong></div>

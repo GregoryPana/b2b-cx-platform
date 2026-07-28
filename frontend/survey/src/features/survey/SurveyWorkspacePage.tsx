@@ -864,8 +864,20 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
 
     await loadVisitResponses(visitId);
 
+    // Confirm every response we just tried to save actually landed on the
+    // server — a POST can report success while a dropped connection means
+    // the row never committed, or a reload race can miss it.
+    const unsavedAfterPersist = draftQuestions.filter((question) => !responsesByQuestion[question.id]);
+    if (unsavedAfterPersist.length > 0) {
+      const unsavedLabels = unsavedAfterPersist
+        .map((question) => `Q${question.question_number || question.id}`)
+        .join(", ");
+      setError(`Some responses did not save, possibly due to a connection issue: ${unsavedLabels}. Please try again before submitting.`);
+      return;
+    }
+
     const mandatoryQuestions = visibleQuestions.filter((question) => question.is_mandatory);
-    const unanswered = mandatoryQuestions.filter((question) => !responsesByQuestion[question.id] && !responseDrafts[question.id]);
+    const unanswered = mandatoryQuestions.filter((question) => !responsesByQuestion[question.id]);
     if (unanswered.length > 0) {
       const missingQuestionLabels = unanswered
         .map((question) => `Q${question.question_number || question.id}`)
@@ -884,7 +896,15 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     const data = await res.json();
     setIsSubmittingVisit(false);
     if (!res.ok) {
-      setError(data.detail || "Failed to submit visit");
+      const detail = data.detail;
+      if (detail && typeof detail === "object") {
+        const missingLabels = (detail.missing_questions || [])
+          .map((q: { question_number?: number }) => `Q${q.question_number}`)
+          .join(", ");
+        setError(missingLabels ? `${detail.message} Missing: ${missingLabels}.` : detail.message || "Failed to submit visit");
+      } else {
+        setError(detail || "Failed to submit visit");
+      }
       return;
     }
     setStatus(data.status || "Pending");

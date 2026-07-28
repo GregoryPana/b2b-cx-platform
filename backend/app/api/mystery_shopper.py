@@ -2807,6 +2807,60 @@ async def submit_mystery_visit(
     ensure_mystery_visit_access(db, visit_id, current_user)
     report_date = _utc_plus_4_today()
 
+    response_table = get_mystery_answer_table(db)
+    if not response_table:
+        raise HTTPException(status_code=500, detail="No mystery shopper answer table found")
+
+    mandatory_counts_row = db.execute(
+        text(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
+                COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
+            FROM questions q
+            JOIN visits v ON v.survey_type_id = q.survey_type_id
+            LEFT JOIN {response_table} r
+                ON r.visit_id = v.id
+                AND r.question_id = q.id
+            WHERE v.id = :visit_id
+            """
+        ),
+        {"visit_id": visit_id},
+    ).fetchone()
+
+    mandatory_answered_count = int(mandatory_counts_row[0] or 0) if mandatory_counts_row else 0
+    mandatory_total_count = int(mandatory_counts_row[1] or 0) if mandatory_counts_row else 0
+
+    if mandatory_answered_count < mandatory_total_count:
+        question_order_col = "q.question_number" if has_column(db, "questions", "question_number") else "q.id"
+        missing_rows = db.execute(
+            text(
+                f"""
+                SELECT {question_order_col}, q.question_text
+                FROM questions q
+                JOIN visits v ON v.survey_type_id = q.survey_type_id
+                LEFT JOIN {response_table} r
+                    ON r.visit_id = v.id
+                    AND r.question_id = q.id
+                WHERE v.id = :visit_id AND q.is_mandatory = true AND r.id IS NULL
+                ORDER BY {question_order_col}
+                """
+            ),
+            {"visit_id": visit_id},
+        ).fetchall()
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": (
+                    f"{mandatory_total_count - mandatory_answered_count} mandatory response(s) "
+                    "were not saved. Please answer them and try submitting again."
+                ),
+                "missing_questions": [
+                    {"question_number": row[0], "question_text": row[1]} for row in missing_rows
+                ],
+            },
+        )
+
     db.execute(
         text("UPDATE visits SET status = 'Pending' WHERE id = :visit_id"),
         {"visit_id": visit_id},

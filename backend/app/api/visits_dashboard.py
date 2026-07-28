@@ -3223,6 +3223,98 @@ def submit_visit(
 ):
     """Submit a visit for review."""
     try:
+        response_table = get_response_table(db)
+        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+        has_question_survey_type = has_column(db, "questions", "survey_type_id")
+        if has_visit_survey_type and has_question_survey_type:
+            mandatory_counts_row = db.execute(
+                text(
+                    f"""
+                    SELECT
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
+                    FROM questions q
+                    JOIN visits v ON (
+                        v.survey_type_id = q.survey_type_id
+                        OR (v.survey_type_id IS NULL AND q.survey_type_id IS NULL)
+                    )
+                    LEFT JOIN {response_table} r
+                        ON r.visit_id = v.id
+                        AND r.question_id = q.id
+                    WHERE v.id = :visit_id
+                    """
+                ),
+                {"visit_id": visit_id},
+            ).fetchone()
+        else:
+            mandatory_counts_row = db.execute(
+                text(
+                    f"""
+                    SELECT
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
+                    FROM questions q
+                    JOIN {response_table} r
+                        ON r.question_id = q.id
+                        AND r.visit_id = :visit_id
+                    """
+                ),
+                {"visit_id": visit_id},
+            ).fetchone()
+
+        mandatory_answered_count = int(mandatory_counts_row[0] or 0) if mandatory_counts_row else 0
+        mandatory_total_count = int(mandatory_counts_row[1] or 0) if mandatory_counts_row else 0
+
+        if mandatory_answered_count < mandatory_total_count:
+            has_question_number = has_column(db, "questions", "question_number")
+            question_number_col = "q.question_number" if has_question_number else "q.id"
+            if has_visit_survey_type and has_question_survey_type:
+                missing_rows = db.execute(
+                    text(
+                        f"""
+                        SELECT {question_number_col}, q.question_text
+                        FROM questions q
+                        JOIN visits v ON (
+                            v.survey_type_id = q.survey_type_id
+                            OR (v.survey_type_id IS NULL AND q.survey_type_id IS NULL)
+                        )
+                        LEFT JOIN {response_table} r
+                            ON r.visit_id = v.id
+                            AND r.question_id = q.id
+                        WHERE v.id = :visit_id AND q.is_mandatory = true AND r.id IS NULL
+                        ORDER BY {question_number_col}
+                        """
+                    ),
+                    {"visit_id": visit_id},
+                ).fetchall()
+            else:
+                missing_rows = db.execute(
+                    text(
+                        f"""
+                        SELECT {question_number_col}, q.question_text
+                        FROM questions q
+                        LEFT JOIN {response_table} r
+                            ON r.question_id = q.id
+                            AND r.visit_id = :visit_id
+                        WHERE q.is_mandatory = true AND r.id IS NULL
+                        ORDER BY {question_number_col}
+                        """
+                    ),
+                    {"visit_id": visit_id},
+                ).fetchall()
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": (
+                        f"{mandatory_total_count - mandatory_answered_count} mandatory response(s) "
+                        "were not saved. Please answer them and try submitting again."
+                    ),
+                    "missing_questions": [
+                        {"question_number": row[0], "question_text": row[1]} for row in missing_rows
+                    ],
+                },
+            )
+
         # Update visit status to Pending
         has_submitted_by_name = has_column(db, "visits", "submitted_by_name")
         has_submitted_by_email = has_column(db, "visits", "submitted_by_email")
@@ -3258,9 +3350,13 @@ def submit_visit(
             "submitted_by_email": getattr(current_user, "email", None),
             "message": "Visit submitted for review"
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
+        db.rollback()
         logger.exception("Error submitting visit: %s", e)
-        return {"detail": "Failed to submit visit"}
+        raise HTTPException(status_code=500, detail="Failed to submit visit")
 
 
 @router.put("/{visit_id}/approve")

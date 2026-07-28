@@ -437,12 +437,40 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
 
   const submitVisitFn = useCallback(async () => {
     if (!visitId) { raiseMessage("No visit selected.", "error"); return; }
+
+    // Re-fetch from the server before validating, so a response that only
+    // exists in local state (e.g. a save that silently failed due to a
+    // dropped connection) doesn't get counted as answered.
+    const answeredBeforeRefresh = new Set(Object.keys(responsesByQuestion));
+    try {
+      await loadVisitDetail(visitId);
+    } catch (error) {
+      raiseMessage(error.message || "Failed to verify saved responses before submit.", "error");
+      return;
+    }
+
+    const unsavedAfterRefresh = questions.filter(
+      (q) => answeredBeforeRefresh.has(String(q.id)) && !responsesByQuestion[q.id]
+    );
+    if (unsavedAfterRefresh.length > 0) {
+      const labels = unsavedAfterRefresh.map((q) => `Q${displayQuestionNumber(q)}`).join(", ");
+      raiseMessage(`Some responses did not save, possibly due to a connection issue: ${labels}. Please try again before submitting.`, "error");
+      return;
+    }
+
     const unanswered = questions.filter((q) => q.is_mandatory && !responsesByQuestion[q.id]);
     if (unanswered.length > 0) { raiseMessage(`Complete all required questions before submit (${unanswered.length} remaining).`, "error"); return; }
     setSubmitting(true);
     try {
       const { res, data } = await apiFetch(`${API_BASE}/mystery-shopper/visits/${visitId}/submit`, { method: "PUT" });
-      if (!res.ok) throw new Error(data?.detail || "Failed to submit visit");
+      if (!res.ok) {
+        const detail = data?.detail;
+        if (detail && typeof detail === "object") {
+          const missingLabels = (detail.missing_questions || []).map((q) => `Q${q.question_number}`).join(", ");
+          throw new Error(missingLabels ? `${detail.message} Missing: ${missingLabels}.` : detail.message || "Failed to submit visit");
+        }
+        throw new Error(detail || "Failed to submit visit");
+      }
       setStatus("Pending");
       raiseMessage(`Submitted for review. Report date: ${data.report_completed_date || "N/A"} (UTC+4).`, "success");
       await loadDrafts();
@@ -451,7 +479,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
     } finally {
       setSubmitting(false);
     }
-  }, [visitId, questions, responsesByQuestion, apiFetch, loadDrafts, raiseMessage]);
+  }, [visitId, questions, responsesByQuestion, apiFetch, loadDrafts, loadVisitDetail, raiseMessage]);
 
   const scrollToCategory = useCallback((category) => {
     setCurrentCategory(category);
