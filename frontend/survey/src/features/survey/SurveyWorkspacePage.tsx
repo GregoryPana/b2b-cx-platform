@@ -214,6 +214,9 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   const [accountExecutives, setAccountExecutives] = useState<AccountExecutive[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [draftVisits, setDraftVisits] = useState<DraftVisit[]>([]);
+  const [submittedVisits, setSubmittedVisits] = useState<DraftVisit[]>([]);
+  const [isLoadingSubmitted, setIsLoadingSubmitted] = useState(false);
+  const [isViewingSubmitted, setIsViewingSubmitted] = useState(false);
   const [visitId, setVisitId] = useState("");
   const [status, setStatus] = useState("Draft");
   const [businessMode, setBusinessMode] = useState<"existing" | "new">("existing");
@@ -375,6 +378,32 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     loadDrafts();
   }, [headers]);
 
+  const loadSubmittedVisits = async () => {
+    setIsLoadingSubmitted(true);
+    setError("");
+    const params = new URLSearchParams({
+      survey_type: SURVEY_TYPE,
+      _cb: Date.now().toString(),
+    });
+    const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
+    const data = await res.json();
+    setIsLoadingSubmitted(false);
+    if (!res.ok) {
+      setError(data.detail || "Failed to load submitted visits");
+      return;
+    }
+    const rows = Array.isArray(data) ? data : [];
+    setSubmittedVisits(
+      rows
+        .filter((item) => (item.status || "Draft") !== "Draft")
+        .map((item) => ({ ...item, visit_id: item.visit_id || item.id }))
+    );
+  };
+
+  useEffect(() => {
+    loadSubmittedVisits();
+  }, [headers]);
+
   const loadVisitResponses = async (targetVisitId: string) => {
     if (!targetVisitId) return;
     const res = await fetch(`${API_BASE}/dashboard-visits/${targetVisitId}?_cb=${Date.now()}`, { headers });
@@ -482,6 +511,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   const handleSelectPlannedVisit = async (draft: DraftVisit) => {
     const selectedId = draft.visit_id ?? draft.id ?? "";
     if (!selectedId) return;
+    setIsViewingSubmitted(false);
     setSelectedDraftId(selectedId);
     setVisitSource("planned");
     pushToast("info", "Loading planned visit...", 1600);
@@ -500,6 +530,30 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     setAccountExecutiveSearch(draft.account_executive_name || "");
     await loadVisitResponses(selectedId);
     setMessage(`Loaded planned visit for ${resolveBusinessName(draft)}.`);
+    navigate("/survey");
+  };
+
+  const handleViewSubmittedVisit = async (draft: DraftVisit) => {
+    const selectedId = draft.visit_id ?? draft.id ?? "";
+    if (!selectedId) return;
+    setIsViewingSubmitted(true);
+    setVisitSource("planned");
+    setSelectedDraftId(selectedId);
+    pushToast("info", "Loading submitted visit...", 1600);
+    setVisitId(selectedId);
+    setStatus(draft.status || "Pending");
+    setVisitForm((prev) => ({
+      ...prev,
+      business_id: String(draft.business_id || ""),
+      visit_date: draft.visit_date || "",
+      account_executive_name: draft.account_executive_name || prev.account_executive_name,
+      team_member_names: Array.isArray(draft.team_member_names) && draft.team_member_names.length > 0
+        ? draft.team_member_names
+        : prev.team_member_names,
+    }));
+    setAccountExecutiveSearch(draft.account_executive_name || "");
+    await loadVisitResponses(selectedId);
+    setMessage(`Viewing submitted visit for ${resolveBusinessName(draft)} (read-only, including any action points added during review).`);
     navigate("/survey");
   };
 
@@ -528,6 +582,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
 
   const handleCreateVisit = async () => {
     pushToast("info", visitSource === "planned" ? "Preparing planned visit..." : "Creating visit...", 1500);
+    setIsViewingSubmitted(false);
     setIsCreatingVisit(true);
     setError("");
     setMessage("");
@@ -929,6 +984,8 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
 
   const plannedToday = sortByPriority(draftVisits.filter((visit) => (visit.visit_date || "") === todayString));
   const plannedUpcoming = sortByPriority(draftVisits.filter((visit) => (visit.visit_date || "") > todayString));
+  const submittedSorted = sortByPriority(submittedVisits);
+  const isReadOnly = Boolean(isViewingSubmitted || status !== "Draft");
 
   return (
     <div ref={animationRef}>
@@ -1159,6 +1216,60 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                   </div>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card className="animate-target">
+            <CardHeader>
+              <CardTitle className="text-xl font-semibold tracking-tight">Submitted Visits</CardTitle>
+              <CardDescription className="text-sm">View a previously submitted or reviewed visit, including any action points added per question during review. Read-only.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={loadSubmittedVisits}>{isLoadingSubmitted ? "Refreshing..." : "Refresh"}</Button>
+              </div>
+              {submittedSorted.length === 0 ? (
+                <div className="rounded-lg border p-6 text-center">
+                  <p className="text-sm text-muted-foreground">No submitted visits yet.</p>
+                </div>
+              ) : (
+                <div className="hidden lg:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Business</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {submittedSorted.map((draft) => (
+                        <TableRow key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
+                          <TableCell>{resolveBusinessName(draft)}</TableCell>
+                          <TableCell>{draft.visit_date || "--"}</TableCell>
+                          <TableCell><Badge variant="secondary">{draft.status || "--"}</Badge></TableCell>
+                          <TableCell><Button size="sm" variant="outline" onClick={() => handleViewSubmittedVisit(draft)}>View</Button></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <div className="space-y-3 lg:hidden">
+                {submittedSorted.map((draft) => (
+                  <Card key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
+                    <CardContent className="space-y-3 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
+                        <Badge variant="secondary">{draft.status || "--"}</Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{draft.visit_date || "--"}</p>
+                      <Button className="w-full" variant="outline" onClick={() => handleViewSubmittedVisit(draft)}>View</Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </CardContent>
           </Card>
 
@@ -1403,7 +1514,9 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                     </CardDescription>
                                   </CardHeader>
                                   <CardContent className="space-y-4">
-                                    {question.input_type === "score" ? (
+                                    {isReadOnly ? (
+                                      <div className="rounded bg-muted/30 px-3 py-2 text-sm">{draft.answer_text || "--"}</div>
+                                    ) : question.input_type === "score" ? (
                                       <div className="space-y-2">
                                         <div className="flex flex-wrap gap-2">
                                           {scoreOptions.map((scoreValue) => (
@@ -1453,47 +1566,69 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
 
                                     <div>
                                       <label className="mb-1 block text-sm font-medium">Verbatim</label>
-                                      <Textarea value={draft.verbatim} onChange={(event) => updateQuestionDraft(question.id, "verbatim", event.target.value)} />
+                                      {isReadOnly ? (
+                                        <div className="rounded bg-muted/30 px-3 py-2 text-sm">{draft.verbatim || "--"}</div>
+                                      ) : (
+                                        <Textarea value={draft.verbatim} onChange={(event) => updateQuestionDraft(question.id, "verbatim", event.target.value)} />
+                                      )}
                                     </div>
 
                                     <div className="space-y-2 rounded-md border bg-muted/40 p-3">
                                       <div className="flex items-center justify-between">
-                                        <p className="text-sm font-medium">Actions</p>
-                                        <Button size="sm" variant="outline" onClick={() => addActionItem(question.id)}>Add Action</Button>
+                                        <p className="text-sm font-medium">Action Points</p>
+                                        {isReadOnly ? null : (
+                                          <Button size="sm" variant="outline" onClick={() => addActionItem(question.id)}>Add Action</Button>
+                                        )}
                                       </div>
-                                      {draft.actions.map((action, index) => (
-                                        <div key={`${question.id}-action-${index}`} className="grid grid-cols-1 gap-2 rounded-md border bg-background p-3 md:grid-cols-2">
-                                          <Input placeholder="Action required" value={action.action_required} onChange={(event) => updateActionItem(question.id, index, "action_required", event.target.value)} />
-                                          <Input placeholder="Lead owner" value={action.action_owner} onChange={(event) => updateActionItem(question.id, index, "action_owner", event.target.value)} />
-                                          <Select value={action.action_timeframe} onChange={(event) => updateActionItem(question.id, index, "action_timeframe", event.target.value)}>
-                                            <option value="">Action timeframe</option>
-                                            {ACTION_TIMEFRAME_OPTIONS.map((option) => (
-                                              <option key={`${question.id}-action-time-${index}-${option}`} value={option}>{option}</option>
-                                            ))}
-                                          </Select>
-                                          <Input placeholder="Support needed" value={action.action_support_needed} onChange={(event) => updateActionItem(question.id, index, "action_support_needed", event.target.value)} />
-                                          <Input placeholder="Comments" value={action.action_comments || ""} onChange={(event) => updateActionItem(question.id, index, "action_comments", event.target.value)} />
-                                          <div className="md:col-span-2">
-                                            <Button size="sm" variant="destructive" onClick={() => removeActionItem(question.id, index)}>
-                                              Remove Action
-                                            </Button>
-                                          </div>
-                                        </div>
-                                      ))}
+                                      {draft.actions.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground">{isReadOnly ? "No action points for this question." : null}</p>
+                                      ) : null}
+                                      {isReadOnly
+                                        ? draft.actions.map((action, index) => (
+                                            <div key={`${question.id}-action-${index}`} className="rounded-md border bg-background p-3 text-sm space-y-1">
+                                              <p className="font-medium">{action.action_required || "--"}</p>
+                                              <p className="text-xs text-muted-foreground">
+                                                Lead owner: {action.action_owner || "--"} | Timeline: {action.action_timeframe || "--"}
+                                              </p>
+                                              {action.action_support_needed ? <p className="text-xs text-muted-foreground">Support needed: {action.action_support_needed}</p> : null}
+                                              {action.action_comments ? <p className="text-xs text-muted-foreground">Comments: {action.action_comments}</p> : null}
+                                            </div>
+                                          ))
+                                        : draft.actions.map((action, index) => (
+                                            <div key={`${question.id}-action-${index}`} className="grid grid-cols-1 gap-2 rounded-md border bg-background p-3 md:grid-cols-2">
+                                              <Input placeholder="Action required" value={action.action_required} onChange={(event) => updateActionItem(question.id, index, "action_required", event.target.value)} />
+                                              <Input placeholder="Lead owner" value={action.action_owner} onChange={(event) => updateActionItem(question.id, index, "action_owner", event.target.value)} />
+                                              <Select value={action.action_timeframe} onChange={(event) => updateActionItem(question.id, index, "action_timeframe", event.target.value)}>
+                                                <option value="">Action timeframe</option>
+                                                {ACTION_TIMEFRAME_OPTIONS.map((option) => (
+                                                  <option key={`${question.id}-action-time-${index}-${option}`} value={option}>{option}</option>
+                                                ))}
+                                              </Select>
+                                              <Input placeholder="Support needed" value={action.action_support_needed} onChange={(event) => updateActionItem(question.id, index, "action_support_needed", event.target.value)} />
+                                              <Input placeholder="Comments" value={action.action_comments || ""} onChange={(event) => updateActionItem(question.id, index, "action_comments", event.target.value)} />
+                                              <div className="md:col-span-2">
+                                                <Button size="sm" variant="destructive" onClick={() => removeActionItem(question.id, index)}>
+                                                  Remove Action
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          ))}
                                     </div>
 
-                                     <Button
-                                       className={cn(
-                                         "w-full sm:w-auto",
-                                         questionSaved && !saving ? "bg-emerald-600 text-white hover:bg-emerald-700" : ""
-                                       )}
-                                       variant={questionSaved && !saving ? "default" : "outline"}
-                                       onClick={() => handleSaveQuestionResponse(question)}
-                                       disabled={saving || Boolean(scoreValidationMessage)}
-                                       title="Save this answer before moving to the next question"
-                                     >
-                                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {questionSaved && !saving ? "Response Saved" : "Save Response"}
-                                     </Button>
+                                    {isReadOnly ? null : (
+                                      <Button
+                                        className={cn(
+                                          "w-full sm:w-auto",
+                                          questionSaved && !saving ? "bg-emerald-600 text-white hover:bg-emerald-700" : ""
+                                        )}
+                                        variant={questionSaved && !saving ? "default" : "outline"}
+                                        onClick={() => handleSaveQuestionResponse(question)}
+                                        disabled={saving || Boolean(scoreValidationMessage)}
+                                        title="Save this answer before moving to the next question"
+                                      >
+                                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {questionSaved && !saving ? "Response Saved" : "Save Response"}
+                                      </Button>
+                                    )}
                                   </CardContent>
                                 </Card>
                               );
@@ -1507,7 +1642,16 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
             </CardContent>
           </Card>
 
-          {visitId ? (
+          {visitId && isReadOnly ? (
+            <Card className="animate-target">
+              <CardHeader>
+                <CardTitle>Read-only</CardTitle>
+                <CardDescription>This visit has already been submitted (status: {status}). Responses and action points are shown for reference only.</CardDescription>
+              </CardHeader>
+            </Card>
+          ) : null}
+
+          {visitId && !isReadOnly ? (
             <Card className="animate-target">
               <CardHeader>
                 <CardTitle>Submit Visit</CardTitle>
