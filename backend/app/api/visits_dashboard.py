@@ -465,6 +465,7 @@ def fetch_dashboard_actions(
                 q.question_text,
                 r.score,
                 r.answer_text,
+                r.verbatim,
                 action_item.ordinality - 1 as action_index,
                 action_item.value->>'action_required' as action_required,
                 action_item.value->>'action_owner' as action_owner,
@@ -502,6 +503,9 @@ def fetch_dashboard_actions(
                 q.id as question_id,
                 {question_number_col} as question_number,
                 q.question_text,
+                r.score,
+                r.answer_text,
+                r.verbatim,
                 0 as action_index,
                 r.action_required,
                 r.action_owner,
@@ -551,6 +555,7 @@ def fetch_dashboard_actions(
             "question_text": row["question_text"],
             "question_score": row.get("score"),
             "question_answer": row.get("answer_text"),
+            "question_verbatim": row.get("verbatim"),
             "action_index": int(row.get("action_index") or 0),
             "action_required": row["action_required"] or "",
             "action_owner": row["action_owner"] or "",
@@ -1701,6 +1706,16 @@ def _linked_question_label(item: dict, *, escape: bool = True) -> str:
     return html_lib.escape(label) if escape else label
 
 
+def _answer_display_for_action(item: dict) -> str:
+    score = item.get("question_score")
+    answer = item.get("question_answer")
+    if score is not None:
+        return f"{score}/5"
+    if answer:
+        return html_lib.escape(str(answer))
+    return "--"
+
+
 def render_report_html(payload: dict, generated_by: str) -> str:
     summary = payload.get("summary", {})
     filters = payload.get("filters", {})
@@ -1761,14 +1776,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
                 return "rgba(34,197,94,0.06)"
             return "transparent"
 
-        def _answer_display(item: dict) -> str:
-            score = item.get("question_score")
-            answer = item.get("question_answer")
-            if score is not None:
-                return f"{score}/5"
-            if answer:
-                return answer
-            return "--"
+        _answer_display = _answer_display_for_action
 
         outstanding = [a for a in action_points if a.get("action_status") != "Completed"]
         completed = [a for a in action_points if a.get("action_status") == "Completed"]
@@ -1800,14 +1808,15 @@ def render_report_html(payload: dict, generated_by: str) -> str:
                             f'<td>{item.get("action_comments") or "--"}</td>'
                             f'<td>{_linked_question_label(item)}</td>'
                             f'<td>{_answer_display(item)}</td>'
+                            f'<td>{item.get("question_verbatim") or "--"}</td>'
                             f'</tr>'
                         )
                 sections.append(
-                    f'<tr><td colspan="8" style="background:#f1f5f9;font-weight:600;padding:10px 12px;color:#0f172a;">{biz_name} ({len(biz_items)} action point{"s" if len(biz_items) != 1 else ""})</td></tr>'
+                    f'<tr><td colspan="9" style="background:#f1f5f9;font-weight:600;padding:10px 12px;color:#0f172a;">{biz_name} ({len(biz_items)} action point{"s" if len(biz_items) != 1 else ""})</td></tr>'
                     + "".join(rows)
                 )
             return f'''<div class="table-wrap"><table>
-                <thead><tr><th>Survey Date</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th><th>Linked Question</th><th>Answer</th></tr></thead>
+                <thead><tr><th>Survey Date</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th><th>Linked Question</th><th>Answer</th><th>Verbatim</th></tr></thead>
                 <tbody>{"".join(sections)}</tbody>
             </table></div>'''
 
@@ -2072,6 +2081,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         (
             f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
             f"<td>{item.get('action_required') or '--'}</td><td>{_linked_question_label(item)}</td>"
+            f"<td>{_answer_display_for_action(item)}</td><td>{item.get('question_verbatim') or '--'}</td>"
             f"<td>{item.get('action_owner') or '--'}</td>"
             f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_status') or 'Outstanding'}</td>"
             f"<td>{item.get('action_support_needed') or '--'}</td><td>{item.get('action_comments') or '--'}</td></tr>"
@@ -2082,7 +2092,9 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     action_rows_outstanding = "".join(
         (
             f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
-            f"<td>{item.get('action_required') or '--'}</td><td>{item.get('action_owner') or '--'}</td>"
+            f"<td>{item.get('action_required') or '--'}</td><td>{_linked_question_label(item)}</td>"
+            f"<td>{_answer_display_for_action(item)}</td><td>{item.get('question_verbatim') or '--'}</td>"
+            f"<td>{item.get('action_owner') or '--'}</td>"
             f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_support_needed') or '--'}</td><td>{item.get('action_comments') or '--'}</td></tr>"
         )
         for item in action_points
@@ -2092,7 +2104,9 @@ def render_report_html(payload: dict, generated_by: str) -> str:
     action_rows_completed = "".join(
         (
             f"<tr><td>{item.get('visit_date') or '--'}</td><td>{item.get('business_name') or '--'}</td>"
-            f"<td>{item.get('action_required') or '--'}</td><td>{item.get('action_owner') or '--'}</td>"
+            f"<td>{item.get('action_required') or '--'}</td><td>{_linked_question_label(item)}</td>"
+            f"<td>{_answer_display_for_action(item)}</td><td>{item.get('question_verbatim') or '--'}</td>"
+            f"<td>{item.get('action_owner') or '--'}</td>"
             f"<td>{item.get('action_timeframe') or '--'}</td><td>{item.get('action_support_needed') or '--'}</td><td>{item.get('action_comments') or '--'}</td></tr>"
         )
         for item in action_points
@@ -2304,21 +2318,21 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         )
 
     if report_type == "action_points":
-        no_outstanding_actions = '<tr><td colspan="7">No outstanding action points.</td></tr>'
-        no_completed_actions = '<tr><td colspan="7">No completed action points.</td></tr>'
+        no_outstanding_actions = '<tr><td colspan="10">No outstanding action points.</td></tr>'
+        no_completed_actions = '<tr><td colspan="10">No completed action points.</td></tr>'
         action_points_section = (
             f'<h3>Outstanding Action Points</h3><div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Answer</th><th>Verbatim</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows_outstanding or no_outstanding_actions}</tbody></table></div>'
             f'<h3>Completed Action Points</h3><div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Answer</th><th>Verbatim</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows_completed or no_completed_actions}</tbody></table></div>'
         )
     else:
-        no_action_points = '<tr><td colspan="9">No action points found for this report scope.</td></tr>'
+        no_action_points = '<tr><td colspan="11">No action points found for this report scope.</td></tr>'
         action_points_section = (
             f'<div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th><th>Comments</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Answer</th><th>Verbatim</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows or no_action_points}</tbody></table></div>'
         )
 
