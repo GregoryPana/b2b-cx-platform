@@ -984,6 +984,9 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
 
   const plannedToday = sortByPriority(draftVisits.filter((visit) => (visit.visit_date || "") === todayString));
   const plannedUpcoming = sortByPriority(draftVisits.filter((visit) => (visit.visit_date || "") > todayString));
+  const plannedOverdue = sortByPriority(
+    draftVisits.filter((visit) => (visit.visit_date || "") < todayString && visit.is_started)
+  );
   const submittedSorted = sortByPriority(submittedVisits);
   const isReadOnly = Boolean(isViewingSubmitted || status !== "Draft");
 
@@ -1063,6 +1066,77 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {plannedOverdue.length > 0 ? (
+                    <div>
+                      <div className="mb-3 flex items-center justify-between rounded-md border bg-red-50 px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <Clock3 className="h-4 w-4 text-red-700" />
+                          <p className="text-sm font-semibold text-red-900">Overdue (In Progress)</p>
+                        </div>
+                        <Badge variant="destructive">{plannedOverdue.length}</Badge>
+                      </div>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        These visits are past their planned date but were already started. Continue and submit them to complete the survey.
+                      </p>
+                      <div className="space-y-3 lg:hidden">
+                        {plannedOverdue.map((draft) => (
+                          <Card key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
+                            <CardContent className="space-y-3 p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
+                                </div>
+                                <Badge variant="destructive">Overdue</Badge>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date</p>
+                                  <p>{draft.visit_date || "--"}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Progress</p>
+                                  <p>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</p>
+                                </div>
+                              </div>
+                              <Button className="w-full" onClick={() => handleSelectPlannedVisit(draft)}>
+                                Continue <ArrowRight className="h-4 w-4" />
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+
+                      <div className="hidden lg:block">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Business</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Progress</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {plannedOverdue.map((draft) => (
+                              <TableRow key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
+                                <TableCell>{resolveBusinessName(draft)}</TableCell>
+                                <TableCell>{draft.visit_date || "--"}</TableCell>
+                                <TableCell>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</TableCell>
+                                <TableCell><Badge variant="destructive">Overdue</Badge></TableCell>
+                                <TableCell>
+                                  <Button size="sm" onClick={() => handleSelectPlannedVisit(draft)}>
+                                    Continue <ArrowRight className="h-4 w-4" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div>
                     <div className="mb-3 flex items-center justify-between rounded-md border bg-amber-50 px-3 py-2">
                       <div className="flex items-center gap-2">
