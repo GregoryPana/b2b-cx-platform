@@ -533,6 +533,31 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     navigate("/survey");
   };
 
+  const handleSelectOverdueVisit = async (draft: DraftVisit) => {
+    const selectedId = draft.visit_id ?? draft.id ?? "";
+    if (!selectedId) return;
+    const confirmed = window.confirm(
+      `This visit was planned for ${draft.visit_date || "an earlier date"}, which has already passed. ` +
+        `Continuing will update the visit date to today (${todayString}). Continue?`
+    );
+    if (!confirmed) return;
+
+    pushToast("info", "Updating visit date...", 1600);
+    const res = await fetch(`${API_BASE}/dashboard-visits/${selectedId}/draft`, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ visit_date: todayString }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.detail || "Failed to update the visit date");
+      return;
+    }
+
+    await handleSelectPlannedVisit({ ...draft, visit_date: todayString });
+    await loadDrafts();
+  };
+
   const handleViewSubmittedVisit = async (draft: DraftVisit) => {
     const selectedId = draft.visit_id ?? draft.id ?? "";
     if (!selectedId) return;
@@ -985,7 +1010,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   const plannedToday = sortByPriority(draftVisits.filter((visit) => (visit.visit_date || "") === todayString));
   const plannedUpcoming = sortByPriority(draftVisits.filter((visit) => (visit.visit_date || "") > todayString));
   const plannedOverdue = sortByPriority(
-    draftVisits.filter((visit) => (visit.visit_date || "") < todayString && visit.is_started)
+    draftVisits.filter((visit) => (visit.visit_date || "") < todayString)
   );
   const submittedSorted = sortByPriority(submittedVisits);
   const isReadOnly = Boolean(isViewingSubmitted || status !== "Draft");
@@ -1071,12 +1096,12 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                       <div className="mb-3 flex items-center justify-between rounded-md border bg-red-50 px-3 py-2">
                         <div className="flex items-center gap-2">
                           <Clock3 className="h-4 w-4 text-red-700" />
-                          <p className="text-sm font-semibold text-red-900">Overdue (In Progress)</p>
+                          <p className="text-sm font-semibold text-red-900">Overdue</p>
                         </div>
                         <Badge variant="destructive">{plannedOverdue.length}</Badge>
                       </div>
                       <p className="mb-3 text-xs text-muted-foreground">
-                        These visits are past their planned date but were already started. Continue and submit them to complete the survey.
+                        These visits are past their planned date. Continuing will update the visit date to today.
                       </p>
                       <div className="space-y-3 lg:hidden">
                         {plannedOverdue.map((draft) => (
@@ -1086,7 +1111,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                 <div>
                                   <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
                                 </div>
-                                <Badge variant="destructive">Overdue</Badge>
+                                <Badge variant="destructive">{draft.is_started ? "Overdue (In Progress)" : "Overdue"}</Badge>
                               </div>
                               <div className="grid grid-cols-2 gap-3 text-sm">
                                 <div>
@@ -1098,8 +1123,8 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                   <p>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</p>
                                 </div>
                               </div>
-                              <Button className="w-full" onClick={() => handleSelectPlannedVisit(draft)}>
-                                Continue <ArrowRight className="h-4 w-4" />
+                              <Button className="w-full" onClick={() => handleSelectOverdueVisit(draft)}>
+                                {draft.is_started ? "Continue" : "Start"} <ArrowRight className="h-4 w-4" />
                               </Button>
                             </CardContent>
                           </Card>
@@ -1123,10 +1148,10 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                 <TableCell>{resolveBusinessName(draft)}</TableCell>
                                 <TableCell>{draft.visit_date || "--"}</TableCell>
                                 <TableCell>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</TableCell>
-                                <TableCell><Badge variant="destructive">Overdue</Badge></TableCell>
+                                <TableCell><Badge variant="destructive">{draft.is_started ? "Overdue (In Progress)" : "Overdue"}</Badge></TableCell>
                                 <TableCell>
-                                  <Button size="sm" onClick={() => handleSelectPlannedVisit(draft)}>
-                                    Continue <ArrowRight className="h-4 w-4" />
+                                  <Button size="sm" onClick={() => handleSelectOverdueVisit(draft)}>
+                                    {draft.is_started ? "Continue" : "Start"} <ArrowRight className="h-4 w-4" />
                                   </Button>
                                 </TableCell>
                               </TableRow>
