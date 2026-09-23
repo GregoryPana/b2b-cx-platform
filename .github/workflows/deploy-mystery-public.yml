@@ -87,7 +87,7 @@ jobs:
         with:
           name: mystery-public-${{ needs.build.outputs.release_id }}
           path: ${{ runner.temp }}/mystery-public-artifact
-      - name: Deploy from internal runner to DMZ over pinned SSH
+      - name: Deploy from internal runner to APN application VM over pinned SSH
         id: deploy
         shell: bash
         env:
@@ -114,24 +114,32 @@ jobs:
           BUNDLE="${RUNNER_TEMP}/mystery-public-artifact/cwscx-mystery-public-release.zip"
           printf '%s  %s\n' "${BUNDLE_SHA256}" "${BUNDLE}" | sha256sum --check --strict
           REMOTE_BUNDLE="/tmp/${RELEASE_ID}.zip"
+          REMOTE_SIGNATURE="${REMOTE_BUNDLE}.sig"
+          REMOTE_EVIDENCE="/var/lib/cwscx-mystery-public/deploy-evidence/${RELEASE_ID}.json"
+          # Only the bundle crosses to /tmp on the internal application VM; the installer,
+          # backend/nginx deploy scripts and verifier already live on the VM
+          # at fixed, root-owned paths installed by the one-time VM-admin
+          # bootstrap script (scripts/linux/bootstrap_mystery_public_deploy_entrypoint.sh).
           scp "${SSH_OPTS[@]}" "${BUNDLE}" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_BUNDLE}"
-          scp "${SSH_OPTS[@]}" scripts/linux/install_mystery_public_bundle.sh "${DMZ_USER}@${DMZ_HOST}:/tmp/install_mystery_public_bundle.sh"
+          ssh-keygen -Y sign -f "${KEY_FILE}" -n cwscx-mystery-public "${BUNDLE}"
+          scp "${SSH_OPTS[@]}" "${BUNDLE}.sig" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_SIGNATURE}"
           ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
             "printf '%s  %s\\n' '${BUNDLE_SHA256}' '${REMOTE_BUNDLE}' | sha256sum --check --strict"
-          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
-            "sudo env EXPECTED_BUNDLE_SHA256='${BUNDLE_SHA256}' TARGET_ROOT=/opt/cwscx-mystery-public bash /tmp/install_mystery_public_bundle.sh '${REMOTE_BUNDLE}'" \
-            2>&1 | tee "${EVIDENCE_DIR}/install.log"
-          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
-            "sudo bash /opt/cwscx-mystery-public/current/scripts/linux/deploy_mystery_public_backend.sh" \
-            2>&1 | tee "${EVIDENCE_DIR}/backend-deploy.log"
-          SERVER_NAME="${MYSTERY_PUBLIC_BASE_URL#https://}"
-          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
-            "sudo env SERVER_NAME='${SERVER_NAME}' TLS_MODE='${VERIFY_TLS_MODE}' ENABLE_HSTS=0 bash /opt/cwscx-mystery-public/current/scripts/linux/deploy_mystery_public_nginx.sh" \
-            2>&1 | tee "${EVIDENCE_DIR}/nginx-deploy.log"
-          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
-            "sudo env MYSTERY_PUBLIC_BASE_URL='${MYSTERY_PUBLIC_BASE_URL}' VERIFY_TLS_MODE='${VERIFY_TLS_MODE}' EVIDENCE_FILE=/tmp/${RELEASE_ID}-verification.json bash /opt/cwscx-mystery-public/current/scripts/linux/verify_mystery_public.sh" \
-            2>&1 | tee "${EVIDENCE_DIR}/verification.log"
-          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/tmp/${RELEASE_ID}-verification.json" "${EVIDENCE_DIR}/verification.json"
+          # Exactly one privileged call: the fixed, root-owned deploy
+          # entrypoint. It installs the release, deploys the backend and
+          # NGINX, verifies, and writes evidence itself under a fixed
+          # root-owned directory (never /tmp) — this workflow performs no
+          # other sudo command.
+          DEPLOY_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy \
+            --bundle-path "${REMOTE_BUNDLE}" \
+            --bundle-sha256 "${BUNDLE_SHA256}" \
+            --signature-path "${REMOTE_SIGNATURE}" \
+            --base-url "${MYSTERY_PUBLIC_BASE_URL}" \
+            --tls-mode "${VERIFY_TLS_MODE}")
+          printf -v REMOTE_DEPLOY_CMD '%q ' "${DEPLOY_CMD[@]}"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_DEPLOY_CMD}" \
+            2>&1 | tee "${EVIDENCE_DIR}/deploy.log"
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_EVIDENCE}" "${EVIDENCE_DIR}/verification.json"
           python3 - "${EVIDENCE_DIR}/verification.json" <<'PY'
           import json, sys
           data=json.load(open(sys.argv[1],encoding="utf-8"))
@@ -140,7 +148,9 @@ jobs:
           assert data["summary"]["failed"] == 0
           PY
           printf '{"release_id":"%s","git_sha":"%s","bundle_sha256":"%s"}\n' "${RELEASE_ID}" "${GITHUB_SHA}" "${BUNDLE_SHA256}" > "${EVIDENCE_DIR}/workflow-release.json"
-          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "rm -f '${REMOTE_BUNDLE}' '/tmp/${RELEASE_ID}-verification.json' /tmp/install_mystery_public_bundle.sh" || true
+          # The entrypoint already removed the /tmp bundle on exit (its own
+          # trap); evidence is retained on the VM under bounded, root-owned
+          # retention rather than deleted here after fetch.
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
