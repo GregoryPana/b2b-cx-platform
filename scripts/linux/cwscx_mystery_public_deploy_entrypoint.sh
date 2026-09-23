@@ -26,6 +26,8 @@ die() { echo "cwscx-mystery-public-deploy: $*" >&2; exit 1; }
 
 # --- Fixed, non-overridable locations -------------------------------------
 readonly TARGET_ROOT="/opt/cwscx-mystery-public"
+readonly ENV_FILE="${TARGET_ROOT}/.env"
+readonly RELEASES_ROOT="${TARGET_ROOT}/releases"
 readonly INSTALLER="/usr/local/libexec/cwscx-mystery-public/install_mystery_public_bundle.sh"
 readonly BACKEND_SCRIPT="${TARGET_ROOT}/current/scripts/linux/deploy_mystery_public_backend.sh"
 readonly NGINX_SCRIPT="${TARGET_ROOT}/current/scripts/linux/deploy_mystery_public_nginx.sh"
@@ -80,6 +82,23 @@ done
 for flag in --bundle-path --bundle-sha256 --signature-path --base-url --tls-mode; do
   [[ -n "${SEEN[$flag]:-}" ]] || die "missing required argument: ${flag}"
 done
+
+require_root_controlled_dir() {
+  local path="$1" label="$2" owner mode
+  [[ -d "${path}" && ! -L "${path}" ]] || die "${label} must be a real directory"
+  owner="$(stat -c '%U' "${path}")"
+  [[ "${owner}" == "root" ]] || die "${label} must be owned by root"
+  mode="$(stat -c '%a' "${path}")"
+  (( 8#${mode} & 8#022 )) && die "${label} must not be group- or world-writable"
+  return 0
+}
+
+require_root_controlled_dir "${TARGET_ROOT}" "target root"
+require_root_controlled_dir "${RELEASES_ROOT}" "releases root"
+[[ -f "${ENV_FILE}" && ! -L "${ENV_FILE}" ]] || die "environment file is missing or unsafe"
+[[ "$(stat -c '%U' "${ENV_FILE}")" == "root" ]] || die "environment file must be root-owned"
+ENV_MODE="$(stat -c '%a' "${ENV_FILE}")"
+[[ "${ENV_MODE}" == "600" || "${ENV_MODE}" == "640" ]] || die "environment file mode must be 600 or 640"
 
 # --- Value validation --------------------------------------------------------
 [[ "${BUNDLE_SHA256}" =~ ^[0-9a-f]{64}$ ]] || die "--bundle-sha256 must be 64 lowercase hex characters"
@@ -194,6 +213,7 @@ EXPECTED_BUNDLE_SHA256="${BUNDLE_SHA256}" TARGET_ROOT="${TARGET_ROOT}" "${BASH_B
 [[ -L "${TARGET_ROOT}/current" ]] || die "current release symlink missing after install"
 CURRENT_REAL="$(realpath -e -- "${TARGET_ROOT}/current")" || die "current release symlink is broken"
 [[ "${CURRENT_REAL}" == "${TARGET_ROOT}/releases/"* ]] || die "current release resolves outside the immutable releases directory"
+require_root_controlled_dir "${CURRENT_REAL}" "current release directory"
 MANIFEST="${TARGET_ROOT}/current/release-manifest.json"
 [[ -f "${MANIFEST}" && ! -L "${MANIFEST}" ]] || die "release manifest missing after install"
 RELEASE_ID="$(python3 - "${MANIFEST}" <<'PY'
