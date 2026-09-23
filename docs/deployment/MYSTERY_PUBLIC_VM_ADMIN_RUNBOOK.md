@@ -72,6 +72,15 @@ Evidence retention is bounded (newest 20 releases) rather than deleted
 immediately after fetch, since deletion right after the workflow's SCP
 would race a slow or retried fetch.
 
+The bootstrap also converts the legacy mutable application root to the
+reviewed ownership boundary observed on this VM: `/opt/cwscx-mystery-public`
+becomes `root:root 0755`, `.env` becomes `root:root 0600`, and `releases/`
+becomes `root:root 0755`. Only `shared/` remains service-writable as
+`cxadmin:www-data 0770`. This does not restart the running legacy process;
+the next signed deployment switches the service to the new root-controlled
+immutable release and changes backend binding from the observed
+`0.0.0.0:8011` to `127.0.0.1:8011`.
+
 Verify the sudoers grant after bootstrapping:
 
 ```bash

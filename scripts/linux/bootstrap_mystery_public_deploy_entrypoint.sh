@@ -51,6 +51,11 @@ readonly INSTALLER_DIR="/usr/local/libexec/cwscx-mystery-public"
 readonly INSTALLER_DST="${INSTALLER_DIR}/install_mystery_public_bundle.sh"
 readonly SUDOERS_FILE="/etc/sudoers.d/cwscx-mystery-public"
 readonly DEPLOY_USER="cxadmin"
+readonly SERVICE_GROUP="www-data"
+readonly TARGET_ROOT="/opt/cwscx-mystery-public"
+readonly ENV_FILE="${TARGET_ROOT}/.env"
+readonly RELEASES_ROOT="${TARGET_ROOT}/releases"
+readonly SHARED_ROOT="${TARGET_ROOT}/shared"
 readonly EVIDENCE_ROOT="/var/lib/cwscx-mystery-public/deploy-evidence"
 readonly INCOMING_ROOT="/var/lib/cwscx-mystery-public/incoming"
 readonly SIGNING_PUBLIC_KEY_SRC="/root/cwscx-mystery-public-deploy-signing-key.pub"
@@ -90,6 +95,20 @@ check_root_owned_file "${SIGNING_PUBLIC_KEY_SRC}" "deployment signing public key
 ssh-keygen -l -f "${SIGNING_PUBLIC_KEY_SRC}" >/dev/null 2>&1 || die "deployment signing public key is not a valid SSH public key"
 
 id -u "${DEPLOY_USER}" >/dev/null 2>&1 || die "deploy user ${DEPLOY_USER} does not exist on this VM"
+getent group "${SERVICE_GROUP}" >/dev/null 2>&1 || die "service group ${SERVICE_GROUP} does not exist on this VM"
+
+# Transition the legacy mutable layout to a root-controlled release boundary.
+# The running legacy process may continue reading its existing files while the
+# parent is hardened; the next signed deployment moves systemd to the new
+# root-owned immutable `current` release.
+[[ -d "${TARGET_ROOT}" && ! -L "${TARGET_ROOT}" ]] || die "target root must be an existing real directory: ${TARGET_ROOT}"
+[[ -f "${ENV_FILE}" && ! -L "${ENV_FILE}" ]] || die "environment file must be an existing regular file: ${ENV_FILE}"
+chown root:root "${TARGET_ROOT}"
+chmod 0755 "${TARGET_ROOT}"
+chown root:root "${ENV_FILE}"
+chmod 0600 "${ENV_FILE}"
+install -d -o root -g root -m 0755 "${RELEASES_ROOT}"
+install -d -o "${DEPLOY_USER}" -g "${SERVICE_GROUP}" -m 0770 "${SHARED_ROOT}"
 
 install -d -o root -g root -m 0755 "$(dirname "${ENTRYPOINT_DST}")"
 install -o root -g root -m 0700 "${ENTRYPOINT_SRC}" "${ENTRYPOINT_DST}"
@@ -133,4 +152,8 @@ echo "Installed sudoers fragment:      ${SUDOERS_FILE}"
 echo "Installed evidence directory:    ${EVIDENCE_ROOT}"
 echo "Installed incoming directory:    ${INCOMING_ROOT}"
 echo "Installed deploy allowed signers: ${ALLOWED_SIGNERS}"
+echo "Hardened target root:             ${TARGET_ROOT} (root:root 0755)"
+echo "Hardened environment file:        ${ENV_FILE} (root:root 0600)"
+echo "Prepared immutable releases:      ${RELEASES_ROOT} (root:root 0755)"
+echo "Prepared writable shared data:    ${SHARED_ROOT} (${DEPLOY_USER}:${SERVICE_GROUP} 0770)"
 echo "Verify with: sudo -l -U ${DEPLOY_USER}"
