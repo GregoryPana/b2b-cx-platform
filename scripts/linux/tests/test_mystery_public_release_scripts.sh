@@ -44,14 +44,11 @@ for file in "$BUILD" "$INSTALL" "$BACKEND" "$NGINX" "$VERIFY"; do
   bash -n "$file" || { printf '[FAIL] shell syntax: %s\n' "$file" >&2; failures=$((failures+1)); }
 done
 
-python3 - "$WORKFLOW" <<'PY'
-import pathlib, sys, yaml
-p=pathlib.Path(sys.argv[1]); data=yaml.safe_load(p.read_text())
-assert data['permissions']['contents']=='read'
-assert data['jobs']['build']['timeout-minutes'] <= 30
-assert data['jobs']['deploy']['timeout-minutes'] <= 30
-print('[PASS] workflow YAML and least-privilege controls')
-PY
+# GitHub has already parsed this workflow before starting this job. Keep
+# dependency-free assertions here so the deployment gate does not require PyYAML.
+require "${WORKFLOW}" "permissions:" "workflow declares permissions"
+require "${WORKFLOW}" "contents: read" "workflow limits repository contents to read"
+require "${WORKFLOW}" "timeout-minutes: 30" "workflow bounds job runtime"
 
 (( failures == 0 )) || { printf '%d contract checks failed\n' "$failures" >&2; exit 1; }
 echo 'All Mystery public release script contracts passed.'
