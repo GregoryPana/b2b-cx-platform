@@ -3,118 +3,149 @@ name: deploy-mystery-public
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: mystery-public-production
+  cancel-in-progress: false
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  ci:
+  build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Build mystery shopper frontend
-        run: npm ci --no-audit --no-fund && npm run build
-        working-directory: frontend/mystery-shopper
-        env:
-          VITE_API_URL: /api
-          VITE_BASE_PATH: /
-
-  deploy:
-    runs-on: [self-hosted, linux, production]
-    environment: mystery-public
-    needs: ci
-    env:
-      RELEASE_ID: mystery-public-${{ github.run_number }}-${{ github.sha }}
+    timeout-minutes: 30
+    outputs:
+      release_id: ${{ steps.identity.outputs.release_id }}
+      bundle_sha256: ${{ steps.bundle.outputs.bundle_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          clean: true
-      - name: Sync workspace to triggering commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --all --tags --prune
-          git checkout --force "${GITHUB_SHA}"
-          git clean -ffdx
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Set up Python
-        uses: actions/setup-python@v5
+          cache: npm
+          cache-dependency-path: frontend/mystery-shopper/package-lock.json
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build mystery public release bundle
+      - name: Define immutable release identity
+        id: identity
         shell: bash
-        run: |
-          bash scripts/linux/build_mystery_public_bundle.sh "${RUNNER_TEMP}/cwscx-mystery-public-release.zip"
-      - name: Push and install bundle on DMZ VM via SSH
-        shell: bash
-        env:
-          RELEASE_ID: ${{ env.RELEASE_ID }}
-          MYSTERY_PUBLIC_BASE_URL: ${{ secrets.MYSTERY_PUBLIC_BASE_URL }}
-          DMZ_SSH_KEY: ${{ secrets.DMZ_SSH_KEY }}
         run: |
           set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/main"
+          RELEASE_ID="mystery-public-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
+          echo "release_id=${RELEASE_ID}" >> "${GITHUB_OUTPUT}"
+      - name: Static deployment tests
+        shell: bash
+        run: bash scripts/linux/tests/test_mystery_public_release_scripts.sh
+      - name: Build bundle and checksum
+        id: bundle
+        shell: bash
+        env:
+          RELEASE_ID: ${{ steps.identity.outputs.release_id }}
+          REQUIRE_CLEAN_TREE: "1"
+        run: |
+          set -euo pipefail
+          BUNDLE="${RUNNER_TEMP}/cwscx-mystery-public-release.zip"
+          bash scripts/linux/build_mystery_public_bundle.sh "${BUNDLE}"
+          BUNDLE_SHA256="$(sha256sum "${BUNDLE}" | cut -d' ' -f1)"
+          printf '%s  %s\n' "${BUNDLE_SHA256}" "$(basename "${BUNDLE}")" > "${RUNNER_TEMP}/cwscx-mystery-public-release.zip.sha256"
+          echo "bundle_sha256=${BUNDLE_SHA256}" >> "${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mystery-public-${{ steps.identity.outputs.release_id }}
+          path: |
+            ${{ runner.temp }}/cwscx-mystery-public-release.zip
+            ${{ runner.temp }}/cwscx-mystery-public-release.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
 
-          DMZ_HOST="172.17.0.200"
-          DMZ_USER="cxadmin"
-
-          # Write SSH key to a temp file; clean it up on exit regardless
-          SSH_KEY_FILE="$(mktemp)"
-          trap "rm -f '${SSH_KEY_FILE}'" EXIT
-          printf '%s' "${DMZ_SSH_KEY}" | base64 -d > "${SSH_KEY_FILE}"
-          chmod 600 "${SSH_KEY_FILE}"
-
-          # Validate key before use
-          KEY_BYTES="$(wc -c < "${SSH_KEY_FILE}")"
-          KEY_FIRST="$(head -1 "${SSH_KEY_FILE}")"
-          echo "Key file: ${KEY_BYTES} bytes, first line: ${KEY_FIRST}"
-          if ! ssh-keygen -y -f "${SSH_KEY_FILE}" > /dev/null 2>&1; then
-            echo "::error::Private key invalid. Re-run: base64 -w 0 /tmp/dmz_deploy_key on cwscx-app01 and update DMZ_SSH_KEY secret."
-            exit 1
-          fi
-          echo "Private key validated OK."
-
-          SSH_OPTS="-i ${SSH_KEY_FILE} -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes"
-          SSH="ssh ${SSH_OPTS} ${DMZ_USER}@${DMZ_HOST}"
-          SCP="scp ${SSH_OPTS}"
-
-          # Copy bundle and install script to DMZ
-          REMOTE_BUNDLE="/tmp/cwscx-mystery-public-${RELEASE_ID}.zip"
-          ${SCP} "${RUNNER_TEMP}/cwscx-mystery-public-release.zip" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_BUNDLE}"
-          ${SCP} "scripts/linux/install_mystery_public_bundle.sh" "${DMZ_USER}@${DMZ_HOST}:/tmp/install_mystery_public_bundle.sh"
-
-          # Install bundle; preserves existing /opt/cwscx-mystery-public/.env if present
-          ${SSH} "sudo bash /tmp/install_mystery_public_bundle.sh '${REMOTE_BUNDLE}'"
-
-          # Ensure python3-venv is present on DMZ VM (idempotent)
-          ${SSH} "sudo bash -c 'apt-get install -y python3-venv 2>&1'"
-
-          # Deploy backend: creates venv, installs deps, runs alembic, (re)starts systemd service
-          # Run as root so internal run_as_root() calls bypass sudo (cp to /etc/systemd, systemctl)
-          ${SSH} "sudo bash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_backend.sh"
-
-          # Deploy nginx — write wrapper locally to avoid SSH quoting issues with env vars
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: [self-hosted, linux, production]
+    environment: mystery-public
+    timeout-minutes: 30
+    env:
+      RELEASE_ID: ${{ needs.build.outputs.release_id }}
+      BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
+      DMZ_HOST: 172.17.0.200
+      DMZ_USER: cxadmin
+      MYSTERY_PUBLIC_BASE_URL: ${{ secrets.MYSTERY_PUBLIC_BASE_URL }}
+      VERIFY_TLS_MODE: ${{ vars.MYSTERY_PUBLIC_TLS_MODE || 'prepublic' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: mystery-public-${{ needs.build.outputs.release_id }}
+          path: ${{ runner.temp }}/mystery-public-artifact
+      - name: Deploy from internal runner to DMZ over pinned SSH
+        id: deploy
+        shell: bash
+        env:
+          DMZ_SSH_KEY: ${{ secrets.DMZ_SSH_KEY }}
+          DMZ_SSH_KNOWN_HOSTS: ${{ secrets.DMZ_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${DMZ_HOST:?DMZ_HOST variable is required}"
+          : "${DMZ_USER:?DMZ_USER variable is required}"
+          : "${MYSTERY_PUBLIC_BASE_URL:?MYSTERY_PUBLIC_BASE_URL variable is required}"
+          : "${VERIFY_TLS_MODE:?MYSTERY_PUBLIC_TLS_MODE variable is required}"
+          : "${DMZ_SSH_KEY:?DMZ_SSH_KEY secret is required}"
+          : "${DMZ_SSH_KNOWN_HOSTS:?DMZ_SSH_KNOWN_HOSTS secret is required}"
+          EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"
+          mkdir -p "${EVIDENCE_DIR}"
+          KEY_FILE="$(mktemp)"; KNOWN_HOSTS_FILE="$(mktemp)"
+          trap 'rm -f "${KEY_FILE}" "${KNOWN_HOSTS_FILE}"' EXIT
+          printf '%s' "${DMZ_SSH_KEY}" | base64 -d > "${KEY_FILE}"
+          printf '%s\n' "${DMZ_SSH_KNOWN_HOSTS}" > "${KNOWN_HOSTS_FILE}"
+          chmod 600 "${KEY_FILE}" "${KNOWN_HOSTS_FILE}"
+          ssh-keygen -y -f "${KEY_FILE}" >/dev/null
+          ssh-keygen -l -f "${KNOWN_HOSTS_FILE}" >/dev/null
+          SSH_OPTS=(-i "${KEY_FILE}" -o "UserKnownHostsFile=${KNOWN_HOSTS_FILE}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15)
+          BUNDLE="${RUNNER_TEMP}/mystery-public-artifact/cwscx-mystery-public-release.zip"
+          printf '%s  %s\n' "${BUNDLE_SHA256}" "${BUNDLE}" | sha256sum --check --strict
+          REMOTE_BUNDLE="/tmp/${RELEASE_ID}.zip"
+          scp "${SSH_OPTS[@]}" "${BUNDLE}" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_BUNDLE}"
+          scp "${SSH_OPTS[@]}" scripts/linux/install_mystery_public_bundle.sh "${DMZ_USER}@${DMZ_HOST}:/tmp/install_mystery_public_bundle.sh"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
+            "printf '%s  %s\\n' '${BUNDLE_SHA256}' '${REMOTE_BUNDLE}' | sha256sum --check --strict"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
+            "sudo env EXPECTED_BUNDLE_SHA256='${BUNDLE_SHA256}' TARGET_ROOT=/opt/cwscx-mystery-public bash /tmp/install_mystery_public_bundle.sh '${REMOTE_BUNDLE}'" \
+            2>&1 | tee "${EVIDENCE_DIR}/install.log"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
+            "sudo bash /opt/cwscx-mystery-public/current/scripts/linux/deploy_mystery_public_backend.sh" \
+            2>&1 | tee "${EVIDENCE_DIR}/backend-deploy.log"
           SERVER_NAME="${MYSTERY_PUBLIC_BASE_URL#https://}"
-          SERVER_NAME="${SERVER_NAME#http://}"
-          SERVER_NAME="${SERVER_NAME%%/*}"
-          NGINX_WRAPPER="$(mktemp)"
-          printf '#!/bin/bash\nexport SITE_NAME=cwscx-mystery-public\nexport SERVER_NAME=%s\nbash /opt/cwscx-mystery-public/scripts/linux/deploy_mystery_public_nginx.sh\n' "${SERVER_NAME}" > "${NGINX_WRAPPER}"
-          ${SCP} "${NGINX_WRAPPER}" "${DMZ_USER}@${DMZ_HOST}:/tmp/nginx_deploy_wrapper.sh"
-          rm -f "${NGINX_WRAPPER}"
-          ${SSH} "sudo bash /tmp/nginx_deploy_wrapper.sh && rm -f /tmp/nginx_deploy_wrapper.sh"
-
-          # Verify — run as root so nginx -t can read the SSL key
-          VERIFY_WRAPPER="$(mktemp)"
-          printf '#!/bin/bash\nexport MYSTERY_PUBLIC_BASE_URL=%s\nbash /opt/cwscx-mystery-public/scripts/linux/verify_mystery_public.sh\n' "${MYSTERY_PUBLIC_BASE_URL}" > "${VERIFY_WRAPPER}"
-          ${SCP} "${VERIFY_WRAPPER}" "${DMZ_USER}@${DMZ_HOST}:/tmp/verify_wrapper.sh"
-          rm -f "${VERIFY_WRAPPER}"
-          ${SSH} "sudo bash /tmp/verify_wrapper.sh && rm -f /tmp/verify_wrapper.sh"
-
-          # Clean up temp files on DMZ
-          ${SSH} "rm -f '${REMOTE_BUNDLE}' /tmp/install_mystery_public_bundle.sh" || true
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
+            "sudo env SERVER_NAME='${SERVER_NAME}' TLS_MODE='${VERIFY_TLS_MODE}' ENABLE_HSTS=0 bash /opt/cwscx-mystery-public/current/scripts/linux/deploy_mystery_public_nginx.sh" \
+            2>&1 | tee "${EVIDENCE_DIR}/nginx-deploy.log"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
+            "sudo env MYSTERY_PUBLIC_BASE_URL='${MYSTERY_PUBLIC_BASE_URL}' VERIFY_TLS_MODE='${VERIFY_TLS_MODE}' EVIDENCE_FILE=/tmp/${RELEASE_ID}-verification.json bash /opt/cwscx-mystery-public/current/scripts/linux/verify_mystery_public.sh" \
+            2>&1 | tee "${EVIDENCE_DIR}/verification.log"
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/tmp/${RELEASE_ID}-verification.json" "${EVIDENCE_DIR}/verification.json"
+          python3 - "${EVIDENCE_DIR}/verification.json" <<'PY'
+          import json, sys
+          data=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert data["summary"]["total"] == len(data["checks"])
+          assert data["summary"]["passed"] + data["summary"]["failed"] == data["summary"]["total"]
+          assert data["summary"]["failed"] == 0
+          PY
+          printf '{"release_id":"%s","git_sha":"%s","bundle_sha256":"%s"}\n' "${RELEASE_ID}" "${GITHUB_SHA}" "${BUNDLE_SHA256}" > "${EVIDENCE_DIR}/workflow-release.json"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "rm -f '${REMOTE_BUNDLE}' '/tmp/${RELEASE_ID}-verification.json' /tmp/install_mystery_public_bundle.sh" || true
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mystery-public-deployment-evidence-${{ needs.build.outputs.release_id }}
+          path: ${{ runner.temp }}/mystery-public-evidence
+          if-no-files-found: warn
+          retention-days: 90

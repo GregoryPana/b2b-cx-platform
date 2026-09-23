@@ -1,6 +1,8 @@
 # Public Mystery Shopper DMZ Deployment Guide
 
-This guide describes the new public deployment model for the Mystery Shopper survey.
+> **Current release procedure:** use [[MYSTERY_PUBLIC_VM_ADMIN_RUNBOOK]] together with the repository-controlled immutable deployment workflow. The current model builds on the internal production runner and SSH-pushes to `cwscx-web01`; older references below to a DMZ-hosted runner, mutable install, VPN-only access, or DMZ-run migrations are historical and must not control deployment.
+
+This guide describes the public deployment model for the Mystery Shopper survey.
 
 ## 1) Purpose
 

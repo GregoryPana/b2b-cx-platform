@@ -1892,6 +1892,12 @@ async def create_mystery_visit(
 ):
     survey_type_id = _ensure_mystery_shopper_schema(db)
     actor_user_id = resolve_mystery_actor_user_id(db, current_user)
+    is_public_session = current_user.claims.get("auth_mode") == "mystery_public"
+    representative_id = (
+        actor_user_id
+        if is_public_session
+        else (payload.representative_id or actor_user_id)
+    )
     valid_purpose = db.execute(
         text(
             """
@@ -1953,7 +1959,7 @@ async def create_mystery_visit(
             """
         ),
         {
-            "representative_id": payload.representative_id or actor_user_id,
+            "representative_id": representative_id,
             "created_by": actor_user_id,
             "visit_date": payload.visit_date,
             "visit_type": payload.visit_type,
