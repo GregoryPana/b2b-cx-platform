@@ -17,6 +17,7 @@ from app.programs.b2b.router import router as b2b_router
 # Survey Imports
 from app.api.survey import router as survey_router
 from app.api.mystery_shopper import router as mystery_shopper_router
+from app.api.mystery_public import router as mystery_public_router
 from app.api.installation_surveys import router as installation_router
 from app.api.auth import router as auth_router
 from app.api.mystery_auth import router as mystery_auth_public_router, admin_router as mystery_auth_admin_router
@@ -106,10 +107,14 @@ def create_app() -> FastAPI:
     if settings.auth_mode != "mystery_public":
         print("[STARTUP] ENTRA_TENANT_ID: set")
 
+    public_mode = settings.auth_mode == "mystery_public"
     app = FastAPI(
         title="CX Assessment Platform",
         description="Multi-platform CX Assessment Platform",
-        version="1.0.0"
+        version="1.0.0",
+        docs_url=None if public_mode else "/docs",
+        redoc_url=None if public_mode else "/redoc",
+        openapi_url=None if public_mode else "/openapi.json",
     )
 
     # Add CORS middleware to allow cross-origin requests
@@ -143,42 +148,45 @@ def create_app() -> FastAPI:
         status_code = 200 if payload.get("status") == "ready" else 503
         return JSONResponse(status_code=status_code, content=payload)
     
-    # Core Platform Routes
-    app.include_router(core_router, prefix="/core", tags=["core"], dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
-    
-    # Program Routes
-    app.include_router(b2b_router, prefix="/b2b", tags=["b2b"], dependencies=[Depends(require_roles(*B2B_ROLES))])
-    # TODO: Add program routers as they are implemented
-    # app.include_router(b2c_router, prefix="/api/b2c", tags=["b2c"])
-    
-    # Survey Routes (for the survey interface)
-    app.include_router(survey_router, tags=["survey"], dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
-    app.include_router(mystery_shopper_router, dependencies=[Depends(require_roles(*MYSTERY_ROLES))])
-    app.include_router(installation_router)
-    if settings.auth_mode == "mystery_public":
+    # The DMZ backend exposes only the public auth lifecycle and the exact
+    # Mystery Shopper workspace operations required by its frontend.
+    if public_mode:
         app.include_router(mystery_auth_public_router)
+        app.include_router(mystery_public_router)
     else:
+        # Core Platform Routes
+        app.include_router(core_router, prefix="/core", tags=["core"], dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
+
+        # Program Routes
+        app.include_router(b2b_router, prefix="/b2b", tags=["b2b"], dependencies=[Depends(require_roles(*B2B_ROLES))])
+        # TODO: Add program routers as they are implemented
+        # app.include_router(b2c_router, prefix="/api/b2c", tags=["b2c"])
+
+        # Survey Routes (for the survey interface)
+        app.include_router(survey_router, tags=["survey"], dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
+        app.include_router(mystery_shopper_router, dependencies=[Depends(require_roles(*MYSTERY_ROLES))])
+        app.include_router(installation_router)
         app.include_router(auth_router, dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
         app.include_router(mystery_auth_admin_router, dependencies=[Depends(require_roles("CX_SUPER_ADMIN", "MYSTERY_ADMIN"))])
-    
-    # Dashboard Compatibility Routes (for dashboard metrics)
-    app.include_router(dashboard_compat_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
-    
-    # Users Compatibility Routes (for dashboard users)
-    app.include_router(users_compat_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
-    
-    # Visits Compatibility Routes (for dashboard visits)
-    app.include_router(visits_compat_router, dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
-    
-    # Admin Dashboard Routes (for admin management)
-    app.include_router(admin_dashboard_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
-    
-    # Analytics Routes (for comprehensive analytics)
-    app.include_router(analytics_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
-    app.include_router(account_executives_router, dependencies=[Depends(require_roles(*B2B_ROLES))])
-    
-    # Test Routes (for debugging)
-    app.include_router(test_router, tags=["test"])
+
+        # Dashboard Compatibility Routes (for dashboard metrics)
+        app.include_router(dashboard_compat_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
+
+        # Users Compatibility Routes (for dashboard users)
+        app.include_router(users_compat_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
+
+        # Visits Compatibility Routes (for dashboard visits)
+        app.include_router(visits_compat_router, dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
+
+        # Admin Dashboard Routes (for admin management)
+        app.include_router(admin_dashboard_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
+
+        # Analytics Routes (for comprehensive analytics)
+        app.include_router(analytics_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
+        app.include_router(account_executives_router, dependencies=[Depends(require_roles(*B2B_ROLES))])
+
+        # Test Routes (for debugging)
+        app.include_router(test_router, tags=["test"])
     
     return app
 

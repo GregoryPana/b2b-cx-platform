@@ -11,9 +11,9 @@ Two independent fixes for the installation assessment survey:
      accidental resubmission of the same work order silently created a
      duplicate survey. This adds a case-insensitive unique index, mirroring
      `ux_installation_contractors_name_ci`. If duplicate work orders already
-     exist in the data, this step is skipped with a NOTICE rather than
-     failing the whole migration — remove the duplicates first, then re-run
-     `alembic upgrade head` to pick up the guard.
+     exist, the migration fails before Alembic marks the revision applied.
+     Operators must resolve the duplicates and rerun the migration so the
+     uniqueness invariant cannot be silently omitted.
 
   2. `field_team_members` was stored as free-text JSONB per survey row with
      no master list (unlike `installation_contractors`, which already has
@@ -44,12 +44,78 @@ def _table_exists(bind, table_name: str) -> bool:
     return table_name in inspect(bind).get_table_names()
 
 
-def _index_exists(bind, table_name: str, index_name: str) -> bool:
-    return any(ix.get("name") == index_name for ix in inspect(bind).get_indexes(table_name))
+def _validate_work_order_index(bind) -> bool:
+    """Return False when absent; fail closed when a same-name relation is incompatible."""
+    row = bind.execute(
+        sa_text(
+            """
+            WITH target AS (
+                SELECT relation.oid AS table_oid, relation.relnamespace AS namespace_oid
+                FROM pg_class relation
+                WHERE relation.oid = to_regclass(:table_name)
+            )
+            SELECT
+                indexed_relation.oid = target.table_oid AS targets_expected_table,
+                index_metadata.indisunique AS is_unique,
+                index_metadata.indisvalid AS is_valid,
+                index_metadata.indisready AS is_ready,
+                index_metadata.indnkeyatts AS key_count,
+                index_metadata.indnatts AS attribute_count,
+                access_method.amname AS access_method,
+                pg_get_indexdef(index_relation.oid, 1, true) AS key_expression,
+                pg_get_expr(
+                    index_metadata.indpred,
+                    index_metadata.indrelid,
+                    true
+                ) AS predicate
+            FROM target
+            JOIN pg_class index_relation
+              ON index_relation.relnamespace = target.namespace_oid
+             AND index_relation.relname = :index_name
+            LEFT JOIN pg_index index_metadata
+              ON index_metadata.indexrelid = index_relation.oid
+            LEFT JOIN pg_class indexed_relation
+              ON indexed_relation.oid = index_metadata.indrelid
+            LEFT JOIN pg_am access_method
+              ON access_method.oid = index_relation.relam
+            """
+        ),
+        {"table_name": SURVEYS_TABLE, "index_name": WORK_ORDER_INDEX},
+    ).mappings().one_or_none()
+
+    if row is None:
+        return False
+
+    expected = {
+        "targets_expected_table": True,
+        "is_unique": True,
+        "is_valid": True,
+        "is_ready": True,
+        "key_count": 1,
+        "attribute_count": 1,
+        "access_method": "btree",
+        "key_expression": "lower(work_order::text)",
+        "predicate": "work_order IS NOT NULL AND work_order::text <> ''::text",
+    }
+    mismatches = [
+        f"{field}={row[field]!r} (expected {value!r})"
+        for field, value in expected.items()
+        if row[field] != value
+    ]
+    if mismatches:
+        raise RuntimeError(
+            f"Existing {WORK_ORDER_INDEX} is incompatible with the required unique "
+            "lower(work_order) partial-index contract: " + "; ".join(mismatches)
+        )
+    return True
 
 
 def upgrade() -> None:
     bind = op.get_bind()
+
+    work_order_index_exists = False
+    if _table_exists(bind, SURVEYS_TABLE):
+        work_order_index_exists = _validate_work_order_index(bind)
 
     # 1) Master field_team_members table, mirroring installation_contractors.
     op.execute(
@@ -93,7 +159,7 @@ def upgrade() -> None:
         )
 
     # 2) Case-insensitive uniqueness guard on work_order, if data allows it.
-    if _table_exists(bind, SURVEYS_TABLE) and not _index_exists(bind, SURVEYS_TABLE, WORK_ORDER_INDEX):
+    if _table_exists(bind, SURVEYS_TABLE) and not work_order_index_exists:
         duplicate_count = bind.execute(
             sa_text(
                 f"""
@@ -109,22 +175,21 @@ def upgrade() -> None:
         ).scalar()
 
         if duplicate_count:
-            op.execute(
-                f"""
-                DO $$
-                BEGIN
-                    RAISE NOTICE 'Skipping unique index {WORK_ORDER_INDEX}: % duplicate work_order value(s) found. Resolve duplicates and re-run this migration.', {duplicate_count};
-                END $$;
-                """
+            raise RuntimeError(
+                f"Cannot create {WORK_ORDER_INDEX}: found {duplicate_count} duplicate "
+                "case-insensitive work_order value(s). Resolve the duplicates and rerun "
+                "the migration; the revision has not been applied."
             )
-        else:
-            op.execute(
-                f"""
-                CREATE UNIQUE INDEX IF NOT EXISTS {WORK_ORDER_INDEX}
-                ON {SURVEYS_TABLE} (lower(work_order))
-                WHERE work_order IS NOT NULL AND work_order <> ''
-                """
-            )
+
+        op.execute(
+            f"""
+            CREATE UNIQUE INDEX {WORK_ORDER_INDEX}
+            ON {SURVEYS_TABLE} (lower(work_order))
+            WHERE work_order IS NOT NULL AND work_order <> ''
+            """
+        )
+        if not _validate_work_order_index(bind):
+            raise RuntimeError(f"Failed to create required index {WORK_ORDER_INDEX}")
 
 
 def downgrade() -> None:
