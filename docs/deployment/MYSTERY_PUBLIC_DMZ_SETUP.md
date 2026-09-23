@@ -1,20 +1,22 @@
-# Public Mystery Shopper DMZ Deployment Guide
+# Mystery Shopper APN Application-VM Deployment Guide
 
-> **Current release procedure:** use [[MYSTERY_PUBLIC_VM_ADMIN_RUNBOOK]] together with the repository-controlled immutable deployment workflow. The current model builds on the internal production runner and SSH-pushes to `cwscx-web01`; older references below to a DMZ-hosted runner, mutable install, VPN-only access, or DMZ-run migrations are historical and must not control deployment.
+> **Current access decision (2026-09-23):** no public IP or Internet exposure. `cwscx-web01` remains in its current location as an internal, non-public application VM reached by approved APN clients. It is not a public DMZ host. The repository identifiers `mystery_public`, `DMZ_HOST` and this legacy filename remain compatibility names, not network-exposure claims.
+>
+> **Current release procedure:** use [[MYSTERY_PUBLIC_VM_ADMIN_RUNBOOK]] with the repository-controlled immutable workflow. The internal production runner SSH-pushes the reviewed bundle to `cwscx-web01` and invokes one fixed root-owned deployment entrypoint. Older public-IP, Internet NAT/WAF, DMZ-hosted runner, mutable install, VPN-only and DMZ-run migration instructions are historical and must not control deployment.
 
-This guide describes the public deployment model for the Mystery Shopper survey.
+This guide describes the separated Password+TOTP Mystery Shopper application instance used through APN connectivity.
 
 ## 1) Purpose
 
-The Mystery Shopper survey will move to a separate public-facing VM in the DMZ.
+The Mystery Shopper survey remains on a separate internal application VM. Approved shopper devices reach it through APN connectivity; it is not Internet-facing.
 
-Current target DMZ VM:
+Current target application VM:
 - Hostname: `cwscx-web01.cwsey.com`
 - IP: `172.17.0.200`
 
 This VM is intended for:
-- external users
-- non-organisational users
+- approved Mystery Shopper users connecting through APN
+- non-organisational users on controlled CWS connectivity
 - no Microsoft Entra login dependency
 
 This VM is not the same as the internal production VM used by the dashboard and other internal frontends.
@@ -26,37 +28,40 @@ This VM is not the same as the internal production VM used by the dashboard and 
 - mystery staging remains on the current internal staging environment for testing
 - internal governance dashboard remains internal-only
 
-### Public production changes
+### APN application instance
 
-- public Mystery Shopper frontend and backend run on a dedicated DMZ VM
+- Password+TOTP Mystery Shopper frontend and backend run on the retained internal application VM
+- APN clients reach NGINX on HTTPS `443` only
+- backend `8011`, PostgreSQL and SSH are not APN-client surfaces
 - the database remains in the current internal production environment
 
 ## 3) Proposed runtime shape
 
 ```text
-External User Browser
-  -> HTTPS
-DMZ Mystery VM
+APN-connected Shopper Device
+  -> APN route -> HTTPS 443
+Internal Mystery Application VM
   - nginx
-  - public mystery frontend
+  - Password+TOTP mystery frontend
   - mystery backend service
-  - self-hosted GitHub runner
   -> restricted internal DB connection
 Internal Production Database
 ```
 
 ## 4) Important design rules
 
-- do not expose the internal dashboard on the DMZ VM
-- do not expose B2B or installation survey frontends on the DMZ VM
-- do not expose PostgreSQL publicly
-- keep only the minimum public backend routes open
+- do not expose the internal dashboard on the APN application VM
+- do not expose B2B or installation survey frontends on this VM
+- do not expose PostgreSQL, SSH or backend `8011` to APN clients
+- keep only the minimum shopper backend routes available through NGINX
 - keep authentication implementation independent from internal Entra-only user flows
+- no public FQDN, public IP, Internet NAT, WAF or Internet firewall publication is required
+- use an internally trusted HTTPS certificate with named renewal ownership
 
 ### Authentication decision (DECIDED)
 
-The public Mystery Shopper uses **Password + TOTP** application 2FA, behind the
-VPN. This is the single chosen design.
+The APN Mystery Shopper instance uses **Password + TOTP** application 2FA.
+APN connectivity is the selected network-access design.
 
 - Full design and risks: `docs/architecture/MYSTERY_PUBLIC_AUTH_OPTIONS.md`
 - Step-by-step build guide: `docs/architecture/MYSTERY_PUBLIC_2FA_IMPLEMENTATION.md`
@@ -65,7 +70,8 @@ VPN. This is the single chosen design.
 Mystery Shopper frontend runs alongside the other internal frontends and is used
 by internal Entra users — it keeps Entra. The new auth is gated by `AUTH_MODE`
 (backend) and `VITE_AUTH_MODE` (frontend), both defaulting to `entra`. Only the
-DMZ deployment sets `mystery_public`.
+APN application-VM deployment sets `mystery_public`; the value identifies the
+authentication mode, not public Internet exposure.
 
 ## 5) GitHub and CI/CD setup
 
@@ -100,23 +106,22 @@ You may later add additional environment-specific secrets if the deployment proc
 
 ## 7) Required VM baseline
 
-The DMZ Mystery VM should have:
+The internal APN application VM should have:
 
 - Ubuntu Linux
-- internet access to GitHub Actions control plane
 - nginx installed
 - Python 3.11 or 3.12
 - Node 20+
 - git, curl, unzip, zip, rsync
 - TLS certificate and key
 - writable application directory
-- firewall allowing public `443` only unless explicitly approved otherwise
+- network controls allowing HTTPS `443` only from approved APN sources
 
 Current VM identity for setup tracking:
 - Hostname: `cwscx-web01.cwsey.com`
 - IP: `172.17.0.200`
 
-## 8) Required directory layout on the DMZ VM
+## 8) Required directory layout on the APN application VM
 
 Recommended:
 
@@ -130,7 +135,7 @@ Recommended:
   .env
 ```
 
-## 9) Required `.env` on the DMZ VM
+## 9) Required `.env` on the APN application VM
 
 Path:
 
@@ -140,13 +145,13 @@ Path:
 
 This file should include:
 - `ENVIRONMENT=production`
-- `AUTH_MODE=mystery_public`  (DMZ only — switches the app to Password + TOTP)
+- `AUTH_MODE=mystery_public`  (APN application instance only — switches the app to Password + TOTP)
 - `DATABASE_URL`
 - `CORS_ALLOW_ORIGINS`
 - `MYSTERY_AUTH_SECRET_KEY` (Fernet key for encrypting TOTP secrets at rest)
 - `MYSTERY_SESSION_IDLE_MINUTES`, `MYSTERY_SESSION_ABSOLUTE_HOURS`,
   `MYSTERY_ENROLL_TOKEN_MINUTES`
-- public base URL settings as needed
+- internal APN-reachable HTTPS base URL settings as needed
 - no `ENTRA_*` values are required when `AUTH_MODE=mystery_public`
 
 See `docs/architecture/MYSTERY_PUBLIC_2FA_IMPLEMENTATION.md` §5 for the full list.
@@ -156,16 +161,16 @@ See `docs/architecture/MYSTERY_PUBLIC_2FA_IMPLEMENTATION.md` §5 for the full li
 The database remains in the internal production environment.
 
 That means infrastructure must allow:
-- the DMZ Mystery backend to reach the production database on the approved port
+- the APN application backend to reach the production database on the approved port
 
 Recommended controls:
-- allow only the specific DMZ VM source IP
+- allow only the specific application-VM source IP
 - allow only the required DB port
-- do not expose the DB publicly
+- do not expose the DB to APN clients
 
-## 11) NGINX shape on the DMZ VM
+## 11) NGINX shape on the APN application VM
 
-The public Mystery VM should serve:
+The APN Mystery application VM should serve:
 
 - `/` -> mystery shopper frontend
 - `/api/*` -> mystery backend
@@ -177,12 +182,12 @@ It should not include internal dashboard routes.
 The following work is auth-agnostic and can be prepared immediately:
 
 1. create the dedicated deploy workflow
-2. register the self-hosted runner on the DMZ VM
+2. retain deployment from the internal production runner over pinned SSH; do not add a runner to this VM
 3. create `/opt/cwscx-mystery-public`
 4. place TLS files on the VM
-5. prepare nginx config for public mystery frontend/backend only
+5. prepare nginx config for the APN Mystery frontend/backend only
 6. prepare `.env` structure on the VM
-7. request DB firewall access from the DMZ VM to the internal production DB
+7. retain restricted DB firewall access from the application VM to the internal production DB
 8. add the GitHub environment and base URL secret
 
 ## 13) Auth decision — RESOLVED
@@ -207,9 +212,9 @@ use Entra unchanged.
 - frontend root page opens over HTTPS
 - backend `/api/health` responds
 - backend `/api/health/ready` responds
-- public frontend can call backend
-- runner is online in GitHub
-- release bundle archives on the DMZ VM
+- APN frontend can call backend
+- internal production deployment runner is online in GitHub
+- release bundle archives on the application VM
 - nginx config passes syntax test
 
 ## 15) Files introduced for this deployment path

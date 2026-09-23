@@ -1,16 +1,86 @@
-# Mystery Shopper DMZ VM Admin Runbook
+# Mystery Shopper APN Application-VM Admin Runbook
 
 ## Scope
 
-Use this runbook on `cwscx-web01` after the release-readiness pull request is merged. It covers only work available through VM administrator access. It does not create public DNS, NAT, WAF or upstream firewall rules.
+Use this runbook on `cwscx-web01` after the release-readiness pull request is merged. The host remains an internal, non-public application VM reached through APN connectivity; it is not a public DMZ host. No public DNS, public IP, Internet NAT or WAF is required. Legacy `mystery_public` and `DMZ_*` identifiers remain compatibility names.
 
 ## Safety rules
 
 - Do not print or copy `/opt/cwscx-mystery-public/.env` values.
-- Do not run Alembic from the DMZ VM. Shared-database migrations are owned by the internal production deployment.
+- Do not run Alembic from the application VM. Shared-database migrations are owned by the internal production deployment.
 - Do not expose backend port `8011`; it must listen only on `127.0.0.1`.
-- Do not enable HSTS until a client-trusted public certificate is installed and verified.
+- Do not enable HSTS until the APN clients trust the installed certificate and renewal ownership is verified.
 - Preserve `/opt/cwscx-mystery-public/.env`, `/shared`, and prior release directories.
+
+## 0. One-time privileged entrypoint bootstrap
+
+The `cxadmin` account never receives a broad sudoers grant. It is limited to
+a single, fixed, root-owned command:
+`/usr/local/sbin/cwscx-mystery-public-deploy`
+(`scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh`). The sudoers
+rule names only that absolute path — it never grants `bash`, `sh`, or any
+other interpreter, so `cxadmin` cannot use its NOPASSWD grant to run
+arbitrary root commands.
+
+Install or update this entrypoint (and its companion installer) with
+`scripts/linux/bootstrap_mystery_public_deploy_entrypoint.sh`, run once by a
+VM administrator and again only when that entrypoint/installer source
+changes. The bootstrap script refuses to run against a checkout that is not
+already owned by `root`:
+
+```bash
+sudo git clone --branch <reviewed-ref> <repo-url> /root/cwscx-mystery-public-src
+cd /root/cwscx-mystery-public-src
+sudo git log -1 --format='%H'   # record and compare against the reviewed commit
+sudo install -o root -g root -m 0600 /root/reviewed-deploy-key.pub \
+  /root/cwscx-mystery-public-deploy-signing-key.pub
+sudo bash scripts/linux/bootstrap_mystery_public_deploy_entrypoint.sh
+```
+
+`reviewed-deploy-key.pub` must be the public key matching the existing
+GitHub Environment secret `DMZ_SSH_KEY`. The workflow uses that private key
+to create an SSH signature over the exact bundle. The root-owned entrypoint
+verifies the signature against
+`/etc/cwscx-mystery-public/deploy-allowed-signers` before any bundle content
+is installed or executed. This prevents a local `cxadmin` session from
+supplying an arbitrary bundle and matching caller-chosen checksum to gain
+root code execution.
+
+A checkout owned by the interactive `sudo` user (rather than `root`) is not
+accepted, even though that user ran `sudo`: that account's files could be
+replaced between review and install. If you must bootstrap from an existing
+non-root checkout that has already been reviewed and is not concurrently
+writable by anyone else, take ownership first so there is no window where
+an unprivileged account still controls the source the bootstrap script
+reads:
+
+```bash
+sudo chown -R root:root /path/to/checkout
+sudo chmod -R go-w /path/to/checkout
+sudo bash /path/to/checkout/scripts/linux/bootstrap_mystery_public_deploy_entrypoint.sh
+```
+
+Bootstrap also provisions the fixed, root-owned evidence directory
+`/var/lib/cwscx-mystery-public/deploy-evidence` (mode `0755`). The deploy
+entrypoint writes each run's verification evidence there as
+`<release-id>.json`, mode `0644`, and never into `/tmp`: because only root
+can write inside a `0755` root-owned directory, there is no window for
+another account to plant or swap that file before the entrypoint (running
+as root) writes it. The entrypoint never `chown`s evidence to `cxadmin` —
+`0644` plus the `0755` directory is what lets `cxadmin` read it over SCP.
+Evidence retention is bounded (newest 20 releases) rather than deleted
+immediately after fetch, since deletion right after the workflow's SCP
+would race a slow or retried fetch.
+
+Verify the sudoers grant after bootstrapping:
+
+```bash
+sudo -l -U cxadmin
+```
+
+Expect exactly one NOPASSWD entry, for the fixed entrypoint path — nothing
+naming `bash`, `sh`, `install_mystery_public_bundle.sh`, or any other script
+directly.
 
 ## 1. Pre-deployment audit
 
@@ -60,7 +130,7 @@ Required before deployment:
 - The VM can reach the internal database endpoint on TCP `5433`.
 - The internal production runner can reach this VM on SSH `22`.
 
-The new release carries an offline Python wheelhouse; the DMZ VM does not need public package-manager or PyPI access during deployment.
+The new release carries an offline Python wheelhouse; the application VM does not need public package-manager or PyPI access during deployment.
 
 ## 3. GitHub deployment prerequisites
 
@@ -68,8 +138,8 @@ The `mystery-public` GitHub Environment must contain:
 
 - Secret `DMZ_SSH_KEY`: existing base64-encoded private deploy key.
 - Secret `DMZ_SSH_KNOWN_HOSTS`: pinned OpenSSH known-hosts line for `172.17.0.200`.
-- Secret `MYSTERY_PUBLIC_BASE_URL`: current HTTPS origin.
-- Optional variable `MYSTERY_PUBLIC_TLS_MODE`: `prepublic` until trusted public TLS is installed; then `trusted`.
+- Secret `MYSTERY_PUBLIC_BASE_URL`: current internal HTTPS origin reachable through APN.
+- Optional variable `MYSTERY_PUBLIC_TLS_MODE`: `prepublic` until the APN clients trust the certificate; then `trusted`. The name is retained for compatibility.
 
 Generate the pinned host entry from an already trusted administrative path and compare its fingerprint on the VM:
 
@@ -83,7 +153,7 @@ Only set the GitHub secret after the fingerprints match.
 
 ## 4. Deployment order
 
-The shared database must reach the approved migration head before the DMZ release verifies it.
+The shared database must reach the approved migration head before the APN application release verifies it.
 
 1. Merge the reviewed PR to `main` after CI passes.
 2. Run internal staging deployment and verify service, migration revision and behavior.
@@ -97,16 +167,26 @@ Do not trigger the Mystery deployment first.
 
 - Builds one immutable artifact on a hosted runner.
 - Records full Git SHA, build time, frontend auth mode and expected migration head.
-- Downloads all Python wheels before entering the DMZ.
+- Downloads all Python wheels before transfer to the application VM.
 - Hashes the bundle and every bundled file.
 - Uses a pinned SSH host key.
+- SCPs only the release bundle to `/tmp` on the application VM, then makes
+  exactly one privileged call over SSH: `sudo -n` against the fixed
+  entrypoint `/usr/local/sbin/cwscx-mystery-public-deploy`. It does not
+  upload the installer to `/tmp` and does not run any other `sudo`
+  command — the entrypoint itself performs installation, backend deploy,
+  NGINX deploy, and verification using fixed, root-owned scripts already
+  present in the immutable release (see §0).
 - Installs under `/opt/cwscx-mystery-public/releases/<release-id>`.
 - Atomically changes `/opt/cwscx-mystery-public/current`.
 - Preserves `.env`, shared data and prior releases.
 - Binds Uvicorn to `127.0.0.1:8011`.
 - Applies systemd hardening and NGINX rate limits/security headers.
 - Performs read-only migration, database SSL, service, route and listener verification.
-- Uploads installation and verification evidence even when a deployment fails.
+- Fetches verification evidence from the fixed, root-owned path
+  `/var/lib/cwscx-mystery-public/deploy-evidence/<release-id>.json` over
+  SCP and uploads it as a workflow artifact even when a deployment fails;
+  it does not delete that evidence on the VM after fetching it.
 
 ## 6. Post-deployment VM checks
 
@@ -133,7 +213,7 @@ Required end state:
 
 ## 7. Functional acceptance
 
-After IT enables the public edge, use a clearly labelled test shopper:
+After APN routing and certificate trust are confirmed, use a clearly labelled test shopper from an APN-connected device:
 
 1. Internal administrator creates the test shopper and enrollment link.
 2. External device opens the link and completes password plus TOTP setup.
@@ -148,15 +228,15 @@ Rollback means switching to a prior approved immutable release whose database/co
 
 Before rollback, record the active release and migration revision. Change the `current` symlink only to a verified prior release, restart backend, reload NGINX, and rerun the verifier. Database downgrade is not part of normal rollback.
 
-## IT/networking-only handoff
+## APN/networking handoff
 
-Keep the IT request limited to controls unavailable through VM admin:
+Keep the network request limited to controls unavailable through VM admin:
 
-- Public FQDN and public DNS.
-- NAT/load balancer/WAF or upstream firewall mapping Internet clients to DMZ HTTPS `443` only.
-- No public route to `8011`, PostgreSQL or SSH.
-- Publicly trusted certificate/CA chain and renewal ownership if centrally managed.
-- Confirmation of upstream DDoS/abuse controls and external monitoring ownership.
+- APN DNS/routing to the retained internal VM.
+- Permitted APN client/source scope reaching HTTPS `443` only.
+- No APN-client route to `8011`, PostgreSQL or SSH.
+- Internally trusted certificate/CA chain and renewal ownership.
+- Monitoring, alert, incident and user-support ownership.
 - PostgreSQL server certificate/CA and hostname needed to progress from `sslmode=require` to `verify-full`.
 
 All repository, backend binding, systemd, NGINX, immutable release, VM audit and deployment-evidence work is owned by the project/VM-admin side.
