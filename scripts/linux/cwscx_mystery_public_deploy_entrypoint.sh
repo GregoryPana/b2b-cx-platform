@@ -103,6 +103,9 @@ validate_tmp_path() {
   [[ "${owner}" == "${SUDO_USER}" || "${owner}" == "root" ]] || die "${label} path has an unexpected owner: ${owner}"
   mode="$(stat -c '%a' "${resolved}")"
   (( 8#${mode} & 8#022 )) && die "${label} path must not be group- or world-writable"
+  # The safe case makes the arithmetic test above false. Return success
+  # explicitly so `set -e` does not terminate after valid input.
+  return 0
 }
 
 # Confine the bundle path to a flat filename directly under /tmp; the regex

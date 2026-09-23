@@ -73,6 +73,9 @@ check_root_owned_file() {
     || die "${label} source must be owned by root (found: ${owner}); see the administrator procedure at the top of this script"
   mode="$(stat -c '%a' "${path}")"
   (( 8#${mode} & 8#022 )) && die "${label} source must not be group- or world-writable"
+  # The safe case makes the arithmetic test above false. Return success
+  # explicitly so `set -e` callers do not treat a secure file as failure.
+  return 0
 }
 
 check_source() {
