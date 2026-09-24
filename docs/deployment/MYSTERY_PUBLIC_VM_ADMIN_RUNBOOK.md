@@ -131,6 +131,9 @@ ip route
 df -hT / /opt
 free -h
 nproc
+uname -m
+python3 --version
+( probe="$(mktemp -d /tmp/cwscx-venv-probe.XXXXXX)"; trap 'rm -rf -- "$probe"' EXIT; python3 -m venv "$probe/venv" && "$probe/venv/bin/python" -m pip --version )
 timedatectl status
 command -v nginx python3 curl ss systemctl openssl sha256sum
 sudo nginx -t
@@ -141,7 +144,9 @@ sudo ss -lntp '( sport = :443 or sport = :8011 or sport = :22 )'
 
 Required before deployment:
 
-- Python 3 with `venv` support is already installed.
+- The VM is `x86_64` with Python 3.12 and working `venv` support; the offline
+  wheelhouse contains native x86-64 wheels and is smoke-installed against
+  Python 3.12 on the build runner. Stop if the VM differs.
 - NGINX, curl, OpenSSL, systemd, `ss`, and SHA-256 tooling exist.
 - `/opt/cwscx-mystery-public/.env` exists and is mode `600` or `640`.
 - The VM can reach the internal database endpoint on TCP `5433`.

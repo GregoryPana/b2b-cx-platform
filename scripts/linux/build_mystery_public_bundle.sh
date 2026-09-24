@@ -14,6 +14,7 @@ trap cleanup EXIT
 command -v git >/dev/null
 command -v npm >/dev/null
 "${PYTHON_BIN}" -m pip --version >/dev/null
+"${PYTHON_BIN}" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else "Mystery public offline wheelhouse must target VM Python 3.12")'
 
 GIT_SHA="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
 [[ "${GIT_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo "Unable to determine full Git SHA" >&2; exit 1; }
@@ -98,6 +99,16 @@ find "${RELEASE_ROOT}" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
   --only-binary=:all: \
   --dest "${RELEASE_ROOT}/wheelhouse" \
   -r "${REPO_ROOT}/backend/requirements.txt"
+
+# Catch missing/incompatible wheels on the build runner, before any VM
+# transfer or activation. The smoke venv is outside release/ and never bundled.
+"${PYTHON_BIN}" -m venv "${STAGE_ROOT}/wheelhouse-smoke"
+"${STAGE_ROOT}/wheelhouse-smoke/bin/python" -m pip install \
+  --disable-pip-version-check --no-index \
+  --find-links "${RELEASE_ROOT}/wheelhouse" \
+  -r "${RELEASE_ROOT}/backend/requirements.txt"
+"${STAGE_ROOT}/wheelhouse-smoke/bin/python" -m pip check
+"${STAGE_ROOT}/wheelhouse-smoke/bin/python" -c 'import fastapi, uvicorn, sqlalchemy, alembic, psycopg, psycopg2'
 
 HEADS_JSON="$(printf '%s\n' "${EXPECTED_HEADS[@]}" | "${PYTHON_BIN}" -c 'import json,sys; print(json.dumps([line.strip() for line in sys.stdin if line.strip()]))')"
 export RELEASE_ID GIT_SHA BUILD_TIMESTAMP_UTC FRONTEND_AUTH_MODE TREE_STATE HEADS_JSON

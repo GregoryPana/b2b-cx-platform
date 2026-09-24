@@ -32,7 +32,9 @@ jobs:
           cache-dependency-path: frontend/mystery-shopper/package-lock.json
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # Match cwscx-web01's Python 3.12: the offline wheelhouse contains
+          # interpreter-specific wheels that Python 3.12 cannot load from 3.11.
+          python-version: "3.12"
       - name: Define immutable release identity
         id: identity
         shell: bash
