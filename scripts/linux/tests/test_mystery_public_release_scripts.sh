@@ -34,6 +34,19 @@ require "$BACKEND" '--host 127.0.0.1 --port 8011' 'DMZ backend binds loopback on
 forbid "$BACKEND" 'alembic" upgrade' 'DMZ backend never runs shared migrations'
 require "$BACKEND" 'NoNewPrivileges=true' 'systemd prevents privilege escalation'
 require "$BACKEND" 'ProtectSystem=strict' 'systemd protects filesystem'
+require "$BACKEND" 'mktemp /tmp/cwscx-mystery-public-backend.XXXXXX.service' 'backend validates a temporary file with a valid systemd unit suffix'
+if command -v systemd-analyze >/dev/null 2>&1; then
+  # Exercise the exact filename template, not just a textual source assertion.
+  UNIT_FILE="$(mktemp /tmp/cwscx-mystery-public-backend.XXXXXX.service)"
+  printf '[Service]\nExecStart=/usr/bin/true\n' >"${UNIT_FILE}"
+  if systemd-analyze verify "${UNIT_FILE}" >/dev/null 2>&1; then
+    printf '[PASS] systemd accepts the backend temporary unit filename\n'
+  else
+    printf '[FAIL] systemd rejects the backend temporary unit filename\n' >&2
+    failures=$((failures+1))
+  fi
+  rm -f -- "${UNIT_FILE}"
+fi
 require "$NGINX" 'limit_req_zone' 'NGINX defines request rate limits'
 require "$NGINX" 'limit_conn_zone' 'NGINX defines connection limits'
 require "$NGINX" 'Content-Security-Policy' 'NGINX sends CSP'
