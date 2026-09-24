@@ -20,6 +20,9 @@ for bad in (
     prefix + "    (root) NOPASSWD: ALL\n",
     fixed,
     prefix + "    (root) /usr/local/sbin/cwscx-mystery-public-deploy\n",
+    "Matching Defaults entries for cxadmin on cwscx-web01:\n    env_reset, !authenticate\n\n" + prefix.split("\n\n", 1)[1] + "    (ALL : ALL) ALL\n" + fixed,
+    "Matching Defaults entries for cxadmin on cwscx-web01:\n    exempt_group=sudo\n\n" + prefix.split("\n\n", 1)[1] + "    (ALL : ALL) ALL\n" + fixed,
+    "Matching Defaults entries for cxadmin on cwscx-web01:\n    !authenticate for /usr/bin/bash\n\n" + prefix.split("\n\n", 1)[1] + "    (ALL : ALL) ALL\n" + fixed,
 ):
     try:
         module.check_listing(bad)

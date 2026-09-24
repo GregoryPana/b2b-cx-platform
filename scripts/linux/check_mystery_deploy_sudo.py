@@ -8,6 +8,11 @@ EXPECTED = "/usr/local/sbin/cwscx-mystery-public-deploy"
 
 
 def check_listing(text: str) -> None:
+    # Command tags are not the only way sudo can suppress authentication.
+    # Refuse any effective listing with authentication-disabling Defaults;
+    # otherwise an apparently passworded ALL rule may be passwordless.
+    if re.search(r"(?i)(?<![\w])!authenticate\b|\bexempt_group\s*=", text):
+        raise ValueError("authentication-disabling sudo Defaults present")
     # sudo -l groups command specifications under a run-as prefix. A broad
     # NOPASSWD command may wrap to a following line; forbid any continuation.
     rules = re.findall(r"(?m)^\s*\([^\n)]*\)\s+NOPASSWD:\s*([^\n]+)", text)
