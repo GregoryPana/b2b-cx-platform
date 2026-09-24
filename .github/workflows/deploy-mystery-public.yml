@@ -111,6 +111,10 @@ jobs:
           ssh-keygen -y -f "${KEY_FILE}" >/dev/null
           ssh-keygen -l -f "${KNOWN_HOSTS_FILE}" >/dev/null
           SSH_OPTS=(-i "${KEY_FILE}" -o "UserKnownHostsFile=${KNOWN_HOSTS_FILE}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15)
+          # Fail before transferring or installing a release unless the VM
+          # exposes only the fixed deployment entrypoint without a password.
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" 'sudo -n -l' \
+            | python3 scripts/linux/check_mystery_deploy_sudo.py
           BUNDLE="${RUNNER_TEMP}/mystery-public-artifact/cwscx-mystery-public-release.zip"
           printf '%s  %s\n' "${BUNDLE_SHA256}" "${BUNDLE}" | sha256sum --check --strict
           REMOTE_BUNDLE="/tmp/${RELEASE_ID}.zip"

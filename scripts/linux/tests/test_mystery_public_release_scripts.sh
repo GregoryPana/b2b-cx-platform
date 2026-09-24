@@ -95,10 +95,11 @@ require "$WORKFLOW" 'actions/upload-artifact@v4' 'workflow uploads release/deplo
 forbid "$WORKFLOW" 'apt-get install' 'workflow performs no per-deploy apt install'
 forbid "$WORKFLOW" 'install_mystery_public_bundle.sh' 'workflow no longer uploads the installer to /tmp'
 require "$WORKFLOW" 'sudo -n /usr/local/sbin/cwscx-mystery-public-deploy' 'workflow invokes the fixed entrypoint non-interactively'
+require "$WORKFLOW" 'python3 scripts/linux/check_mystery_deploy_sudo.py' 'workflow checks VM sudo privileges before transferring the bundle'
 require "$WORKFLOW" "printf -v REMOTE_DEPLOY_CMD '%q '" 'workflow shell-quotes every remote entrypoint argument'
 require "$WORKFLOW" 'ssh-keygen -Y sign' 'workflow signs the immutable bundle with the deployment key'
 require "$WORKFLOW" '--signature-path' 'workflow passes the detached signature to the fixed entrypoint'
-count_exactly "$WORKFLOW" 'sudo -n' 1 'workflow issues exactly one sudo -n command'
+count_exactly "$WORKFLOW" 'sudo -n' 2 'workflow uses one read-only sudo listing and one fixed deployment command'
 forbid "$WORKFLOW" 'deploy_mystery_public_backend.sh' 'workflow does not call the backend deploy script directly'
 forbid "$WORKFLOW" 'deploy_mystery_public_nginx.sh' 'workflow does not call the NGINX deploy script directly'
 forbid "$WORKFLOW" '/opt/cwscx-mystery-public/current/scripts/linux/verify_mystery_public.sh' 'workflow does not call the verifier directly'
@@ -115,4 +116,5 @@ require "${WORKFLOW}" "contents: read" "workflow limits repository contents to r
 require "${WORKFLOW}" "timeout-minutes: 30" "workflow bounds job runtime"
 
 (( failures == 0 )) || { printf '%d contract checks failed\n' "$failures" >&2; exit 1; }
+python3 "${ROOT}/scripts/linux/tests/test_check_mystery_deploy_sudo.py"
 echo 'All Mystery public release script contracts passed.'
