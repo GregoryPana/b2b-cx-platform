@@ -170,6 +170,12 @@ The shared database must reach the approved migration head before the APN applic
 4. Trigger `deploy-mystery-public.yml` from `main`.
 5. Download and retain the deployment evidence artifact.
 
+The workflow first checks `sudo -n -l` on the VM. It fails before bundle
+transfer if the fixed deploy entrypoint is absent or any other passwordless
+grant remains. A VM administrator must validate the fixed entrypoint and
+remove the superseded broad `cxadmin-deploy` sudoers rule with `visudo`
+before retrying; a failed preflight is not permission to relax the rule.
+
 Do not trigger the Mystery deployment first.
 
 ## 5. What the Mystery workflow performs
