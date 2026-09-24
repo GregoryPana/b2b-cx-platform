@@ -141,7 +141,8 @@ sudo ss -lntp '( sport = :443 or sport = :8011 or sport = :22 )'
 
 Required before deployment:
 
-- Python 3 with `venv` support is already installed.
+- Python 3.12 with `venv` support is already installed; the offline
+  wheelhouse is built and smoke-installed against that VM version.
 - NGINX, curl, OpenSSL, systemd, `ss`, and SHA-256 tooling exist.
 - `/opt/cwscx-mystery-public/.env` exists and is mode `600` or `640`.
 - The VM can reach the internal database endpoint on TCP `5433`.
