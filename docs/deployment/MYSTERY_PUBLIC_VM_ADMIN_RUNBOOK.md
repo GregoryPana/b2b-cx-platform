@@ -28,6 +28,14 @@ VM administrator and again only when that entrypoint/installer source
 changes. The bootstrap script refuses to run against a checkout that is not
 already owned by `root`:
 
+After a source fix to the entrypoint, merging the PR and rerunning the
+workflow alone is not enough: the workflow calls the previously installed
+root-owned `/usr/local/sbin/cwscx-mystery-public-deploy`. The VM administrator
+must re-run this bootstrap from the exact reviewed commit before a retry.
+The failed 2026-09-24 run `35974691718` passed sudo/signature checks but
+stopped before installation because the installed entrypoint assigned a
+readonly `TARGET_ROOT` variable; it did not activate a new release.
+
 ```bash
 sudo git clone --branch <reviewed-ref> <repo-url> /root/cwscx-mystery-public-src
 cd /root/cwscx-mystery-public-src

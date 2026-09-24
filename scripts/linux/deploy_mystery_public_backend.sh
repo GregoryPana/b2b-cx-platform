@@ -10,7 +10,7 @@ SERVICE_NAME="${SERVICE_NAME:-cwscx-mystery-public-backend}"
 SERVICE_USER="${SERVICE_USER:-cxadmin}"
 SERVICE_GROUP="${SERVICE_GROUP:-www-data}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-TMP_SERVICE_FILE="$(mktemp /tmp/cwscx-mystery-public-backend.XXXXXX)"
+TMP_SERVICE_FILE="$(mktemp /tmp/cwscx-mystery-public-backend.XXXXXX.service)"
 trap 'rm -f "${TMP_SERVICE_FILE}"' EXIT
 
 run_as_root() {

@@ -34,6 +34,19 @@ require "$BACKEND" '--host 127.0.0.1 --port 8011' 'DMZ backend binds loopback on
 forbid "$BACKEND" 'alembic" upgrade' 'DMZ backend never runs shared migrations'
 require "$BACKEND" 'NoNewPrivileges=true' 'systemd prevents privilege escalation'
 require "$BACKEND" 'ProtectSystem=strict' 'systemd protects filesystem'
+require "$BACKEND" 'mktemp /tmp/cwscx-mystery-public-backend.XXXXXX.service' 'backend validates a temporary file with a valid systemd unit suffix'
+if command -v systemd-analyze >/dev/null 2>&1; then
+  # Exercise the exact filename template, not just a textual source assertion.
+  UNIT_FILE="$(mktemp /tmp/cwscx-mystery-public-backend.XXXXXX.service)"
+  printf '[Service]\nExecStart=/usr/bin/true\n' >"${UNIT_FILE}"
+  if systemd-analyze verify "${UNIT_FILE}" >/dev/null 2>&1; then
+    printf '[PASS] systemd accepts the backend temporary unit filename\n'
+  else
+    printf '[FAIL] systemd rejects the backend temporary unit filename\n' >&2
+    failures=$((failures+1))
+  fi
+  rm -f -- "${UNIT_FILE}"
+fi
 require "$NGINX" 'limit_req_zone' 'NGINX defines request rate limits'
 require "$NGINX" 'limit_conn_zone' 'NGINX defines connection limits'
 require "$NGINX" 'Content-Security-Policy' 'NGINX sends CSP'
@@ -61,6 +74,8 @@ require "$ENTRYPOINT" 'explicitly so `set -e` does not terminate after valid inp
 require "$ENTRYPOINT" 'current release resolves outside the immutable releases directory' 'entrypoint rejects a current symlink outside releases'
 require "$ENTRYPOINT" 'verification did not produce fresh evidence' 'entrypoint requires fresh verifier evidence'
 require "$ENTRYPOINT" 'require_root_controlled_dir "${TARGET_ROOT}" "target root"' 'entrypoint rejects a deployment-user-writable target root'
+require "$ENTRYPOINT" 'export TARGET_ROOT' 'entrypoint exports fixed target root to children without reassigning readonly variable'
+forbid "$ENTRYPOINT" 'TARGET_ROOT="${TARGET_ROOT}"' 'entrypoint never assigns readonly target root in child command prefix'
 require "$ENTRYPOINT" 'require_root_controlled_dir "${CURRENT_REAL}" "current release directory"' 'entrypoint requires the active immutable release to remain root-controlled'
 require "$ENTRYPOINT" 'environment file must be root-owned' 'entrypoint requires root ownership of the secret-bearing environment file'
 forbid "$ENTRYPOINT" 'DEPLOY_UID' 'entrypoint never chowns evidence to the deploy user'
