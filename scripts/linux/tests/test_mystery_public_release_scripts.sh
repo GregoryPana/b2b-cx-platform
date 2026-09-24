@@ -61,6 +61,8 @@ require "$ENTRYPOINT" 'explicitly so `set -e` does not terminate after valid inp
 require "$ENTRYPOINT" 'current release resolves outside the immutable releases directory' 'entrypoint rejects a current symlink outside releases'
 require "$ENTRYPOINT" 'verification did not produce fresh evidence' 'entrypoint requires fresh verifier evidence'
 require "$ENTRYPOINT" 'require_root_controlled_dir "${TARGET_ROOT}" "target root"' 'entrypoint rejects a deployment-user-writable target root'
+require "$ENTRYPOINT" 'export TARGET_ROOT' 'entrypoint exports fixed target root to children without reassigning readonly variable'
+forbid "$ENTRYPOINT" 'TARGET_ROOT="${TARGET_ROOT}"' 'entrypoint never assigns readonly target root in child command prefix'
 require "$ENTRYPOINT" 'require_root_controlled_dir "${CURRENT_REAL}" "current release directory"' 'entrypoint requires the active immutable release to remain root-controlled'
 require "$ENTRYPOINT" 'environment file must be root-owned' 'entrypoint requires root ownership of the secret-bearing environment file'
 forbid "$ENTRYPOINT" 'DEPLOY_UID' 'entrypoint never chowns evidence to the deploy user'

@@ -42,6 +42,9 @@ readonly SSH_KEYGEN_BIN="/usr/bin/ssh-keygen"
 readonly ALLOWED_SIGNERS="/etc/cwscx-mystery-public/deploy-allowed-signers"
 readonly SIGNER_IDENTITY="github-actions"
 readonly SIGNATURE_NAMESPACE="cwscx-mystery-public"
+# Export the fixed, validated root to child scripts. Assigning TARGET_ROOT
+# again in a command prefix fails in this shell because it is readonly.
+export TARGET_ROOT
 
 # --- Caller identity --------------------------------------------------------
 [[ "${EUID}" -eq 0 ]] || die "must run as root (invoke via sudo)"
@@ -206,7 +209,7 @@ ACTUAL_SHA256="$(sha256sum -- "${ROOT_BUNDLE}" | cut -d' ' -f1)"
 # Invoked via a fixed interpreter path rather than relying on the executable
 # bit surviving bundle extraction; the sudoers rule still names only this
 # entrypoint, never bash itself, so this does not widen what cxadmin can run.
-EXPECTED_BUNDLE_SHA256="${BUNDLE_SHA256}" TARGET_ROOT="${TARGET_ROOT}" "${BASH_BIN}" "${INSTALLER}" "${ROOT_BUNDLE}"
+EXPECTED_BUNDLE_SHA256="${BUNDLE_SHA256}" "${BASH_BIN}" "${INSTALLER}" "${ROOT_BUNDLE}"
 
 # --- Derive the evidence filename from the authenticated, just-installed release
 #     manifest rather than from any caller-supplied path. ------------------
@@ -236,14 +239,14 @@ rm -f -- "${EVIDENCE_FILE}"
 #     immutable release is safe here even if extraction did not preserve
 #     the executable bit.
 [[ -f "${BACKEND_SCRIPT}" && ! -L "${BACKEND_SCRIPT}" ]] || die "backend deploy script missing from installed release"
-TARGET_ROOT="${TARGET_ROOT}" "${BASH_BIN}" "${BACKEND_SCRIPT}"
+"${BASH_BIN}" "${BACKEND_SCRIPT}"
 
 [[ -f "${NGINX_SCRIPT}" && ! -L "${NGINX_SCRIPT}" ]] || die "NGINX deploy script missing from installed release"
-TARGET_ROOT="${TARGET_ROOT}" SERVER_NAME="${SERVER_NAME}" TLS_MODE="${TLS_MODE}" ENABLE_HSTS="${ENABLE_HSTS}" "${BASH_BIN}" "${NGINX_SCRIPT}"
+SERVER_NAME="${SERVER_NAME}" TLS_MODE="${TLS_MODE}" ENABLE_HSTS="${ENABLE_HSTS}" "${BASH_BIN}" "${NGINX_SCRIPT}"
 
 [[ -f "${VERIFY_SCRIPT}" && ! -L "${VERIFY_SCRIPT}" ]] || die "verification script missing from installed release"
 VERIFY_STATUS=0
-TARGET_ROOT="${TARGET_ROOT}" MYSTERY_PUBLIC_BASE_URL="${BASE_URL}" VERIFY_TLS_MODE="${TLS_MODE}" EVIDENCE_FILE="${EVIDENCE_FILE}" \
+MYSTERY_PUBLIC_BASE_URL="${BASE_URL}" VERIFY_TLS_MODE="${TLS_MODE}" EVIDENCE_FILE="${EVIDENCE_FILE}" \
   "${BASH_BIN}" "${VERIFY_SCRIPT}" || VERIFY_STATUS=$?
 
 # Evidence stays root-owned (never chowned to the deploy user) but world
