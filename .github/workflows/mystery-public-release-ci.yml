@@ -41,7 +41,9 @@ jobs:
             '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' \
             "${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum --check --strict
           tar -xzf "${RUNNER_TEMP}/actionlint.tar.gz" -C "${RUNNER_TEMP}" actionlint
-          "${RUNNER_TEMP}/actionlint" -ignore 'label "production" is unknown' \
+          # SSH command strings deliberately interpolate validated runner-side
+          # arguments before transmission; SC2029 is informational here.
+          "${RUNNER_TEMP}/actionlint" -ignore 'label "production" is unknown' -ignore 'SC2029:' \
             .github/workflows/deploy-mystery-public.yml \
             .github/workflows/mystery-public-release-ci.yml
           python - <<'PY'
