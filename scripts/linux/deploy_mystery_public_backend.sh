@@ -70,6 +70,9 @@ Group=${SERVICE_GROUP}
 WorkingDirectory=${BACKEND_DIR}
 EnvironmentFile=${ENV_FILE}
 Environment=PYTHONDONTWRITEBYTECODE=1
+# Do not probe an absent optional client certificate under ProtectHome=yes.
+# This does not relax DATABASE_URL sslmode=require/verify-ca/verify-full.
+Environment=PGSSLCERTMODE=disable
 Environment=APP_VERSION=${APP_VERSION}
 Environment=RELEASE_ID=${RELEASE_ID}
 ExecStart=${VENV_DIR}/bin/uvicorn app.main:app --host 127.0.0.1 --port 8011 --proxy-headers --forwarded-allow-ips=127.0.0.1

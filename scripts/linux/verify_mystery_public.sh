@@ -27,7 +27,8 @@ finalize() {
   [[ "${FINALIZED}" == "1" ]] && return
   FINALIZED=1
   mkdir -p "$(dirname "${EVIDENCE_FILE}")" 2>/dev/null || true
-  python3 - "${RESULTS_FILE}" "${EVIDENCE_FILE}" "${VERIFY_TLS_MODE}" "${SERVICE_NAME}" <<'PY' 2>/dev/null || true
+  local evidence_write_failed=0
+  python3 - "${RESULTS_FILE}" "${EVIDENCE_FILE}" "${VERIFY_TLS_MODE}" "${SERVICE_NAME}" <<'PY' 2>/dev/null || evidence_write_failed=1
 import csv, datetime, json, pathlib, sys
 rows = []
 with open(sys.argv[1], encoding="utf-8") as fh:
@@ -49,7 +50,7 @@ PY
   if [[ -s "${RESULTS_FILE}" ]]; then failed_count="$(awk -F '\t' '$1=="fail"{n++} END{print n+0}' "${RESULTS_FILE}")"; fi
   rm -f "${RESULTS_FILE}" "${DB_RESULT_FILE}"
   echo "Evidence: ${EVIDENCE_FILE}"
-  if [[ "${failed_count}" -gt 0 || "${original_rc}" -ne 0 ]]; then exit 1; fi
+  if [[ "${failed_count}" -gt 0 || "${original_rc}" -ne 0 || "${evidence_write_failed}" -ne 0 ]]; then exit 1; fi
   exit 0
 }
 trap finalize EXIT

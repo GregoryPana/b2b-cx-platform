@@ -1,0 +1,626 @@
+#!/usr/bin/env python3
+"""Fail-closed validation and local archive helpers for Mystery Public releases.
+
+This file is installed root-owned beside the privileged deploy entrypoint.  The
+entrypoint supplies only fixed roots and strictly validated release IDs.  No
+command in this module changes the database or reads application secret values
+into output.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import zipfile
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+RELEASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
+GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+NONCE_RE = re.compile(r"[0-9a-f]{64}")
+HTTPS_ORIGIN_RE = re.compile(r"https://[A-Za-z0-9.-]+")
+OPERATION_FIELDS = {
+    "schema_version",
+    "action",
+    "target_release_id",
+    "bundle_sha256",
+    "current_release_id",
+    "base_url",
+    "tls_mode",
+    "github_run_id",
+    "github_run_attempt",
+    "issued_at_utc",
+    "expires_at_utc",
+    "nonce",
+}
+MAX_OPERATION_LIFETIME = datetime.timedelta(minutes=10)
+REQUIRED_MANIFEST_FIELDS = {
+    "schema_version",
+    "release_id",
+    "git_sha",
+    "build_timestamp_utc",
+    "frontend_auth_mode",
+    "expected_migration_heads",
+    "python_wheelhouse",
+}
+
+
+class GuardError(ValueError):
+    pass
+
+
+def _regular_file(path: Path, label: str) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise GuardError(f"{label} must be a regular non-symlink file")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def privileged_suite_version(paths: list[Path]) -> str:
+    """Identify installed bytes using the canonical source names and order."""
+    names = (
+        "cwscx_mystery_public_deploy_entrypoint.sh",
+        "install_mystery_public_bundle.sh",
+        "mystery_public_release_guard.py",
+    )
+    if len(paths) != len(names):
+        raise GuardError("privileged suite must contain exactly three files")
+    digest = hashlib.sha256()
+    for name, path in zip(names, paths):
+        _regular_file(path, "privileged suite source")
+        data = path.read_bytes()
+        digest.update(name.encode("utf-8") + b"\0" + len(data).to_bytes(8, "big") + data)
+    return digest.hexdigest()
+
+
+def validate_release_id(value: str) -> str:
+    if not RELEASE_ID_RE.fullmatch(value):
+        raise GuardError("invalid release ID")
+    return value
+
+
+def validate_manifest(manifest: Any) -> dict[str, Any]:
+    if not isinstance(manifest, dict):
+        raise GuardError("manifest must be an object")
+    missing = sorted(REQUIRED_MANIFEST_FIELDS - set(manifest))
+    if missing:
+        raise GuardError("manifest missing fields: " + ", ".join(missing))
+    release_id = validate_release_id(str(manifest["release_id"]))
+    if manifest["schema_version"] != 1:
+        raise GuardError("unsupported manifest schema")
+    if not GIT_SHA_RE.fullmatch(str(manifest["git_sha"])):
+        raise GuardError("invalid manifest git SHA")
+    if manifest["frontend_auth_mode"] != "mystery_public":
+        raise GuardError("wrong frontend authentication mode")
+    heads = manifest["expected_migration_heads"]
+    if not isinstance(heads, list) or not heads or any(not isinstance(v, str) or not v for v in heads):
+        raise GuardError("invalid expected migration heads")
+    if len(set(heads)) != len(heads):
+        raise GuardError("duplicate expected migration heads")
+    if manifest["python_wheelhouse"] is not True:
+        raise GuardError("bundle does not declare an offline wheelhouse")
+    manifest = dict(manifest)
+    manifest["release_id"] = release_id
+    manifest["expected_migration_heads"] = sorted(heads)
+    return manifest
+
+
+def _safe_zip_name(name: str) -> PurePosixPath:
+    path = PurePosixPath(name)
+    if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != "release":
+        raise GuardError(f"unsafe archive member: {name!r}")
+    if "\\" in name or name.endswith("/"):
+        raise GuardError(f"unsupported archive member: {name!r}")
+    return path
+
+
+def inspect_bundle(bundle: Path) -> tuple[dict[str, Any], dict[str, str]]:
+    _regular_file(bundle, "bundle")
+    try:
+        with zipfile.ZipFile(bundle) as archive:
+            infos = archive.infolist()
+            names: set[str] = set()
+            for info in infos:
+                name = _safe_zip_name(info.filename).as_posix()
+                if name in names:
+                    raise GuardError(f"duplicate archive member: {name}")
+                names.add(name)
+                # Reject Unix symlink/device entries. Regular files may have 0
+                # when the producer did not preserve Unix mode metadata.
+                mode_type = (info.external_attr >> 16) & 0o170000
+                if mode_type not in (0, 0o100000):
+                    raise GuardError(f"non-regular archive member: {name}")
+            required = {"release/release-manifest.json", "release/SHA256SUMS"}
+            if not required.issubset(names):
+                raise GuardError("bundle metadata is missing")
+            manifest = validate_manifest(json.loads(archive.read("release/release-manifest.json")))
+            sums_text = archive.read("release/SHA256SUMS").decode("utf-8")
+            expected: dict[str, str] = {}
+            for line in sums_text.splitlines():
+                match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
+                if not match:
+                    raise GuardError("invalid SHA256SUMS line")
+                digest, relative = match.groups()
+                member = _safe_zip_name("release/" + relative).as_posix()
+                if member == "release/SHA256SUMS" or member in expected:
+                    raise GuardError("invalid or duplicate SHA256SUMS member")
+                expected[member] = digest
+            actual_members = names - {"release/SHA256SUMS"}
+            if set(expected) != actual_members:
+                raise GuardError("SHA256SUMS does not cover the exact bundle file set")
+            for member, digest in expected.items():
+                if hashlib.sha256(archive.read(member)).hexdigest() != digest:
+                    raise GuardError(f"bundle member checksum failed: {member}")
+    except (zipfile.BadZipFile, UnicodeDecodeError, json.JSONDecodeError, KeyError) as exc:
+        raise GuardError(f"invalid release bundle: {exc}") from exc
+    return manifest, expected
+
+
+def verify_signature(payload_path: Path, signature: Path, allowed_signers: Path, namespace: str) -> None:
+    _regular_file(payload_path, "signed payload")
+    _regular_file(signature, "signature")
+    _regular_file(allowed_signers, "allowed signers")
+    with payload_path.open("rb") as payload:
+        result = subprocess.run(
+            [
+                "/usr/bin/ssh-keygen",
+                "-Y",
+                "verify",
+                "-f",
+                str(allowed_signers),
+                "-I",
+                "github-actions",
+                "-n",
+                namespace,
+                "-s",
+                str(signature),
+            ],
+            stdin=payload,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    if result.returncode:
+        raise GuardError("signature is not authorized")
+
+
+def verify_bundle(bundle: Path, claimed_sha256: str, signature: Path, allowed_signers: Path) -> dict[str, Any]:
+    if not SHA256_RE.fullmatch(claimed_sha256):
+        raise GuardError("invalid bundle checksum")
+    actual = _sha256(bundle)
+    if actual != claimed_sha256:
+        raise GuardError("bundle checksum mismatch")
+    verify_signature(bundle, signature, allowed_signers, "cwscx-mystery-public-release")
+    manifest, _ = inspect_bundle(bundle)
+    manifest["bundle_sha256"] = actual
+    return manifest
+
+
+def _utc_timestamp(value: Any, label: str) -> datetime.datetime:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        raise GuardError(f"{label} must be a UTC timestamp")
+    try:
+        parsed = datetime.datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise GuardError(f"{label} must be a UTC timestamp") from exc
+    if parsed.tzinfo != datetime.timezone.utc or parsed.microsecond:
+        raise GuardError(f"{label} must use whole UTC seconds")
+    return parsed
+
+
+def validate_operation_document(document: Any, current_release_id: str, now: datetime.datetime) -> dict[str, Any]:
+    if not isinstance(document, dict) or set(document) != OPERATION_FIELDS:
+        raise GuardError("operation document fields are not exact")
+    if document["schema_version"] != 1:
+        raise GuardError("unsupported operation schema")
+    if document["action"] not in {"deploy", "establish_baseline", "rollback", "recover"}:
+        raise GuardError("operation action is not allowed")
+    for field in ("target_release_id", "current_release_id"):
+        document[field] = validate_release_id(str(document[field]))
+    if document["current_release_id"] != current_release_id:
+        raise GuardError("operation current release is stale")
+    if not SHA256_RE.fullmatch(str(document["bundle_sha256"])):
+        raise GuardError("operation bundle checksum is invalid")
+    if not HTTPS_ORIGIN_RE.fullmatch(str(document["base_url"])):
+        raise GuardError("operation base URL is invalid")
+    if document["tls_mode"] not in {"prepublic", "trusted"}:
+        raise GuardError("operation TLS mode is invalid")
+    for field in ("github_run_id", "github_run_attempt"):
+        if not isinstance(document[field], str) or not re.fullmatch(r"[1-9][0-9]*", document[field]):
+            raise GuardError(f"operation {field} is invalid")
+    if not isinstance(document["nonce"], str) or not NONCE_RE.fullmatch(document["nonce"]):
+        raise GuardError("operation nonce is invalid")
+    issued = _utc_timestamp(document["issued_at_utc"], "issued_at_utc")
+    expires = _utc_timestamp(document["expires_at_utc"], "expires_at_utc")
+    if expires <= issued or expires - issued > MAX_OPERATION_LIFETIME:
+        raise GuardError("operation validity window is invalid")
+    if now.tzinfo != datetime.timezone.utc:
+        raise GuardError("authorization clock must be UTC")
+    if now < issued - datetime.timedelta(seconds=30) or now >= expires:
+        raise GuardError("operation is not currently valid")
+    return document
+
+
+def authorize_operation(
+    operation_path: Path,
+    signature_path: Path,
+    allowed_signers: Path,
+    nonce_root: Path,
+    current_release_id: str,
+    *,
+    now: datetime.datetime | None = None,
+    required_uid: int = 0,
+) -> dict[str, Any]:
+    _regular_file(operation_path, "operation document")
+    verify_signature(operation_path, signature_path, allowed_signers, "cwscx-mystery-public-operation")
+    try:
+        raw = operation_path.read_bytes()
+        document = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise GuardError("operation document is not valid JSON") from exc
+    canonical = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    if raw != canonical:
+        raise GuardError("operation document is not canonical JSON")
+    validated = validate_operation_document(
+        document,
+        current_release_id,
+        now or datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0),
+    )
+    if nonce_root.is_symlink() or not nonce_root.is_dir():
+        raise GuardError("operation nonce root is unsafe")
+    nonce_info = nonce_root.stat()
+    if nonce_info.st_uid != required_uid or nonce_info.st_mode & 0o077:
+        raise GuardError("operation nonce root is not root-only")
+    nonce_path = nonce_root / validated["nonce"]
+    try:
+        descriptor = os.open(nonce_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError as exc:
+        raise GuardError("operation nonce has already been used") from exc
+    # Authorization is not granted until the single-use marker survives a
+    # crash. Leave the nonce consumed if persistence fails: a retry needs a
+    # fresh approved operation, never an uncertain replay of this document.
+    with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+        handle.write(f"{validated['github_run_id']}:{validated['github_run_attempt']}\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    directory_fd = os.open(nonce_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+    return validated
+
+
+def archive_paths(archive_root: Path, release_id: str) -> dict[str, Path]:
+    release_id = validate_release_id(release_id)
+    release_root = archive_root / release_id
+    return {
+        "root": release_root,
+        "bundle": release_root / "bundle.zip",
+        "signature": release_root / "bundle.zip.sig",
+        "checksum": release_root / "bundle.zip.sha256",
+        "metadata": release_root / "metadata.json",
+        "pin": archive_root / f"{release_id}.pinned",
+    }
+
+
+def verify_archive(archive_root: Path, release_id: str, allowed_signers: Path) -> dict[str, Any]:
+    paths = archive_paths(archive_root, release_id)
+    if paths["root"].is_symlink() or not paths["root"].is_dir():
+        raise GuardError("archive release must be an atomically published directory")
+    for key in ("bundle", "signature", "checksum", "metadata"):
+        _regular_file(paths[key], f"archive {key}")
+    checksum_text = paths["checksum"].read_text(encoding="ascii")
+    expected_line = re.fullmatch(r"([0-9a-f]{64})  bundle\.zip\n", checksum_text)
+    if not expected_line:
+        raise GuardError("archive checksum file is not canonical")
+    manifest = verify_bundle(paths["bundle"], expected_line.group(1), paths["signature"], allowed_signers)
+    if manifest["release_id"] != release_id:
+        raise GuardError("archive release ID does not match its signed manifest")
+    try:
+        metadata = json.loads(paths["metadata"].read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise GuardError("invalid archive metadata") from exc
+    required = {"schema_version", "release_id", "bundle_sha256", "status", "verified_at_utc"}
+    if not isinstance(metadata, dict) or set(metadata) != required:
+        raise GuardError("archive metadata fields are not exact")
+    if (
+        metadata["schema_version"] != 1
+        or metadata["release_id"] != release_id
+        or metadata["bundle_sha256"] != manifest["bundle_sha256"]
+        or metadata["status"] != "deploy_verified"
+    ):
+        raise GuardError("archive is not a verified deployment fallback")
+    _utc_timestamp(metadata["verified_at_utc"], "archive verified_at_utc")
+    manifest["archive_status"] = metadata["status"]
+    manifest["archive_verified_at_utc"] = metadata["verified_at_utc"]
+    return manifest
+
+
+def verify_installed_files(release_dir: Path, bundle: Path, release_id: str, required_uid: int = 0) -> dict[str, Any]:
+    if release_dir.is_symlink() or not release_dir.is_dir() or release_dir.name != release_id:
+        raise GuardError("installed release directory is unsafe")
+    # The virtualenv is generated locally and is therefore not in SHA256SUMS.
+    # Require the entire installed tree (including venv extras) to remain
+    # root-controlled and non-writable by group/world. Symlinks are allowed
+    # only when they resolve to a root-controlled regular file/directory.
+    for root, directories, files in os.walk(release_dir, followlinks=False):
+        for name in [".", *directories, *files]:
+            path = Path(root) if name == "." else Path(root) / name
+            info = path.lstat()
+            if path.is_symlink():
+                if info.st_uid != required_uid:
+                    raise GuardError(f"installed symlink is not root-controlled: {path.relative_to(release_dir)}")
+                try:
+                    target = path.resolve(strict=True)
+                    target_info = target.stat()
+                except OSError as exc:
+                    raise GuardError(f"unsafe installed symlink: {path.relative_to(release_dir)}") from exc
+                if target_info.st_uid != required_uid or target_info.st_mode & 0o022 or not (target.is_file() or target.is_dir()):
+                    raise GuardError(f"unsafe installed symlink target: {path.relative_to(release_dir)}")
+            elif info.st_uid != required_uid or info.st_mode & 0o022:
+                raise GuardError(f"installed release is not root-controlled: {path.relative_to(release_dir)}")
+    manifest, expected = inspect_bundle(bundle)
+    if manifest["release_id"] != release_id:
+        raise GuardError("installed release ID differs from signed bundle")
+    for member, digest in expected.items():
+        relative = PurePosixPath(member).relative_to("release")
+        target = release_dir.joinpath(*relative.parts)
+        _regular_file(target, f"installed release member {relative}")
+        if _sha256(target) != digest:
+            raise GuardError(f"installed release integrity failed: {relative}")
+    installed_manifest = validate_manifest(json.loads((release_dir / "release-manifest.json").read_text(encoding="utf-8")))
+    if installed_manifest != manifest:
+        raise GuardError("installed manifest differs from signed archive")
+    return manifest
+
+
+def verify_installed_release(
+    release_dir: Path,
+    archive_root: Path,
+    release_id: str,
+    allowed_signers: Path,
+    required_uid: int = 0,
+) -> dict[str, Any]:
+    bundle = archive_paths(archive_root, release_id)["bundle"]
+    verify_archive(archive_root, release_id, allowed_signers)
+    return verify_installed_files(release_dir, bundle, release_id, required_uid)
+
+
+def store_archive(
+    archive_root: Path,
+    bundle: Path,
+    signature: Path,
+    manifest: dict[str, Any],
+    verified_at_utc: str,
+) -> None:
+    release_id = manifest["release_id"]
+    paths = archive_paths(archive_root, release_id)
+    archive_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if archive_root.is_symlink():
+        raise GuardError("archive root must not be a symlink")
+    if paths["root"].exists():
+        raise GuardError("archive already exists for release")
+    temp_dir = Path(tempfile.mkdtemp(prefix=f".{release_id}.", dir=archive_root))
+    try:
+        temp_bundle = temp_dir / "bundle.zip"
+        temp_signature = temp_dir / "bundle.zip.sig"
+        shutil.copyfile(bundle, temp_bundle)
+        shutil.copyfile(signature, temp_signature)
+        os.chmod(temp_bundle, 0o600)
+        os.chmod(temp_signature, 0o600)
+        checksum = manifest["bundle_sha256"]
+        (temp_dir / "bundle.zip.sha256").write_text(f"{checksum}  bundle.zip\n", encoding="ascii")
+        metadata = {
+            "schema_version": 1,
+            "release_id": release_id,
+            "bundle_sha256": checksum,
+            "status": "deploy_verified",
+            "verified_at_utc": verified_at_utc,
+        }
+        (temp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        for name in ("bundle.zip.sha256", "metadata.json"):
+            os.chmod(temp_dir / name, 0o600)
+        # Durably prepare the complete set, then publish it with one rename.
+        # Readers therefore observe either no release archive or all four files.
+        for child in temp_dir.iterdir():
+            with child.open("rb") as handle:
+                os.fsync(handle.fileno())
+        directory_fd = os.open(temp_dir, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        os.replace(temp_dir, paths["root"])
+        root_fd = os.open(archive_root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(root_fd)
+        finally:
+            os.close(root_fd)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def migration_heads_from_manifest(path: Path) -> list[str]:
+    _regular_file(path, "manifest")
+    return validate_manifest(json.loads(path.read_text(encoding="utf-8")))["expected_migration_heads"]
+
+
+def source_migration_heads(alembic_ini: Path) -> list[str]:
+    """Resolve the actual Alembic graph; fail on a fork or missing revision."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    _regular_file(alembic_ini, "Alembic configuration")
+    config = Config(str(alembic_ini))
+    config.set_main_option("script_location", str(alembic_ini.parent / "alembic"))
+    scripts = ScriptDirectory.from_config(config)
+    list(scripts.walk_revisions())  # force graph validation, including missing ancestors
+    heads = sorted(scripts.get_heads())
+    if len(heads) != 1:
+        raise GuardError(f"expected one source migration head, found {len(heads)}")
+    return heads
+
+
+def check_db_heads(env_file: Path, manifest: Path, alembic_ini: Path) -> None:
+    """Read source and database heads and compare exactly; never mutate the DB."""
+    from alembic.runtime.migration import MigrationContext
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import NullPool
+
+    values: dict[str, str] = {}
+    for raw in env_file.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key.strip()] = value
+    url = values.get("DATABASE_URL", "")
+    if not url:
+        raise GuardError("DATABASE_URL is missing")
+    expected = migration_heads_from_manifest(manifest)
+    try:
+        source = source_migration_heads(alembic_ini)
+    except Exception:
+        raise GuardError("installed Alembic source graph is invalid") from None
+    if source != expected:
+        raise GuardError("signed manifest migration heads differ from installed source graph")
+    try:
+        engine = create_engine(url, poolclass=NullPool, pool_pre_ping=True)
+        try:
+            with engine.connect() as connection:
+                current = sorted(MigrationContext.configure(connection).get_current_heads())
+        finally:
+            engine.dispose()
+    except Exception as exc:
+        # SQLAlchemy/driver exception strings can contain connection details.
+        # Do not let a traceback or URL enter a deployment log.
+        raise GuardError("database revision check failed; inspect DB connectivity through approved diagnostics") from None
+    if current != expected:
+        raise GuardError(f"migration heads are incompatible (expected {len(expected)}, current {len(current)})")
+
+
+def eligible_prune_ids(archive_root: Path, protected: set[str], retain_count: int) -> list[str]:
+    records: list[tuple[int, str]] = []
+    for release_root in archive_root.iterdir():
+        if release_root.is_symlink() or not release_root.is_dir():
+            continue
+        release_id = release_root.name
+        if not RELEASE_ID_RE.fullmatch(release_id):
+            continue
+        paths = archive_paths(archive_root, release_id)
+        if not all(paths[key].is_file() and not paths[key].is_symlink() for key in ("bundle", "signature", "checksum", "metadata")):
+            continue
+        records.append((paths["metadata"].stat().st_mtime_ns, release_id))
+    records.sort(reverse=True)
+    keep = {release_id for _, release_id in records[:retain_count]} | protected
+    return [release_id for _, release_id in reversed(records) if release_id not in keep]
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command", required=True)
+    bundle = sub.add_parser("verify-bundle")
+    bundle.add_argument("bundle", type=Path)
+    bundle.add_argument("sha256")
+    bundle.add_argument("signature", type=Path)
+    bundle.add_argument("allowed_signers", type=Path)
+    archive = sub.add_parser("verify-archive")
+    archive.add_argument("archive_root", type=Path)
+    archive.add_argument("release_id")
+    archive.add_argument("allowed_signers", type=Path)
+    installed = sub.add_parser("verify-installed")
+    installed.add_argument("release_dir", type=Path)
+    installed.add_argument("archive_root", type=Path)
+    installed.add_argument("release_id")
+    installed.add_argument("allowed_signers", type=Path)
+    installed_bundle = sub.add_parser("verify-installed-bundle")
+    installed_bundle.add_argument("release_dir", type=Path)
+    installed_bundle.add_argument("bundle", type=Path)
+    installed_bundle.add_argument("release_id")
+    store = sub.add_parser("store-archive")
+    store.add_argument("archive_root", type=Path)
+    store.add_argument("bundle", type=Path)
+    store.add_argument("signature", type=Path)
+    store.add_argument("manifest_json", type=Path)
+    store.add_argument("verified_at_utc")
+    db = sub.add_parser("check-db-heads")
+    db.add_argument("env_file", type=Path)
+    db.add_argument("manifest", type=Path)
+    db.add_argument("alembic_ini", type=Path)
+    source = sub.add_parser("source-heads")
+    source.add_argument("alembic_ini", type=Path)
+    operation = sub.add_parser("authorize-operation")
+    operation.add_argument("operation", type=Path)
+    operation.add_argument("signature", type=Path)
+    operation.add_argument("allowed_signers", type=Path)
+    operation.add_argument("nonce_root", type=Path)
+    operation.add_argument("current_release_id")
+    suite = sub.add_parser("suite-version")
+    suite.add_argument("paths", type=Path, nargs="+")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        if args.command == "verify-bundle":
+            result = verify_bundle(args.bundle, args.sha256, args.signature, args.allowed_signers)
+            print(json.dumps(result, sort_keys=True))
+        elif args.command == "verify-archive":
+            print(json.dumps(verify_archive(args.archive_root, args.release_id, args.allowed_signers), sort_keys=True))
+        elif args.command == "verify-installed":
+            print(json.dumps(verify_installed_release(args.release_dir, args.archive_root, args.release_id, args.allowed_signers), sort_keys=True))
+        elif args.command == "verify-installed-bundle":
+            print(json.dumps(verify_installed_files(args.release_dir, args.bundle, args.release_id), sort_keys=True))
+        elif args.command == "store-archive":
+            manifest = json.loads(args.manifest_json.read_text(encoding="utf-8"))
+            store_archive(args.archive_root, args.bundle, args.signature, manifest, args.verified_at_utc)
+        elif args.command == "check-db-heads":
+            check_db_heads(args.env_file, args.manifest, args.alembic_ini)
+            print("migration heads match signed release manifest and installed source")
+        elif args.command == "source-heads":
+            print(json.dumps(source_migration_heads(args.alembic_ini)))
+        elif args.command == "authorize-operation":
+            print(
+                json.dumps(
+                    authorize_operation(
+                        args.operation,
+                        args.signature,
+                        args.allowed_signers,
+                        args.nonce_root,
+                        args.current_release_id,
+                    ),
+                    sort_keys=True,
+                )
+            )
+        elif args.command == "suite-version":
+            print(privileged_suite_version(args.paths))
+        else:
+            raise AssertionError(args.command)
+    except (GuardError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+        print(f"release guard: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

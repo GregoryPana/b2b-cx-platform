@@ -3,15 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 failures=0
-
 require() { grep -Fq -- "$2" "$1" && printf '[PASS] %s\n' "$3" || { printf '[FAIL] %s\n' "$3" >&2; failures=$((failures+1)); }; }
 forbid() { ! grep -Fq -- "$2" "$1" && printf '[PASS] %s\n' "$3" || { printf '[FAIL] %s\n' "$3" >&2; failures=$((failures+1)); }; }
-count_exactly() {
-  local file="$1" needle="$2" expected="$3" desc="$4" n
-  n="$(grep -Fc -- "$needle" "$file" || true)"
-  [[ "${n}" -eq "${expected}" ]] && printf '[PASS] %s\n' "$desc" \
-    || { printf '[FAIL] %s (found %s, expected %s)\n' "$desc" "$n" "$expected" >&2; failures=$((failures+1)); }
-}
+count_exactly() { local n; n="$(grep -Fc -- "$2" "$1" || true)"; [[ "$n" -eq "$3" ]] || { echo "[FAIL] $4 (found $n, expected $3)" >&2; failures=$((failures+1)); }; }
 
 BUILD="$ROOT/scripts/linux/build_mystery_public_bundle.sh"
 INSTALL="$ROOT/scripts/linux/install_mystery_public_bundle.sh"
@@ -20,119 +14,132 @@ NGINX="$ROOT/scripts/linux/deploy_mystery_public_nginx.sh"
 VERIFY="$ROOT/scripts/linux/verify_mystery_public.sh"
 ENTRYPOINT="$ROOT/scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh"
 BOOTSTRAP="$ROOT/scripts/linux/bootstrap_mystery_public_deploy_entrypoint.sh"
+GUARD="$ROOT/scripts/linux/mystery_public_release_guard.py"
 WORKFLOW="$ROOT/.github/workflows/deploy-mystery-public.yml"
 
-require "$BUILD" 'release-manifest.json' 'bundle includes release manifest'
-require "$BUILD" 'expected_migration_heads' 'manifest records expected migration heads'
-require "$BUILD" 'pip download' 'bundle builds offline wheelhouse'
-require "$BUILD" 'sys.version_info[:2] == (3, 12)' 'bundle refuses an incompatible offline wheelhouse Python'
-require "$BUILD" 'wheelhouse-smoke/bin/python' 'build tests offline wheel installation before release transfer'
-require "$WORKFLOW" 'python-version: "3.12"' 'workflow builds the wheelhouse with VM-compatible Python 3.12'
-require "$BUILD" 'SHA256SUMS' 'bundle records file hashes'
-require "$INSTALL" 'releases/${RELEASE_ID}' 'installer uses immutable release directory'
-require "$INSTALL" 'mv -Tf' 'installer switches current symlink atomically'
-require "$INSTALL" '--no-index' 'installer installs Python dependencies offline'
-require "$INSTALL" 'EXPECTED_BUNDLE_SHA256' 'installer verifies outer bundle checksum'
-require "$BACKEND" '--host 127.0.0.1 --port 8011' 'DMZ backend binds loopback only'
-forbid "$BACKEND" 'alembic" upgrade' 'DMZ backend never runs shared migrations'
-require "$BACKEND" 'NoNewPrivileges=true' 'systemd prevents privilege escalation'
-require "$BACKEND" 'ProtectSystem=strict' 'systemd protects filesystem'
-require "$BACKEND" 'mktemp /tmp/cwscx-mystery-public-backend.XXXXXX.service' 'backend validates a temporary file with a valid systemd unit suffix'
-if command -v systemd-analyze >/dev/null 2>&1; then
-  # Exercise the exact filename template, not just a textual source assertion.
-  UNIT_FILE="$(mktemp /tmp/cwscx-mystery-public-backend.XXXXXX.service)"
-  printf '[Service]\nExecStart=/usr/bin/true\n' >"${UNIT_FILE}"
-  if systemd-analyze verify "${UNIT_FILE}" >/dev/null 2>&1; then
-    printf '[PASS] systemd accepts the backend temporary unit filename\n'
-  else
-    printf '[FAIL] systemd rejects the backend temporary unit filename\n' >&2
-    failures=$((failures+1))
-  fi
-  rm -f -- "${UNIT_FILE}"
-fi
-require "$NGINX" 'limit_req_zone' 'NGINX defines request rate limits'
-require "$NGINX" 'limit_conn_zone' 'NGINX defines connection limits'
-require "$NGINX" 'Content-Security-Policy' 'NGINX sends CSP'
-require "$NGINX" 'proxy_pass http://127.0.0.1:8011' 'NGINX proxies only to loopback backend'
-require "$VERIFY" 'VERIFY_TLS_MODE' 'verifier distinguishes prepublic/trusted TLS'
-require "$VERIFY" 'expected_migration_heads' 'verifier compares migration heads read-only'
-require "$VERIFY" '127.0.0.1:8011' 'verifier checks loopback listener'
-require "$VERIFY" 'EVIDENCE_FILE' 'verifier emits machine-readable evidence'
+# Execute behavioral signed-archive, tamper, installed-integrity and retention tests.
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_release_guard.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_check_mystery_deploy_sudo.py" || failures=$((failures+1))
 
-# --- Deploy entrypoint: no evidence in /tmp, single privileged surface -----
-forbid "$ENTRYPOINT" '--evidence-path' 'entrypoint does not accept a caller-controlled evidence path'
-require "$ENTRYPOINT" 'EVIDENCE_ROOT="${STATE_ROOT}/deploy-evidence"' 'entrypoint writes evidence under a fixed root-owned directory, not /tmp'
-require "$ENTRYPOINT" 'EVIDENCE_ROOT_OWNER}" == "root"' 'entrypoint requires the evidence root to be root-owned'
-require "$ENTRYPOINT" '8#${EVIDENCE_ROOT_MODE} & 8#022' 'entrypoint rejects a group/world-writable evidence root'
-require "$ENTRYPOINT" 'release-manifest.json' 'entrypoint derives the evidence filename from the installed release manifest, not a caller argument'
-require "$ENTRYPOINT" 'EVIDENCE_RETAIN_COUNT' 'entrypoint bounds evidence retention'
-require "$ENTRYPOINT" 'INCOMING_ROOT="${STATE_ROOT}/incoming"' 'entrypoint stages bundles in a fixed root-owned directory'
-require "$ENTRYPOINT" 'install -o root -g root -m 0600' 'entrypoint copies the caller bundle into root-owned storage before verification'
-require "$ENTRYPOINT" 'sha256sum -- "${ROOT_BUNDLE}"' 'entrypoint verifies the root-owned bundle copy'
-require "$ENTRYPOINT" 'ssh-keygen' 'entrypoint requires cryptographic bundle-signature verification'
-require "$ENTRYPOINT" '-Y verify' 'entrypoint verifies the CI bundle signature'
-require "$ENTRYPOINT" 'deploy-allowed-signers' 'entrypoint uses a fixed root-owned allowed-signers file'
-require "$ENTRYPOINT" 'bundle signature is not authorized' 'entrypoint fails closed on an unauthorized bundle signature'
-require "$ENTRYPOINT" 'explicitly so `set -e` does not terminate after valid input' 'entrypoint path validator returns success for secure input'
-require "$ENTRYPOINT" 'current release resolves outside the immutable releases directory' 'entrypoint rejects a current symlink outside releases'
-require "$ENTRYPOINT" 'verification did not produce fresh evidence' 'entrypoint requires fresh verifier evidence'
-require "$ENTRYPOINT" 'require_root_controlled_dir "${TARGET_ROOT}" "target root"' 'entrypoint rejects a deployment-user-writable target root'
-require "$ENTRYPOINT" 'export TARGET_ROOT' 'entrypoint exports fixed target root to children without reassigning readonly variable'
-forbid "$ENTRYPOINT" 'TARGET_ROOT="${TARGET_ROOT}"' 'entrypoint never assigns readonly target root in child command prefix'
-require "$ENTRYPOINT" 'require_root_controlled_dir "${CURRENT_REAL}" "current release directory"' 'entrypoint requires the active immutable release to remain root-controlled'
-require "$ENTRYPOINT" 'environment file must be root-owned' 'entrypoint requires root ownership of the secret-bearing environment file'
-forbid "$ENTRYPOINT" 'DEPLOY_UID' 'entrypoint never chowns evidence to the deploy user'
-require "$ENTRYPOINT" 'chmod 0644 -- "${EVIDENCE_FILE}"' 'entrypoint makes final evidence world-readable for SCP fetch'
-require "$ENTRYPOINT" '"${BASH_BIN}" "${BACKEND_SCRIPT}"' 'entrypoint invokes the backend deploy script via a fixed interpreter, not the extracted exec bit'
-require "$ENTRYPOINT" '"${BASH_BIN}" "${NGINX_SCRIPT}"' 'entrypoint invokes the NGINX deploy script via a fixed interpreter'
-require "$ENTRYPOINT" '"${BASH_BIN}" "${VERIFY_SCRIPT}"' 'entrypoint invokes the verifier via a fixed interpreter'
-require "$ENTRYPOINT" 'never grants bash' 'entrypoint documents that sudoers grants only this fixed path, never bash'
+# Existing immutable release and permission-recovery contracts.
+require "$BUILD" 'expected_migration_heads' 'bundle records expected migration heads'
+require "$BUILD" 'sys.version_info[:2] == (3, 12)' 'bundle targets VM Python 3.12'
+require "$BUILD" 'SHA256SUMS' 'bundle records exact file hashes'
+require "$INSTALL" 'EXPECTED_BUNDLE_SHA256' 'installer rechecks outer checksum'
+require "$INSTALL" '--install-only' 'installer supports pre-activation archive restoration'
+require "$INSTALL" 'FINALIZED=1' 'installer removes interrupted partial releases until preflight completes'
+require "$INSTALL" 'check_readable_tree' 'installer behaviorally preflights service access before activation'
+require "$INSTALL" 'mv -Tf' 'installer switches current atomically'
+require "$BACKEND" 'Environment=PGSSLCERTMODE=disable' 'backend avoids optional client certificate lookup'
+require "$BACKEND" '--host 127.0.0.1 --port 8011' 'backend remains loopback-only'
+forbid "$BACKEND" 'alembic" upgrade' 'Mystery path never runs migrations'
+require "$VERIFY" 'get_current_heads' 'verifier reads migration state without migration'
 
-# --- Bootstrap: source must be root-owned, evidence directory provisioned --
-forbid "$BOOTSTRAP" 'expected_owner' 'bootstrap no longer accepts a SUDO_USER-owned source as an alternative to root'
-require "$BOOTSTRAP" 'must be owned by root' 'bootstrap fails closed unless entrypoint/installer source is root-owned'
-require "$BOOTSTRAP" 'install -d -o root -g root -m 0755 "${EVIDENCE_ROOT}"' 'bootstrap provisions the fixed, root-owned evidence directory'
-require "$BOOTSTRAP" 'install -d -o root -g root -m 0700 "${INCOMING_ROOT}"' 'bootstrap provisions a root-only incoming directory'
-require "$BOOTSTRAP" 'cwscx-mystery-public-deploy-signing-key.pub' 'bootstrap requires a root-owned deployment signing public key'
-require "$BOOTSTRAP" 'deploy-allowed-signers' 'bootstrap installs a root-owned SSH allowed-signers file'
-require "$BOOTSTRAP" 'chown root:root "${TARGET_ROOT}"' 'bootstrap transfers the legacy application root to root ownership'
-require "$BOOTSTRAP" 'chmod 0755 "${TARGET_ROOT}"' 'bootstrap removes deployment-user write access from the application root'
-require "$BOOTSTRAP" 'chown root:root "${ENV_FILE}"' 'bootstrap transfers the environment file to root ownership'
-require "$BOOTSTRAP" 'chmod 0600 "${ENV_FILE}"' 'bootstrap restricts the secret-bearing environment file'
-require "$BOOTSTRAP" 'install -d -o "${DEPLOY_USER}" -g "${SERVICE_GROUP}" -m 0770 "${SHARED_ROOT}"' 'bootstrap preserves a separate service-writable shared directory'
-require "$BOOTSTRAP" 'explicitly so `set -e` callers do not treat a secure file as failure' 'bootstrap ownership validator returns success for secure files'
-require "$BOOTSTRAP" 'Administrator procedure' 'bootstrap documents the root-owned checkout procedure'
-require "$BOOTSTRAP" '${DEPLOY_USER} ALL=(root) NOPASSWD: ${ENTRYPOINT_DST}' 'bootstrap grants only the fixed entrypoint through sudoers'
-forbid "$BOOTSTRAP" 'NOPASSWD: /usr/bin/bash' 'bootstrap never grants passwordless bash'
+# Privileged surface, signed archives and fail-closed recovery contracts.
+require "$ENTRYPOINT" 'ARCHIVE_ROOT="${STATE_ROOT}/application-archives"' 'entrypoint uses only the approved root-owned archive subdirectory'
+require "$ENTRYPOINT" 'MIN_FREE_BYTES=10737418240' 'entrypoint reserves at least 10 GiB free space'
+require "$ENTRYPOINT" 'ARCHIVE_RETAIN_COUNT=3' 'entrypoint bounds normal archive retention to three'
+require "$ENTRYPOINT" '.pinned' 'retention preserves VM-admin pinned archives'
+require "$GUARD" 'operation current release is stale' 'operation validator binds authorization to the live current release'
+require "$ENTRYPOINT" 'verify_archived_installed "${FALLBACK_RELEASE_ID}"' 'deploy authenticates fallback archive and installed files'
+require "$ENTRYPOINT" '"${ACTION}" == "establish_baseline"' 'entrypoint exposes a distinct signed first-baseline operation'
+require "$ENTRYPOINT" '"${INSTALLER}" --install-only "${ROOT_BUNDLE}"' 'first baseline installs and checks the signed release before activation'
+require "$ENTRYPOINT" 'archive_root_is_empty || die' 'first baseline refuses old or partial local archives'
+require "$ENTRYPOINT" 'store_baseline_marker "${NEW_ID}"' 'successful first baseline records its identity only after archive verification'
+require "$ENTRYPOINT" 'restore_baseline_origin_fixed' 'post-switch baseline failure uses fixed root-owned recovery commands'
+forbid "$ENTRYPOINT" 'restore_unverified_baseline_origin' 'entrypoint never runs unsigned pre-baseline release scripts as root'
+require "$ENTRYPOINT" 'active-operation.json' 'entrypoint durably journals switch transactions'
+require "$ENTRYPOINT" 'fsync_directory "${STATE_ROOT}"' 'entrypoint fsyncs journal publication and removal'
+require "$ENTRYPOINT" 'fsync_directory "${TARGET_ROOT}"' 'entrypoint durably publishes every current symlink switch'
+require "$INSTALL" 'os.walk(root, topdown=False)' 'installer durably syncs complete release files and directories before activation'
+require "$ENTRYPOINT" 'fsync_file "${evidence_file}"' 'entrypoint syncs readiness evidence before journal removal'
+require "$ENTRYPOINT" 'store_previous_release_id' 'entrypoint atomically syncs rollback bookkeeping before journal removal'
+require "$ENTRYPOINT" 'preflight_baseline_origin "${CURRENT_ID}"' 'first baseline validates and restarts the legacy origin before switching'
+require "$ENTRYPOINT" 'legacy backend ExecStart must resolve inside the pre-baseline release' 'first baseline fails closed on unsafe legacy launch paths'
+require "$ENTRYPOINT" '"schema_version": 1, "present": presence' 'baseline snapshot records exact configuration presence and absence'
+require "$ENTRYPOINT" 'os.O_RDONLY | os.O_NOFOLLOW' 'baseline snapshot and recovery reject configuration symlinks'
+require "$ENTRYPOINT" 'os.unlink(name, dir_fd=parent_fd)' 'baseline recovery removes generated NGINX files that were originally absent'
+require "$ENTRYPOINT" 'os.replace(temporary_name, name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)' 'baseline recovery atomically restores files that were originally present'
+forbid "$ENTRYPOINT" 'if [[ "$(current_release_id 2>/dev/null || true)" == "${RECOVERY_ORIGINAL_ID}" ]]' 'recovery never clears a journal merely because current already names the origin'
+require "$ENTRYPOINT" 'an interrupted operation requires an explicit signed recover action' 'pending crash recovery fails closed to signed recover only'
+require "$ENTRYPOINT" '"recovery_required": pending is not None' 'read-only status exposes pending recovery without reconciling it'
+require "$ENTRYPOINT" 'baseline_established' 'status exposes whether the first signed baseline exists'
+require "$ENTRYPOINT" 'restore_archive_install_only "${TARGET_RELEASE_ID}" "${BUNDLE_SHA256}"' 'rollback restores a missing installed target from its authenticated archive'
+require "$ENTRYPOINT" 'installed_release_present' 'status exposes whether an authenticated archive is already installed'
+require "$ENTRYPOINT" 'arm_recovery signed-new "${FALLBACK_RELEASE_ID}" "${NEW_ID}" "${FALLBACK_ARCHIVE_SHA256}"' 'normal deploy durably arms recovery before installer activation'
+require "$ENTRYPOINT" 'arm_recovery signed "${CURRENT_ID}" "${TARGET_RELEASE_ID}" "${CURRENT_ARCHIVE_SHA256}"' 'rollback durably arms recovery before switching current'
+require "$ENTRYPOINT" 'chmod 0644 "${evidence_file}"' 'failed verification evidence is readable by the workflow before recovery'
+require "$GUARD" 'os.replace(temp_dir, paths["root"])' 'archive publishes its complete file set with one atomic directory rename'
+require "$ENTRYPOINT" 'check-db-heads' 'deploy and rollback enforce exact read-only migration compatibility'
+require "$ENTRYPOINT" 'store-archive' 'only verified deployment stores exact signed bundle archive'
+require "$GUARD" 'metadata["status"] != "deploy_verified"' 'archive verifier rejects failed/unapproved state'
+forbid "$ENTRYPOINT" 'alembic upgrade' 'entrypoint never migrates or downgrades the database'
+forbid "$ENTRYPOINT" 'source "${ENV_FILE}"' 'entrypoint never shell-sources secrets'
 
-# --- Workflow: exactly one privileged call, no /tmp installer upload -------
+# Root-only bootstrap; workflow cannot install or replace privileged code.
+require "$BOOTSTRAP" 'RELEASE_GUARD_SRC' 'bootstrap validates and installs release guard'
+require "$BOOTSTRAP" 'source ancestor is not root-controlled' 'bootstrap rejects untrusted source ancestors'
+require "$BOOTSTRAP" 'os.O_RDONLY | os.O_NOFOLLOW' 'bootstrap snapshots opened non-symlink source descriptors'
+require "$BOOTSTRAP" 'ENTRYPOINT_SNAPSHOT' 'bootstrap installs all privileged files from one root-only snapshot'
+require "$ENTRYPOINT" 'privileged_suite_version' 'status reports the installed privileged-suite identity'
+require "$BOOTSTRAP" 'PREVIOUS_SIGNING_PUBLIC_KEY_SRC=' 'bootstrap supports explicit root-owned signer overlap'
+require "$BOOTSTRAP" 'verify-archive "${ARCHIVE_ROOT}" "${release_id}" "${ALLOWED_SIGNERS_TMP}"' 'signer rotation preserves authenticated archives'
+require "$ENTRYPOINT" 'installed privileged suite differs from bootstrap identity' 'status and mutations rehash the installed privileged suite'
+require "$ENTRYPOINT" 'must be owned by the deployment account' 'caller-supplied root-owned temporary files are rejected'
+require "$ENTRYPOINT" 'discard_pre_activation_candidate "${PREACTIVATION_ID}"' 'failed preactivation candidates are removed before retry'
+require "$ENTRYPOINT" 'follow_symlinks=False' 'baseline enabled-site link is inspected without following it'
+require "$ENTRYPOINT" 'os.readlink(link_name, dir_fd=link_parent_fd)' 'baseline recovery validates the exact enabled-site target'
+require "$WORKFLOW" 'EXPECTED_PRIVILEGED_SUITE_VERSION' 'workflow rejects a stale or mixed installed privileged suite'
+require "$BOOTSTRAP" 'install -d -o root -g root -m 0700 "${ARCHIVE_ROOT}"' 'bootstrap creates root-only application archive directory'
+require "$BOOTSTRAP" 'install -d -o root -g root -m 0700 "${NONCE_ROOT}"' 'bootstrap creates root-only replay state directory'
+require "$BOOTSTRAP" 'cwscx-mystery-public-release-signing-key.pub' 'bootstrap installs a release key distinct from SSH transport metadata'
+require "$BOOTSTRAP" '${DEPLOY_USER} ALL=(root) NOPASSWD: ${ENTRYPOINT_DST}' 'sudoers grants one fixed entrypoint only'
+forbid "$BOOTSTRAP" 'NOPASSWD: /usr/bin/bash' 'bootstrap never grants a shell'
+
+# Manual, main-only, protected Actions deploy and rollback.
+require "$WORKFLOW" 'workflow_dispatch:' 'workflow is manual only'
 require "$WORKFLOW" "github.ref == 'refs/heads/main'" 'workflow is main-only'
-require "$WORKFLOW" 'cancel-in-progress: false' 'workflow serializes production deploys'
+require "$WORKFLOW" 'environment: mystery-public' 'deploy and rollback use protected environment approvals'
+require "$WORKFLOW" '--operation-path' 'workflow routes state changes through signed operation documents'
+require "$WORKFLOW" "inputs.action == 'establish_baseline'" 'first baseline has a separate protected manual job'
+require "$WORKFLOW" 'BASELINE_CURRENT_RELEASE_ID' 'first-baseline approval is bound to the explicitly named current release'
+require "$WORKFLOW" 'no authenticated rollback is asserted' 'workflow failure does not fabricate a signed first-baseline rollback'
+forbid "$WORKFLOW" '--action deploy' 'workflow cannot invoke an unsigned direct deploy action'
+forbid "$WORKFLOW" '--action rollback' 'workflow cannot invoke an unsigned direct rollback action'
+forbid "$ENTRYPOINT" '"${ACTION}" == "rollback" ||' 'entrypoint parser does not expose direct local rollback'
+if DIRECT_ROLLBACK_OUTPUT="$(bash "$ENTRYPOINT" --action rollback 2>&1)"; then
+  echo '[FAIL] direct local rollback invocation was accepted' >&2; failures=$((failures+1))
+elif [[ "$DIRECT_ROLLBACK_OUTPUT" == *'--action accepts status only; deploy and rollback require a signed operation'* ]]; then
+  echo '[PASS] direct local rollback invocation is behaviorally rejected'
+else
+  echo "[FAIL] direct local rollback failed for the wrong reason: ${DIRECT_ROLLBACK_OUTPUT}" >&2; failures=$((failures+1))
+fi
+require "$WORKFLOW" '--action status' 'workflow reads live release identity before and after each operation'
+require "$ENTRYPOINT" 'flock -n -x 9' 'entrypoint serializes local operations independently of GitHub concurrency'
+require "$ENTRYPOINT" 'status accepts no operation or bundle arguments' 'status is read-only and narrowly scoped'
+require "$WORKFLOW" 'github.run_attempt' 'rollback artifact remains distinct across reruns'
+require "$WORKFLOW" '--release-id' 'workflow passes validated rollback release ID'
 require "$WORKFLOW" 'StrictHostKeyChecking=yes' 'workflow pins SSH host identity'
-require "$WORKFLOW" 'actions/upload-artifact@v4' 'workflow uploads release/deploy evidence'
-forbid "$WORKFLOW" 'apt-get install' 'workflow performs no per-deploy apt install'
-forbid "$WORKFLOW" 'install_mystery_public_bundle.sh' 'workflow no longer uploads the installer to /tmp'
-require "$WORKFLOW" 'sudo -n /usr/local/sbin/cwscx-mystery-public-deploy' 'workflow invokes the fixed entrypoint non-interactively'
-require "$WORKFLOW" 'python3 scripts/linux/check_mystery_deploy_sudo.py' 'workflow checks VM sudo privileges before transferring the bundle'
-require "$WORKFLOW" "printf -v REMOTE_DEPLOY_CMD '%q '" 'workflow shell-quotes every remote entrypoint argument'
-require "$WORKFLOW" 'ssh-keygen -Y sign' 'workflow signs the immutable bundle with the deployment key'
-require "$WORKFLOW" '--signature-path' 'workflow passes the detached signature to the fixed entrypoint'
-count_exactly "$WORKFLOW" 'sudo -n' 2 'workflow uses one read-only sudo listing and one fixed deployment command'
-forbid "$WORKFLOW" 'deploy_mystery_public_backend.sh' 'workflow does not call the backend deploy script directly'
-forbid "$WORKFLOW" 'deploy_mystery_public_nginx.sh' 'workflow does not call the NGINX deploy script directly'
-forbid "$WORKFLOW" '/opt/cwscx-mystery-public/current/scripts/linux/verify_mystery_public.sh' 'workflow does not call the verifier directly'
-require "$WORKFLOW" '/var/lib/cwscx-mystery-public/deploy-evidence/' 'workflow fetches evidence from the fixed root-owned path'
+require "$WORKFLOW" 'MYSTERY_PUBLIC_RELEASE_SIGNING_KEY' 'workflow uses a dedicated release signing secret'
+require "$WORKFLOW" 'Release signing key must differ from SSH key' 'workflow rejects release and SSH key reuse'
+require "$WORKFLOW" 'cwscx-mystery-public-release' 'workflow signs exact release zip in the release namespace'
+require "$WORKFLOW" 'cwscx-mystery-public-operation' 'workflow signs canonical operations in a separate namespace'
+require "$GUARD" 'operation nonce has already been used' 'operation authorization rejects replayed nonces'
+require "$GUARD" 'operation current release is stale' 'operation authorization rejects stale current-release state'
+require "$WORKFLOW" 'python3 scripts/linux/check_mystery_deploy_sudo.py' 'both operations preflight narrow sudo grant'
+require "$WORKFLOW" "inputs.action == 'recover'" 'crash recovery has a separate protected manual job'
+require "$WORKFLOW" 'recovery_required' 'recovery workflow reads the durable journal through status'
+require "$WORKFLOW" 'ACTION=recover' 'recovery workflow signs an explicit recover operation'
+require "$WORKFLOW" 'EXPECTED_RECOVERY_RELEASE_ID' 'recovery accepts an authenticated committed baseline as the verified end state'
+require "$WORKFLOW" 'recovery-${FAILED_RELEASE_ID}.json' 'recovery workflow fetches exact recovery readiness evidence'
+count_exactly "$WORKFLOW" 'sudo -n /usr/local/sbin/cwscx-mystery-public-deploy' 9 'baseline, deploy, rollback and recovery use read-only status plus fixed privileged operations'
+forbid "$WORKFLOW" 'apt-get install' 'workflow does not mutate VM prerequisites'
+forbid "$WORKFLOW" '/tmp/install_mystery_public_bundle.sh' 'workflow cannot upload an installer to the VM'
 
 for file in "$BUILD" "$INSTALL" "$BACKEND" "$NGINX" "$VERIFY" "$ENTRYPOINT" "$BOOTSTRAP"; do
-  bash -n "$file" || { printf '[FAIL] shell syntax: %s\n' "$file" >&2; failures=$((failures+1)); }
+  bash -n "$file" || { echo "[FAIL] shell syntax: $file" >&2; failures=$((failures+1)); }
 done
+python3 -m py_compile "$GUARD" "$ROOT/scripts/linux/tests/test_mystery_public_release_guard.py" || failures=$((failures+1))
 
-# GitHub has already parsed this workflow before starting this job. Keep
-# dependency-free assertions here so the deployment gate does not require PyYAML.
-require "${WORKFLOW}" "permissions:" "workflow declares permissions"
-require "${WORKFLOW}" "contents: read" "workflow limits repository contents to read"
-require "${WORKFLOW}" "timeout-minutes: 30" "workflow bounds job runtime"
-
-(( failures == 0 )) || { printf '%d contract checks failed\n' "$failures" >&2; exit 1; }
-python3 "${ROOT}/scripts/linux/tests/test_check_mystery_deploy_sudo.py"
-echo 'All Mystery public release script contracts passed.'
+(( failures == 0 )) || { printf '%d release safety checks failed\n' "$failures" >&2; exit 1; }
+echo 'All Mystery Public deploy/rollback behavior and contracts passed.'
