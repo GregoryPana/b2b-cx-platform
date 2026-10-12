@@ -29,6 +29,11 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/mystery-shopper/package-lock.json
       - name: Install graph-check dependencies
         run: python -m pip install "alembic>=1.13,<2" "sqlalchemy>=2,<3"
       - name: Validate workflow semantics and pinned actions
@@ -61,3 +66,24 @@ jobs:
           bash scripts/linux/tests/test_mystery_public_release_scripts.sh
           python -m unittest discover -s scripts/linux/tests -p 'test_mystery_public_migration_heads.py' -v
           git diff --check
+      - name: Build clean APN-only bundle without signing or deployment
+        env:
+          REQUIRE_CLEAN_TREE: "1"
+        run: |
+          set -euo pipefail
+          RELEASE_ID="ci-${GITHUB_SHA}" bash scripts/linux/build_mystery_public_bundle.sh \
+            "${RUNNER_TEMP}/cwscx-mystery-public-ci.zip"
+          python - "${RUNNER_TEMP}/cwscx-mystery-public-ci.zip" "${GITHUB_SHA}" <<'PY'
+          import json, subprocess, sys, zipfile
+          source_heads = json.loads(subprocess.check_output([
+              sys.executable, 'scripts/linux/mystery_public_release_guard.py',
+              'source-heads', 'backend/alembic.ini',
+          ], text=True))
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              manifest = json.loads(archive.read('release/release-manifest.json'))
+              assert manifest['git_sha'] == sys.argv[2]
+              assert manifest['source_tree_state'] == 'clean'
+              assert manifest['frontend_auth_mode'] == 'mystery_public'
+              assert manifest['expected_migration_heads'] == source_heads
+              assert archive.testzip() is None
+          PY
