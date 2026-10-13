@@ -26,7 +26,10 @@ class DisposableRuntimeGateTests(unittest.TestCase):
         self.backend = self.release / "backend"
         self.backend.mkdir(parents=True)
         self.venv = self.backend / "venv"
-        subprocess.run([sys.executable, "-I", "-m", "venv", str(self.venv)], check=True)
+        # Hosted setup-python toolcache can be owned by a different runner
+        # identity. Copy the interpreter into this owner-controlled fixture;
+        # production ownership checks must remain unchanged.
+        subprocess.run([sys.executable, "-I", "-m", "venv", "--copies", str(self.venv)], check=True)
         version = subprocess.run(
             [str(self.venv / "bin/python"), "-I", "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')"],
             check=True,
