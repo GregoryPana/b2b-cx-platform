@@ -42,7 +42,16 @@ die() { echo "bootstrap: $*" >&2; exit 1; }
 
 [[ "${EUID}" -eq 0 ]] || die "must run as root"
 
+# Absolute source location first (no interpreter involved), then a trusted
+# working directory: the caller's cwd may be an attacker-planted directory and
+# is never an import location. Every Python call below uses -I.
+unset CDPATH
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd / || die "cannot enter the trusted working directory"
+for _name in $(compgen -e); do
+  case "${_name}" in PYTHON*|PIP_*) unset "${_name}" ;; esac
+done
+unset _name
 ENTRYPOINT_SRC="${REPO_ROOT}/linux/cwscx_mystery_public_deploy_entrypoint.sh"
 INSTALLER_SRC="${REPO_ROOT}/linux/install_mystery_public_bundle.sh"
 RELEASE_GUARD_SRC="${REPO_ROOT}/linux/mystery_public_release_guard.py"
@@ -103,7 +112,7 @@ check_source() {
 SUITE_SNAPSHOT="$(mktemp -d /root/cwscx-mystery-public-suite.XXXXXX)"
 cleanup() { rm -rf "${SUITE_SNAPSHOT:-}"; rm -f "${TMP_SUDOERS:-}" "${ALLOWED_SIGNERS_TMP:-}"; }
 trap cleanup EXIT
-PRIVILEGED_SUITE_VERSION="$(python3 - "${SUITE_SNAPSHOT}" "${ENTRYPOINT_SRC}" "${INSTALLER_SRC}" "${RELEASE_GUARD_SRC}" <<'PY'
+PRIVILEGED_SUITE_VERSION="$(python3 -I - "${SUITE_SNAPSHOT}" "${ENTRYPOINT_SRC}" "${INSTALLER_SRC}" "${RELEASE_GUARD_SRC}" <<'PY'
 import hashlib, os, pathlib, stat, sys
 
 destination = pathlib.Path(sys.argv[1])
@@ -144,7 +153,7 @@ RELEASE_GUARD_SNAPSHOT="${SUITE_SNAPSHOT}/$(basename "${RELEASE_GUARD_SRC}")"
 check_source "${ENTRYPOINT_SNAPSHOT}" "entrypoint snapshot"
 check_source "${INSTALLER_SNAPSHOT}" "installer snapshot"
 check_root_owned_file "${RELEASE_GUARD_SNAPSHOT}" "release guard snapshot"
-python3 -m py_compile "${RELEASE_GUARD_SNAPSHOT}" || die "release guard source fails Python syntax check"
+python3 -I -m py_compile "${RELEASE_GUARD_SNAPSHOT}" || die "release guard source fails Python syntax check"
 check_root_owned_file "${SIGNING_PUBLIC_KEY_SRC}" "deployment signing public key"
 ssh-keygen -l -f "${SIGNING_PUBLIC_KEY_SRC}" >/dev/null 2>&1 || die "deployment signing public key is not a valid SSH public key"
 if [[ -e "${PREVIOUS_SIGNING_PUBLIC_KEY_SRC}" || -L "${PREVIOUS_SIGNING_PUBLIC_KEY_SRC}" ]]; then
@@ -207,12 +216,12 @@ for archive in "${ARCHIVE_ROOT}"/*; do
   [[ -d "${archive}" && ! -L "${archive}" ]] || continue
   release_id="$(basename "${archive}")"
   [[ "${release_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]] || die "unexpected archive directory requires VM-admin review"
-  python3 "${RELEASE_GUARD_SNAPSHOT}" verify-archive "${ARCHIVE_ROOT}" "${release_id}" "${ALLOWED_SIGNERS_TMP}" >/dev/null \
+  python3 -I "${RELEASE_GUARD_SNAPSHOT}" verify-archive "${ARCHIVE_ROOT}" "${release_id}" "${ALLOWED_SIGNERS_TMP}" >/dev/null \
     || die "proposed signer set would invalidate an archived release: ${release_id}"
 done
 mv -Tf "${ALLOWED_SIGNERS_TMP}" "${ALLOWED_SIGNERS}"
 ALLOWED_SIGNERS_TMP=""
-python3 - "${SIGNER_DIR}" <<'PY'
+python3 -I - "${SIGNER_DIR}" <<'PY'
 import os, sys
 fd=os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
 try: os.fsync(fd)

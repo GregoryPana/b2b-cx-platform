@@ -2,21 +2,7 @@ name: mystery-public-release-ci
 
 on:
   push:
-    paths:
-      - ".github/workflows/deploy-mystery-public.yml"
-      - ".github/workflows/mystery-public-release-ci.yml"
-      - "scripts/linux/**"
-      - "backend/alembic/**"
-      - "backend/alembic.ini"
-      - "backend/requirements.txt"
   pull_request:
-    paths:
-      - ".github/workflows/deploy-mystery-public.yml"
-      - ".github/workflows/mystery-public-release-ci.yml"
-      - "scripts/linux/**"
-      - "backend/alembic/**"
-      - "backend/alembic.ini"
-      - "backend/requirements.txt"
 
 permissions:
   contents: read

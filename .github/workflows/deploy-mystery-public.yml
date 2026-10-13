@@ -186,16 +186,14 @@ jobs:
           STATUS=${PIPESTATUS[0]}
           set -e
           scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/${RELEASE_ID}.json" "${EVIDENCE_DIR}/verification.json" 2>/dev/null || true
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-${RELEASE_ID}.json" "${EVIDENCE_DIR}/recovery.json" 2>/dev/null || true
           ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/after.json" || true
-          (( STATUS == 0 )) || { echo 'First-baseline operation failed. The entrypoint attempted operational restoration of the pre-baseline release; it remains unverified and no authenticated rollback is asserted.' >&2; exit "${STATUS}"; }
-          python3 - "${EVIDENCE_DIR}/verification.json" "${EVIDENCE_DIR}/after.json" "${RELEASE_ID}" "${GITHUB_SHA}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" <<'PY'
-          import json, sys
-          data=json.load(open(sys.argv[1], encoding="utf-8")); state=json.load(open(sys.argv[2], encoding="utf-8"))
-          assert data["summary"]["total"] == len(data["checks"]) and data["summary"]["failed"] == 0
-          assert state["release_id"] == sys.argv[3] and state["git_sha"] == sys.argv[4]
-          assert state["privileged_suite_version"] == sys.argv[5]
-          assert state["signed_archive_verified"] and state["baseline_established"] and state["baseline_release_id"] == sys.argv[3]
-          PY
+          if (( STATUS != 0 )); then
+            echo 'First-baseline operation failed. The entrypoint attempted operational restoration of the pre-baseline release; it remains unverified and no authenticated rollback is asserted.' >&2
+            python3 scripts/linux/mystery_public_workflow_evidence.py classify-recovery "${EVIDENCE_DIR}/before.json" "${EVIDENCE_DIR}/after.json" "${EVIDENCE_DIR}/recovery.json" "${BASELINE_CURRENT_RELEASE_ID}" "${RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" 2>&1 | tee -a "${EVIDENCE_DIR}/recovery-classification.txt" >&2 || true
+            exit "${STATUS}"
+          fi
+          python3 scripts/linux/mystery_public_workflow_evidence.py verify-success baseline "${EVIDENCE_DIR}/verification.json" "${EVIDENCE_DIR}/after.json" "${RELEASE_ID}" "${GITHUB_SHA}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}"
           printf 'Mystery first baseline: %s (%s)\n' "${RELEASE_ID}" "${GITHUB_SHA}" >>"${GITHUB_STEP_SUMMARY}"
       - name: Upload first-baseline evidence
         if: always()
@@ -293,14 +291,11 @@ jobs:
           scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/${RELEASE_ID}.json" "${EVIDENCE_DIR}/verification.json" 2>/dev/null || true
           scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-${RELEASE_ID}.json" "${EVIDENCE_DIR}/recovery.json" 2>/dev/null || true
           ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/after.json" || true
-          (( STATUS == 0 )) || exit "${STATUS}"
-          python3 - "${EVIDENCE_DIR}/verification.json" "${EVIDENCE_DIR}/after.json" "${RELEASE_ID}" "${GITHUB_SHA}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" <<'PY'
-          import json, sys
-          data=json.load(open(sys.argv[1], encoding="utf-8")); state=json.load(open(sys.argv[2], encoding="utf-8"))
-          assert data["summary"]["total"] == len(data["checks"]) and data["summary"]["failed"] == 0
-          assert state["release_id"] == sys.argv[3] and state["git_sha"] == sys.argv[4] and state["signed_archive_verified"]
-          assert state["privileged_suite_version"] == sys.argv[5]
-          PY
+          if (( STATUS != 0 )); then
+            python3 scripts/linux/mystery_public_workflow_evidence.py classify-recovery "${EVIDENCE_DIR}/before.json" "${EVIDENCE_DIR}/after.json" "${EVIDENCE_DIR}/recovery.json" "${FALLBACK_RELEASE_ID}" "${RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" 2>&1 | tee -a "${EVIDENCE_DIR}/recovery-classification.txt" >&2 || true
+            exit "${STATUS}"
+          fi
+          python3 scripts/linux/mystery_public_workflow_evidence.py verify-success deploy "${EVIDENCE_DIR}/verification.json" "${EVIDENCE_DIR}/after.json" "${RELEASE_ID}" "${GITHUB_SHA}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}"
           printf 'Mystery release: %s (%s)\n' "${RELEASE_ID}" "${GITHUB_SHA}" >>"${GITHUB_STEP_SUMMARY}"
       - name: Upload deployment evidence
         if: always()
@@ -392,14 +387,11 @@ jobs:
           scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/${ROLLBACK_RELEASE_ID}.json" "${EVIDENCE_DIR}/verification.json" 2>/dev/null || true
           scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-${ROLLBACK_RELEASE_ID}.json" "${EVIDENCE_DIR}/recovery.json" 2>/dev/null || true
           ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/after.json" || true
-          (( STATUS == 0 )) || exit "${STATUS}"
-          python3 - "${EVIDENCE_DIR}/verification.json" "${EVIDENCE_DIR}/after.json" "${ROLLBACK_RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" <<'PY'
-          import json, sys
-          data=json.load(open(sys.argv[1], encoding="utf-8")); state=json.load(open(sys.argv[2], encoding="utf-8"))
-          assert data["summary"]["failed"] == 0
-          assert state["release_id"] == sys.argv[3] and state["signed_archive_verified"]
-          assert state["privileged_suite_version"] == sys.argv[4]
-          PY
+          if (( STATUS != 0 )); then
+            python3 scripts/linux/mystery_public_workflow_evidence.py classify-recovery "${EVIDENCE_DIR}/before.json" "${EVIDENCE_DIR}/after.json" "${EVIDENCE_DIR}/recovery.json" "${CURRENT_RELEASE_ID}" "${ROLLBACK_RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" 2>&1 | tee -a "${EVIDENCE_DIR}/recovery-classification.txt" >&2 || true
+            exit "${STATUS}"
+          fi
+          python3 scripts/linux/mystery_public_workflow_evidence.py verify-success rollback "${EVIDENCE_DIR}/verification.json" "${EVIDENCE_DIR}/after.json" "${ROLLBACK_RELEASE_ID}" "" "${EXPECTED_PRIVILEGED_SUITE_VERSION}"
           printf 'Mystery rollback: %s -> %s\n' "${CURRENT_RELEASE_ID}" "${ROLLBACK_RELEASE_ID}" >>"${GITHUB_STEP_SUMMARY}"
       - name: Upload rollback evidence
         if: always()
@@ -470,11 +462,12 @@ jobs:
                        state.get("signed_archive_verified") is True)
           expected = pending["failed_release_id"] if committed else pending["original_release_id"]
           print(state["release_id"]); print(pending["original_release_id"]); print(pending["recovery_authorization_sha256"])
-          print(pending["failed_release_id"]); print(expected)
+          print(pending["failed_release_id"]); print(expected); print(pending["mode"])
           PY
           )
           CURRENT_RELEASE_ID="${RECOVERY_VALUES[0]}"; TARGET_RELEASE_ID="${RECOVERY_VALUES[1]}"; BUNDLE_SHA256="${RECOVERY_VALUES[2]}"
           FAILED_RELEASE_ID="${RECOVERY_VALUES[3]}"; EXPECTED_RECOVERY_RELEASE_ID="${RECOVERY_VALUES[4]}"
+          PENDING_RECOVERY_MODE="${RECOVERY_VALUES[5]}"
           OPERATION="${RUNNER_TEMP}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.recovery.json"
           export OPERATION ACTION=recover CURRENT_RELEASE_ID TARGET_RELEASE_ID BUNDLE_SHA256
           export GITHUB_RUN_ID GITHUB_RUN_ATTEMPT MYSTERY_PUBLIC_BASE_URL VERIFY_TLS_MODE
@@ -492,13 +485,7 @@ jobs:
           ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_RECOVER_CMD}" 2>&1 | tee "${EVIDENCE_DIR}/recover.log"
           scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-${FAILED_RELEASE_ID}.json" "${EVIDENCE_DIR}/recovery.json"
           ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/after.json"
-          python3 - "${EVIDENCE_DIR}/after.json" "${EXPECTED_RECOVERY_RELEASE_ID}" "${EVIDENCE_DIR}/recovery.json" <<'PY'
-          import json, sys
-          state=json.load(open(sys.argv[1],encoding="utf-8"))
-          evidence=json.load(open(sys.argv[3],encoding="utf-8"))
-          assert state["release_id"] == sys.argv[2] and not state["recovery_required"] and state["pending_operation"] is None
-          assert evidence
-          PY
+          python3 scripts/linux/mystery_public_workflow_evidence.py final-recover "${EVIDENCE_DIR}/after.json" "${EXPECTED_RECOVERY_RELEASE_ID}" "${EVIDENCE_DIR}/recovery.json" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" "${FAILED_RELEASE_ID}" "${TARGET_RELEASE_ID}" "${PENDING_RECOVERY_MODE}" "${BUNDLE_SHA256}"
           printf 'Mystery crash recovery: %s -> %s\n' "${CURRENT_RELEASE_ID}" "${EXPECTED_RECOVERY_RELEASE_ID}" >>"${GITHUB_STEP_SUMMARY}"
       - name: Upload recovery evidence
         if: always()

@@ -7,6 +7,20 @@ export PATH
 
 die() { echo "cwscx-mystery-public-deploy: $*" >&2; exit 1; }
 
+# Trusted execution boundary, before any interpreter runs. The installed path is
+# resolved while the caller's directory is still current (a relative invocation
+# stays valid; realpath is not an interpreter), then the privileged suite moves
+# to the root-owned filesystem root. A candidate release is NOT a trusted cwd
+# before signed validation. Every Python call below also uses -I, which ignores
+# PYTHON* variables, the user site and the cwd/script directory; the variable
+# scrub additionally covers pip configuration for the offline venv checks.
+ENTRYPOINT_REALPATH="$(realpath -e -- "${BASH_SOURCE[0]}")" || die "cannot resolve the entrypoint path"
+cd / || die "cannot enter the trusted working directory"
+for _name in $(compgen -e); do
+  case "${_name}" in PYTHON*|PIP_*) unset "${_name}" ;; esac
+done
+unset _name CDPATH
+
 readonly TARGET_ROOT="/opt/cwscx-mystery-public"
 readonly ENV_FILE="${TARGET_ROOT}/.env"
 readonly RELEASES_ROOT="${TARGET_ROOT}/releases"
@@ -18,6 +32,7 @@ readonly BASELINE_MARKER="${ARCHIVE_ROOT}/baseline-release-id"
 readonly NONCE_ROOT="${STATE_ROOT}/operation-nonces"
 readonly TRANSACTION_FILE="${STATE_ROOT}/active-operation.json"
 readonly BASELINE_RECOVERY_ROOT="${STATE_ROOT}/baseline-origin-config"
+readonly PREACTIVATION_MARKER="${STATE_ROOT}/preactivation-candidate.json"
 readonly ENTRYPOINT_PATH="/usr/local/sbin/cwscx-mystery-public-deploy"
 readonly INSTALLER="/usr/local/libexec/cwscx-mystery-public/install_mystery_public_bundle.sh"
 readonly RELEASE_GUARD="/usr/local/libexec/cwscx-mystery-public/mystery_public_release_guard.py"
@@ -28,6 +43,7 @@ readonly PYTHON_BIN="/usr/bin/python3"
 readonly ARCHIVE_RETAIN_COUNT=3
 readonly MIN_FREE_BYTES=10737418240
 readonly EVIDENCE_RETAIN_COUNT=20
+readonly HEALTH_PROBE_ATTEMPTS=30
 readonly DEFAULT_ENABLE_HSTS="0"
 readonly SERVICE_NAME="cwscx-mystery-public-backend"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -95,10 +111,10 @@ exec 9>"${STATE_ROOT}/deploy.lock"
 flock -n -x 9 || die "another deployment or rollback is in progress"
 ENV_MODE="$(stat -c '%a' "${ENV_FILE}")"; [[ "${ENV_MODE}" == "600" || "${ENV_MODE}" == "640" ]] || die "environment file mode must be 600 or 640"
 for item in "${ENTRYPOINT_PATH}" "${INSTALLER}" "${RELEASE_GUARD}" "${PRIVILEGED_SUITE_VERSION_FILE}" "${ALLOWED_SIGNERS}"; do require_root_file "${item}" "privileged support file"; done
-[[ "$(realpath -e -- "${BASH_SOURCE[0]}")" == "${ENTRYPOINT_PATH}" ]] || die "entrypoint must be invoked from its fixed installed path"
+[[ "${ENTRYPOINT_REALPATH}" == "${ENTRYPOINT_PATH}" ]] || die "entrypoint must be invoked from its fixed installed path"
 PRIVILEGED_SUITE_VERSION="$(tr -d '\n' <"${PRIVILEGED_SUITE_VERSION_FILE}")"
 [[ "${PRIVILEGED_SUITE_VERSION}" =~ ^[0-9a-f]{64}$ ]] || die "privileged suite version is invalid"
-INSTALLED_SUITE_VERSION="$("${PYTHON_BIN}" "${RELEASE_GUARD}" suite-version "${ENTRYPOINT_PATH}" "${INSTALLER}" "${RELEASE_GUARD}")" \
+INSTALLED_SUITE_VERSION="$("${PYTHON_BIN}" -I "${RELEASE_GUARD}" suite-version "${ENTRYPOINT_PATH}" "${INSTALLER}" "${RELEASE_GUARD}")" \
   || die "installed privileged suite cannot be verified"
 [[ "${INSTALLED_SUITE_VERSION}" == "${PRIVILEGED_SUITE_VERSION}" ]] || die "installed privileged suite differs from bootstrap identity"
 
@@ -108,7 +124,7 @@ current_release_id() {
   resolved="$(realpath -e -- "${TARGET_ROOT}/current")" || return 1
   [[ "$(dirname "${resolved}")" == "${RELEASES_ROOT}" ]] || return 1
   id="$(basename "${resolved}")"; valid_release_id "${id}" || return 1
-  manifest_id="$("${PYTHON_BIN}" -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["release_id"])' "${resolved}/release-manifest.json")" || return 1
+  manifest_id="$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["release_id"])' "${resolved}/release-manifest.json")" || return 1
   [[ "${id}" == "${manifest_id}" ]] || return 1
   printf '%s\n' "${id}"
 }
@@ -116,14 +132,14 @@ current_release_id() {
 verify_archived_installed() {
   local release_id="$1"
   valid_release_id "${release_id}" || die "invalid release ID"
-  "${PYTHON_BIN}" "${RELEASE_GUARD}" verify-installed \
+  "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed \
     "${RELEASES_ROOT}/${release_id}" "${ARCHIVE_ROOT}" "${release_id}" "${ALLOWED_SIGNERS}" >/dev/null
 }
 
 verify_archive() {
   local release_id="$1"
   valid_release_id "${release_id}" || die "invalid release ID"
-  "${PYTHON_BIN}" "${RELEASE_GUARD}" verify-archive \
+  "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-archive \
     "${ARCHIVE_ROOT}" "${release_id}" "${ALLOWED_SIGNERS}"
 }
 
@@ -168,18 +184,32 @@ restore_archive_install_only() {
   valid_release_id "${release_id}" || die "invalid release ID"
   [[ "${bundle_sha256}" =~ ^[0-9a-f]{64}$ ]] || die "invalid archived bundle checksum"
   [[ ! -e "${RELEASES_ROOT}/${release_id}" ]] || die "archive restore target already exists but is not verified"
+  # The marker must be durable BEFORE the installer publishes the final
+  # directory: SIGKILL/power loss skips every EXIT trap and would otherwise
+  # leave an unjournaled candidate that blocks this fixed rollback ID forever.
+  write_preactivation_marker rollback "${release_id}" "${bundle_sha256}" "${CURRENT_ID}" \
+    || die "could not record the preactivation marker"
+  PREACTIVATION_ID="${release_id}"
   EXPECTED_BUNDLE_SHA256="${bundle_sha256}" "${BASH_BIN}" "${INSTALLER}" \
     --install-only "${ARCHIVE_ROOT}/${release_id}/bundle.zip"
   if ! verify_archived_installed "${release_id}"; then
     discard_pre_activation_candidate "${release_id}" || die "archive restore cleanup needs VM-admin review"
     die "restored archive failed installed-file verification before activation"
   fi
+  # A signed-archive-verified installed release is reproducible and complete;
+  # it is no longer a preactivation candidate and must survive later failures.
+  release_preactivation_candidate || die "could not clear the preactivation marker"
 }
 
 discard_pre_activation_candidate() {
-  local release_id="$1" candidate
+  local release_id="$1" candidate cur
   valid_release_id "${release_id}" || return 1
-  [[ "$(current_release_id)" != "${release_id}" ]] || return 1
+  # Fail closed: a failed or empty current-release lookup is not proof that the
+  # candidate is non-current (a command substitution inside `!=` swallows its
+  # exit status), so capture it explicitly before anything is removed.
+  cur="$(current_release_id)" || return 1
+  [[ -n "${cur}" ]] || return 1
+  [[ "${cur}" != "${release_id}" ]] || return 1
   candidate="${RELEASES_ROOT}/${release_id}"
   require_root_dir "${candidate}" "unactivated candidate" || return 1
   rm -rf --one-file-system -- "${candidate}" || return 1
@@ -188,7 +218,7 @@ discard_pre_activation_candidate() {
 
 check_db_compatible() {
   local release_id="$1"
-  "${RELEASES_ROOT}/${release_id}/backend/venv/bin/python" "${RELEASE_GUARD}" check-db-heads \
+  "${RELEASES_ROOT}/${release_id}/backend/venv/bin/python" -I "${RELEASE_GUARD}" check-db-heads \
     "${ENV_FILE}" "${RELEASES_ROOT}/${release_id}/release-manifest.json" \
     "${RELEASES_ROOT}/${release_id}/backend/alembic.ini" >/dev/null
 }
@@ -202,7 +232,7 @@ switch_current() {
 }
 
 fsync_file() {
-  "${PYTHON_BIN}" - "$1" <<'PY'
+  "${PYTHON_BIN}" -I - "$1" <<'PY'
 import os, sys
 fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
 try: os.fsync(fd)
@@ -211,7 +241,7 @@ PY
 }
 
 fsync_directory() {
-  "${PYTHON_BIN}" - "$1" <<'PY'
+  "${PYTHON_BIN}" -I - "$1" <<'PY'
 import os, sys
 fd = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY)
 try: os.fsync(fd)
@@ -222,7 +252,7 @@ PY
 write_transaction() {
   local mode="$1" original_id="$2" failed_id="$3" authorization_sha256="$4" temporary
   temporary="${STATE_ROOT}/.active-operation.$$"
-  "${PYTHON_BIN}" - "${temporary}" "${mode}" "${original_id}" "${failed_id}" "${authorization_sha256}" <<'PY'
+  "${PYTHON_BIN}" -I - "${temporary}" "${mode}" "${original_id}" "${failed_id}" "${authorization_sha256}" <<'PY'
 import json, os, sys
 path, mode, original, failed, digest = sys.argv[1:]
 data = {"schema_version": 1, "mode": mode, "original_release_id": original,
@@ -238,7 +268,7 @@ PY
 
 read_transaction() {
   require_root_file "${TRANSACTION_FILE}" "active operation journal"
-  "${PYTHON_BIN}" - "${TRANSACTION_FILE}" <<'PY'
+  "${PYTHON_BIN}" -I - "${TRANSACTION_FILE}" <<'PY'
 import json, re, sys
 d=json.load(open(sys.argv[1], encoding="utf-8"))
 if set(d) != {"schema_version","mode","original_release_id","failed_release_id","recovery_authorization_sha256"} or d["schema_version"] != 1:
@@ -252,9 +282,9 @@ PY
 }
 
 transaction_json() {
-  if [[ ! -e "${TRANSACTION_FILE}" ]]; then printf 'null\n'; return 0; fi
+  if [[ ! -e "${TRANSACTION_FILE}" ]]; then preactivation_json; return; fi
   require_root_file "${TRANSACTION_FILE}" "active operation journal"
-  "${PYTHON_BIN}" - "${TRANSACTION_FILE}" <<'PY'
+  "${PYTHON_BIN}" -I - "${TRANSACTION_FILE}" <<'PY'
 import json, sys
 d=json.load(open(sys.argv[1], encoding="utf-8"))
 required={"schema_version","mode","original_release_id","failed_release_id","recovery_authorization_sha256"}
@@ -270,6 +300,296 @@ clear_transaction() {
   fsync_directory "${STATE_ROOT}"
 }
 
+# Preactivation marker: a bounded root-only record written (and fsynced) before
+# the installer publishes a candidate release directory. It exists only while an
+# unjournaled candidate may exist, so SIGKILL/power loss during venv creation is
+# recoverable by a signed `recover` without ever guessing which path to delete.
+#
+# Deploy and baseline markers also reference the root-owned signed bundle and
+# signature staged under ${INCOMING_ROOT}, and later gain `install_verified`
+# once install, file verification and the database-head gate all passed. The
+# flag is only a claim: recovery re-proves the candidate from those artifacts
+# (or the signed archive) before it will preserve anything, because an archive
+# does not exist until activation and its absence is not evidence of a torn
+# install.
+emit_preactivation_marker_file() {
+  "${PYTHON_BIN}" -I - "$@" <<'PY'
+import json, os, sys
+path, operation, release_id, digest, origin, bundle, signature, verified = sys.argv[1:]
+data = {"schema_version": 1, "operation": operation, "release_id": release_id,
+        "bundle_sha256": digest, "origin_release_id": origin}
+if bundle:
+    data["bundle_path"], data["signature_path"] = bundle, signature
+if verified:
+    data["install_verified"] = True
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, "w", encoding="utf-8") as handle:
+    handle.write(json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n")
+    handle.flush(); os.fsync(handle.fileno())
+PY
+}
+
+write_preactivation_marker() {
+  local operation="$1" release_id="$2" bundle_sha256="$3" origin_id="$4" bundle_path="${5:-}" signature_path="${6:-}" temporary
+  temporary="${STATE_ROOT}/.preactivation-candidate.$$"
+  valid_release_id "${release_id}" && valid_release_id "${origin_id}" || return 1
+  [[ "${bundle_sha256}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  [[ ! -e "${PREACTIVATION_MARKER}" && ! -L "${PREACTIVATION_MARKER}" ]] || return 1
+  # Never claim a directory that already exists: it is not ours to delete.
+  [[ ! -e "${RELEASES_ROOT}/${release_id}" && ! -L "${RELEASES_ROOT}/${release_id}" ]] || return 1
+  emit_preactivation_marker_file "${temporary}" "${operation}" "${release_id}" "${bundle_sha256}" "${origin_id}" \
+    "${bundle_path}" "${signature_path}" "" || return 1
+  mv -T "${temporary}" "${PREACTIVATION_MARKER}" || return 1
+  fsync_directory "${STATE_ROOT}"
+}
+
+# Atomically replace the marker with the same record plus install_verified. Call
+# only after the installer, file verification and database-head gate succeeded.
+mark_preactivation_install_verified() {
+  local temporary="${STATE_ROOT}/.preactivation-candidate.$$"
+  load_preactivation_marker || return 1
+  [[ -n "${PREACTIVATION_ID}" && "${PREACT_RELEASE_ID}" == "${PREACTIVATION_ID}" ]] || return 1
+  rm -f -- "${temporary}" || return 1
+  emit_preactivation_marker_file "${temporary}" "${PREACT_OPERATION}" "${PREACT_RELEASE_ID}" "${PREACT_BUNDLE_SHA256}" \
+    "${PREACT_ORIGIN_ID}" "${PREACT_BUNDLE_PATH}" "${PREACT_SIGNATURE_PATH}" 1 || return 1
+  mv -T "${temporary}" "${PREACTIVATION_MARKER}" || return 1
+  fsync_directory "${STATE_ROOT}"
+}
+
+# Prints operation, release_id, bundle_sha256, origin_release_id, bundle_path,
+# signature_path and install_verified ("true" or empty), one per line, only for
+# a regular, non-symlink, root-owned, mode-0600, schema-exact marker.
+preactivation_marker_fields() {
+  "${PYTHON_BIN}" -I - "${PREACTIVATION_MARKER}" "${EUID}" <<'PY'
+import json, os, re, stat, sys
+path, uid = sys.argv[1], int(sys.argv[2])
+fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+try:
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 2048:
+        raise SystemExit("unsafe preactivation marker")
+    with os.fdopen(os.dup(fd), encoding="utf-8") as handle:
+        d = json.load(handle)
+finally:
+    os.close(fd)
+base = {"schema_version", "operation", "release_id", "bundle_sha256", "origin_release_id"}
+optional = {"bundle_path", "signature_path", "install_verified"}
+rid = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}")
+artifact = re.compile(r"/[A-Za-z0-9._/-]{1,400}")
+def bad(value):
+    return not isinstance(value, str) or not artifact.fullmatch(value) or ".." in value.split("/")
+if not isinstance(d, dict) or not base <= set(d) or not set(d) <= base | optional or d["schema_version"] != 1 \
+        or d["operation"] not in {"deploy", "establish_baseline", "rollback"} \
+        or not all(isinstance(d[k], str) for k in base - {"schema_version"}) \
+        or not rid.fullmatch(d["release_id"]) or not rid.fullmatch(d["origin_release_id"]) \
+        or not re.fullmatch(r"[0-9a-f]{64}", d["bundle_sha256"]) \
+        or ("bundle_path" in d) != ("signature_path" in d) \
+        or ("bundle_path" in d and (bad(d["bundle_path"]) or bad(d["signature_path"]))) \
+        or ("install_verified" in d and d["install_verified"] is not True):
+    raise SystemExit("invalid preactivation marker")
+for key in ("operation", "release_id", "bundle_sha256", "origin_release_id"):
+    print(d[key])
+print(d.get("bundle_path", "")); print(d.get("signature_path", ""))
+print("true" if d.get("install_verified") else "")
+PY
+}
+
+load_preactivation_marker() {
+  local values
+  mapfile -t values < <(preactivation_marker_fields) || return 1
+  [[ "${#values[@]}" -eq 7 ]] || return 1
+  PREACT_OPERATION="${values[0]}"; PREACT_RELEASE_ID="${values[1]}"
+  PREACT_BUNDLE_SHA256="${values[2]}"; PREACT_ORIGIN_ID="${values[3]}"
+  PREACT_BUNDLE_PATH="${values[4]}"; PREACT_SIGNATURE_PATH="${values[5]}"
+  PREACT_INSTALL_VERIFIED="${values[6]}"
+}
+
+preactivation_json() {
+  if [[ ! -e "${PREACTIVATION_MARKER}" && ! -L "${PREACTIVATION_MARKER}" ]]; then printf 'null\n'; return 0; fi
+  local values
+  mapfile -t values < <(preactivation_marker_fields) || return 1
+  [[ "${#values[@]}" -eq 7 ]] || return 1
+  # Same shape as the journal so the existing signed recover workflow applies.
+  "${PYTHON_BIN}" -I -c 'import json,sys; print(json.dumps({"schema_version":1,"mode":"preactivation","original_release_id":sys.argv[4],"failed_release_id":sys.argv[2],"recovery_authorization_sha256":sys.argv[3],"preactivation_operation":sys.argv[1]}, sort_keys=True))' "${values[@]:0:4}"
+}
+
+clear_preactivation_marker() {
+  [[ -e "${PREACTIVATION_MARKER}" || -L "${PREACTIVATION_MARKER}" ]] || return 0
+  require_root_file "${PREACTIVATION_MARKER}" "preactivation marker"
+  rm -f -- "${PREACTIVATION_MARKER}"
+  fsync_directory "${STATE_ROOT}"
+}
+
+# The candidate is now journaled, verified-archived or gone: stop tracking it.
+release_preactivation_candidate() {
+  clear_preactivation_marker || return 1
+  PREACTIVATION_ID=""
+}
+
+# A staged signed-bundle path recorded in the marker is trusted only when it is
+# a direct, root-owned, non-writable, regular bundle.XXXXXX.zip[.sig] child of
+# the root-only incoming directory.
+incoming_artifact_ok() {
+  local path="$1" name
+  [[ "${path}" == "${INCOMING_ROOT}/"* ]] || return 1
+  name="${path#"${INCOMING_ROOT}/"}"
+  [[ "${name}" =~ ^bundle\.[A-Za-z0-9]+\.zip(\.sig)?$ ]] || return 1
+  [[ -f "${path}" && ! -L "${path}" ]] || return 1
+  [[ "$(stat -c '%U' -- "${path}")" == "root" ]] || return 1
+  if (( 8#$(stat -c '%a' -- "${path}") & 8#022 )); then return 1; fi
+  return 0
+}
+
+# Clear the (already loaded) marker, then the staged signed artifacts it
+# referenced; they are only needed while the marker exists.
+drop_preactivation_marker_and_artifacts() {
+  clear_preactivation_marker || return 1
+  if [[ -n "${PREACT_BUNDLE_PATH}" ]] && incoming_artifact_ok "${PREACT_BUNDLE_PATH}"; then
+    rm -f -- "${PREACT_BUNDLE_PATH}" || echo "Retained bundle cleanup needs administrator review" >&2
+    if incoming_artifact_ok "${PREACT_SIGNATURE_PATH}"; then rm -f -- "${PREACT_SIGNATURE_PATH}" || true; fi
+  fi
+  return 0
+}
+
+# Directly re-prove, after a KILL, that the marker's candidate is a complete
+# installation of the signed artifact. Requires the marker's install_verified
+# claim AND an independent check: the retained signed bundle/signature (deploy,
+# baseline) or the signed archive (rollback) must match the installed files, and
+# the locally built venv must be present and consistent. Archive absence is never
+# treated as evidence of an incomplete install: a new bundle is not archived
+# until activation.
+preactivation_install_proven() {
+  local candidate="${RELEASES_ROOT}/${PREACT_RELEASE_ID}" venv manifest_json manifest_id
+  [[ "${PREACT_INSTALL_VERIFIED}" == "true" ]] || return 1
+  if [[ -n "${PREACT_BUNDLE_PATH}" ]]; then
+    incoming_artifact_ok "${PREACT_BUNDLE_PATH}" && incoming_artifact_ok "${PREACT_SIGNATURE_PATH}" || return 1
+    [[ "${PREACT_SIGNATURE_PATH}" == "${PREACT_BUNDLE_PATH}.sig" ]] || return 1
+    manifest_json="$("${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-bundle "${PREACT_BUNDLE_PATH}" \
+      "${PREACT_BUNDLE_SHA256}" "${PREACT_SIGNATURE_PATH}" "${ALLOWED_SIGNERS}" 2>/dev/null)" || return 1
+    manifest_id="$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.loads(sys.argv[1])["release_id"])' "${manifest_json}")" || return 1
+    [[ "${manifest_id}" == "${PREACT_RELEASE_ID}" ]] || return 1
+    "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed-bundle "${candidate}" "${PREACT_BUNDLE_PATH}" \
+      "${PREACT_RELEASE_ID}" >/dev/null 2>&1 || return 1
+  else
+    verify_archived_installed "${PREACT_RELEASE_ID}" 2>/dev/null || return 1
+  fi
+  # File checks exclude the locally built venv, so prove it separately.
+  venv="${candidate}/backend/venv/bin"
+  [[ -x "${venv}/python" && -x "${venv}/uvicorn" ]] || return 1
+  "${venv}/python" -I -m pip --isolated check >/dev/null 2>&1 || return 1
+}
+
+# Truthful evidence for the one preactivation outcome with an UNAUTHENTICATED
+# origin (the pre-baseline release, no signed archive). No switch occurred and no
+# configuration was restored, so this record claims neither a fixed-config
+# restore nor an authenticated fallback. It only states that the origin was
+# probed ready (read-only: no restart, reload or file change) after cleanup.
+write_preactivation_cleanup_evidence() {
+  local failed_id="$1" origin_id="$2" operation="$3" bundle_sha256="$4" disposition="$5" attempt
+  local path="${EVIDENCE_ROOT}/recovery-${failed_id}.json"
+  for (( attempt=1; attempt<=HEALTH_PROBE_ATTEMPTS; attempt++ )); do
+    if systemctl is-active --quiet "${SERVICE_NAME}" && curl -fsS http://127.0.0.1:8011/health/ready >/dev/null 2>&1; then
+      "${PYTHON_BIN}" -I - "${path}" "${failed_id}" "${origin_id}" "${operation}" "${bundle_sha256}" "${disposition}" <<'PY' || return 1
+import datetime, json, os, sys
+path, failed, origin, operation, digest, disposition = sys.argv[1:]
+data = {
+    "schema_version": 1,
+    "recovery": "preactivation_cleanup_unauthenticated_origin",
+    "preactivation_operation": operation,
+    "failed_release_id": failed,
+    "origin_release_id": origin,
+    "authorization_sha256": digest,
+    "candidate_disposition": disposition,
+    "switch_occurred": False,
+    "config_restored": False,
+    "origin_authenticated": False,
+    "approved_fallback": False,
+    "origin_ready": True,
+    "origin_health_probe": "systemd_active_and_loopback_ready",
+    "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+}
+temporary = f"{path}.{os.getpid()}.tmp"
+try:
+    os.unlink(temporary)
+except FileNotFoundError:
+    pass
+fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, "w", encoding="utf-8") as handle:
+    handle.write(json.dumps(data, sort_keys=True) + "\n")
+    handle.flush()
+    os.fchmod(handle.fileno(), 0o644)
+    os.fsync(handle.fileno())
+os.replace(temporary, path)
+PY
+      fsync_directory "${EVIDENCE_ROOT}" || return 1
+      return 0
+    fi
+    if (( attempt < HEALTH_PROBE_ATTEMPTS )); then sleep 1; fi
+  done
+  echo "Unauthenticated origin ${origin_id} did not report ready; preactivation marker kept" >&2
+  return 1
+}
+
+# Reconcile a marker left by an interrupted install. The candidate is deleted
+# only when it is the exact marker-named, root-owned, real, non-current
+# directory AND there is no proof it is a complete installation. A candidate
+# whose install_verified claim re-proves directly (retained signed bundle or
+# signed archive) is preserved even though it is not archived yet; a claim that
+# no longer re-proves is ambiguous and fails closed. Every other state is
+# preserved too. health=1 additionally probes the origin and writes evidence:
+# signed verifier health for a signed origin, or the explicit unauthenticated
+# preactivation-cleanup record otherwise.
+reconcile_preactivation_marker() {
+  local health="$1" candidate current leftover manifest_id disposition="absent"
+  load_preactivation_marker || return 1
+  candidate="${RELEASES_ROOT}/${PREACT_RELEASE_ID}"
+  current="$(current_release_id 2>/dev/null || true)"
+  if [[ "${current}" == "${PREACT_RELEASE_ID}" ]]; then
+    # The live release is never a discardable candidate; only drop the marker.
+    drop_preactivation_marker_and_artifacts
+    return
+  fi
+  [[ "${current}" == "${PREACT_ORIGIN_ID}" ]] || return 1
+  if [[ -e "${candidate}" || -L "${candidate}" ]]; then
+    [[ -d "${candidate}" && ! -L "${candidate}" ]] || return 1
+    [[ "$(stat -c '%U' "${candidate}")" == "root" ]] || return 1
+    if preactivation_install_proven; then
+      disposition="preserved_complete"
+    elif [[ "${PREACT_INSTALL_VERIFIED}" == "true" ]]; then
+      # Claimed complete but not provable now: never delete on ambiguity.
+      echo "Preactivation candidate ${PREACT_RELEASE_ID} claims a complete install that cannot be re-proven; preserved for VM-administrator review" >&2
+      return 1
+    elif [[ "${PREACT_OPERATION}" != "rollback" ]] && verify_archived_installed "${PREACT_RELEASE_ID}" 2>/dev/null; then
+      # Already signed-archived (activation finished earlier): never discardable.
+      disposition="preserved_complete"
+    else
+      # A rollback restore is always reproducible from its signed archive and
+      # file verification cannot prove its locally built venv, so an unflagged
+      # one is discarded and restored afresh.
+      if [[ -e "${candidate}/release-manifest.json" ]]; then
+        manifest_id="$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["release_id"])' "${candidate}/release-manifest.json")" || return 1
+        [[ "${manifest_id}" == "${PREACT_RELEASE_ID}" ]] || return 1
+      fi
+      discard_pre_activation_candidate "${PREACT_RELEASE_ID}" || return 1
+      disposition="removed"
+    fi
+  fi
+  while IFS= read -r -d '' leftover; do
+    rm -rf --one-file-system -- "${leftover}" || return 1
+  done < <(find "${RELEASES_ROOT}" -mindepth 1 -maxdepth 1 -type d -uid "${EUID}" \
+    -name ".${PREACT_RELEASE_ID}.incoming.*" -print0)
+  fsync_directory "${RELEASES_ROOT}" || return 1
+  if [[ "${health}" -eq 1 ]]; then
+    if verify_archived_installed "${PREACT_ORIGIN_ID}" 2>/dev/null; then
+      recover_release "${PREACT_RELEASE_ID}" "${PREACT_ORIGIN_ID}" || return 1
+    else
+      write_preactivation_cleanup_evidence "${PREACT_RELEASE_ID}" "${PREACT_ORIGIN_ID}" \
+        "${PREACT_OPERATION}" "${PREACT_BUNDLE_SHA256}" "${disposition}" || return 1
+    fi
+  fi
+  drop_preactivation_marker_and_artifacts
+}
+
 snapshot_baseline_origin_config() {
   local temporary="${STATE_ROOT}/.baseline-origin-config.$$" service_user service_group fragment_path
   [[ ! -e "${BASELINE_RECOVERY_ROOT}" ]] || die "baseline recovery snapshot already exists; administrator review required"
@@ -283,7 +603,7 @@ snapshot_baseline_origin_config() {
   systemctl is-active --quiet "${SERVICE_NAME}" || die "legacy backend service must be active before baseline"
   nginx -t || die "legacy NGINX configuration must pass before baseline"
   mkdir -m 0700 "${temporary}"
-  if ! "${PYTHON_BIN}" - "${EUID}" "${temporary}" \
+  if ! "${PYTHON_BIN}" -I - "${EUID}" "${temporary}" \
     "${SERVICE_FILE}" "${NGINX_SITE_FILE}" "${NGINX_LIMIT_FILE}" "${NGINX_HEADERS_FILE}" \
     "${NGINX_LINK_FILE}" <<'PY'
 import errno, json, os, shutil, stat, sys
@@ -378,7 +698,7 @@ preflight_baseline_origin() {
   [[ "${release_dir}" == "${RELEASES_ROOT}/${original_id}" ]] \
     || die "pre-baseline release path is indirect or escapes releases root"
   require_root_dir "${release_dir}" "pre-baseline release directory"
-  "${PYTHON_BIN}" - "${EUID}" "${TARGET_ROOT}" "${RELEASES_ROOT}" "${release_dir}" <<'PY'
+  "${PYTHON_BIN}" -I - "${EUID}" "${TARGET_ROOT}" "${RELEASES_ROOT}" "${release_dir}" <<'PY'
 import pathlib, stat, sys
 required_uid = int(sys.argv[1])
 for raw in sys.argv[2:]:
@@ -392,7 +712,7 @@ PY
   environment_files="$(systemctl show "${SERVICE_NAME}" --property=EnvironmentFiles --value)"
   [[ -n "${working_directory}" && "$(realpath -e -- "${working_directory}")" == "${release_dir}"/* ]] \
     || die "legacy backend WorkingDirectory must resolve inside the pre-baseline release"
-  launcher="$("${PYTHON_BIN}" - "${exec_start}" <<'PY'
+  launcher="$("${PYTHON_BIN}" -I - "${exec_start}" <<'PY'
 import re, sys
 match = re.search(r'(?:^|[ {;])path=([^ ;}]+)', sys.argv[1])
 if not match: raise SystemExit(1)
@@ -403,7 +723,7 @@ PY
     || die "legacy backend ExecStart must resolve inside the pre-baseline release"
   require_root_file "${launcher}" "legacy backend launcher"
   require_root_dir "${working_directory}" "legacy backend WorkingDirectory"
-  "${PYTHON_BIN}" - "${EUID}" "${release_dir}" "${working_directory}" "$(dirname "${launcher}")" <<'PY'
+  "${PYTHON_BIN}" -I - "${EUID}" "${release_dir}" "${working_directory}" "$(dirname "${launcher}")" <<'PY'
 import pathlib, stat, sys
 uid, release = int(sys.argv[1]), pathlib.Path(sys.argv[2])
 for raw in sys.argv[3:]:
@@ -450,7 +770,7 @@ restore_baseline_origin_fixed() {
   require_root_dir "${RELEASES_ROOT}/${original_id}" "pre-baseline release directory" || return 1
   require_root_dir "${BASELINE_RECOVERY_ROOT}" "baseline recovery snapshot" || return 1
   echo "Baseline failed; restoring the pre-baseline origin with fixed root-owned recovery commands (it remains unverified): ${original_id}" >&2
-  "${PYTHON_BIN}" - "${EUID}" "${BASELINE_RECOVERY_ROOT}" \
+  "${PYTHON_BIN}" -I - "${EUID}" "${BASELINE_RECOVERY_ROOT}" \
     "${SERVICE_FILE}" "${NGINX_SITE_FILE}" "${NGINX_LIMIT_FILE}" "${NGINX_HEADERS_FILE}" \
     "${NGINX_LINK_FILE}" <<'PY' || return 1
 import json, os, shutil, stat, sys
@@ -562,7 +882,7 @@ PY
   systemctl reload nginx || return 1
   for _ in $(seq 1 30); do
     if systemctl is-active --quiet "${SERVICE_NAME}" && curl -fsS http://127.0.0.1:8011/health/ready >/dev/null 2>&1; then
-      "${PYTHON_BIN}" - "${EVIDENCE_ROOT}/recovery-${failed_id}.json" "${failed_id}" "${original_id}" <<'PY'
+      "${PYTHON_BIN}" -I - "${EVIDENCE_ROOT}/recovery-${failed_id}.json" "${failed_id}" "${original_id}" <<'PY'
 import json, os, sys
 path, failed, restored=sys.argv[1:]
 with open(path, "w", encoding="utf-8") as f:
@@ -677,7 +997,7 @@ if [[ "${ACTION}" == "status" ]]; then
         || die "requested installed release does not match its authenticated archive"
       REQUESTED_INSTALLED=true
     fi
-    REQUESTED_JSON="$("${PYTHON_BIN}" - "${REQUESTED_ARCHIVE_JSON}" "${REQUESTED_INSTALLED}" <<'PY'
+    REQUESTED_JSON="$("${PYTHON_BIN}" -I - "${REQUESTED_ARCHIVE_JSON}" "${REQUESTED_INSTALLED}" <<'PY'
 import json, sys
 archive = json.loads(sys.argv[1])
 print(json.dumps({
@@ -695,7 +1015,7 @@ PY
   BASELINE_ID=""
   if [[ -e "${BASELINE_MARKER}" ]]; then BASELINE_ID="$(baseline_release_id)"; fi
   PENDING_JSON="$(transaction_json)" || die "active operation journal is invalid"
-  "${PYTHON_BIN}" - "${RELEASES_ROOT}/${CURRENT_ID}/release-manifest.json" "${ARCHIVE_APPROVED}" "${REQUESTED_JSON}" "${BASELINE_ID}" "${PRIVILEGED_SUITE_VERSION}" "${PENDING_JSON}" <<'PY'
+  "${PYTHON_BIN}" -I - "${RELEASES_ROOT}/${CURRENT_ID}/release-manifest.json" "${ARCHIVE_APPROVED}" "${REQUESTED_JSON}" "${BASELINE_ID}" "${PRIVILEGED_SUITE_VERSION}" "${PENDING_JSON}" <<'PY'
 import json, sys
 manifest = json.load(open(sys.argv[1], encoding="utf-8"))
 requested = json.loads(sys.argv[3])
@@ -778,20 +1098,26 @@ remove_caller_file() {
   rm -f -- "${raw}"
 }
 cleanup() {
-  local exit_status=$?
+  local exit_status=$? keep_bundle=0
   set +e
   if ! recover_pending_operation; then
     echo "Interrupted operation could not restore its prior release; VM administrator action required" >&2
     exit_status=1
   fi
-  if [[ -n "${PREACTIVATION_ID}" && -d "${RELEASES_ROOT}/${PREACTIVATION_ID}" ]]; then
-    if ! discard_pre_activation_candidate "${PREACTIVATION_ID}"; then
+  if [[ -n "${PREACTIVATION_ID}" ]]; then
+    if [[ -d "${RELEASES_ROOT}/${PREACTIVATION_ID}" ]] \
+       && ! discard_pre_activation_candidate "${PREACTIVATION_ID}"; then
       echo "Unactivated candidate cleanup needs VM-administrator review" >&2
-      exit_status=1
+      exit_status=1; keep_bundle=1
+    elif ! clear_preactivation_marker; then
+      # Candidate is gone but the marker could not be cleared: a signed recover reconciles it.
+      echo "Preactivation marker cleanup needs a signed recover" >&2
+      exit_status=1; keep_bundle=1
     fi
   fi
-  rm -f -- "${ROOT_OPERATION}" "${ROOT_OPERATION_SIGNATURE}" "${OPERATION_JSON}" \
-    "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" "${MANIFEST_JSON}"
+  rm -f -- "${ROOT_OPERATION}" "${ROOT_OPERATION_SIGNATURE}" "${OPERATION_JSON}" "${MANIFEST_JSON}"
+  # A surviving marker references the staged signed bundle for direct re-proof.
+  if [[ "${keep_bundle}" -eq 0 ]]; then rm -f -- "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}"; fi
   remove_caller_file "${OPERATION_PATH_RAW}"
   remove_caller_file "${OPERATION_SIGNATURE_PATH_RAW}"
   remove_caller_file "${BUNDLE_PATH_RAW}"
@@ -804,9 +1130,9 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 install -o root -g root -m 0600 -- "${OPERATION_PATH_RAW}" "${ROOT_OPERATION}"
 install -o root -g root -m 0600 -- "${OPERATION_SIGNATURE_PATH_RAW}" "${ROOT_OPERATION_SIGNATURE}"
-"${PYTHON_BIN}" "${RELEASE_GUARD}" authorize-operation "${ROOT_OPERATION}" "${ROOT_OPERATION_SIGNATURE}" \
+"${PYTHON_BIN}" -I "${RELEASE_GUARD}" authorize-operation "${ROOT_OPERATION}" "${ROOT_OPERATION_SIGNATURE}" \
   "${ALLOWED_SIGNERS}" "${NONCE_ROOT}" "${CURRENT_ID}" >"${OPERATION_JSON}"
-readarray -t OPERATION_VALUES < <("${PYTHON_BIN}" - "${OPERATION_JSON}" <<'PY'
+readarray -t OPERATION_VALUES < <("${PYTHON_BIN}" -I - "${OPERATION_JSON}" <<'PY'
 import json, sys
 d=json.load(open(sys.argv[1], encoding="utf-8"))
 for key in ("action", "target_release_id", "bundle_sha256", "current_release_id", "base_url", "tls_mode"):
@@ -827,7 +1153,22 @@ if [[ -e "${TRANSACTION_FILE}" ]]; then
   [[ "${BUNDLE_SHA256}" == "${PENDING_VALUES[3]}" ]] || die "recover authorization checksum does not match the journal"
   load_recovery || die "could not load active operation journal"
   recover_pending_operation || die "GitHub-authorized crash recovery failed; VM administrator action required"
+  # SIGKILL between journaling and marker removal can leave both; the journal
+  # recovery above already restored the origin, so only reconcile the candidate.
+  if [[ -e "${PREACTIVATION_MARKER}" || -L "${PREACTIVATION_MARKER}" ]]; then
+    reconcile_preactivation_marker 0 || die "preactivation marker could not be reconciled; VM administrator action required"
+  fi
   echo "GitHub-authorized interrupted operation recovery completed: ${RECOVERY_FAILED_ID} -> ${RECOVERY_ORIGINAL_ID}"
+  exit 0
+fi
+if [[ -e "${PREACTIVATION_MARKER}" || -L "${PREACTIVATION_MARKER}" ]]; then
+  [[ "${ACTION}" == "recover" ]] || die "an interrupted preactivation install requires an explicit signed recover action"
+  [[ -z "${BUNDLE_PATH_RAW}${BUNDLE_SIGNATURE_PATH_RAW}" ]] || die "recover rejects deploy bundle arguments"
+  load_preactivation_marker || die "preactivation marker is invalid; no release was deleted"
+  [[ "${TARGET_RELEASE_ID}" == "${PREACT_ORIGIN_ID}" ]] || die "recover target does not match the marker origin"
+  [[ "${BUNDLE_SHA256}" == "${PREACT_BUNDLE_SHA256}" ]] || die "recover authorization checksum does not match the marker"
+  reconcile_preactivation_marker 1 || die "preactivation recovery failed; VM administrator action required"
+  echo "GitHub-authorized interrupted preactivation recovery completed: ${PREACT_RELEASE_ID} -> ${PREACT_ORIGIN_ID}"
   exit 0
 fi
 [[ "${ACTION}" != "recover" ]] || die "no interrupted operation requires recovery"
@@ -839,9 +1180,9 @@ if [[ "${ACTION}" == "rollback" ]]; then
   # Recovery is possible only if both target and current are signed, verified archives.
   verify_archived_installed "${CURRENT_ID}"
   CURRENT_ARCHIVE_JSON="$(verify_archive "${CURRENT_ID}")"
-  CURRENT_ARCHIVE_SHA256="$("${PYTHON_BIN}" -c 'import json,sys; print(json.loads(sys.argv[1])["bundle_sha256"])' "${CURRENT_ARCHIVE_JSON}")"
+  CURRENT_ARCHIVE_SHA256="$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.loads(sys.argv[1])["bundle_sha256"])' "${CURRENT_ARCHIVE_JSON}")"
   TARGET_ARCHIVE_JSON="$(verify_archive "${TARGET_RELEASE_ID}")"
-  [[ "$("${PYTHON_BIN}" -c 'import json,sys; print(json.loads(sys.argv[1])["bundle_sha256"])' "${TARGET_ARCHIVE_JSON}")" == "${BUNDLE_SHA256}" ]] \
+  [[ "$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.loads(sys.argv[1])["bundle_sha256"])' "${TARGET_ARCHIVE_JSON}")" == "${BUNDLE_SHA256}" ]] \
     || die "authorized rollback bundle checksum does not match the target archive"
   if [[ -e "${RELEASES_ROOT}/${TARGET_RELEASE_ID}" ]]; then
     verify_archived_installed "${TARGET_RELEASE_ID}"
@@ -879,8 +1220,8 @@ ROOT_BUNDLE="$(mktemp "${INCOMING_ROOT}/bundle.XXXXXX.zip")"; ROOT_BUNDLE_SIGNAT
 MANIFEST_JSON="$(mktemp "${INCOMING_ROOT}/manifest.XXXXXX.json")"
 install -o root -g root -m 0600 -- "${BUNDLE_PATH_RAW}" "${ROOT_BUNDLE}"
 install -o root -g root -m 0600 -- "${BUNDLE_SIGNATURE_PATH_RAW}" "${ROOT_BUNDLE_SIGNATURE}"
-"${PYTHON_BIN}" "${RELEASE_GUARD}" verify-bundle "${ROOT_BUNDLE}" "${BUNDLE_SHA256}" "${ROOT_BUNDLE_SIGNATURE}" "${ALLOWED_SIGNERS}" >"${MANIFEST_JSON}"
-NEW_ID="$("${PYTHON_BIN}" -c 'import json,sys; print(json.load(open(sys.argv[1]))["release_id"])' "${MANIFEST_JSON}")"
+"${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-bundle "${ROOT_BUNDLE}" "${BUNDLE_SHA256}" "${ROOT_BUNDLE_SIGNATURE}" "${ALLOWED_SIGNERS}" >"${MANIFEST_JSON}"
+NEW_ID="$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["release_id"])' "${MANIFEST_JSON}")"
 valid_release_id "${NEW_ID}" || die "signed manifest release ID is invalid"
 [[ "${NEW_ID}" == "${TARGET_RELEASE_ID}" ]] || die "authorized target release differs from signed bundle"
 [[ ! -e "${ARCHIVE_ROOT}/${NEW_ID}" ]] || die "archive already exists for this release; administrator review required"
@@ -901,11 +1242,14 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
   # snapshot is stale and must not block a fresh, fully preflighted attempt.
   remove_baseline_origin_snapshot
   preflight_baseline_origin "${CURRENT_ID}"
+  write_preactivation_marker establish_baseline "${NEW_ID}" "${BUNDLE_SHA256}" "${CURRENT_ID}" \
+    "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" \
+    || die "could not record the preactivation marker; the unverified existing release remains current"
+  PREACTIVATION_ID="${NEW_ID}"
   if ! EXPECTED_BUNDLE_SHA256="${BUNDLE_SHA256}" "${BASH_BIN}" "${INSTALLER}" --install-only "${ROOT_BUNDLE}"; then
     die "baseline installation failed before activation; the unverified existing release remains current"
   fi
-  PREACTIVATION_ID="${NEW_ID}"
-  if ! "${PYTHON_BIN}" "${RELEASE_GUARD}" verify-installed-bundle \
+  if ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed-bundle \
     "${RELEASES_ROOT}/${NEW_ID}" "${ROOT_BUNDLE}" "${NEW_ID}" >/dev/null; then
     discard_pre_activation_candidate "${NEW_ID}" || die "baseline integrity failed; candidate cleanup requires VM-admin review"
     die "baseline installed files differ from the signed bundle; the unverified existing release remains current"
@@ -914,9 +1258,10 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
     discard_pre_activation_candidate "${NEW_ID}" || die "baseline head check failed; candidate cleanup requires VM-admin review"
     die "baseline database compatibility check failed before activation; the unverified existing release remains current"
   fi
+  mark_preactivation_install_verified || die "could not record the verified installation; the unverified existing release remains current"
   snapshot_baseline_origin_config
   arm_recovery baseline-origin "${CURRENT_ID}" "${NEW_ID}" "${BUNDLE_SHA256}"
-  PREACTIVATION_ID=""
+  release_preactivation_candidate || die "could not clear the preactivation marker after journaling"
   switch_current "${NEW_ID}"
   EVIDENCE_FILE="${EVIDENCE_ROOT}/${NEW_ID}.json"
   if ! activate_and_verify "${NEW_ID}" "${EVIDENCE_FILE}"; then
@@ -925,8 +1270,8 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
   fi
   VERIFIED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   if ! chmod 0644 "${EVIDENCE_FILE}" || \
-     ! "${PYTHON_BIN}" "${RELEASE_GUARD}" store-archive "${ARCHIVE_ROOT}" "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" "${MANIFEST_JSON}" "${VERIFIED_AT}" || \
-     ! "${PYTHON_BIN}" "${RELEASE_GUARD}" verify-archive "${ARCHIVE_ROOT}" "${NEW_ID}" "${ALLOWED_SIGNERS}" >/dev/null || \
+     ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" store-archive "${ARCHIVE_ROOT}" "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" "${MANIFEST_JSON}" "${VERIFIED_AT}" || \
+     ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-archive "${ARCHIVE_ROOT}" "${NEW_ID}" "${ALLOWED_SIGNERS}" >/dev/null || \
      ! store_baseline_marker "${NEW_ID}"; then
     discard_uncommitted_archive "${NEW_ID}" || die "baseline bookkeeping failed and its uncommitted archive could not be removed; VM administrator recovery is required"
     recover_pending_operation || die "baseline bookkeeping failed and the pre-baseline release could not be restored operationally; VM administrator recovery is required"
@@ -944,22 +1289,26 @@ fi
 # without one; failed normal releases are never auto-promoted or archived.
 verify_archived_installed "${FALLBACK_RELEASE_ID}"
 FALLBACK_ARCHIVE_JSON="$(verify_archive "${FALLBACK_RELEASE_ID}")"
-FALLBACK_ARCHIVE_SHA256="$("${PYTHON_BIN}" -c 'import json,sys; print(json.loads(sys.argv[1])["bundle_sha256"])' "${FALLBACK_ARCHIVE_JSON}")"
+FALLBACK_ARCHIVE_SHA256="$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.loads(sys.argv[1])["bundle_sha256"])' "${FALLBACK_ARCHIVE_JSON}")"
 check_db_compatible "${FALLBACK_RELEASE_ID}"
 # Install and validate the new signed tree while the old release stays live.
 # A manifest assertion against the old fallback's source graph is insufficient:
 # the new release must prove its own exact source/manifest/database head first.
+write_preactivation_marker deploy "${NEW_ID}" "${BUNDLE_SHA256}" "${CURRENT_ID}" \
+  "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" \
+  || die "could not record the preactivation marker; approved fallback remains current"
+PREACTIVATION_ID="${NEW_ID}"
 if ! EXPECTED_BUNDLE_SHA256="${BUNDLE_SHA256}" "${BASH_BIN}" "${INSTALLER}" --install-only "${ROOT_BUNDLE}"; then
   die "release installation failed before activation; approved fallback remains current"
 fi
-PREACTIVATION_ID="${NEW_ID}"
-if ! "${PYTHON_BIN}" "${RELEASE_GUARD}" verify-installed-bundle \
+if ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed-bundle \
   "${RELEASES_ROOT}/${NEW_ID}" "${ROOT_BUNDLE}" "${NEW_ID}" >/dev/null; then
   die "installed release differs from signed bundle before activation; approved fallback remains current"
 fi
 check_db_compatible "${NEW_ID}" || die "new release migration head is incompatible before activation; approved fallback remains current"
+mark_preactivation_install_verified || die "could not record the verified installation; approved fallback remains current"
 arm_recovery signed-new "${FALLBACK_RELEASE_ID}" "${NEW_ID}" "${FALLBACK_ARCHIVE_SHA256}"
-PREACTIVATION_ID=""
+release_preactivation_candidate || die "could not clear the preactivation marker after journaling"
 switch_current "${NEW_ID}"
 EVIDENCE_FILE="${EVIDENCE_ROOT}/${NEW_ID}.json"
 if ! activate_and_verify "${NEW_ID}" "${EVIDENCE_FILE}"; then
@@ -968,8 +1317,8 @@ if ! activate_and_verify "${NEW_ID}" "${EVIDENCE_FILE}"; then
 fi
 VERIFIED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 if ! chmod 0644 "${EVIDENCE_FILE}" || \
-   ! "${PYTHON_BIN}" "${RELEASE_GUARD}" store-archive "${ARCHIVE_ROOT}" "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" "${MANIFEST_JSON}" "${VERIFIED_AT}" || \
-   ! "${PYTHON_BIN}" "${RELEASE_GUARD}" verify-archive "${ARCHIVE_ROOT}" "${NEW_ID}" "${ALLOWED_SIGNERS}" >/dev/null || \
+   ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" store-archive "${ARCHIVE_ROOT}" "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" "${MANIFEST_JSON}" "${VERIFIED_AT}" || \
+   ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-archive "${ARCHIVE_ROOT}" "${NEW_ID}" "${ALLOWED_SIGNERS}" >/dev/null || \
    ! store_previous_release_id "${CURRENT_ID}"; then
   discard_uncommitted_archive "${NEW_ID}" || die "post-activation bookkeeping failed and its uncommitted archive could not be removed; VM administrator recovery is required"
   recover_pending_operation || die "post-activation bookkeeping failed and fallback recovery failed"

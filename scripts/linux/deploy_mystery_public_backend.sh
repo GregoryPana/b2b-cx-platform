@@ -24,7 +24,7 @@ run_as_root() {
 ENV_MODE="$(stat -c '%a' "${ENV_FILE}")"
 [[ "${ENV_MODE}" == "600" || "${ENV_MODE}" == "640" ]] || { echo "Environment file mode must be 600 or 640" >&2; exit 1; }
 
-read -r APP_VERSION RELEASE_ID < <("${VENV_DIR}/bin/python" - "${CURRENT_DIR}/release-manifest.json" <<'PY'
+read -r APP_VERSION RELEASE_ID < <("${VENV_DIR}/bin/python" -I - "${CURRENT_DIR}/release-manifest.json" <<'PY'
 import json, re, sys
 m=json.load(open(sys.argv[1],encoding="utf-8"))
 sha=str(m.get("git_sha", "")); release=str(m.get("release_id", ""))
@@ -35,7 +35,7 @@ PY
 )
 
 # Validate required configuration by key and policy without sourcing or printing values.
-"${VENV_DIR}/bin/python" - "${ENV_FILE}" <<'PY'
+"${VENV_DIR}/bin/python" -I - "${ENV_FILE}" <<'PY'
 import pathlib, sys, urllib.parse
 path = pathlib.Path(sys.argv[1])
 values = {}

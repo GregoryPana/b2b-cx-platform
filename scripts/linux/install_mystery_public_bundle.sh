@@ -12,6 +12,15 @@ if [[ $# -ne 1 ]]; then
 fi
 
 BUNDLE_PATH="$(realpath "$1")"
+# Trusted working directory before any interpreter runs; the bundle path is
+# already absolute. Python calls below use -I (no PYTHON* variables, user site
+# or cwd imports) and pip --isolated (no PIP_* variables or user configuration).
+# PYTHON_BIN, the deliberate interpreter override, is the one variable kept.
+cd / || { echo "Cannot enter the trusted working directory" >&2; exit 1; }
+for _name in $(compgen -e); do
+  case "${_name}" in PYTHON_BIN) ;; PYTHON*|PIP_*) unset "${_name}" ;; esac
+done
+unset _name CDPATH
 TARGET_ROOT="${TARGET_ROOT:-/opt/cwscx-mystery-public}"
 RELEASES_DIR="${TARGET_ROOT}/releases"
 ENV_FILE="${TARGET_ROOT}/.env"
@@ -38,7 +47,7 @@ if [[ -n "${EXPECTED_BUNDLE_SHA256:-}" ]]; then
   [[ "${ACTUAL_BUNDLE_SHA256}" == "${EXPECTED_BUNDLE_SHA256}" ]] || { echo "Bundle checksum mismatch" >&2; exit 1; }
 fi
 
-"${PYTHON_BIN}" - "${BUNDLE_PATH}" "${EXTRACT_DIR}" <<'PY'
+"${PYTHON_BIN}" -I - "${BUNDLE_PATH}" "${EXTRACT_DIR}" <<'PY'
 import pathlib
 import sys
 import zipfile
@@ -58,7 +67,7 @@ pushd "${BUNDLE_ROOT}" >/dev/null
 sha256sum --check --strict SHA256SUMS
 popd >/dev/null
 
-RELEASE_ID="$("${PYTHON_BIN}" - "${BUNDLE_ROOT}/release-manifest.json" <<'PY'
+RELEASE_ID="$("${PYTHON_BIN}" -I - "${BUNDLE_ROOT}/release-manifest.json" <<'PY'
 import json, re, sys
 m = json.load(open(sys.argv[1], encoding="utf-8"))
 required = {"schema_version", "release_id", "git_sha", "build_timestamp_utc", "frontend_auth_mode", "expected_migration_heads", "python_wheelhouse"}
@@ -87,11 +96,11 @@ INCOMING_DIR=""
 
 # Create the virtualenv only after the release reaches its immutable final path;
 # venv launcher shebangs embed absolute paths and would break if moved afterwards.
-if ! "${PYTHON_BIN}" -m venv "${FINAL_DIR}/backend/venv"; then
+if ! "${PYTHON_BIN}" -I -m venv "${FINAL_DIR}/backend/venv"; then
   rm -rf "${FINAL_DIR}"
   exit 1
 fi
-if ! "${FINAL_DIR}/backend/venv/bin/python" -m pip install \
+if ! "${FINAL_DIR}/backend/venv/bin/python" -I -m pip --isolated install \
   --disable-pip-version-check \
   --no-index \
   --find-links "${FINAL_DIR}/wheelhouse" \
@@ -99,7 +108,7 @@ if ! "${FINAL_DIR}/backend/venv/bin/python" -m pip install \
   rm -rf "${FINAL_DIR}"
   exit 1
 fi
-if ! "${FINAL_DIR}/backend/venv/bin/python" -m pip check; then
+if ! "${FINAL_DIR}/backend/venv/bin/python" -I -m pip --isolated check; then
   rm -rf "${FINAL_DIR}"
   exit 1
 fi
@@ -143,7 +152,7 @@ fi
 # The directory is now a complete, locally usable immutable release. Mark it
 # durable (file data, directory entries, then releases parent) before the
 # optional activation step so power loss cannot expose a torn release tree.
-"${PYTHON_BIN}" - "${FINAL_DIR}" "${RELEASES_DIR}" <<'PY'
+"${PYTHON_BIN}" -I - "${FINAL_DIR}" "${RELEASES_DIR}" <<'PY'
 import os, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 for directory, _, files in os.walk(root):
@@ -176,7 +185,7 @@ mv -Tf "${NEW_LINK}" "${TARGET_ROOT}/current"
 LAST_INSTALLED_TMP="${TARGET_ROOT}/shared/.last-installed-release-id.$$"
 printf '%s\n' "${RELEASE_ID}" >"${LAST_INSTALLED_TMP}"
 chmod 0644 "${LAST_INSTALLED_TMP}"
-"${PYTHON_BIN}" - "${LAST_INSTALLED_TMP}" "${TARGET_ROOT}" "${TARGET_ROOT}/shared" <<'PY'
+"${PYTHON_BIN}" -I - "${LAST_INSTALLED_TMP}" "${TARGET_ROOT}" "${TARGET_ROOT}/shared" <<'PY'
 import os, sys
 fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
 try: os.fsync(fd)
@@ -187,7 +196,7 @@ for path in sys.argv[2:]:
     finally: os.close(fd)
 PY
 mv -Tf "${LAST_INSTALLED_TMP}" "${TARGET_ROOT}/shared/last-installed-release-id"
-"${PYTHON_BIN}" - "${TARGET_ROOT}/shared" <<'PY'
+"${PYTHON_BIN}" -I - "${TARGET_ROOT}/shared" <<'PY'
 import os, sys
 fd = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY)
 try: os.fsync(fd)

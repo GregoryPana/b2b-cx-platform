@@ -20,6 +20,9 @@ WORKFLOW="$ROOT/.github/workflows/deploy-mystery-public.yml"
 # Execute behavioral signed-archive, tamper, installed-integrity and retention tests.
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_release_guard.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_check_mystery_deploy_sudo.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_workflow_evidence.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_preactivation_sigkill.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_python_isolation.py" || failures=$((failures+1))
 
 # Existing immutable release and permission-recovery contracts.
 require "$BUILD" 'expected_migration_heads' 'bundle records expected migration heads'
@@ -87,6 +90,11 @@ require "$BOOTSTRAP" 'verify-archive "${ARCHIVE_ROOT}" "${release_id}" "${ALLOWE
 require "$ENTRYPOINT" 'installed privileged suite differs from bootstrap identity' 'status and mutations rehash the installed privileged suite'
 require "$ENTRYPOINT" 'must be owned by the deployment account' 'caller-supplied root-owned temporary files are rejected'
 require "$ENTRYPOINT" 'discard_pre_activation_candidate "${PREACTIVATION_ID}"' 'failed preactivation candidates are removed before retry'
+require "$ENTRYPOINT" 'write_preactivation_marker deploy "${NEW_ID}"' 'deploy records a durable preactivation marker before the installer runs'
+require "$ENTRYPOINT" 'write_preactivation_marker rollback "${release_id}"' 'archive restoration records a durable preactivation marker before the installer runs'
+require "$ENTRYPOINT" 'an interrupted preactivation install requires an explicit signed recover action' 'preactivation recovery is signed-recover only'
+require "$ENTRYPOINT" 'stat.S_IMODE(info.st_mode) != 0o600' 'preactivation marker requires root-owned mode 0600 non-symlink state'
+forbid "$ENTRYPOINT" 'rm -rf --one-file-system -- "${RELEASES_ROOT}/${PREACT' 'recovery deletes only through the validated candidate helper'
 require "$ENTRYPOINT" 'follow_symlinks=False' 'baseline enabled-site link is inspected without following it'
 require "$ENTRYPOINT" 'os.readlink(link_name, dir_fd=link_parent_fd)' 'baseline recovery validates the exact enabled-site target'
 require "$WORKFLOW" 'EXPECTED_PRIVILEGED_SUITE_VERSION' 'workflow rejects a stale or mixed installed privileged suite'
@@ -135,6 +143,20 @@ require "$WORKFLOW" 'recovery-${FAILED_RELEASE_ID}.json' 'recovery workflow fetc
 count_exactly "$WORKFLOW" 'sudo -n /usr/local/sbin/cwscx-mystery-public-deploy' 9 'baseline, deploy, rollback and recovery use read-only status plus fixed privileged operations'
 forbid "$WORKFLOW" 'apt-get install' 'workflow does not mutate VM prerequisites'
 forbid "$WORKFLOW" '/tmp/install_mystery_public_bundle.sh' 'workflow cannot upload an installer to the VM'
+
+# Trusted working directory and isolated Python for every root-run interpreter.
+require "$ENTRYPOINT" 'cd / || die "cannot enter the trusted working directory"' 'entrypoint leaves the caller directory before any interpreter'
+require "$ENTRYPOINT" 'ENTRYPOINT_REALPATH="$(realpath -e -- "${BASH_SOURCE[0]}")"' 'entrypoint resolves its installed path before the trusted cd'
+require "$INSTALL" 'cd / || {' 'installer enters a trusted working directory'
+require "$BOOTSTRAP" 'cd / || die "cannot enter the trusted working directory"' 'bootstrap enters a trusted working directory after locating its source'
+forbid "$ENTRYPOINT" '"${PYTHON_BIN}" -c' 'entrypoint never runs an unisolated interpreter'
+forbid "$ENTRYPOINT" '"${PYTHON_BIN}" "${RELEASE_GUARD}"' 'entrypoint never runs the guard unisolated'
+forbid "$ENTRYPOINT" '"${PYTHON_BIN}" - ' 'entrypoint never feeds a heredoc to an unisolated interpreter'
+forbid "$INSTALL" '-m pip install' 'installer pip ignores PIP_* variables and user configuration'
+forbid "$INSTALL" '-m pip check' 'installer pip check is isolated'
+forbid "$ENTRYPOINT" '"${venv}/python" -m pip' 'recovery venv re-proof is isolated'
+require "$ENTRYPOINT" 'cur="$(current_release_id)" || return 1' 'candidate deletion requires an explicit successful current lookup'
+forbid "$ENTRYPOINT" '[[ "$(current_release_id)" != "${release_id}" ]] || return 1' 'candidate deletion never fails open on a swallowed lookup failure'
 
 for file in "$BUILD" "$INSTALL" "$BACKEND" "$NGINX" "$VERIFY" "$ENTRYPOINT" "$BOOTSTRAP"; do
   bash -n "$file" || { echo "[FAIL] shell syntax: $file" >&2; failures=$((failures+1)); }

@@ -127,6 +127,9 @@ class SignedArchiveTests(unittest.TestCase):
         python.write_text(
             """#!/usr/bin/env bash
 set -euo pipefail
+# Privileged-suite policy: every interpreter call must be isolated.
+[[ "${1:-}" == "-I" ]] || { echo "python3 invoked without -I" >&2; exit 97; }
+shift
 if [[ "${1:-}" == "-m" && "${2:-}" == "venv" ]]; then
   dest="$3"
   mkdir -p "$dest/bin"
@@ -139,7 +142,7 @@ if [[ "${1:-}" == "-m" && "${2:-}" == "venv" ]]; then
   chmod 0755 "$dest/bin/python" "$dest/bin/uvicorn"
   exit 0
 fi
-exec /usr/bin/python3 "$@"
+exec /usr/bin/python3 -I "$@"
 """,
             encoding="utf-8",
         )
@@ -870,7 +873,8 @@ exec "$@"
 
         # The existing release directory and sentinel must still exist
         self.assertTrue(sentinel.exists())
-        self.assertTrue((existing / "backend/venv/bin/python").is_file() or True)  # directory preserved
+        self.assertEqual([child.name for child in existing.iterdir()], ["EXISTING_RELEASE"])
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep\n")
 
         # current symlink must be unchanged
         self.assertEqual(os.readlink(target / "current"), "releases/current-release")
@@ -1140,25 +1144,69 @@ exec "$@"
         restored_mode = restored.stat().st_mode & 0o777
         self.assertEqual(restored_mode, 0o600)
 
-    def test_baseline_snapshot_rejects_wrong_enabled_link(self) -> None:
-        # The snapshot metadata requires enabled_link present and correct if present
-        snap_dir = self.root / "baseline-snap2"
-        snap_dir.mkdir(mode=0o700)
-        # Minimal required files
+    def run_baseline_restore_python(self, link_target: str | None) -> tuple[subprocess.CompletedProcess[str], dict[str, Path]]:
+        """Run the entrypoint's real baseline-restore Python against a sandbox."""
+        entrypoint = (MODULE_PATH.parent / "cwscx_mystery_public_deploy_entrypoint.sh").read_text(encoding="utf-8")
+        function = entrypoint.split("restore_baseline_origin_fixed() {", 1)[1]
+        script = function.split("<<'PY' || return 1\n", 1)[1].split("\nPY\n", 1)[0]
+
+        snapshot = self.root / "restore-snapshot"
+        snapshot.mkdir(mode=0o700)
         for name in ("cwscx-mystery-public-backend.service", "cwscx-mystery-public"):
-            (snap_dir / name).write_text("content\n", encoding="utf-8")
-        # Metadata with enabled_link=True but link is missing
+            path = snapshot / name
+            path.write_text("original\n", encoding="utf-8")
+            path.chmod(0o600)
         metadata = {
             "schema_version": 1,
             "present": {"service": True, "site": True, "limits": False, "headers": False, "enabled_link": True},
-            "modes": {"service": 0o644, "site": 0o644, "enabled_link": 0o777}
+            "modes": {"service": 0o600, "site": 0o600},
         }
-        (snap_dir / "metadata.json").write_text(json.dumps(metadata, sort_keys=True) + "\n", encoding="utf-8")
-        # This should fail validation - but we test the validation logic by checking
-        # that metadata with enabled_link=True but no actual symlink would be rejected
-        # by the restore function. We verify the metadata structure is correct.
-        self.assertTrue(metadata["present"]["enabled_link"])
-        self.assertEqual(metadata["modes"]["enabled_link"], 0o777)
+        metadata_path = snapshot / "metadata.json"
+        metadata_path.write_text(json.dumps(metadata, sort_keys=True) + "\n", encoding="utf-8")
+        metadata_path.chmod(0o600)
+
+        paths = {
+            "service": self.root / "restore-etc/systemd/cwscx-mystery-public-backend.service",
+            "site": self.root / "restore-etc/sites-available/cwscx-mystery-public",
+            "limits": self.root / "restore-etc/conf.d/limits.conf",
+            "headers": self.root / "restore-etc/conf.d/headers.conf",
+            "link": self.root / "restore-etc/sites-enabled/cwscx-mystery-public",
+        }
+        for path in paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+        paths["service"].write_text("modified\n", encoding="utf-8")
+        paths["site"].write_text("modified\n", encoding="utf-8")
+        if link_target is not None:
+            paths["link"].symlink_to(link_target.format(site=paths["site"]))
+        paths["snapshot"] = snapshot
+        result = subprocess.run(
+            [
+                "python3", "-c", script, str(os.geteuid()), str(snapshot),
+                str(paths["service"]), str(paths["site"]), str(paths["limits"]),
+                str(paths["headers"]), str(paths["link"]),
+            ],
+            text=True,
+            capture_output=True,
+        )
+        return result, paths
+
+    def test_baseline_restore_rejects_wrong_enabled_link_without_modifying_config(self) -> None:
+        result, paths = self.run_baseline_restore_python("/etc/nginx/sites-available/other-site")
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("enabled-site link does not target the fixed site", result.stderr)
+        self.assertEqual(paths["service"].read_text(encoding="utf-8"), "modified\n")
+        self.assertEqual(paths["site"].read_text(encoding="utf-8"), "modified\n")
+        self.assertEqual(os.readlink(paths["link"]), "/etc/nginx/sites-available/other-site")
+
+    def test_baseline_restore_accepts_correct_enabled_link_and_restores_config(self) -> None:
+        result, paths = self.run_baseline_restore_python("{site}")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(paths["service"].read_text(encoding="utf-8"), "original\n")
+        self.assertEqual(paths["site"].read_text(encoding="utf-8"), "original\n")
+        self.assertTrue(paths["link"].is_symlink())
+        self.assertEqual(os.readlink(paths["link"]), str(paths["site"]))
 
     def test_first_baseline_operation_is_signed_and_bound_to_unverified_current_id(self) -> None:
         operation, signature, now = self.make_operation(

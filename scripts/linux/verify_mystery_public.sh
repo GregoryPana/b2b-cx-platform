@@ -28,7 +28,7 @@ finalize() {
   FINALIZED=1
   mkdir -p "$(dirname "${EVIDENCE_FILE}")" 2>/dev/null || true
   local evidence_write_failed=0
-  python3 - "${RESULTS_FILE}" "${EVIDENCE_FILE}" "${VERIFY_TLS_MODE}" "${SERVICE_NAME}" <<'PY' 2>/dev/null || evidence_write_failed=1
+  python3 -I - "${RESULTS_FILE}" "${EVIDENCE_FILE}" "${VERIFY_TLS_MODE}" "${SERVICE_NAME}" <<'PY' 2>/dev/null || evidence_write_failed=1
 import csv, datetime, json, pathlib, sys
 rows = []
 with open(sys.argv[1], encoding="utf-8") as fh:
@@ -76,7 +76,7 @@ else
   fail "current_release" "Current symlink or release manifest missing"
 fi
 
-MANIFEST_RESULT="$(python3 - "${TARGET_ROOT}" 2>/dev/null <<'PY'
+MANIFEST_RESULT="$(python3 -I - "${TARGET_ROOT}" 2>/dev/null <<'PY'
 import json, pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
 current = root / "current"
@@ -103,7 +103,7 @@ fi
 
 # Environment metadata and DB state: inspect names/policies only; never emit values.
 if [[ -f "${ENV_FILE}" && -x "${CURRENT_DIR}/backend/venv/bin/python" ]]; then
-  if "${CURRENT_DIR}/backend/venv/bin/python" - "${ENV_FILE}" "${CURRENT_DIR}" "${DB_RESULT_FILE}" <<'PY' >/dev/null 2>&1
+  if "${CURRENT_DIR}/backend/venv/bin/python" -I - "${ENV_FILE}" "${CURRENT_DIR}" "${DB_RESULT_FILE}" <<'PY' >/dev/null 2>&1
 import json, pathlib, sys, urllib.parse
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
@@ -145,10 +145,10 @@ if url:
 output.write_text(json.dumps(policy), encoding="utf-8")
 PY
   then
-    REQUIRED_OK="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(int(d["required_keys_present"] and d["production"] and d["public_auth"]))' "${DB_RESULT_FILE}")"
-    SSL_OK="$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["db_ssl"]))' "${DB_RESULT_FILE}")"
-    HEADS_OK="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(int(not d["db_error"] and d["expected_heads"] == d["current_heads"]))' "${DB_RESULT_FILE}")"
-    HEAD_COUNTS="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(f"expected={len(d[chr(101)+chr(120)+chr(112)+chr(101)+chr(99)+chr(116)+chr(101)+chr(100)+chr(95)+chr(104)+chr(101)+chr(97)+chr(100)+chr(115)])}; current={len(d[chr(99)+chr(117)+chr(114)+chr(114)+chr(101)+chr(110)+chr(116)+chr(95)+chr(104)+chr(101)+chr(97)+chr(100)+chr(115)])}")' "${DB_RESULT_FILE}")"
+    REQUIRED_OK="$(python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(int(d["required_keys_present"] and d["production"] and d["public_auth"]))' "${DB_RESULT_FILE}")"
+    SSL_OK="$(python3 -I -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["db_ssl"]))' "${DB_RESULT_FILE}")"
+    HEADS_OK="$(python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(int(not d["db_error"] and d["expected_heads"] == d["current_heads"]))' "${DB_RESULT_FILE}")"
+    HEAD_COUNTS="$(python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(f"expected={len(d[chr(101)+chr(120)+chr(112)+chr(101)+chr(99)+chr(116)+chr(101)+chr(100)+chr(95)+chr(104)+chr(101)+chr(97)+chr(100)+chr(115)])}; current={len(d[chr(99)+chr(117)+chr(114)+chr(114)+chr(101)+chr(110)+chr(116)+chr(95)+chr(104)+chr(101)+chr(97)+chr(100)+chr(115)])}")' "${DB_RESULT_FILE}")"
     [[ "${REQUIRED_OK}" == "1" ]] && pass "environment_metadata" "Required key names present; production and mystery_public policies pass" || fail "environment_metadata" "Required key names or fixed policy values are invalid"
     [[ "${SSL_OK}" == "1" ]] && pass "database_ssl" "DATABASE_URL enforces an approved sslmode" || fail "database_ssl" "DATABASE_URL does not enforce require/verify-ca/verify-full"
     [[ "${HEADS_OK}" == "1" ]] && pass "migration_heads" "Read-only head comparison matches (${HEAD_COUNTS})" || fail "migration_heads" "Read-only head comparison failed (${HEAD_COUNTS})"
