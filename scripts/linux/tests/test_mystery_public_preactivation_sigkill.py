@@ -70,7 +70,8 @@ elif cmd == 'authorize-operation':
 elif cmd == 'verify-bundle':
     # Faithful to the real guard: checksum, signature presence, manifest read from the bundle itself.
     bundle, digest, signature = pathlib.Path(sys.argv[2]), sys.argv[3], pathlib.Path(sys.argv[4])
-    if hashlib.sha256(bundle.read_bytes()).hexdigest() != digest or not signature.is_file():
+    if hashlib.sha256(bundle.read_bytes()).hexdigest() != digest or not signature.is_file() \
+            or signature.read_text() != 'sig\\n':
         raise SystemExit(1)
     manifest = json.loads(zipfile.ZipFile(bundle).read('release/release-manifest.json'))
     manifest['bundle_sha256'] = digest
@@ -108,7 +109,9 @@ else:
     raise SystemExit('unexpected guard command: ' + cmd)
 """
 RELEASE_SCRIPTS = {
-    "deploy_mystery_public_backend.sh": "#!/usr/bin/env bash\nexit 0\n",
+    "deploy_mystery_public_backend.sh": "#!/usr/bin/env bash\n"
+    "if [[ -n \"${INTERRUPT_ACTIVATION_MARKER:-}\" ]]; then : >\"$INTERRUPT_ACTIVATION_MARKER\"; sleep 30; fi\n"
+    "exit 0\n",
     "deploy_mystery_public_nginx.sh": "#!/usr/bin/env bash\nexit 0\n",
     "verify_mystery_public.sh": "#!/usr/bin/env bash\n"
     "printf '%s\\n' '{\"summary\":{\"total\":1,\"failed\":0}}' >\"$EVIDENCE_FILE\"\n",
@@ -211,6 +214,7 @@ class EntrypointHarness(unittest.TestCase):
             release_guard.privileged_suite_version([self.entrypoint, INSTALLER_SOURCE, guard]) + "\n", encoding="ascii")
         (self.sb / "suite-version").chmod(0o600)
         self.marker = self.state / "preactivation-candidate.json"
+        self.provenance = self.state / "preactivation-candidate-provenance.json"
 
     # -- fixtures ---------------------------------------------------------
     def make_installed_release(self, release_id: str) -> Path:
@@ -221,7 +225,14 @@ class EntrypointHarness(unittest.TestCase):
         (release / "release-manifest.json").write_text(
             json.dumps({"release_id": release_id, "git_sha": "1" * 40}), encoding="utf-8")
         for name in ("python", "uvicorn"):
-            (release / "backend/venv/bin" / name).write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            body = "#!/usr/bin/env bash\nexit 0\n"
+            if name == "python":
+                body = (
+                    "#!/usr/bin/env bash\n"
+                    "if [[ -n \"${HARNESS_DB_FAIL_ID:-}\" && \"$*\" == *\"/releases/${HARNESS_DB_FAIL_ID}/release-manifest.json\"* ]]; then exit 1; fi\n"
+                    "exit 0\n"
+                )
+            (release / "backend/venv/bin" / name).write_text(body, encoding="utf-8")
             (release / "backend/venv/bin" / name).chmod(0o755)
         for name, body in RELEASE_SCRIPTS.items():
             (release / "scripts/linux" / name).write_text(body, encoding="utf-8")
@@ -294,6 +305,9 @@ class EntrypointHarness(unittest.TestCase):
     def run_and_sigkill(self, command: list[str], env: dict[str, str]) -> None:
         reached = self.sb / f"reached-venv-{self.counter}"
         env = {**env, "INTERRUPT_MARKER": str(reached)}
+        self.run_until_marker_and_sigkill(command, env, reached)
+
+    def run_until_marker_and_sigkill(self, command: list[str], env: dict[str, str], reached: Path) -> None:
         process = subprocess.Popen(command, env=env, text=True, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, start_new_session=True)
         deadline = time.monotonic() + 15
@@ -557,8 +571,130 @@ class PreactivationSigkillTests(EntrypointHarness):
         self.assertFalse(self.marker.exists())
         self.assertFalse(Path(claim["bundle_path"]).exists(), "retained artifacts are dropped with the marker")
         self.assertFalse(Path(claim["signature_path"]).exists())
+        provenance = json.loads(self.provenance.read_text(encoding="utf-8"))
+        self.assertEqual(
+            provenance,
+            {"schema_version": 1, "release_id": "done-release", "bundle_sha256": digest},
+        )
         self.assertTrue((self.state / "deploy-evidence/recovery-done-release.json").is_file())
         self.assert_current_origin_intact()
+
+        retry = self.run_entrypoint(
+            self.signed_args("deploy", "done-release", digest, bundle=self.sb / "master-done-release.zip")
+        )
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertEqual(os.readlink(self.target / "current"), "releases/done-release")
+        self.assertFalse(self.provenance.exists(), "signed archive commit consumes candidate provenance")
+
+    def test_reuse_refuses_wrong_artifact_signature_and_unmarked_collision(self) -> None:
+        candidate, digest, claim = self.stage_completed_candidate()
+        self.write_marker("done-release", digest=digest, extra=claim)
+        self.assertEqual(self.recover(digest).returncode, 0)
+        original_bundle = self.sb / "master-done-release.zip"
+
+        bad_signature_args = self.signed_args("deploy", "done-release", digest, bundle=original_bundle)
+        signature_path = Path(bad_signature_args[bad_signature_args.index("--bundle-signature-path") + 1])
+        signature_path.write_text("not-a-valid-signature\n", encoding="utf-8")
+        signature_path.chmod(0o600)
+        bad_signature = self.run_entrypoint(bad_signature_args)
+        self.assertNotEqual(bad_signature.returncode, 0)
+        self.assertTrue(candidate.is_dir())
+        self.assertTrue(self.provenance.is_file())
+        self.assert_current_origin_intact()
+
+        self.provenance.chmod(0o640)
+        unsafe_provenance = self.run_entrypoint(
+            self.signed_args("deploy", "done-release", digest, bundle=original_bundle)
+        )
+        self.assertNotEqual(unsafe_provenance.returncode, 0)
+        self.assertIn("provenance", unsafe_provenance.stderr)
+        self.provenance.chmod(0o600)
+        self.assertTrue(candidate.is_dir())
+        self.assert_current_origin_intact()
+
+        changed_bundle = self.sb / "changed-done-release.zip"
+        shutil.copyfile(original_bundle, changed_bundle)
+        with zipfile.ZipFile(changed_bundle, "a") as archive:
+            archive.writestr("release/retry-difference.txt", "different signed artifact")
+        changed_digest = self.sha(changed_bundle)
+        wrong_artifact = self.run_entrypoint(
+            self.signed_args("deploy", "done-release", changed_digest, bundle=changed_bundle)
+        )
+        self.assertNotEqual(wrong_artifact.returncode, 0)
+        self.assertIn("provenance", wrong_artifact.stderr)
+        self.assertTrue(candidate.is_dir())
+        self.assert_current_origin_intact()
+
+        arbitrary = self.make_installed_release("arbitrary-release")
+        arbitrary_bundle = self.make_bundle("arbitrary-release")
+        arbitrary_result = self.run_entrypoint(
+            self.signed_args("deploy", "arbitrary-release", self.sha(arbitrary_bundle), bundle=arbitrary_bundle)
+        )
+        self.assertNotEqual(arbitrary_result.returncode, 0)
+        self.assertIn("provenance", arbitrary_result.stderr)
+        self.assertTrue(arbitrary.is_dir(), "an arbitrary unmarked immutable ID must never be adopted or deleted")
+        self.assert_current_origin_intact()
+
+    def test_active_current_is_never_adopted_as_a_baseline_candidate(self) -> None:
+        shutil.rmtree(self.archives / ORIGIN)
+        bundle = self.make_bundle(ORIGIN)
+        result = self.run_entrypoint(
+            self.signed_args("establish_baseline", ORIGIN, self.sha(bundle), bundle=bundle)
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("provenance", result.stderr)
+        self.assert_current_origin_intact()
+        self.assertFalse(self.provenance.exists())
+        self.assertFalse(self.marker.exists())
+
+    def test_reuse_rechecks_candidate_runtime_and_database_heads(self) -> None:
+        candidate, digest, claim = self.stage_completed_candidate()
+        self.write_marker("done-release", digest=digest, extra=claim)
+        self.assertEqual(self.recover(digest).returncode, 0)
+        bundle = self.sb / "master-done-release.zip"
+
+        runtime_drift = self.run_entrypoint(
+            self.signed_args("deploy", "done-release", digest, bundle=bundle),
+            HARNESS_RUNTIME_FAIL_ID="done-release",
+        )
+        self.assertNotEqual(runtime_drift.returncode, 0)
+        self.assertTrue(candidate.is_dir() and self.provenance.is_file())
+        self.assert_current_origin_intact()
+
+        head_drift = self.run_entrypoint(
+            self.signed_args("deploy", "done-release", digest, bundle=bundle),
+            HARNESS_DB_FAIL_ID="done-release",
+        )
+        self.assertNotEqual(head_drift.returncode, 0)
+        self.assertTrue(candidate.is_dir() and self.provenance.is_file())
+        self.assert_current_origin_intact()
+
+    def test_reused_candidate_sigkill_can_recover_and_retry_again(self) -> None:
+        candidate, digest, claim = self.stage_completed_candidate()
+        self.write_marker("done-release", digest=digest, extra=claim)
+        self.assertEqual(self.recover(digest).returncode, 0)
+        bundle = self.sb / "master-done-release.zip"
+
+        reached = self.sb / "reused-activation-reached"
+        args = self.signed_args("deploy", "done-release", digest, bundle=bundle)
+        self.run_until_marker_and_sigkill(
+            ["bash", str(self.entrypoint), *args],
+            self.environment(INTERRUPT_ACTIVATION_MARKER=str(reached)),
+            reached,
+        )
+        self.assertEqual(os.readlink(self.target / "current"), "releases/done-release")
+        self.assertTrue((self.state / "active-operation.json").is_file())
+        self.assertTrue(self.provenance.is_file())
+
+        recovered = self.recover("b" * 64)
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assert_current_origin_intact()
+        self.assertTrue(candidate.is_dir() and self.provenance.is_file())
+
+        retry = self.run_entrypoint(self.signed_args("deploy", "done-release", digest, bundle=bundle))
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertEqual(os.readlink(self.target / "current"), "releases/done-release")
+        self.assertFalse(self.provenance.exists())
 
     def test_claimed_complete_candidate_that_cannot_be_reproven_fails_closed(self) -> None:
         candidate, digest, claim = self.stage_completed_candidate()

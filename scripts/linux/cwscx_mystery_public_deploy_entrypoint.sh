@@ -33,6 +33,7 @@ readonly NONCE_ROOT="${STATE_ROOT}/operation-nonces"
 readonly TRANSACTION_FILE="${STATE_ROOT}/active-operation.json"
 readonly BASELINE_RECOVERY_ROOT="${STATE_ROOT}/baseline-origin-config"
 readonly PREACTIVATION_MARKER="${STATE_ROOT}/preactivation-candidate.json"
+readonly CANDIDATE_PROVENANCE="${STATE_ROOT}/preactivation-candidate-provenance.json"
 readonly ENTRYPOINT_PATH="/usr/local/sbin/cwscx-mystery-public-deploy"
 readonly INSTALLER="/usr/local/libexec/cwscx-mystery-public/install_mystery_public_bundle.sh"
 readonly RELEASE_GUARD="/usr/local/libexec/cwscx-mystery-public/mystery_public_release_guard.py"
@@ -417,6 +418,70 @@ load_preactivation_marker() {
   PREACT_INSTALL_VERIFIED="${values[6]}"
 }
 
+# Durable authority for reusing one completed, unarchived immutable candidate.
+# It never makes an arbitrary release directory adoptable: every retry must
+# re-authenticate a newly staged signed bundle with the same ID and checksum,
+# then repeat installed-file, service-runtime and live database-head checks.
+candidate_provenance_fields() {
+  "${PYTHON_BIN}" -I - "${CANDIDATE_PROVENANCE}" "${EUID}" <<'PY'
+import json, os, re, stat, sys
+path, uid = sys.argv[1], int(sys.argv[2])
+fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+try:
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 512:
+        raise SystemExit("unsafe candidate provenance")
+    with os.fdopen(os.dup(fd), encoding="utf-8") as handle:
+        data = json.load(handle)
+finally:
+    os.close(fd)
+if set(data) != {"schema_version", "release_id", "bundle_sha256"} or data["schema_version"] != 1 \
+        or not isinstance(data["release_id"], str) \
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", data["release_id"]) \
+        or not isinstance(data["bundle_sha256"], str) \
+        or not re.fullmatch(r"[0-9a-f]{64}", data["bundle_sha256"]):
+    raise SystemExit("invalid candidate provenance")
+print(data["release_id"]); print(data["bundle_sha256"])
+PY
+}
+
+candidate_provenance_matches() {
+  local release_id="$1" bundle_sha256="$2" values
+  [[ -e "${CANDIDATE_PROVENANCE}" && ! -L "${CANDIDATE_PROVENANCE}" ]] || return 1
+  mapfile -t values < <(candidate_provenance_fields) || return 1
+  [[ "${#values[@]}" -eq 2 && "${values[0]}" == "${release_id}" && "${values[1]}" == "${bundle_sha256}" ]]
+}
+
+write_candidate_provenance() {
+  local release_id="$1" bundle_sha256="$2" temporary="${STATE_ROOT}/.preactivation-candidate-provenance.$$"
+  valid_release_id "${release_id}" || return 1
+  [[ "${bundle_sha256}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  if [[ -e "${CANDIDATE_PROVENANCE}" || -L "${CANDIDATE_PROVENANCE}" ]]; then
+    candidate_provenance_matches "${release_id}" "${bundle_sha256}"
+    return
+  fi
+  rm -f -- "${temporary}" || return 1
+  "${PYTHON_BIN}" -I - "${temporary}" "${release_id}" "${bundle_sha256}" <<'PY' || return 1
+import json, os, sys
+path, release_id, digest = sys.argv[1:]
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, "w", encoding="utf-8") as handle:
+    handle.write(json.dumps({"schema_version": 1, "release_id": release_id, "bundle_sha256": digest},
+                            sort_keys=True, separators=(",", ":")) + "\n")
+    handle.flush(); os.fsync(handle.fileno())
+PY
+  mv -T "${temporary}" "${CANDIDATE_PROVENANCE}" || return 1
+  fsync_directory "${STATE_ROOT}"
+}
+
+clear_candidate_provenance() {
+  local release_id="$1" bundle_sha256="$2"
+  [[ -e "${CANDIDATE_PROVENANCE}" || -L "${CANDIDATE_PROVENANCE}" ]] || return 0
+  candidate_provenance_matches "${release_id}" "${bundle_sha256}" || return 1
+  rm -f -- "${CANDIDATE_PROVENANCE}" || return 1
+  fsync_directory "${STATE_ROOT}"
+}
+
 preactivation_json() {
   if [[ ! -e "${PREACTIVATION_MARKER}" && ! -L "${PREACTIVATION_MARKER}" ]]; then printf 'null\n'; return 0; fi
   local values
@@ -489,6 +554,19 @@ preactivation_install_proven() {
   # File checks exclude the locally built venv, so prove it separately through
   # the same service-identity runtime gate used by rollback and recovery.
   check_runtime_usable "${PREACT_RELEASE_ID}" >/dev/null 2>&1 || return 1
+}
+
+reuse_completed_candidate() {
+  local release_id="$1" bundle_sha256="$2" current
+  valid_release_id "${release_id}" || return 1
+  current="$(current_release_id)" || return 1
+  [[ "${current}" != "${release_id}" ]] || return 1
+  candidate_provenance_matches "${release_id}" "${bundle_sha256}" || return 1
+  require_root_dir "${RELEASES_ROOT}/${release_id}" "completed unarchived candidate" || return 1
+  "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed-bundle \
+    "${RELEASES_ROOT}/${release_id}" "${ROOT_BUNDLE}" "${release_id}" >/dev/null || return 1
+  check_runtime_usable "${release_id}" || return 1
+  check_db_compatible "${release_id}" || return 1
 }
 
 # Truthful evidence for the one preactivation outcome with an UNAUTHENTICATED
@@ -566,6 +644,11 @@ reconcile_preactivation_marker() {
     [[ -d "${candidate}" && ! -L "${candidate}" ]] || return 1
     [[ "$(stat -c '%U' "${candidate}")" == "root" ]] || return 1
     if preactivation_install_proven; then
+      check_db_compatible "${PREACT_RELEASE_ID}" >/dev/null 2>&1 || {
+        echo "Preactivation candidate ${PREACT_RELEASE_ID} no longer matches the live database heads; preserved for VM-administrator review" >&2
+        return 1
+      }
+      write_candidate_provenance "${PREACT_RELEASE_ID}" "${PREACT_BUNDLE_SHA256}" || return 1
       disposition="preserved_complete"
     elif [[ "${PREACT_INSTALL_VERIFIED}" == "true" ]]; then
       # Claimed complete but not provable now: never delete on ambiguity.
@@ -1119,7 +1202,14 @@ cleanup() {
     exit_status=1
   fi
   if [[ -n "${PREACTIVATION_ID}" ]]; then
-    if [[ -d "${RELEASES_ROOT}/${PREACTIVATION_ID}" ]] \
+    # A candidate that passed every preactivation gate is no longer disposable.
+    # Preserve its marker and newly staged signed artifacts for explicit recovery;
+    # only incomplete process-owned candidates remain eligible for deletion.
+    if candidate_provenance_matches "${PREACTIVATION_ID}" "${BUNDLE_SHA256:-}" \
+       || { load_preactivation_marker 2>/dev/null && [[ "${PREACT_INSTALL_VERIFIED}" == "true" ]]; }; then
+      echo "Completed unarchived candidate preserved for signed recovery: ${PREACTIVATION_ID}" >&2
+      exit_status=1; keep_bundle=1
+    elif [[ -d "${RELEASES_ROOT}/${PREACTIVATION_ID}" ]] \
        && ! discard_pre_activation_candidate "${PREACTIVATION_ID}"; then
       echo "Unactivated candidate cleanup needs VM-administrator review" >&2
       exit_status=1; keep_bundle=1
@@ -1241,6 +1331,10 @@ NEW_ID="$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.load(open(sys.argv[
 valid_release_id "${NEW_ID}" || die "signed manifest release ID is invalid"
 [[ "${NEW_ID}" == "${TARGET_RELEASE_ID}" ]] || die "authorized target release differs from signed bundle"
 [[ ! -e "${ARCHIVE_ROOT}/${NEW_ID}" ]] || die "archive already exists for this release; administrator review required"
+if [[ -e "${CANDIDATE_PROVENANCE}" || -L "${CANDIDATE_PROVENANCE}" ]]; then
+  candidate_provenance_matches "${NEW_ID}" "${BUNDLE_SHA256}" \
+    || die "a different or invalid completed-candidate provenance record requires VM-administrator review"
+fi
 ensure_archive_capacity "$(stat -c '%s' "${ROOT_BUNDLE}")"
 
 if [[ "${ACTION}" == "establish_baseline" ]]; then
@@ -1258,27 +1352,36 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
   # snapshot is stale and must not block a fresh, fully preflighted attempt.
   remove_baseline_origin_snapshot
   preflight_baseline_origin "${CURRENT_ID}"
-  write_preactivation_marker establish_baseline "${NEW_ID}" "${BUNDLE_SHA256}" "${CURRENT_ID}" \
-    "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" \
-    || die "could not record the preactivation marker; the unverified existing release remains current"
-  PREACTIVATION_ID="${NEW_ID}"
-  if ! EXPECTED_BUNDLE_SHA256="${BUNDLE_SHA256}" "${BASH_BIN}" "${INSTALLER}" --install-only "${ROOT_BUNDLE}"; then
-    die "baseline installation failed before activation; the unverified existing release remains current"
+  if [[ -e "${RELEASES_ROOT}/${NEW_ID}" || -L "${RELEASES_ROOT}/${NEW_ID}" ]]; then
+    reuse_completed_candidate "${NEW_ID}" "${BUNDLE_SHA256}" \
+      || die "existing baseline candidate does not match durable provenance or fresh signed runtime/database checks"
+  else
+    write_preactivation_marker establish_baseline "${NEW_ID}" "${BUNDLE_SHA256}" "${CURRENT_ID}" \
+      "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" \
+      || die "could not record the preactivation marker; the unverified existing release remains current"
+    PREACTIVATION_ID="${NEW_ID}"
+    if ! EXPECTED_BUNDLE_SHA256="${BUNDLE_SHA256}" "${BASH_BIN}" "${INSTALLER}" --install-only "${ROOT_BUNDLE}"; then
+      die "baseline installation failed before activation; the unverified existing release remains current"
+    fi
+    if ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed-bundle \
+      "${RELEASES_ROOT}/${NEW_ID}" "${ROOT_BUNDLE}" "${NEW_ID}" >/dev/null; then
+      discard_pre_activation_candidate "${NEW_ID}" || die "baseline integrity failed; candidate cleanup requires VM-admin review"
+      die "baseline installed files differ from the signed bundle; the unverified existing release remains current"
+    fi
+    check_runtime_usable "${NEW_ID}" || die "baseline virtualenv is unusable before activation; the unverified existing release remains current"
+    if ! check_db_compatible "${NEW_ID}"; then
+      discard_pre_activation_candidate "${NEW_ID}" || die "baseline head check failed; candidate cleanup requires VM-admin review"
+      die "baseline database compatibility check failed before activation; the unverified existing release remains current"
+    fi
+    mark_preactivation_install_verified || die "could not record the verified installation; the unverified existing release remains current"
+    write_candidate_provenance "${NEW_ID}" "${BUNDLE_SHA256}" \
+      || die "could not durably record the completed baseline candidate; the unverified existing release remains current"
   fi
-  if ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed-bundle \
-    "${RELEASES_ROOT}/${NEW_ID}" "${ROOT_BUNDLE}" "${NEW_ID}" >/dev/null; then
-    discard_pre_activation_candidate "${NEW_ID}" || die "baseline integrity failed; candidate cleanup requires VM-admin review"
-    die "baseline installed files differ from the signed bundle; the unverified existing release remains current"
-  fi
-  check_runtime_usable "${NEW_ID}" || die "baseline virtualenv is unusable before activation; the unverified existing release remains current"
-  if ! check_db_compatible "${NEW_ID}"; then
-    discard_pre_activation_candidate "${NEW_ID}" || die "baseline head check failed; candidate cleanup requires VM-admin review"
-    die "baseline database compatibility check failed before activation; the unverified existing release remains current"
-  fi
-  mark_preactivation_install_verified || die "could not record the verified installation; the unverified existing release remains current"
   snapshot_baseline_origin_config
   arm_recovery baseline-origin "${CURRENT_ID}" "${NEW_ID}" "${BUNDLE_SHA256}"
-  release_preactivation_candidate || die "could not clear the preactivation marker after journaling"
+  if [[ -n "${PREACTIVATION_ID}" ]]; then
+    release_preactivation_candidate || die "could not clear the preactivation marker after journaling"
+  fi
   switch_current "${NEW_ID}"
   EVIDENCE_FILE="${EVIDENCE_ROOT}/${NEW_ID}.json"
   if ! activate_and_verify "${NEW_ID}" "${EVIDENCE_FILE}"; then
@@ -1296,6 +1399,8 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
   fi
   clear_transaction
   RECOVERY_ARMED=0
+  clear_candidate_provenance "${NEW_ID}" "${BUNDLE_SHA256}" \
+    || echo "Committed baseline candidate provenance cleanup needs administrator review" >&2
   remove_baseline_origin_snapshot || echo "Baseline snapshot cleanup needs administrator review" >&2
   echo "First GitHub-controlled baseline verified and signed application archive stored: ${NEW_ID} (database unchanged)"
   exit 0
@@ -1312,22 +1417,31 @@ check_db_compatible "${FALLBACK_RELEASE_ID}"
 # Install and validate the new signed tree while the old release stays live.
 # A manifest assertion against the old fallback's source graph is insufficient:
 # the new release must prove its own exact source/manifest/database head first.
-write_preactivation_marker deploy "${NEW_ID}" "${BUNDLE_SHA256}" "${CURRENT_ID}" \
-  "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" \
-  || die "could not record the preactivation marker; approved fallback remains current"
-PREACTIVATION_ID="${NEW_ID}"
-if ! EXPECTED_BUNDLE_SHA256="${BUNDLE_SHA256}" "${BASH_BIN}" "${INSTALLER}" --install-only "${ROOT_BUNDLE}"; then
-  die "release installation failed before activation; approved fallback remains current"
+if [[ -e "${RELEASES_ROOT}/${NEW_ID}" || -L "${RELEASES_ROOT}/${NEW_ID}" ]]; then
+  reuse_completed_candidate "${NEW_ID}" "${BUNDLE_SHA256}" \
+    || die "existing release candidate does not match durable provenance or fresh signed runtime/database checks"
+else
+  write_preactivation_marker deploy "${NEW_ID}" "${BUNDLE_SHA256}" "${CURRENT_ID}" \
+    "${ROOT_BUNDLE}" "${ROOT_BUNDLE_SIGNATURE}" \
+    || die "could not record the preactivation marker; approved fallback remains current"
+  PREACTIVATION_ID="${NEW_ID}"
+  if ! EXPECTED_BUNDLE_SHA256="${BUNDLE_SHA256}" "${BASH_BIN}" "${INSTALLER}" --install-only "${ROOT_BUNDLE}"; then
+    die "release installation failed before activation; approved fallback remains current"
+  fi
+  if ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed-bundle \
+    "${RELEASES_ROOT}/${NEW_ID}" "${ROOT_BUNDLE}" "${NEW_ID}" >/dev/null; then
+    die "installed release differs from signed bundle before activation; approved fallback remains current"
+  fi
+  check_runtime_usable "${NEW_ID}" || die "new release virtualenv is unusable before activation; approved fallback remains current"
+  check_db_compatible "${NEW_ID}" || die "new release migration head is incompatible before activation; approved fallback remains current"
+  mark_preactivation_install_verified || die "could not record the verified installation; approved fallback remains current"
+  write_candidate_provenance "${NEW_ID}" "${BUNDLE_SHA256}" \
+    || die "could not durably record the completed candidate; approved fallback remains current"
 fi
-if ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed-bundle \
-  "${RELEASES_ROOT}/${NEW_ID}" "${ROOT_BUNDLE}" "${NEW_ID}" >/dev/null; then
-  die "installed release differs from signed bundle before activation; approved fallback remains current"
-fi
-check_runtime_usable "${NEW_ID}" || die "new release virtualenv is unusable before activation; approved fallback remains current"
-check_db_compatible "${NEW_ID}" || die "new release migration head is incompatible before activation; approved fallback remains current"
-mark_preactivation_install_verified || die "could not record the verified installation; approved fallback remains current"
 arm_recovery signed-new "${FALLBACK_RELEASE_ID}" "${NEW_ID}" "${FALLBACK_ARCHIVE_SHA256}"
-release_preactivation_candidate || die "could not clear the preactivation marker after journaling"
+if [[ -n "${PREACTIVATION_ID}" ]]; then
+  release_preactivation_candidate || die "could not clear the preactivation marker after journaling"
+fi
 switch_current "${NEW_ID}"
 EVIDENCE_FILE="${EVIDENCE_ROOT}/${NEW_ID}.json"
 if ! activate_and_verify "${NEW_ID}" "${EVIDENCE_FILE}"; then
@@ -1345,6 +1459,8 @@ if ! chmod 0644 "${EVIDENCE_FILE}" || \
 fi
 clear_transaction
 RECOVERY_ARMED=0
+clear_candidate_provenance "${NEW_ID}" "${BUNDLE_SHA256}" \
+  || echo "Committed release candidate provenance cleanup needs administrator review" >&2
 # Retention is maintenance after a durable signed archive exists. A prune
 # failure must not convert a healthy archived release into a failed deploy.
 prune_archives "${NEW_ID}" "${CURRENT_ID}" "${ARCHIVE_RETAIN_COUNT}" || echo "Archive pruning needs administrator review" >&2

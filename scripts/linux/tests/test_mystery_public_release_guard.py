@@ -548,7 +548,7 @@ exec "$@"
             result = subprocess.run(command, env=env, text=True, capture_output=True, check=False)
         return result, sandbox
 
-    def test_baseline_snapshot_accepts_fixed_enabled_link_and_rejects_other_entries(self) -> None:
+    def test_baseline_snapshot_accepts_fixed_link_and_preserves_completed_candidate_on_rejection(self) -> None:
         success, sandbox = self.run_first_baseline_entrypoint_harness(fail_readiness=False, origin_link="expected")
         self.assertEqual(success.returncode, 0, success.stderr)
         self.assertEqual(os.readlink(sandbox / "system-config/cwscx-mystery-public-enabled"),
@@ -557,7 +557,9 @@ exec "$@"
             result, attempt = self.run_first_baseline_entrypoint_harness(fail_readiness=False, origin_link=kind)
             self.assertNotEqual(result.returncode, 0, kind)
             self.assertEqual(os.readlink(attempt / "target/current"), "releases/legacy-unverified")
-            self.assertFalse((attempt / "target/releases/first-signed-release").exists())
+            self.assertTrue((attempt / "target/releases/first-signed-release").is_dir())
+            self.assertTrue((attempt / "state/preactivation-candidate.json").is_file())
+            self.assertTrue((attempt / "state/preactivation-candidate-provenance.json").is_file())
             self.assertFalse((attempt / "state/active-operation.json").exists())
 
     def test_baseline_recovery_preserves_absent_enabled_link(self) -> None:
