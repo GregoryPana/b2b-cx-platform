@@ -11,14 +11,22 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import grp
 import hashlib
+import http.client
 import json
 import os
+import pwd
 import re
 import shutil
+import signal
+import socket
+import stat
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.parse
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -499,6 +507,496 @@ def check_runtime_usability(
             raise GuardError("installed virtualenv is incomplete or inconsistent")
 
 
+ROOT_PROBE_LAUNCHER = r"""
+import ctypes
+import os
+import sys
+
+parent = os.getppid()
+if ctypes.CDLL(None, use_errno=True).prctl(1, 9, 0, 0, 0) != 0:
+    raise SystemExit(90)
+if parent == 1 or os.getppid() != parent:
+    os.kill(os.getpid(), 9)
+os.execv(sys.argv[1], sys.argv[1:])
+"""
+
+
+PROBE_LAUNCHER = r"""
+import ctypes
+import json
+import os
+import sys
+
+PR_SET_PDEATHSIG = 1
+parent = os.getppid()
+if ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, 9, 0, 0, 0) != 0:
+    raise SystemExit(90)
+if parent == 1 or os.getppid() != parent:
+    os.kill(os.getpid(), 9)
+start_ticks = open(f"/proc/{os.getpid()}/stat", encoding="ascii").read().split()[21]
+marker = sys.argv[1]
+fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, "w", encoding="ascii") as handle:
+    handle.write(json.dumps({"pid": os.getpid(), "pgid": os.getpgrp(), "start_ticks": start_ticks},
+                            sort_keys=True, separators=(",", ":")) + "\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+os.execv(sys.argv[2], sys.argv[2:])
+"""
+
+
+class _UnixHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, socket_path: Path, timeout: float):
+        super().__init__("localhost", timeout=timeout)
+        self.socket_path = socket_path
+
+    def connect(self) -> None:
+        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        connection.settimeout(self.timeout)
+        connection.connect(str(self.socket_path))
+        self.sock = connection
+
+
+def _read_runtime_environment(env_file: Path) -> dict[str, str]:
+    """Parse the supported, systemd-compatible EnvironmentFile subset.
+
+    Values may be unquoted without whitespace, or single/double quoted on one
+    line. Escapes, continuations, mixed quoting and inline quote removal are
+    deliberately rejected so candidate and live preflights cannot interpret a
+    secret differently. Values are returned exactly, without expansion.
+    """
+    _regular_file(env_file, "environment file")
+    if env_file.stat().st_size > 1024 * 1024:
+        raise GuardError("environment file is unexpectedly large")
+    values: dict[str, str] = {}
+    for number, raw in enumerate(env_file.read_text(encoding="utf-8-sig").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise GuardError(f"environment file has an invalid line {number}")
+        key, encoded = line.split("=", 1)
+        key, encoded = key.strip(), encoded.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) or key in values:
+            raise GuardError(f"environment file has an invalid or duplicate key on line {number}")
+        if "\x00" in encoded:
+            raise GuardError("environment file contains a NUL byte")
+        if "\\" in encoded:
+            raise GuardError(f"environment file uses an unsupported escape or continuation on line {number}")
+        if encoded[:1] in {"'", '"'}:
+            quote = encoded[0]
+            if len(encoded) < 2 or encoded[-1] != quote or quote in encoded[1:-1]:
+                raise GuardError(f"environment file has unsupported or unclosed quoting on line {number}")
+            value = encoded[1:-1]
+        else:
+            if any(character.isspace() or character in "'\"" for character in encoded):
+                raise GuardError(f"environment file value must be wholly quoted on line {number}")
+            value = encoded
+        values[key] = value
+    return values
+
+
+def _validate_production_environment(values: dict[str, str]) -> None:
+    required = ("ENVIRONMENT", "AUTH_MODE", "DATABASE_URL", "CORS_ALLOW_ORIGINS", "MYSTERY_AUTH_SECRET_KEY")
+    if any(not values.get(key) for key in required):
+        raise GuardError("production environment metadata is incomplete")
+    if values["ENVIRONMENT"] != "production" or values["AUTH_MODE"] != "mystery_public":
+        raise GuardError("production environment must use production/mystery_public mode")
+    auto_ddl = values.get("LOCAL_DEVELOPMENT_AUTO_DDL", "").lower()
+    if auto_ddl not in {"", "0", "false", "no", "off"}:
+        raise GuardError("production environment must disable LOCAL_DEVELOPMENT_AUTO_DDL")
+    _validate_postgresql_probe_policy(values)
+
+
+def _validate_postgresql_probe_policy(values: dict[str, str]) -> None:
+    url = values.get("DATABASE_URL", "")
+    try:
+        parsed = urllib.parse.urlsplit(url.replace("postgresql+psycopg://", "postgresql://", 1))
+    except ValueError:
+        raise GuardError("candidate probe database configuration is invalid") from None
+    if parsed.scheme not in {"postgresql", "postgres"}:
+        raise GuardError("candidate probe requires PostgreSQL")
+    query = urllib.parse.parse_qs(parsed.query)
+    sslmode = query.get("sslmode", [""])[-1].lower()
+    if sslmode not in {"require", "verify-ca", "verify-full"}:
+        raise GuardError("candidate probe database configuration does not enforce TLS")
+    if "options" in query:
+        raise GuardError("candidate probe database URL must not override the enforced read-only options")
+
+
+def _http_over_unix(socket_path: Path, target: str, timeout: float) -> tuple[int, bytes]:
+    connection = _UnixHTTPConnection(socket_path, timeout)
+    try:
+        connection.request("GET", target, headers={"Host": "localhost", "Connection": "close"})
+        response = connection.getresponse()
+        body = response.read(65537)
+        if len(body) > 65536:
+            raise GuardError("candidate probe response is too large")
+        return response.status, body
+    finally:
+        connection.close()
+
+
+def _read_liveness_marker(marker: Path) -> dict[str, int]:
+    try:
+        raw = json.loads(marker.read_text(encoding="ascii"))
+    except (OSError, ValueError):
+        raise GuardError("candidate probe did not publish a valid liveness marker") from None
+    if set(raw) != {"pid", "pgid", "start_ticks"} or any(type(raw[k]) is not int for k in ("pid", "pgid")) \
+            or not isinstance(raw["start_ticks"], str) or not raw["start_ticks"].isdigit():
+        raise GuardError("candidate probe liveness marker is invalid")
+    return raw
+
+
+def _marker_process_is_live(marker: Path, expected_pgid: int) -> bool:
+    try:
+        identity = _read_liveness_marker(marker)
+        if identity["pgid"] != expected_pgid or os.getpgid(identity["pid"]) != expected_pgid:
+            return False
+        current_ticks = Path(f"/proc/{identity['pid']}/stat").read_text(encoding="ascii").split()[21]
+        return current_ticks == identity["start_ticks"]
+    except (GuardError, OSError, IndexError):
+        return False
+
+
+def _capture_probe_identity(process: subprocess.Popen[bytes]) -> dict[str, int | str]:
+    """Capture the direct Popen child incarnation before it can publish state."""
+    pid = process.pid
+    try:
+        pgid = os.getpgid(pid)
+        start_ticks = Path(f"/proc/{pid}/stat").read_text(encoding="ascii").split()[21]
+    except (OSError, IndexError):
+        raise GuardError("candidate probe direct-child identity is unavailable") from None
+    if pgid != pid or not start_ticks.isdigit():
+        raise GuardError("candidate probe did not create its expected private process group")
+    return {"pid": pid, "pgid": pgid, "start_ticks": start_ticks}
+
+
+def _direct_probe_is_live(identity: dict[str, int | str]) -> bool:
+    try:
+        pid, pgid = int(identity["pid"]), int(identity["pgid"])
+        if os.getpgid(pid) != pgid:
+            return False
+        ticks = Path(f"/proc/{pid}/stat").read_text(encoding="ascii").split()[21]
+        return ticks == identity["start_ticks"]
+    except (OSError, IndexError, KeyError, TypeError, ValueError):
+        return False
+
+
+def _capture_probe_group_members(pgid: int) -> list[dict[str, int | str]]:
+    """Snapshot PID incarnations currently belonging to the private group."""
+    members: list[dict[str, int | str]] = []
+    for process in Path("/proc").iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            fields = (process / "stat").read_text(encoding="ascii").split()
+            if int(fields[4]) == pgid:
+                members.append({"pid": int(process.name), "pgid": pgid, "start_ticks": fields[21]})
+        except (OSError, IndexError, ValueError):
+            continue
+    return members
+
+
+def _stop_probe(
+    process: subprocess.Popen[bytes], direct_identity: dict[str, int | str], *, grace_seconds: float = 3.0
+) -> None:
+    """Stop the authenticated direct child and its private process group."""
+    pgid = int(direct_identity["pgid"])
+    members: list[dict[str, int | str]] = []
+    if process.poll() is None:
+        if not _direct_probe_is_live(direct_identity):
+            raise GuardError("candidate probe direct-child identity changed before cleanup")
+        members = _capture_probe_group_members(pgid)
+        os.killpg(pgid, signal.SIGTERM)
+    try:
+        process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        if not _direct_probe_is_live(direct_identity):
+            raise GuardError("candidate probe direct-child identity changed during cleanup") from None
+        os.killpg(pgid, signal.SIGKILL)
+        try:
+            process.wait(timeout=grace_seconds)
+        except subprocess.TimeoutExpired as exc:
+            raise GuardError("candidate probe process could not be reaped") from exc
+    # The group-wide TERM was issued only while its leader incarnation was
+    # authenticated. If a captured descendant ignored it, authenticate that
+    # exact PID incarnation and kill it individually; never signal a bare PGID
+    # after the leader has exited and could no longer authenticate the group.
+    for member in members:
+        if int(member["pid"]) != process.pid and _direct_probe_is_live(member):
+            os.kill(int(member["pid"]), signal.SIGKILL)
+    deadline = time.monotonic() + grace_seconds
+    while any(_direct_probe_is_live(member) for member in members) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    if any(_direct_probe_is_live(member) for member in members):
+        raise GuardError("candidate probe left an authenticated descendant alive")
+
+
+def check_candidate_application(
+    release_dir: Path,
+    env_file: Path,
+    shared_root: Path,
+    *,
+    required_uid: int = 0,
+    service_uid: int | None = None,
+    service_gid: int | None = None,
+    command_prefix: tuple[str, ...] = ("/usr/sbin/runuser", "-u", "cxadmin", "-g", "www-data", "--"),
+    startup_timeout: float = 30.0,
+    request_timeout: float = 3.0,
+) -> dict[str, Any]:
+    """Start the authenticated candidate privately and prove its public contract.
+
+    The caller authenticates installed files/runtime/source/database heads first.
+    Candidate code runs only as the service identity. Application startup owns
+    no schema changes; PostgreSQL still receives a session-level read-only
+    default as defense in depth while readiness SELECTs remain available.
+    """
+    manifest_path = release_dir / "release-manifest.json"
+    manifest = validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")))
+    if release_dir.name != manifest["release_id"]:
+        raise GuardError("candidate release identity differs from its directory")
+    expected_sha = manifest["git_sha"]
+    backend = release_dir / "backend"
+    python = backend / "venv/bin/python"
+    uvicorn = backend / "venv/bin/uvicorn"
+    for path, label, kind in (
+        (backend, "candidate backend", "dir"),
+        (python, "candidate Python", "file"),
+        (uvicorn, "candidate Uvicorn", "file"),
+    ):
+        if (kind == "dir" and not path.is_dir()) or (kind == "file" and not path.is_file()):
+            raise GuardError(f"{label} is missing")
+    if not os.access(python, os.X_OK) or not os.access(uvicorn, os.X_OK):
+        raise GuardError("candidate launchers are not executable")
+    if shared_root.is_symlink() or not shared_root.is_dir():
+        raise GuardError("shared probe root is unsafe")
+    shared_info = shared_root.stat()
+    if shared_info.st_mode & 0o007:
+        raise GuardError("shared probe root is accessible to other users")
+
+    values = _read_runtime_environment(env_file)
+    _validate_production_environment(values)
+    values.update({
+        "APP_VERSION": expected_sha,
+        "HOME": "/nonexistent",
+        "PATH": "/usr/bin:/bin",
+        "PGOPTIONS": "-c default_transaction_read_only=on",
+        "PGSSLCERTMODE": "disable",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    })
+    for key in tuple(values):
+        if (key.startswith(("PYTHON", "PIP_", "LD_")) and key != "PYTHONDONTWRITEBYTECODE"):
+            del values[key]
+
+    service_uid = pwd.getpwnam("cxadmin").pw_uid if service_uid is None else service_uid
+    service_gid = grp.getgrnam("www-data").gr_gid if service_gid is None else service_gid
+    probe_dir = Path(tempfile.mkdtemp(prefix=".preactivation-app-", dir=shared_root))
+    socket_path = probe_dir / "app.sock"
+    marker = probe_dir / "liveness.json"
+    process: subprocess.Popen[bytes] | None = None
+    direct_identity: dict[str, int | str] | None = None
+    completed_ns = 0
+    try:
+        os.chown(probe_dir, service_uid, service_gid)
+        os.chmod(probe_dir, 0o700)
+        service_command = (
+            *command_prefix,
+            str(python), "-I", "-c", PROBE_LAUNCHER, str(marker), str(uvicorn),
+            "app.main:app", "--uds", str(socket_path), "--no-access-log", "--log-level", "warning",
+        )
+        command = (sys.executable, "-I", "-c", ROOT_PROBE_LAUNCHER, *service_command)
+        process = subprocess.Popen(
+            command,
+            cwd=backend,
+            env=values,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            direct_identity = _capture_probe_identity(process)
+        except Exception:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=3)
+            raise
+        deadline = time.monotonic() + startup_timeout
+        last_status: int | None = None
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise GuardError("candidate application exited before readiness")
+            if marker.exists() and socket_path.exists():
+                if not _marker_process_is_live(marker, process.pid):
+                    raise GuardError("candidate application liveness identity changed")
+                try:
+                    status_code, body = _http_over_unix(socket_path, "/health/ready", request_timeout)
+                    last_status = status_code
+                    if status_code == 200:
+                        try:
+                            payload = json.loads(body)
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            raise GuardError("candidate readiness is not valid JSON") from None
+                        if not isinstance(payload, dict) or payload.get("status") != "ready" \
+                                or payload.get("version") != expected_sha \
+                                or not isinstance(payload.get("checks"), dict) \
+                                or payload["checks"].get("database") != "ok":
+                            raise GuardError("candidate readiness identity/status/database contract failed")
+                        auth_status, _ = _http_over_unix(socket_path, "/auth/session", request_timeout)
+                        if auth_status != 401:
+                            raise GuardError("candidate anonymous session contract failed")
+                        completed_ns = time.monotonic_ns()
+                        return {
+                            "release_id": manifest["release_id"],
+                            "git_sha": expected_sha,
+                            "ready_status": "ready",
+                            "database": "ok",
+                            "anonymous_session_status": 401,
+                            "completed_monotonic_ns": completed_ns,
+                        }
+                except (ConnectionError, OSError, http.client.HTTPException, socket.timeout):
+                    pass
+            time.sleep(0.1)
+        detail = f" (last HTTP status {last_status})" if last_status is not None else ""
+        raise GuardError("candidate application readiness timed out" + detail)
+    finally:
+        cleanup_error: Exception | None = None
+        if process is not None and direct_identity is not None:
+            try:
+                _stop_probe(process, direct_identity)
+            except Exception as exc:  # preserve primary failure while still refusing success below
+                cleanup_error = exc
+        shutil.rmtree(probe_dir, ignore_errors=True)
+        if cleanup_error is not None and sys.exc_info()[0] is None:
+            raise cleanup_error
+
+
+def _proc_start_ticks(proc_root: Path, pid: int) -> str:
+    try:
+        fields = (proc_root / str(pid) / "stat").read_text(encoding="ascii").split()
+        if fields[2] in {"Z", "X", "x"}:
+            raise GuardError("serving process is exiting or defunct")
+        return fields[21]
+    except (OSError, IndexError):
+        raise GuardError("serving process start identity is unavailable") from None
+
+
+def verify_serving_identity(
+    release_dir: Path,
+    expected_sha: str,
+    operation_started_monotonic_us: int,
+    properties: dict[str, str],
+    *,
+    proc_root: Path = Path("/proc"),
+    required_service_uid: int | None = None,
+    required_release_uid: int = 0,
+) -> dict[str, Any]:
+    """Bind systemd's actual MainPID and fresh start to the signed current tree."""
+    if not GIT_SHA_RE.fullmatch(expected_sha):
+        raise GuardError("serving identity expected SHA is invalid")
+    manifest = validate_manifest(json.loads((release_dir / "release-manifest.json").read_text(encoding="utf-8")))
+    if manifest["git_sha"] != expected_sha or release_dir.name != manifest["release_id"]:
+        raise GuardError("serving release differs from signed current")
+    try:
+        pid = int(properties["MainPID"])
+        started = int(properties["ExecMainStartTimestampMonotonic"])
+    except (KeyError, ValueError):
+        raise GuardError("serving process metadata is invalid") from None
+    if pid <= 0 or started <= operation_started_monotonic_us:
+        raise GuardError("serving process was not freshly started by this operation")
+    process = proc_root / str(pid)
+    if not process.is_dir():
+        raise GuardError("systemd MainPID is not live")
+    start_ticks_before = _proc_start_ticks(proc_root, pid)
+    expected_cwd = (release_dir / "backend").resolve(strict=True)
+    try:
+        actual_cwd = (process / "cwd").resolve(strict=True)
+        actual_exe = (process / "exe").resolve(strict=True)
+        cmdline = (process / "cmdline").read_bytes().split(b"\0")
+    except OSError:
+        raise GuardError("serving process identity cannot be inspected") from None
+    if actual_cwd != expected_cwd:
+        raise GuardError("serving process cwd is not the signed current backend")
+    python = release_dir / "backend/venv/bin/python"
+    uvicorn = release_dir / "backend/venv/bin/uvicorn"
+    try:
+        python_info = python.lstat()
+        resolved_python = python.resolve(strict=True)
+        resolved_info = resolved_python.stat()
+        resolved_uvicorn = uvicorn.resolve(strict=True)
+    except OSError:
+        raise GuardError("serving virtualenv launch identity is invalid") from None
+    if not (stat.S_ISREG(resolved_info.st_mode) and os.access(resolved_python, os.X_OK)) \
+            or resolved_info.st_mode & 0o022 or resolved_info.st_uid != required_release_uid:
+        raise GuardError("serving virtualenv Python target is unsafe")
+    if python.is_symlink() and python_info.st_uid != required_release_uid:
+        raise GuardError("serving virtualenv Python symlink is not root-controlled")
+    if actual_exe != resolved_python:
+        raise GuardError("systemd MainPID executable is not the signed release Python")
+    launch_paths: list[Path] = []
+    for raw in cmdline[:3]:
+        if not raw or not raw.startswith(b"/"):
+            continue
+        try:
+            launch_paths.append(Path(os.fsdecode(raw)).resolve(strict=True))
+        except OSError:
+            continue
+    if resolved_uvicorn not in launch_paths:
+        raise GuardError("systemd MainPID command line is not the signed release Uvicorn launcher")
+    if required_service_uid is not None and process.stat().st_uid != required_service_uid:
+        raise GuardError("systemd MainPID does not run as the service user")
+    start_ticks_after = _proc_start_ticks(proc_root, pid)
+    if start_ticks_after != start_ticks_before:
+        raise GuardError("systemd MainPID incarnation changed during inspection")
+    return {"main_pid": pid, "started_monotonic_us": started, "release_id": manifest["release_id"],
+            "git_sha": expected_sha}
+
+
+def check_serving_identity(
+    release_dir: Path,
+    expected_sha: str,
+    operation_started_monotonic_us: int,
+    service_name: str,
+    *,
+    proc_root: Path = Path("/proc"),
+    required_service_uid: int | None = None,
+    required_release_uid: int = 0,
+) -> dict[str, Any]:
+    keys = ("MainPID", "ExecMainStartTimestampMonotonic", "User", "Group")
+    command = ["/usr/bin/systemctl", "show", service_name, *[f"--property={key}" for key in keys]]
+
+    def read_properties() -> dict[str, str]:
+        result = subprocess.run(
+            command, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, cwd="/",
+        )
+        if result.returncode:
+            raise GuardError("systemd serving identity metadata is unavailable")
+        return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+
+    properties = read_properties()
+    if properties.get("User") != "cxadmin" or properties.get("Group") != "www-data":
+        raise GuardError("systemd service identity is not cxadmin:www-data")
+    identity = verify_serving_identity(
+        release_dir,
+        expected_sha,
+        operation_started_monotonic_us,
+        properties,
+        proc_root=proc_root,
+        required_service_uid=(pwd.getpwnam("cxadmin").pw_uid if required_service_uid is None else required_service_uid),
+        required_release_uid=required_release_uid,
+    )
+    after = read_properties()
+    for key in ("MainPID", "ExecMainStartTimestampMonotonic"):
+        if after.get(key) != properties.get(key):
+            raise GuardError("systemd serving process metadata changed during inspection")
+    return identity
+
+
 def store_archive(
     archive_root: Path,
     bundle: Path,
@@ -601,7 +1099,10 @@ def check_db_heads(env_file: Path, manifest: Path, alembic_ini: Path) -> None:
     if source != expected:
         raise GuardError("signed manifest migration heads differ from installed source graph")
     try:
-        engine = create_engine(url, poolclass=NullPool, pool_pre_ping=True)
+        engine_kwargs: dict[str, Any] = {"poolclass": NullPool, "pool_pre_ping": True}
+        if url.startswith(("postgresql:", "postgresql+")):
+            engine_kwargs["connect_args"] = {"options": "-c default_transaction_read_only=on"}
+        engine = create_engine(url, **engine_kwargs)
         try:
             with engine.connect() as connection:
                 current = sorted(MigrationContext.configure(connection).get_current_heads())
@@ -655,6 +1156,17 @@ def _parser() -> argparse.ArgumentParser:
     installed_bundle.add_argument("release_id")
     runtime = sub.add_parser("check-runtime")
     runtime.add_argument("release_dir", type=Path)
+    candidate = sub.add_parser("check-candidate-app")
+    candidate.add_argument("release_dir", type=Path)
+    candidate.add_argument("env_file", type=Path)
+    candidate.add_argument("shared_root", type=Path)
+    environment = sub.add_parser("check-production-environment")
+    environment.add_argument("env_file", type=Path)
+    serving = sub.add_parser("check-serving-identity")
+    serving.add_argument("release_dir", type=Path)
+    serving.add_argument("expected_sha")
+    serving.add_argument("operation_started_monotonic_us", type=int)
+    serving.add_argument("service_name")
     store = sub.add_parser("store-archive")
     store.add_argument("archive_root", type=Path)
     store.add_argument("bundle", type=Path)
@@ -693,6 +1205,18 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "check-runtime":
             check_runtime_usability(args.release_dir)
             print("installed virtualenv is usable and requirements-complete")
+        elif args.command == "check-candidate-app":
+            print(json.dumps(check_candidate_application(args.release_dir, args.env_file, args.shared_root), sort_keys=True))
+        elif args.command == "check-production-environment":
+            _validate_production_environment(_read_runtime_environment(args.env_file))
+            print("environment metadata and restricted EnvironmentFile grammar validated")
+        elif args.command == "check-serving-identity":
+            print(json.dumps(check_serving_identity(
+                args.release_dir,
+                args.expected_sha,
+                args.operation_started_monotonic_us,
+                args.service_name,
+            ), sort_keys=True))
         elif args.command == "store-archive":
             manifest = json.loads(args.manifest_json.read_text(encoding="utf-8"))
             store_archive(args.archive_root, args.bundle, args.signature, manifest, args.verified_at_utc)

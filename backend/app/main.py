@@ -51,6 +51,20 @@ from app.core.health import readiness_check
 from app.core.settings import get_settings
 
 
+def _local_auto_ddl_enabled(environment: str, public_mode: bool) -> bool:
+    """Return whether the explicitly local-only schema bootstrap is enabled."""
+    raw = os.getenv("LOCAL_DEVELOPMENT_AUTO_DDL", "").strip().lower()
+    if raw in {"", "0", "false", "no", "off"}:
+        return False
+    if raw not in {"1", "true", "yes", "on"}:
+        raise RuntimeError("LOCAL_DEVELOPMENT_AUTO_DDL must be a boolean")
+    if environment.lower() not in {"dev", "development", "local"} or public_mode:
+        raise RuntimeError(
+            "LOCAL_DEVELOPMENT_AUTO_DDL is permitted only for a non-public local development backend"
+        )
+    return True
+
+
 def create_app() -> FastAPI:
     backend_root = Path(__file__).resolve().parents[1]
     repo_root = Path(__file__).resolve().parents[2]
@@ -108,6 +122,7 @@ def create_app() -> FastAPI:
         print("[STARTUP] ENTRA_TENANT_ID: set")
 
     public_mode = settings.auth_mode == "mystery_public"
+    local_auto_ddl = _local_auto_ddl_enabled(environment, public_mode)
     app = FastAPI(
         title="CX Assessment Platform",
         description="Multi-platform CX Assessment Platform",
@@ -127,8 +142,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Initialize database
-    init_db()
+    # Schema ownership remains with the migration pipeline. This opt-in exists
+    # only for disposable local development and is rejected in production and
+    # in every public-auth process, including candidate probes.
+    if local_auto_ddl:
+        init_db()
     
     # Add a simple health endpoint that works without authentication
     @app.get("/health")

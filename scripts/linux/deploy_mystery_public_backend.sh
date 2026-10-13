@@ -34,28 +34,11 @@ print(sha, release)
 PY
 )
 
-# Validate required configuration by key and policy without sourcing or printing values.
-"${VENV_DIR}/bin/python" -I - "${ENV_FILE}" <<'PY'
-import pathlib, sys, urllib.parse
-path = pathlib.Path(sys.argv[1])
-values = {}
-for raw in path.read_text(encoding="utf-8-sig").splitlines():
-    line = raw.strip()
-    if not line or line.startswith("#") or "=" not in line: continue
-    key, value = line.split("=", 1)
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'": value = value[1:-1]
-    values[key.strip()] = value
-required = ["ENVIRONMENT", "AUTH_MODE", "DATABASE_URL", "CORS_ALLOW_ORIGINS", "MYSTERY_AUTH_SECRET_KEY"]
-missing = [key for key in required if not values.get(key)]
-if missing: raise SystemExit("Missing required environment keys: " + ", ".join(missing))
-if values["ENVIRONMENT"] != "production": raise SystemExit("ENVIRONMENT must be production")
-if values["AUTH_MODE"] != "mystery_public": raise SystemExit("AUTH_MODE must be mystery_public")
-url = urllib.parse.urlsplit(values["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1))
-mode = urllib.parse.parse_qs(url.query).get("sslmode", [""])[-1].lower()
-if mode not in {"require", "verify-ca", "verify-full"}: raise SystemExit("DATABASE_URL must enforce PostgreSQL SSL")
-print("Environment metadata validated: required keys present; production/public auth/DB SSL policies pass")
-PY
+# Use the same restricted, non-disclosing EnvironmentFile parser and policy as
+# the preactivation candidate probe. Unsupported escapes, continuations or mixed
+# quoting fail before the live service is restarted.
+"${VENV_DIR}/bin/python" -I "${CURRENT_DIR}/scripts/linux/mystery_public_release_guard.py" \
+  check-production-environment "${ENV_FILE}"
 
 cat >"${TMP_SERVICE_FILE}" <<EOF
 [Unit]

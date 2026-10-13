@@ -9,6 +9,7 @@ import json
 import os
 import datetime
 import getpass
+import grp
 import re
 import shutil
 import signal
@@ -197,7 +198,7 @@ exec "$@"
         target, state = sandbox / "target", sandbox / "state"
         releases = target / "releases"
         for directory, mode in (
-            (target, 0o755), (releases, 0o755), (state, 0o755),
+            (target, 0o755), (releases, 0o755), (target / "shared", 0o770), (state, 0o755),
             (state / "deploy-evidence", 0o755), (state / "incoming", 0o700),
             (state / "application-archives", 0o700), (state / "operation-nonces", 0o700),
         ):
@@ -274,7 +275,7 @@ fi
         guard = sandbox / "guard.py"
         guard.write_text(
             f"""#!/usr/bin/env python3
-import hashlib, json, pathlib, shutil, sys
+import hashlib, json, pathlib, shutil, sys, time
 cmd=sys.argv[1]
 manifest={new_manifest!r}
 if cmd == 'suite-version':
@@ -294,6 +295,9 @@ elif cmd == 'check-runtime':
 elif cmd == 'check-db-heads':
     if __import__('os').environ.get('HARNESS_FAIL_NEW_HEAD') == '1' and 'first-signed-release' in sys.argv[-1]:
         raise SystemExit('new source migration head does not match database')
+elif cmd == 'check-candidate-app':
+    rid=pathlib.Path(sys.argv[2]).name
+    print(json.dumps({{'release_id':rid,'git_sha':manifest['git_sha'],'ready_status':'ready','database':'ok','anonymous_session_status':401,'completed_monotonic_ns':time.monotonic_ns()}}))
 elif cmd == 'verify-installed-bundle': pass
 elif cmd == 'store-archive':
     root=pathlib.Path(sys.argv[2]); bundle=pathlib.Path(sys.argv[3]); sig=pathlib.Path(sys.argv[4]); data=json.load(open(sys.argv[5])); rid=data['release_id']; digest=data['bundle_sha256']
@@ -388,6 +392,7 @@ exec "$@"
             'readonly MIN_FREE_BYTES=10737418240': 'readonly MIN_FREE_BYTES=0',
             '[[ "${EUID}" -eq 0 ]] || die "must run as root (invoke via sudo)"': ': # root check replaced only in disposable test harness',
             '== "root"': f'== "{getpass.getuser()}"',
+            '== "cxadmin:www-data"': f'== "{getpass.getuser()}:{grp.getgrgid(os.getgid()).gr_name}"',
             'install -o root -g root -m 0600 --': 'install -m 0600 --',
             "'^/tmp/": "'^" + re.escape(str(sandbox)) + "/",
         }
@@ -395,22 +400,22 @@ exec "$@"
             self.assertIn(old, entrypoint_text)
             entrypoint_text = entrypoint_text.replace(old, new)
         if interrupt_recovery_after_origin_switch:
-            recovery_switch = '  switch_current "${fallback_id}" || return 1\n  activate_and_verify'
+            recovery_switch = '  switch_current_signed "${fallback_id}" || return 1\n  activate_and_verify'
             self.assertIn(recovery_switch, entrypoint_text)
             entrypoint_text = entrypoint_text.replace(
                 recovery_switch,
-                '  switch_current "${fallback_id}" || return 1\n'
+                '  switch_current_signed "${fallback_id}" || return 1\n'
                 '  if [[ -n "${HARNESS_RECOVERY_INTERRUPT_MARKER:-}" ]]; then '
                 ': >"$HARNESS_RECOVERY_INTERRUPT_MARKER"; sleep 30; fi\n'
                 '  activate_and_verify',
                 1,
             )
         if interrupt_after_switch and action == "deploy":
-            deploy_switch = 'switch_current "${NEW_ID}"\nEVIDENCE_FILE='
+            deploy_switch = 'switch_current_signed "${NEW_ID}"\nEVIDENCE_FILE='
             self.assertIn(deploy_switch, entrypoint_text)
             entrypoint_text = entrypoint_text.replace(
                 deploy_switch,
-                'switch_current "${NEW_ID}"\n'
+                'switch_current_signed "${NEW_ID}"\n'
                 'if [[ -n "${HARNESS_INTERRUPT_MARKER:-}" ]]; then '
                 ': >"$HARNESS_INTERRUPT_MARKER"; sleep 30; fi\nEVIDENCE_FILE=',
                 1,

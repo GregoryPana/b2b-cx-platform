@@ -24,6 +24,7 @@ unset _name CDPATH
 readonly TARGET_ROOT="/opt/cwscx-mystery-public"
 readonly ENV_FILE="${TARGET_ROOT}/.env"
 readonly RELEASES_ROOT="${TARGET_ROOT}/releases"
+readonly SHARED_ROOT="${TARGET_ROOT}/shared"
 readonly STATE_ROOT="/var/lib/cwscx-mystery-public"
 readonly EVIDENCE_ROOT="${STATE_ROOT}/deploy-evidence"
 readonly INCOMING_ROOT="${STATE_ROOT}/incoming"
@@ -45,6 +46,7 @@ readonly ARCHIVE_RETAIN_COUNT=3
 readonly MIN_FREE_BYTES=10737418240
 readonly EVIDENCE_RETAIN_COUNT=20
 readonly HEALTH_PROBE_ATTEMPTS=30
+readonly CANDIDATE_PROBE_MAX_AGE_NS=120000000000
 readonly DEFAULT_ENABLE_HSTS="0"
 readonly SERVICE_NAME="cwscx-mystery-public-backend"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -98,6 +100,9 @@ require_root_file() {
 }
 require_root_dir "${TARGET_ROOT}" "target root"
 require_root_dir "${RELEASES_ROOT}" "releases root"
+[[ -d "${SHARED_ROOT}" && ! -L "${SHARED_ROOT}" ]] || die "shared root must be an existing real directory"
+[[ "$(stat -c '%U:%G' "${SHARED_ROOT}")" == "cxadmin:www-data" ]] || die "shared root must be owned by cxadmin:www-data"
+SHARED_MODE="$(stat -c '%a' "${SHARED_ROOT}")"; (( 8#${SHARED_MODE} & 8#007 )) && die "shared root must not be accessible to other users"
 require_root_dir "${STATE_ROOT}" "state root"
 require_root_dir "${EVIDENCE_ROOT}" "evidence root"
 require_root_dir "${INCOMING_ROOT}" "incoming root"
@@ -235,6 +240,40 @@ check_db_compatible() {
   "${RELEASES_ROOT}/${release_id}/backend/venv/bin/python" -I "${RELEASE_GUARD}" check-db-heads \
     "${ENV_FILE}" "${RELEASES_ROOT}/${release_id}/release-manifest.json" \
     "${RELEASES_ROOT}/${release_id}/backend/alembic.ini" >/dev/null
+}
+
+CANDIDATE_PROBE_ID=""
+CANDIDATE_PROBE_COMPLETED_NS=""
+check_candidate_app() {
+  local release_id="$1" result parsed
+  local -a values
+  valid_release_id "${release_id}" || return 1
+  result="$("${PYTHON_BIN}" -I "${RELEASE_GUARD}" check-candidate-app \
+    "${RELEASES_ROOT}/${release_id}" "${ENV_FILE}" "${SHARED_ROOT}")" || return 1
+  parsed="$("${PYTHON_BIN}" -I -c 'import json,sys
+p=json.loads(sys.argv[1]); required={"release_id","git_sha","ready_status","database","anonymous_session_status","completed_monotonic_ns"}
+if set(p)!=required or p["release_id"]!=sys.argv[2] or p["ready_status"]!="ready" or p["database"]!="ok" or p["anonymous_session_status"]!=401 or type(p["completed_monotonic_ns"]) is not int: raise SystemExit(1)
+print(p["release_id"]); print(p["completed_monotonic_ns"])' "${result}" "${release_id}")" || return 1
+  mapfile -t values <<<"${parsed}"
+  [[ "${#values[@]}" -eq 2 && "${values[0]}" == "${release_id}" && "${values[1]}" =~ ^[1-9][0-9]*$ ]] || return 1
+  CANDIDATE_PROBE_ID="${values[0]}"
+  CANDIDATE_PROBE_COMPLETED_NS="${values[1]}"
+}
+
+require_fresh_candidate_probe() {
+  local release_id="$1" now_ns
+  [[ "${CANDIDATE_PROBE_ID}" == "${release_id}" && "${CANDIDATE_PROBE_COMPLETED_NS}" =~ ^[1-9][0-9]*$ ]] || return 1
+  now_ns="$("${PYTHON_BIN}" -I -c 'import time; print(time.monotonic_ns())')" || return 1
+  (( now_ns >= CANDIDATE_PROBE_COMPLETED_NS \
+     && now_ns - CANDIDATE_PROBE_COMPLETED_NS <= CANDIDATE_PROBE_MAX_AGE_NS )) || return 1
+}
+
+switch_current_signed() {
+  local release_id="$1"
+  require_fresh_candidate_probe "${release_id}" || die "candidate application probe is missing, stale, or bound to another release"
+  switch_current "${release_id}"
+  CANDIDATE_PROBE_ID=""
+  CANDIDATE_PROBE_COMPLETED_NS=""
 }
 
 switch_current() {
@@ -567,6 +606,7 @@ reuse_completed_candidate() {
     "${RELEASES_ROOT}/${release_id}" "${ROOT_BUNDLE}" "${release_id}" >/dev/null || return 1
   check_runtime_usable "${release_id}" || return 1
   check_db_compatible "${release_id}" || return 1
+  check_candidate_app "${release_id}" || return 1
 }
 
 # Truthful evidence for the one preactivation outcome with an UNAUTHENTICATED
@@ -646,6 +686,10 @@ reconcile_preactivation_marker() {
     if preactivation_install_proven; then
       check_db_compatible "${PREACT_RELEASE_ID}" >/dev/null 2>&1 || {
         echo "Preactivation candidate ${PREACT_RELEASE_ID} no longer matches the live database heads; preserved for VM-administrator review" >&2
+        return 1
+      }
+      check_candidate_app "${PREACT_RELEASE_ID}" >/dev/null 2>&1 || {
+        echo "Preactivation candidate ${PREACT_RELEASE_ID} failed the bounded private application probe; preserved for VM-administrator review" >&2
         return 1
       }
       write_candidate_provenance "${PREACT_RELEASE_ID}" "${PREACT_BUNDLE_SHA256}" || return 1
@@ -994,14 +1038,16 @@ PY
 }
 
 activate_and_verify() {
-  local release_id="$1" evidence_file="$2" verify_status=0
+  local release_id="$1" evidence_file="$2" verify_status=0 operation_started_monotonic_us
   [[ "$(current_release_id)" == "${release_id}" ]] || return 1
   [[ "${evidence_file}" == "${EVIDENCE_ROOT}/"*.json && ! -L "${evidence_file}" ]] || return 1
   rm -f -- "${evidence_file}" || return 1
+  operation_started_monotonic_us="$("${PYTHON_BIN}" -I -c 'import time; print(time.monotonic_ns() // 1000)')" || return 1
   "${BASH_BIN}" "${TARGET_ROOT}/current/scripts/linux/deploy_mystery_public_backend.sh" || return 1
   SERVER_NAME="${SERVER_NAME}" TLS_MODE="${TLS_MODE}" ENABLE_HSTS="${DEFAULT_ENABLE_HSTS}" \
     "${BASH_BIN}" "${TARGET_ROOT}/current/scripts/linux/deploy_mystery_public_nginx.sh" || return 1
   MYSTERY_PUBLIC_BASE_URL="${BASE_URL}" VERIFY_TLS_MODE="${TLS_MODE}" EVIDENCE_FILE="${evidence_file}" \
+    OPERATION_STARTED_MONOTONIC_US="${operation_started_monotonic_us}" MYSTERY_RELEASE_GUARD_PATH="${RELEASE_GUARD}" \
     "${BASH_BIN}" "${TARGET_ROOT}/current/scripts/linux/verify_mystery_public.sh" || verify_status=$?
   # Failed verification is evidence too. Make it retrievable by the unprivileged
   # SSH account before returning the verifier's status to recovery handling.
@@ -1025,7 +1071,8 @@ recover_release() {
   verify_archived_installed "${fallback_id}" || return 1
   check_runtime_usable "${fallback_id}" || return 1
   check_db_compatible "${fallback_id}" || return 1
-  switch_current "${fallback_id}" || return 1
+  check_candidate_app "${fallback_id}" || return 1
+  switch_current_signed "${fallback_id}" || return 1
   activate_and_verify "${fallback_id}" "${recovery_evidence}" || return 1
 }
 
@@ -1163,6 +1210,8 @@ recover_pending_operation() {
     verify_archived_installed "${RECOVERY_FAILED_ID}" || return 1
     check_runtime_usable "${RECOVERY_FAILED_ID}" || return 1
     check_db_compatible "${RECOVERY_FAILED_ID}" || return 1
+    check_candidate_app "${RECOVERY_FAILED_ID}" || return 1
+    require_fresh_candidate_probe "${RECOVERY_FAILED_ID}" || return 1
     activate_and_verify "${RECOVERY_FAILED_ID}" "${EVIDENCE_ROOT}/recovery-${RECOVERY_FAILED_ID}.json" || return 1
     clear_transaction || return 1
     RECOVERY_ARMED=0
@@ -1298,8 +1347,9 @@ if [[ "${ACTION}" == "rollback" ]]; then
   # Archive restoration builds the target's offline venv but does not activate;
   # use that venv for the read-only compatibility gate before changing current.
   check_db_compatible "${TARGET_RELEASE_ID}"
+  check_candidate_app "${TARGET_RELEASE_ID}" || die "rollback target failed the bounded private application probe"
   arm_recovery signed "${CURRENT_ID}" "${TARGET_RELEASE_ID}" "${CURRENT_ARCHIVE_SHA256}"
-  switch_current "${TARGET_RELEASE_ID}"
+  switch_current_signed "${TARGET_RELEASE_ID}"
   EVIDENCE_FILE="${EVIDENCE_ROOT}/${TARGET_RELEASE_ID}.json"
   if ! activate_and_verify "${TARGET_RELEASE_ID}" "${EVIDENCE_FILE}"; then
     recover_pending_operation || die "rollback activation and automatic recovery both failed"
@@ -1373,6 +1423,7 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
       discard_pre_activation_candidate "${NEW_ID}" || die "baseline head check failed; candidate cleanup requires VM-admin review"
       die "baseline database compatibility check failed before activation; the unverified existing release remains current"
     fi
+    check_candidate_app "${NEW_ID}" || die "baseline candidate failed the bounded private application probe; the unverified existing release remains current"
     mark_preactivation_install_verified || die "could not record the verified installation; the unverified existing release remains current"
     write_candidate_provenance "${NEW_ID}" "${BUNDLE_SHA256}" \
       || die "could not durably record the completed baseline candidate; the unverified existing release remains current"
@@ -1382,7 +1433,7 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
   if [[ -n "${PREACTIVATION_ID}" ]]; then
     release_preactivation_candidate || die "could not clear the preactivation marker after journaling"
   fi
-  switch_current "${NEW_ID}"
+  switch_current_signed "${NEW_ID}"
   EVIDENCE_FILE="${EVIDENCE_ROOT}/${NEW_ID}.json"
   if ! activate_and_verify "${NEW_ID}" "${EVIDENCE_FILE}"; then
     recover_pending_operation || die "baseline activation failed and the pre-baseline release could not be restored operationally; VM administrator recovery is required"
@@ -1434,6 +1485,7 @@ else
   fi
   check_runtime_usable "${NEW_ID}" || die "new release virtualenv is unusable before activation; approved fallback remains current"
   check_db_compatible "${NEW_ID}" || die "new release migration head is incompatible before activation; approved fallback remains current"
+  check_candidate_app "${NEW_ID}" || die "new release failed the bounded private application probe; approved fallback remains current"
   mark_preactivation_install_verified || die "could not record the verified installation; approved fallback remains current"
   write_candidate_provenance "${NEW_ID}" "${BUNDLE_SHA256}" \
     || die "could not durably record the completed candidate; approved fallback remains current"
@@ -1442,7 +1494,7 @@ arm_recovery signed-new "${FALLBACK_RELEASE_ID}" "${NEW_ID}" "${FALLBACK_ARCHIVE
 if [[ -n "${PREACTIVATION_ID}" ]]; then
   release_preactivation_candidate || die "could not clear the preactivation marker after journaling"
 fi
-switch_current "${NEW_ID}"
+switch_current_signed "${NEW_ID}"
 EVIDENCE_FILE="${EVIDENCE_ROOT}/${NEW_ID}.json"
 if ! activate_and_verify "${NEW_ID}" "${EVIDENCE_FILE}"; then
   recover_pending_operation || die "new activation and automatic recovery both failed"

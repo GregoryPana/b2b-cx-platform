@@ -33,7 +33,8 @@ def status(release_id=ORIGIN, signed=True, baseline=True, **extra):
 VERIFIER_CHECKS = ("tls_mode", "base_url", "current_release", "release_identity",
                    "environment_metadata", "database_ssl", "migration_heads",
                    "loopback_listener", "service_active", "restart_metadata",
-                   "local_ready", "local_session", "public_ready", "public_session",
+                   "serving_release_identity", "fresh_restart", "local_ready", "local_session",
+                   "public_ready", "public_session",
                    "public_frontend", "nginx_config")
 
 

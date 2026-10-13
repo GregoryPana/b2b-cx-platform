@@ -9,8 +9,12 @@ SERVICE_NAME="${SERVICE_NAME:-cwscx-mystery-public-backend}"
 MYSTERY_PUBLIC_BASE_URL="${MYSTERY_PUBLIC_BASE_URL:-}"
 VERIFY_TLS_MODE="${VERIFY_TLS_MODE:-}"
 EVIDENCE_FILE="${EVIDENCE_FILE:-${PWD}/mystery-public-verification.json}"
+RELEASE_GUARD="${MYSTERY_RELEASE_GUARD_PATH:-/usr/local/libexec/cwscx-mystery-public/mystery_public_release_guard.py}"
+OPERATION_STARTED_MONOTONIC_US="${OPERATION_STARTED_MONOTONIC_US:-}"
 RESULTS_FILE="$(mktemp /tmp/mystery-public-verify-results.XXXXXX)"
 DB_RESULT_FILE="$(mktemp /tmp/mystery-public-verify-db.XXXXXX)"
+LOCAL_READY_FILE="$(mktemp /tmp/mystery-public-verify-local-ready.XXXXXX)"
+PUBLIC_READY_FILE="$(mktemp /tmp/mystery-public-verify-public-ready.XXXXXX)"
 FINALIZED=0
 
 record() {
@@ -48,7 +52,7 @@ pathlib.Path(sys.argv[2]).write_text(json.dumps(payload, indent=2, sort_keys=Tru
 PY
   local failed_count=1
   if [[ -s "${RESULTS_FILE}" ]]; then failed_count="$(awk -F '\t' '$1=="fail"{n++} END{print n+0}' "${RESULTS_FILE}")"; fi
-  rm -f "${RESULTS_FILE}" "${DB_RESULT_FILE}"
+  rm -f "${RESULTS_FILE}" "${DB_RESULT_FILE}" "${LOCAL_READY_FILE}" "${PUBLIC_READY_FILE}"
   echo "Evidence: ${EVIDENCE_FILE}"
   if [[ "${failed_count}" -gt 0 || "${original_rc}" -ne 0 || "${evidence_write_failed}" -ne 0 ]]; then exit 1; fi
   exit 0
@@ -136,7 +140,12 @@ policy["current_heads"] = []
 policy["db_error"] = False
 if url:
     try:
-        engine = create_engine(url, poolclass=NullPool, pool_pre_ping=True)
+        engine = create_engine(
+            url,
+            poolclass=NullPool,
+            pool_pre_ping=True,
+            connect_args={"options": "-c default_transaction_read_only=on"},
+        )
         with engine.connect() as connection:
             policy["current_heads"] = sorted(MigrationContext.configure(connection).get_current_heads())
         engine.dispose()
@@ -164,6 +173,7 @@ else
 fi
 
 # Runtime binding, service state, and restart metadata.
+CURRENT_RELEASE_DIR="$(readlink -f -- "${CURRENT_DIR}" 2>/dev/null || true)"
 if command -v ss >/dev/null 2>&1; then
   LISTENERS="$(ss -H -ltn 'sport = :8011' 2>/dev/null || true)"
   LISTENER_COUNT="$(printf '%s\n' "${LISTENERS}" | awk 'NF{n++} END{print n+0}')"
@@ -173,20 +183,49 @@ else
   fail "loopback_listener" "ss is required"
 fi
 if "${SUDO[@]}" systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then pass "service_active" "Backend service is active"; else fail "service_active" "Backend service is not active"; fi
-RESTART_META="$("${SUDO[@]}" systemctl show "${SERVICE_NAME}" -p MainPID --value -p ActiveEnterTimestampMonotonic --value -p ExecMainStartTimestampMonotonic --value 2>/dev/null || true)"
-NONZERO_META="$(printf '%s\n' "${RESTART_META}" | awk '$0 ~ /^[1-9][0-9]*$/{n++} END{print n+0}')"
-if [[ "${NONZERO_META}" -ge 3 ]]; then pass "restart_metadata" "Main PID and active/start monotonic timestamps are non-zero"; else fail "restart_metadata" "Restart metadata is missing or zero"; fi
+if [[ "${OPERATION_STARTED_MONOTONIC_US}" =~ ^[1-9][0-9]*$ && -n "${RELEASE_SHA:-}" \
+      && -d "${CURRENT_RELEASE_DIR}" && -f "${RELEASE_GUARD}" ]] \
+   && "${SUDO[@]}" python3 -I "${RELEASE_GUARD}" check-serving-identity \
+      "${CURRENT_RELEASE_DIR}" "${RELEASE_SHA}" "${OPERATION_STARTED_MONOTONIC_US}" "${SERVICE_NAME}" >/dev/null 2>&1; then
+  pass "restart_metadata" "MainPID and monotonic start metadata bind to this operation"
+  pass "serving_release_identity" "MainPID cwd, executable and launcher resolve to the signed current release"
+  pass "fresh_restart" "MainPID start monotonic timestamp is later than operation start"
+else
+  fail "restart_metadata" "Serving process metadata is absent or inconsistent"
+  fail "serving_release_identity" "MainPID does not resolve exactly to the signed current release"
+  fail "fresh_restart" "Service was not freshly started by this operation"
+fi
 
-request_code() { curl "$@" -sS -o /dev/null -w '%{http_code}' 2>/dev/null || true; }
-LOCAL_READY="$(request_code http://127.0.0.1:8011/health/ready)"
-[[ "${LOCAL_READY}" == "200" ]] && pass "local_ready" "Loopback readiness returned 200" || fail "local_ready" "Loopback readiness returned ${LOCAL_READY:-no response}"
+request_code() { curl "$@" -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 2>/dev/null || true; }
+ready_code_and_body() {
+  local output="$1"; shift
+  curl "$@" -sS -o "${output}" -w '%{http_code}' --connect-timeout 3 --max-time 5 2>/dev/null || true
+}
+ready_json_matches() {
+  python3 -I - "$1" "$2" <<'PY' >/dev/null 2>&1
+import json, pathlib, sys
+try:
+    payload=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+if not isinstance(payload, dict) or payload.get("status") != "ready" or payload.get("version") != sys.argv[2] \
+        or not isinstance(payload.get("checks"), dict) or payload["checks"].get("database") != "ok":
+    raise SystemExit(1)
+PY
+}
+LOCAL_READY="$(ready_code_and_body "${LOCAL_READY_FILE}" http://127.0.0.1:8011/health/ready)"
+[[ "${LOCAL_READY}" == "200" && -n "${RELEASE_SHA:-}" ]] && ready_json_matches "${LOCAL_READY_FILE}" "${RELEASE_SHA}" \
+  && pass "local_ready" "Loopback readiness returned 200 with exact signed SHA, ready status and DB ok" \
+  || fail "local_ready" "Loopback readiness code/body/identity contract failed"
 LOCAL_SESSION="$(request_code http://127.0.0.1:8011/auth/session)"
 [[ "${LOCAL_SESSION}" == "401" ]] && pass "local_session" "Anonymous loopback session returned 401" || fail "local_session" "Anonymous loopback session returned ${LOCAL_SESSION:-no response}"
 
 CURL_TLS_ARGS=()
 if [[ "${VERIFY_TLS_MODE}" == "prepublic" ]]; then CURL_TLS_ARGS=(-k --resolve "${PUBLIC_HOST}:443:127.0.0.1"); fi
-PUBLIC_READY="$(request_code "${CURL_TLS_ARGS[@]}" "${MYSTERY_PUBLIC_BASE_URL}/api/health/ready")"
-[[ "${PUBLIC_READY}" == "200" ]] && pass "public_ready" "NGINX readiness returned 200" || fail "public_ready" "NGINX readiness returned ${PUBLIC_READY:-no response}"
+PUBLIC_READY="$(ready_code_and_body "${PUBLIC_READY_FILE}" "${CURL_TLS_ARGS[@]}" "${MYSTERY_PUBLIC_BASE_URL}/api/health/ready")"
+[[ "${PUBLIC_READY}" == "200" && -n "${RELEASE_SHA:-}" ]] && ready_json_matches "${PUBLIC_READY_FILE}" "${RELEASE_SHA}" \
+  && pass "public_ready" "NGINX readiness returned 200 with exact signed SHA, ready status and DB ok" \
+  || fail "public_ready" "NGINX readiness code/body/identity contract failed"
 PUBLIC_SESSION="$(request_code "${CURL_TLS_ARGS[@]}" "${MYSTERY_PUBLIC_BASE_URL}/api/auth/session")"
 [[ "${PUBLIC_SESSION}" == "401" ]] && pass "public_session" "Anonymous NGINX session returned 401" || fail "public_session" "Anonymous NGINX session returned ${PUBLIC_SESSION:-no response}"
 PUBLIC_ROOT="$(request_code "${CURL_TLS_ARGS[@]}" "${MYSTERY_PUBLIC_BASE_URL}/")"

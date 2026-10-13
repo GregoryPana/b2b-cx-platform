@@ -12,6 +12,7 @@ are mocked; the entrypoint (path-substituted) and installer are the real files.
 from __future__ import annotations
 
 import getpass
+import grp
 import hashlib
 import importlib.util
 import json
@@ -99,6 +100,16 @@ elif cmd == 'check-runtime':
         raise SystemExit(1)
 elif cmd == 'check-db-heads':
     pass
+elif cmd == 'check-candidate-app':
+    release = pathlib.Path(sys.argv[2]); release_id = release.name
+    if os.environ.get('HARNESS_APP_FAIL_ID') == release_id:
+        raise SystemExit(1)
+    manifest = json.loads((release / 'release-manifest.json').read_text())
+    print(json.dumps({'release_id': release_id, 'git_sha': manifest['git_sha'], 'ready_status': 'ready',
+                      'database': 'ok', 'anonymous_session_status': 401,
+                      'completed_monotonic_ns': __import__('time').monotonic_ns()}))
+elif cmd == 'check-serving-identity':
+    pass
 elif cmd == 'store-archive':
     root = pathlib.Path(sys.argv[2]); data = json.load(open(sys.argv[5])); rid = data['release_id']
     release = root / rid; release.mkdir()
@@ -130,7 +141,8 @@ class EntrypointHarness(unittest.TestCase):
         self.state = self.sb / "state"
         self.archives = self.state / "application-archives"
         self.counter = 0
-        for directory, mode in ((self.target, 0o755), (self.releases, 0o755), (self.state, 0o755),
+        for directory, mode in ((self.target, 0o755), (self.releases, 0o755), (self.target / "shared", 0o770),
+                                (self.state, 0o755),
                                 (self.state / "deploy-evidence", 0o755), (self.state / "incoming", 0o700),
                                 (self.archives, 0o700), (self.state / "operation-nonces", 0o700)):
             directory.mkdir(parents=True, exist_ok=True)
@@ -201,6 +213,7 @@ class EntrypointHarness(unittest.TestCase):
             'readonly HEALTH_PROBE_ATTEMPTS=30': 'readonly HEALTH_PROBE_ATTEMPTS=1',
             '[[ "${EUID}" -eq 0 ]] || die "must run as root (invoke via sudo)"': ': # root check replaced only in disposable test harness',
             '== "root"': f'== "{getpass.getuser()}"',
+            '== "cxadmin:www-data"': f'== "{getpass.getuser()}:{grp.getgrgid(os.getgid()).gr_name}"',
             'install -o root -g root -m 0600 --': 'install -m 0600 --',
             "'^/tmp/": "'^" + re.escape(str(self.sb)) + "/",
         }
@@ -444,6 +457,19 @@ class PreactivationSigkillTests(EntrypointHarness):
         self.assertFalse((self.releases / "new-release").exists())
         self.assertFalse((self.state / "active-operation.json").exists())
         self.assertFalse(self.marker.exists())
+
+    def test_candidate_application_failure_never_switches_current_or_creates_journal(self) -> None:
+        bundle = self.make_bundle("new-release")
+        before = os.readlink(self.target / "current")
+        result = self.run_entrypoint(
+            self.signed_args("deploy", "new-release", self.sha(bundle), bundle=bundle),
+            HARNESS_APP_FAIL_ID="new-release",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("bounded private application probe", result.stderr)
+        self.assertEqual(os.readlink(self.target / "current"), before)
+        self.assertFalse((self.state / "active-operation.json").exists())
+        self.assertFalse((self.releases / "new-release").exists())
 
     def test_recovery_rejects_unusable_fallback_before_switch_and_keeps_journal(self) -> None:
         failed = self.make_installed_release("failed-release")

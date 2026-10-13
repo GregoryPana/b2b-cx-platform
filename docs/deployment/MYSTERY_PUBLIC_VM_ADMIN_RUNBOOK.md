@@ -11,6 +11,9 @@ Use this runbook on `cwscx-web01` after the release-readiness pull request is me
 - Do not expose backend port `8011`; it must listen only on `127.0.0.1`.
 - Do not enable HSTS until the APN clients trust the installed certificate and renewal ownership is verified.
 - Preserve `/opt/cwscx-mystery-public/.env`, `/shared`, and prior release directories.
+- Keep `LOCAL_DEVELOPMENT_AUTO_DDL` absent or false. The backend rejects that
+  local-only control in production and in every `mystery_public` process;
+  production schema ownership remains with the internal migration pipeline.
 
 ## 0. One-time privileged entrypoint bootstrap
 
@@ -177,6 +180,15 @@ Required before deployment:
   Python 3.12 on the build runner. Stop if the VM differs.
 - NGINX, curl, OpenSSL, systemd, `ss`, and SHA-256 tooling exist.
 - `/opt/cwscx-mystery-public/.env` exists and is mode `600` or `640`.
+- The environment file uses the supported systemd-compatible subset: one
+  `NAME=value` assignment per line; values either contain no whitespace,
+  quotes or backslashes, or are wholly single/double quoted on that line.
+  Blank lines and full-line comments are accepted. Escapes, continuations,
+  mixed/unclosed quoting and duplicate/invalid names are rejected rather than
+  normalized differently by the probe and live service preflight. Validation
+  reports key/policy errors only and never prints values. If the existing file
+  uses a rejected construct, obtain VM-admin/operator review and rewrite its
+  representation without changing the effective value before deployment.
 - The VM can reach the internal database endpoint on TCP `5433`.
 - The internal production runner can reach this VM on SSH `22`.
 
@@ -267,6 +279,20 @@ Do not trigger the Mystery deployment first.
   fallback manifests; first-baseline checks the newly installed release before
   switching. Exact head equality is required; no migration, downgrade,
   database backup or database restore is performed by this workflow.
+- After signed-file, runtime and exact migration-head checks, starts every fresh,
+  reused, rollback or recovery candidate as `cxadmin:www-data` on a random
+  operation-owned Unix socket below the existing `shared/` directory. The probe
+  never opens a TCP listener, changes `current`, edits the live unit or touches
+  NGINX. It parses the fixed environment file without shell sourcing, forces
+  PostgreSQL `default_transaction_read_only=on`, preserves the configured TLS
+  requirement, and fails closed unless readiness is HTTP 200 with the signed
+  full SHA, `status=ready`, database `ok`, and anonymous session HTTP 401. The
+  bounded process group and temporary directory are terminated/reaped on every
+  outcome, including failures before the application publishes its liveness
+  marker; cleanup authenticates the direct child PID incarnation and private
+  process group before signalling. Parent-death guards cover abrupt entrypoint
+  loss. The live deploy preflight invokes the same restricted EnvironmentFile
+  parser/policy, so candidate and systemd startup do not silently disagree.
 - After installation, re-hashes every signed application file on disk before
   restart. For normal deploy, backend, NGINX or verification failure restores
   and verifies the authenticated fallback. Before every symlink switch, the
@@ -298,6 +324,14 @@ Do not trigger the Mystery deployment first.
 - Binds Uvicorn to `127.0.0.1:8011`.
 - Applies systemd hardening and NGINX rate limits/security headers.
 - Performs read-only migration, database SSL, service, route and listener verification.
+  Post-activation evidence also binds systemd's actual `MainPID`, working
+  directory, executable and Uvicorn launcher to the signed `current` release,
+  and requires `ExecMainStartTimestampMonotonic` to be later than this
+  operation's pre-restart monotonic timestamp. `/proc` start ticks are sampled
+  before and after cwd/executable/cmdline/UID inspection, and systemd MainPID
+  plus monotonic start metadata are sampled again afterwards; replacement,
+  exit/defunct state or metadata drift fails closed. A merely non-zero or
+  previously healthy process cannot satisfy the gate.
 - Fetches verification evidence from the fixed, root-owned path
   `/var/lib/cwscx-mystery-public/deploy-evidence/<release-id>.json` over
   SCP and uploads it as a workflow artifact even when a deployment fails;
@@ -320,10 +354,14 @@ Required end state:
 - Exactly one backend listener at `127.0.0.1:8011`.
 - NGINX active on `443`.
 - `current` resolves inside `/opt/cwscx-mystery-public/releases/`.
-- Service restart timestamp is later than deployment start.
+- systemd's actual `MainPID` has a start timestamp later than the operation's
+  captured pre-restart monotonic timestamp, and its cwd/executable/launcher
+  resolve to the exact signed `current` release (including a safe root-controlled
+  virtualenv Python symlink).
 - Current database migration head equals both the release manifest head and the installed Alembic source head. The new signed release is checked against the live database **before** `current` changes; this application workflow never migrates the shared database.
 - Database connection uses PostgreSQL SSL.
-- `/api/health/ready` returns `200`.
+- `/api/health/ready` returns `200` with `status=ready`, database `ok`, and
+  `version` equal to the signed manifest's full Git SHA.
 - Anonymous `/api/auth/session` returns `401`.
 - Security headers are present.
 

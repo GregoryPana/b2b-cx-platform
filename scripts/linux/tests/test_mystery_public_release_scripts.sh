@@ -24,6 +24,7 @@ python3 "$ROOT/scripts/linux/tests/test_mystery_public_workflow_evidence.py" || 
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_preactivation_sigkill.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_python_isolation.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_runtime_gate.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_application_probe.py" || failures=$((failures+1))
 
 # Existing immutable release and permission-recovery contracts.
 require "$BUILD" 'expected_migration_heads' 'bundle records expected migration heads'
@@ -36,6 +37,7 @@ require "$INSTALL" 'check_readable_tree' 'installer behaviorally preflights serv
 require "$INSTALL" 'mv -Tf' 'installer switches current atomically'
 require "$BACKEND" 'Environment=PGSSLCERTMODE=disable' 'backend avoids optional client certificate lookup'
 require "$BACKEND" '--host 127.0.0.1 --port 8011' 'backend remains loopback-only'
+require "$BACKEND" 'check-production-environment "${ENV_FILE}"' 'live deploy uses the candidate probe environment parser and policy'
 forbid "$BACKEND" 'alembic" upgrade' 'Mystery path never runs migrations'
 require "$VERIFY" 'get_current_heads' 'verifier reads migration state without migration'
 
@@ -53,6 +55,14 @@ require "$GUARD" 'for module in ("uvicorn", "fastapi", "alembic", "sqlalchemy")'
 require "$GUARD" 'required distribution is absent' 'runtime gate checks every direct requirement, not only pip metadata consistency'
 require "$GUARD" '"pip", "--isolated", "check"' 'runtime gate runs pip consistency in isolated mode'
 require "$GUARD" '"/usr/sbin/runuser", "-u", "cxadmin", "-g", "www-data", "--"' 'runtime imports execute as the service identity rather than root'
+require "$GUARD" 'PGOPTIONS": "-c default_transaction_read_only=on"' 'candidate application probe forces PostgreSQL transactions read-only'
+require "$GUARD" 'unsupported escape or continuation' 'environment parser rejects unsupported EnvironmentFile constructs explicitly'
+require "$GUARD" 'production environment must disable LOCAL_DEVELOPMENT_AUTO_DDL' 'candidate and live production preflights reject automatic DDL opt-in'
+require "$GUARD" '"app.main:app", "--uds"' 'candidate application probe serves only on a private Unix socket'
+require "$ENTRYPOINT" 'check_candidate_app "${NEW_ID}"' 'fresh and reused candidates must pass the bounded application probe'
+require "$ENTRYPOINT" 'switch_current_signed' 'signed current switches require a fresh release-bound candidate probe'
+require "$VERIFY" 'check-serving-identity' 'post-activation verifier binds MainPID launch identity to signed current'
+require "$VERIFY" 'payload.get("version") != sys.argv[2]' 'post-activation readiness body must carry the signed full SHA'
 require "$ENTRYPOINT" '"${ACTION}" == "establish_baseline"' 'entrypoint exposes a distinct signed first-baseline operation'
 require "$ENTRYPOINT" '"${INSTALLER}" --install-only "${ROOT_BUNDLE}"' 'first baseline installs and checks the signed release before activation'
 require "$ENTRYPOINT" 'archive_root_is_empty || die' 'first baseline refuses old or partial local archives'
