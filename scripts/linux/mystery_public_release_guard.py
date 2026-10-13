@@ -402,6 +402,103 @@ def verify_installed_release(
     return verify_installed_files(release_dir, bundle, release_id, required_uid)
 
 
+RUNTIME_PROBE = r"""
+import importlib
+import importlib.metadata
+import pathlib
+import sys
+
+from pip._vendor.packaging.requirements import Requirement
+
+requirements = pathlib.Path(sys.argv[1])
+
+def installed_distribution(requirement):
+    try:
+        installed = importlib.metadata.distribution(requirement.name)
+    except importlib.metadata.PackageNotFoundError:
+        raise SystemExit(f"required distribution is absent: {requirement.name}") from None
+    if requirement.specifier and installed.version not in requirement.specifier:
+        raise SystemExit(f"required distribution version is incompatible: {requirement.name}")
+    return installed
+
+for number, raw in enumerate(requirements.read_text(encoding="utf-8").splitlines(), 1):
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        continue
+    if line.startswith(("-", "--")):
+        raise SystemExit(f"unsupported requirements directive on line {number}")
+    requirement = Requirement(line)
+    if requirement.marker is not None and not requirement.marker.evaluate():
+        continue
+    installed = installed_distribution(requirement)
+    for extra in requirement.extras:
+        environment = {"extra": extra}
+        for raw_dependency in installed.requires or ():
+            dependency = Requirement(raw_dependency)
+            if dependency.marker is None or dependency.marker.evaluate(environment):
+                installed_distribution(dependency)
+
+for module in ("uvicorn", "fastapi", "alembic", "sqlalchemy"):
+    importlib.import_module(module)
+"""
+
+
+def check_runtime_usability(
+    release_dir: Path,
+    *,
+    required_uid: int = 0,
+    command_prefix: tuple[str, ...] = ("/usr/sbin/runuser", "-u", "cxadmin", "-g", "www-data", "--"),
+) -> None:
+    """Prove an authenticated release's locally built runtime before activation.
+
+    The caller must first authenticate the installed tree against its signed
+    bundle/archive. This second gate covers the deliberately excluded venv. It
+    executes dependency code only after dropping to the service identity, never
+    as root, and does not read the application environment file.
+    """
+    requirements = release_dir / "backend/requirements.txt"
+    venv = release_dir / "backend/venv"
+    python = venv / "bin/python"
+    uvicorn = venv / "bin/uvicorn"
+    for path, label, kind in (
+        (release_dir, "release directory", "dir"),
+        (requirements, "requirements file", "file"),
+        (venv, "virtualenv", "dir"),
+        (python, "virtualenv Python", "file"),
+        (uvicorn, "Uvicorn launcher", "file"),
+    ):
+        if path.is_symlink():
+            link_info = path.lstat()
+            if link_info.st_uid != required_uid:
+                raise GuardError(f"{label} symlink is not root-controlled")
+            try:
+                target = path.resolve(strict=True)
+                target_info = target.stat()
+            except OSError as exc:
+                raise GuardError(f"{label} is an unsafe symlink") from exc
+            if target_info.st_uid not in {0, required_uid} or target_info.st_mode & 0o022:
+                raise GuardError(f"{label} symlink target is not root-controlled")
+        elif (kind == "dir" and not path.is_dir()) or (kind == "file" and not path.is_file()):
+            raise GuardError(f"{label} is missing or has the wrong type")
+        else:
+            info = path.lstat()
+            if info.st_uid != required_uid or info.st_mode & 0o022:
+                raise GuardError(f"{label} is not root-controlled")
+    if not os.access(python, os.X_OK) or not os.access(uvicorn, os.X_OK):
+        raise GuardError("virtualenv launchers are not executable")
+
+    clean = ("/usr/bin/env", "-i", "HOME=/nonexistent", "PATH=/usr/bin:/bin")
+    commands = (
+        (*command_prefix, *clean, str(python), "-I", "-c", RUNTIME_PROBE, str(requirements)),
+        (*command_prefix, *clean, str(python), "-I", "-m", "pip", "--isolated", "check"),
+    )
+    for command in commands:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, check=False, cwd="/")
+        if result.returncode:
+            raise GuardError("installed virtualenv is incomplete or inconsistent")
+
+
 def store_archive(
     archive_root: Path,
     bundle: Path,
@@ -556,6 +653,8 @@ def _parser() -> argparse.ArgumentParser:
     installed_bundle.add_argument("release_dir", type=Path)
     installed_bundle.add_argument("bundle", type=Path)
     installed_bundle.add_argument("release_id")
+    runtime = sub.add_parser("check-runtime")
+    runtime.add_argument("release_dir", type=Path)
     store = sub.add_parser("store-archive")
     store.add_argument("archive_root", type=Path)
     store.add_argument("bundle", type=Path)
@@ -591,6 +690,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(verify_installed_release(args.release_dir, args.archive_root, args.release_id, args.allowed_signers), sort_keys=True))
         elif args.command == "verify-installed-bundle":
             print(json.dumps(verify_installed_files(args.release_dir, args.bundle, args.release_id), sort_keys=True))
+        elif args.command == "check-runtime":
+            check_runtime_usability(args.release_dir)
+            print("installed virtualenv is usable and requirements-complete")
         elif args.command == "store-archive":
             manifest = json.loads(args.manifest_json.read_text(encoding="utf-8"))
             store_archive(args.archive_root, args.bundle, args.signature, manifest, args.verified_at_utc)

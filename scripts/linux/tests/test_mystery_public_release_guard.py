@@ -288,6 +288,9 @@ elif cmd == 'verify-bundle':
     manifest['bundle_sha256']=sys.argv[3]; print(json.dumps(manifest))
 elif cmd == 'verify-installed': raise SystemExit(1 if sys.argv[4] == 'legacy-unverified' and __import__('os').environ.get('HARNESS_ACTION') == 'establish_baseline' else 0)
 elif cmd == 'verify-archive': print(json.dumps({{'bundle_sha256':'b'*64}}))
+elif cmd == 'check-runtime':
+    if __import__('os').environ.get('HARNESS_RUNTIME_FAIL_ID') == pathlib.Path(sys.argv[2]).name:
+        raise SystemExit('runtime unusable')
 elif cmd == 'check-db-heads':
     if __import__('os').environ.get('HARNESS_FAIL_NEW_HEAD') == '1' and 'first-signed-release' in sys.argv[-1]:
         raise SystemExit('new source migration head does not match database')

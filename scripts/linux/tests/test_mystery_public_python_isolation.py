@@ -79,8 +79,9 @@ class PythonPolicyContractTests(unittest.TestCase):
         text = (SCRIPTS / "install_mystery_public_bundle.sh").read_text(encoding="utf-8")
         self.assertIn("-I -m pip --isolated install", text)
         self.assertIn("-I -m pip --isolated check", text)
-        entrypoint = (SCRIPTS / "cwscx_mystery_public_deploy_entrypoint.sh").read_text(encoding="utf-8")
-        self.assertIn('-I -m pip --isolated check', entrypoint)
+        guard = (SCRIPTS / "mystery_public_release_guard.py").read_text(encoding="utf-8")
+        self.assertIn('"pip", "--isolated", "check"', guard)
+        self.assertIn('"-I", "-c", RUNTIME_PROBE', guard)
 
 
 class IsolationHarness(harness.EntrypointHarness):
@@ -245,7 +246,7 @@ class PythonIsolationBehaviorTests(IsolationHarness):
         self.assertFalse(probe.exists() and probe.read_text(encoding="utf-8").strip(), probe.read_text() if probe.exists() else "")
         self.assert_no_sentinels()
 
-    def test_recover_pip_check_reproof_is_isolated(self) -> None:
+    def test_recover_runtime_reproof_routes_through_isolated_guard(self) -> None:
         candidate, digest, claim = self.stage_completed_candidate()
         venv = candidate / "backend/venv"
         shutil.rmtree(venv)
@@ -255,7 +256,9 @@ class PythonIsolationBehaviorTests(IsolationHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(candidate.is_dir(), "a re-proven complete candidate must be preserved")
         self.assert_no_sentinels()
-        self.assertEqual(self.pip_calls(), [("--isolated check", "/", "1")])
+        probes = [json.loads(line)[0] for line in self.probe_log.read_text(encoding="utf-8").splitlines()]
+        self.assertIn("check-runtime", probes)
+        self.assertEqual(self.pip_calls(), [], "runtime execution belongs to the root-controlled guard")
 
 
 class DiscardCandidateGuardTests(IsolationHarness):

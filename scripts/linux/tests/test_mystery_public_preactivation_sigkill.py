@@ -90,6 +90,12 @@ elif cmd == 'verify-installed-bundle':
     ok = pathlib.Path(installed).name == rid and pathlib.Path(bundle).is_file() \\
         and (pathlib.Path(installed) / 'backend/venv/bin/uvicorn').exists()
     raise SystemExit(0 if ok else 1)
+elif cmd == 'check-runtime':
+    release = pathlib.Path(sys.argv[2]); release_id = release.name
+    if os.environ.get('HARNESS_RUNTIME_FAIL_ID') == release_id \\
+            or not (release / 'backend/venv/bin/python').is_file() \\
+            or not (release / 'backend/venv/bin/uvicorn').is_file():
+        raise SystemExit(1)
 elif cmd == 'check-db-heads':
     pass
 elif cmd == 'store-archive':
@@ -398,6 +404,55 @@ class PreactivationSigkillTests(EntrypointHarness):
         self.assertEqual(retry.returncode, 0, retry.stderr)
         self.assertEqual(os.readlink(self.target / "current"), "releases/target-release")
         self.assertFalse(self.marker.exists())
+
+    def test_rollback_rejects_unusable_installed_target_before_switch_or_journal(self) -> None:
+        target = self.make_installed_release("target-release")
+        self.archive("target-release", "d" * 64)
+        before = os.readlink(self.target / "current")
+        result = self.run_entrypoint(
+            self.signed_args("rollback", "target-release", "d" * 64),
+            HARNESS_RUNTIME_FAIL_ID="target-release",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(os.readlink(self.target / "current"), before)
+        self.assertTrue(target.is_dir(), "an authenticated completed release must not be deleted")
+        self.assertFalse((self.state / "active-operation.json").exists())
+        self.assertFalse(self.marker.exists())
+
+    def test_deploy_rejects_unusable_approved_fallback_before_install_or_journal(self) -> None:
+        bundle = self.make_bundle("new-release")
+        result = self.run_entrypoint(
+            self.signed_args("deploy", "new-release", self.sha(bundle), bundle=bundle),
+            HARNESS_RUNTIME_FAIL_ID=ORIGIN,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_current_origin_intact()
+        self.assertFalse((self.releases / "new-release").exists())
+        self.assertFalse((self.state / "active-operation.json").exists())
+        self.assertFalse(self.marker.exists())
+
+    def test_recovery_rejects_unusable_fallback_before_switch_and_keeps_journal(self) -> None:
+        failed = self.make_installed_release("failed-release")
+        (self.target / "current").unlink()
+        (self.target / "current").symlink_to("releases/failed-release")
+        journal = self.state / "active-operation.json"
+        journal.write_text(json.dumps({
+            "schema_version": 1,
+            "mode": "signed",
+            "original_release_id": ORIGIN,
+            "failed_release_id": "failed-release",
+            "recovery_authorization_sha256": "b" * 64,
+        }), encoding="utf-8")
+        journal.chmod(0o600)
+        saved = journal.read_bytes()
+        result = self.run_entrypoint(
+            self.signed_args("recover", ORIGIN, "b" * 64),
+            HARNESS_RUNTIME_FAIL_ID=ORIGIN,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(os.readlink(self.target / "current"), "releases/failed-release")
+        self.assertTrue(failed.is_dir())
+        self.assertEqual(journal.read_bytes(), saved)
 
     def test_tampered_markers_are_rejected_without_deleting_anything(self) -> None:
         candidate = self.make_installed_release("marked-release")

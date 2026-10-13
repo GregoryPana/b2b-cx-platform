@@ -12,21 +12,21 @@ Authoritative continuation worktree: `/home/gpanagary/cwscx-mystery-release-audi
 - Runner evidence gates use explicit failures, not optimization-disableable assertions. Require complete unique verifier checks, fresh release identity, explicit journal state and truthful signed/unsigned recovery classification.
 - Durable preactivation marker tracks interrupted installation and signed recovery. Retained root-controlled signed artifacts support completed-but-unarchived candidate verification. Legacy preactivation cleanup evidence explicitly states no switch/config restoration/authenticated fallback.
 - Privileged Python uses isolated mode and trusted working directories; pip uses isolated configuration. Candidate deletion refuses failed current-release lookup.
+- After installed source ownership and signed bundle/archive authentication, one reusable runtime gate now validates the locally built virtualenv as `cxadmin:www-data`: every direct requirement (including selected extras) must be installed at a compatible version, `uvicorn`, `fastapi`, `alembic`, and `sqlalchemy` must import, the Uvicorn launcher must be executable, and isolated `pip check` must pass. Normal deploy fallback, new candidate, rollback target/current, completed-candidate re-proof, committed-baseline recovery and signed fallback recovery all fail closed before their next switch when this gate fails.
 - Real SIGKILL installer tests plus mocked entrypoint/service/guard control-flow regressions; valid NGINX links, tampering and preservation exercised.
-- Latest local verification: 38 guard tests, 22 evidence tests (also with `PYTHONOPTIMIZE=1`), 11 interruption tests, 13 isolation/deletion tests, sudo fixtures and shell contracts passed. Four migration graph/DB compatibility tests passed. Pinned actionlint 1.7.12, shell syntax and whitespace checks passed. These are NOT actual VM deployment or business acceptance proofs.
+- Latest local verification: 38 guard tests, 22 evidence tests (also with `PYTHONOPTIMIZE=1`), 14 interruption/control-flow tests, 13 isolation/deletion tests, four disposable real-venv runtime tests, sudo fixtures and shell contracts passed. Four migration graph/DB compatibility tests passed under Python 3.12. Pinned actionlint 1.7.12, shell syntax and whitespace checks passed. These are NOT actual VM deployment or business acceptance proofs.
 
 ### Engineering gates still open
 
 1. Preserved complete unarchived candidate can occupy an immutable release ID; finish safe signed reuse or recoverable preservation/quarantine with explicit evidence. Never silently delete a completed/current/unmarked release.
-2. Archived rollback/fallback virtualenv usability is not adequately proven before activation; file hashes exclude locally built virtualenv contents.
-3. Candidate application startup and readiness must be exercised before the live switch, using an approved isolated execution boundary, without public exposure or shared DB mutation.
-4. Serving process identity and fresh restart must be bound to the signed release, not just on-disk identity and HTTP status.
-5. Bootstrap must validate proposed suite, signer trust, retained archives and sudoers before cutover, with failure-safe restoration and suite identity published last.
-6. Bound stale incoming/marker temporary-file recovery; do not sweep live operation artifacts.
-7. Review final exact-head CI/build and real representative systemd/NGINX/PostgreSQL activation, failed-release and interruption recovery rehearsal. Current tests mock critical runtime paths.
-8. Provision approved branch/environment protection, distinct signer and VM suite. Last read-only GitHub check: `main` unprotected; `mystery-public` has no protection rules, admin bypass enabled and dedicated `MYSTERY_PUBLIC_RELEASE_SIGNING_KEY` absent. No settings were changed.
-9. Complete approved credential-rotation/revocation/rollback controls. Preserve old signer trust while archives depend on it. Application encryption-key rotation requires compatible re-encryption/key-version support or explicitly approved re-enrollment; do not simply replace `MYSTERY_AUTH_SECRET_KEY`.
-10. Separately approve first signed baseline and demonstrate subsequent deployment plus authenticated rollback. Approval to commit/push source is not approval to dispatch deployment.
+2. Candidate application startup and readiness must be exercised before the live switch, using an approved isolated execution boundary, without public exposure or shared DB mutation. Dependency import/metadata validation is not an application-startup probe.
+3. Serving process identity and fresh restart must be bound to the signed release, not just on-disk identity and HTTP status.
+4. Bootstrap must validate proposed suite, signer trust, retained archives and sudoers before cutover, with failure-safe restoration and suite identity published last.
+5. Bound stale incoming/marker temporary-file recovery; do not sweep live operation artifacts.
+6. Review final exact-head CI/build and real representative systemd/NGINX/PostgreSQL activation, failed-release and interruption recovery rehearsal. Current tests mock critical runtime paths.
+7. Provision approved branch/environment protection, distinct signer and VM suite. Last read-only GitHub check: `main` unprotected; `mystery-public` has no protection rules, admin bypass enabled and dedicated `MYSTERY_PUBLIC_RELEASE_SIGNING_KEY` absent. No settings were changed.
+8. Complete approved credential-rotation/revocation/rollback controls. Preserve old signer trust while archives depend on it. Application encryption-key rotation requires compatible re-encryption/key-version support or explicitly approved re-enrollment; do not simply replace `MYSTERY_AUTH_SECRET_KEY`.
+9. Separately approve first signed baseline and demonstrate subsequent deployment plus authenticated rollback. Approval to commit/push source is not approval to dispatch deployment.
 
 ## Evidence and independent dependencies
 

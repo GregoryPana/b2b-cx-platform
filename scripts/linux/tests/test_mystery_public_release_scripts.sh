@@ -23,6 +23,7 @@ python3 "$ROOT/scripts/linux/tests/test_check_mystery_deploy_sudo.py" || failure
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_workflow_evidence.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_preactivation_sigkill.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_python_isolation.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_runtime_gate.py" || failures=$((failures+1))
 
 # Existing immutable release and permission-recovery contracts.
 require "$BUILD" 'expected_migration_heads' 'bundle records expected migration heads'
@@ -45,6 +46,13 @@ require "$ENTRYPOINT" 'ARCHIVE_RETAIN_COUNT=3' 'entrypoint bounds normal archive
 require "$ENTRYPOINT" '.pinned' 'retention preserves VM-admin pinned archives'
 require "$GUARD" 'operation current release is stale' 'operation validator binds authorization to the live current release'
 require "$ENTRYPOINT" 'verify_archived_installed "${FALLBACK_RELEASE_ID}"' 'deploy authenticates fallback archive and installed files'
+require "$ENTRYPOINT" 'check_runtime_usable "${FALLBACK_RELEASE_ID}"' 'deploy proves approved fallback runtime before relying on it'
+require "$ENTRYPOINT" 'check_runtime_usable "${TARGET_RELEASE_ID}"' 'rollback proves target runtime before switching current'
+require "$ENTRYPOINT" 'check_runtime_usable "${fallback_id}"' 'recovery proves fallback runtime before recovery switch'
+require "$GUARD" 'for module in ("uvicorn", "fastapi", "alembic", "sqlalchemy")' 'runtime gate imports core installed modules'
+require "$GUARD" 'required distribution is absent' 'runtime gate checks every direct requirement, not only pip metadata consistency'
+require "$GUARD" '"pip", "--isolated", "check"' 'runtime gate runs pip consistency in isolated mode'
+require "$GUARD" '"/usr/sbin/runuser", "-u", "cxadmin", "-g", "www-data", "--"' 'runtime imports execute as the service identity rather than root'
 require "$ENTRYPOINT" '"${ACTION}" == "establish_baseline"' 'entrypoint exposes a distinct signed first-baseline operation'
 require "$ENTRYPOINT" '"${INSTALLER}" --install-only "${ROOT_BUNDLE}"' 'first baseline installs and checks the signed release before activation'
 require "$ENTRYPOINT" 'archive_root_is_empty || die' 'first baseline refuses old or partial local archives'

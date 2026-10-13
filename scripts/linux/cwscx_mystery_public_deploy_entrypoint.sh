@@ -143,6 +143,15 @@ verify_archive() {
     "${ARCHIVE_ROOT}" "${release_id}" "${ALLOWED_SIGNERS}"
 }
 
+# Call only after the installed source has been authenticated against its signed
+# bundle/archive. The root-owned guard validates the excluded local venv, then
+# drops to cxadmin:www-data for imports and isolated pip consistency checks.
+check_runtime_usable() {
+  local release_id="$1"
+  valid_release_id "${release_id}" || die "invalid release ID"
+  "${PYTHON_BIN}" -I "${RELEASE_GUARD}" check-runtime "${RELEASES_ROOT}/${release_id}" >/dev/null
+}
+
 baseline_release_id() {
   [[ -e "${BASELINE_MARKER}" ]] || return 1
   require_root_file "${BASELINE_MARKER}" "baseline marker"
@@ -195,6 +204,10 @@ restore_archive_install_only() {
   if ! verify_archived_installed "${release_id}"; then
     discard_pre_activation_candidate "${release_id}" || die "archive restore cleanup needs VM-admin review"
     die "restored archive failed installed-file verification before activation"
+  fi
+  if ! check_runtime_usable "${release_id}"; then
+    discard_pre_activation_candidate "${release_id}" || die "archive runtime failure cleanup needs VM-admin review"
+    die "restored archive virtualenv failed usability validation before activation"
   fi
   # A signed-archive-verified installed release is reproducible and complete;
   # it is no longer a preactivation candidate and must survive later failures.
@@ -473,10 +486,9 @@ preactivation_install_proven() {
   else
     verify_archived_installed "${PREACT_RELEASE_ID}" 2>/dev/null || return 1
   fi
-  # File checks exclude the locally built venv, so prove it separately.
-  venv="${candidate}/backend/venv/bin"
-  [[ -x "${venv}/python" && -x "${venv}/uvicorn" ]] || return 1
-  "${venv}/python" -I -m pip --isolated check >/dev/null 2>&1 || return 1
+  # File checks exclude the locally built venv, so prove it separately through
+  # the same service-identity runtime gate used by rollback and recovery.
+  check_runtime_usable "${PREACT_RELEASE_ID}" >/dev/null 2>&1 || return 1
 }
 
 # Truthful evidence for the one preactivation outcome with an UNAUTHENTICATED
@@ -928,6 +940,7 @@ recover_release() {
   recovery_evidence="${EVIDENCE_ROOT}/recovery-${failed_id}.json"
   echo "Activation failed; restoring authenticated fallback ${fallback_id}" >&2
   verify_archived_installed "${fallback_id}" || return 1
+  check_runtime_usable "${fallback_id}" || return 1
   check_db_compatible "${fallback_id}" || return 1
   switch_current "${fallback_id}" || return 1
   activate_and_verify "${fallback_id}" "${recovery_evidence}" || return 1
@@ -1065,6 +1078,7 @@ recover_pending_operation() {
     [[ "$(baseline_release_id)" == "${RECOVERY_FAILED_ID}" ]] || return 1
     [[ "$(current_release_id 2>/dev/null || true)" == "${RECOVERY_FAILED_ID}" ]] || return 1
     verify_archived_installed "${RECOVERY_FAILED_ID}" || return 1
+    check_runtime_usable "${RECOVERY_FAILED_ID}" || return 1
     check_db_compatible "${RECOVERY_FAILED_ID}" || return 1
     activate_and_verify "${RECOVERY_FAILED_ID}" "${EVIDENCE_ROOT}/recovery-${RECOVERY_FAILED_ID}.json" || return 1
     clear_transaction || return 1
@@ -1179,6 +1193,7 @@ if [[ "${ACTION}" == "rollback" ]]; then
   [[ "${TARGET_RELEASE_ID}" != "${CURRENT_ID}" ]] || die "rollback target is already current"
   # Recovery is possible only if both target and current are signed, verified archives.
   verify_archived_installed "${CURRENT_ID}"
+  check_runtime_usable "${CURRENT_ID}"
   CURRENT_ARCHIVE_JSON="$(verify_archive "${CURRENT_ID}")"
   CURRENT_ARCHIVE_SHA256="$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.loads(sys.argv[1])["bundle_sha256"])' "${CURRENT_ARCHIVE_JSON}")"
   TARGET_ARCHIVE_JSON="$(verify_archive "${TARGET_RELEASE_ID}")"
@@ -1189,6 +1204,7 @@ if [[ "${ACTION}" == "rollback" ]]; then
   else
     restore_archive_install_only "${TARGET_RELEASE_ID}" "${BUNDLE_SHA256}"
   fi
+  check_runtime_usable "${TARGET_RELEASE_ID}"
   # Archive restoration builds the target's offline venv but does not activate;
   # use that venv for the read-only compatibility gate before changing current.
   check_db_compatible "${TARGET_RELEASE_ID}"
@@ -1254,6 +1270,7 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
     discard_pre_activation_candidate "${NEW_ID}" || die "baseline integrity failed; candidate cleanup requires VM-admin review"
     die "baseline installed files differ from the signed bundle; the unverified existing release remains current"
   fi
+  check_runtime_usable "${NEW_ID}" || die "baseline virtualenv is unusable before activation; the unverified existing release remains current"
   if ! check_db_compatible "${NEW_ID}"; then
     discard_pre_activation_candidate "${NEW_ID}" || die "baseline head check failed; candidate cleanup requires VM-admin review"
     die "baseline database compatibility check failed before activation; the unverified existing release remains current"
@@ -1288,6 +1305,7 @@ fi
 # fallback. Only the separate one-time establish_baseline operation may proceed
 # without one; failed normal releases are never auto-promoted or archived.
 verify_archived_installed "${FALLBACK_RELEASE_ID}"
+check_runtime_usable "${FALLBACK_RELEASE_ID}"
 FALLBACK_ARCHIVE_JSON="$(verify_archive "${FALLBACK_RELEASE_ID}")"
 FALLBACK_ARCHIVE_SHA256="$("${PYTHON_BIN}" -I -c 'import json,sys; print(json.loads(sys.argv[1])["bundle_sha256"])' "${FALLBACK_ARCHIVE_JSON}")"
 check_db_compatible "${FALLBACK_RELEASE_ID}"
@@ -1305,6 +1323,7 @@ if ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-installed-bundle \
   "${RELEASES_ROOT}/${NEW_ID}" "${ROOT_BUNDLE}" "${NEW_ID}" >/dev/null; then
   die "installed release differs from signed bundle before activation; approved fallback remains current"
 fi
+check_runtime_usable "${NEW_ID}" || die "new release virtualenv is unusable before activation; approved fallback remains current"
 check_db_compatible "${NEW_ID}" || die "new release migration head is incompatible before activation; approved fallback remains current"
 mark_preactivation_install_verified || die "could not record the verified installation; approved fallback remains current"
 arm_recovery signed-new "${FALLBACK_RELEASE_ID}" "${NEW_ID}" "${FALLBACK_ARCHIVE_SHA256}"
