@@ -3,12 +3,20 @@ on:
   pull_request:
     paths:
       - 'scripts/linux/analytics_host_repair.py'
+      - 'scripts/linux/analytics_release_artifact.py'
+      - 'scripts/linux/tests/test_analytics_release_artifact.py'
+      - '.github/workflows/export-validated-staging.yml'
+      - '.github/workflows/deploy-production.yml'
       - 'scripts/linux/tests/test_analytics_host_repair.py'
       - '.github/workflows/analytics-host-repair.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/linux/analytics_host_repair.py'
+      - 'scripts/linux/analytics_release_artifact.py'
+      - 'scripts/linux/tests/test_analytics_release_artifact.py'
+      - '.github/workflows/export-validated-staging.yml'
+      - '.github/workflows/deploy-production.yml'
       - 'scripts/linux/tests/test_analytics_host_repair.py'
       - '.github/workflows/analytics-host-repair.yml'
   workflow_dispatch:
@@ -33,7 +41,7 @@ jobs:
           --security-opt no-new-privileges --read-only
           --tmpfs /scratch:rw,nosuid,noexec,size=64m -e TMPDIR=/scratch
           -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo python:3.12-slim
-          python -m unittest discover -s scripts/linux/tests -p test_analytics_host_repair.py -v
+          python -m unittest discover -s scripts/linux/tests -p "test_analytics_*.py" -v
   repair:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: test
