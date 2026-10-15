@@ -27,11 +27,13 @@ python3 "$ROOT/scripts/linux/tests/test_mystery_public_python_isolation.py" || f
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_runtime_gate.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_application_probe.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_bootstrap_safety.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_bundle_contract.py" || failures=$((failures+1))
 
 # Existing immutable release and permission-recovery contracts.
 require "$BUILD" 'expected_migration_heads' 'bundle records expected migration heads'
 require "$BUILD" 'sys.version_info[:2] == (3, 12)' 'bundle targets VM Python 3.12'
 require "$BUILD" 'SHA256SUMS' 'bundle records exact file hashes'
+require "$BUILD" 'mystery_public_release_guard.py" "${RELEASE_ROOT}/scripts/linux/' 'bundle copies the runtime guard used by the backend deployer'
 require "$INSTALL" 'EXPECTED_BUNDLE_SHA256' 'installer rechecks outer checksum'
 require "$INSTALL" '--install-only' 'installer supports pre-activation archive restoration'
 require "$INSTALL" 'FINALIZED=1' 'installer removes interrupted partial releases until preflight completes'
@@ -183,7 +185,10 @@ forbid "$ENTRYPOINT" '[[ "$(current_release_id)" != "${release_id}" ]] || return
 for file in "$BUILD" "$INSTALL" "$BACKEND" "$NGINX" "$VERIFY" "$ENTRYPOINT" "$BOOTSTRAP"; do
   bash -n "$file" || { echo "[FAIL] shell syntax: $file" >&2; failures=$((failures+1)); }
 done
-python3 -I - "$GUARD" "$TRANSACTION_HELPER" "$ROOT/scripts/linux/tests/test_mystery_public_release_guard.py" <<'PY' || failures=$((failures+1))
+python3 -I - "$GUARD" "$TRANSACTION_HELPER" \
+  "$ROOT/scripts/linux/validate_mystery_public_bundle.py" \
+  "$ROOT/scripts/linux/tests/test_mystery_public_release_guard.py" \
+  "$ROOT/scripts/linux/tests/test_mystery_public_bundle_contract.py" <<'PY' || failures=$((failures+1))
 import pathlib, sys
 for raw in sys.argv[1:]:
     source = pathlib.Path(raw)

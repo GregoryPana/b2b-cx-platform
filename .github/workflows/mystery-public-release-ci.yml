@@ -59,6 +59,8 @@ jobs:
           set -euo pipefail
           RELEASE_ID="ci-${GITHUB_SHA}" bash scripts/linux/build_mystery_public_bundle.sh \
             "${RUNNER_TEMP}/cwscx-mystery-public-ci.zip"
+          python -O scripts/linux/validate_mystery_public_bundle.py \
+            "${RUNNER_TEMP}/cwscx-mystery-public-ci.zip"
           python - "${RUNNER_TEMP}/cwscx-mystery-public-ci.zip" "${GITHUB_SHA}" <<'PY'
           import json, subprocess, sys, zipfile
           source_heads = json.loads(subprocess.check_output([
@@ -67,9 +69,20 @@ jobs:
           ], text=True))
           with zipfile.ZipFile(sys.argv[1]) as archive:
               manifest = json.loads(archive.read('release/release-manifest.json'))
-              assert manifest['git_sha'] == sys.argv[2]
-              assert manifest['source_tree_state'] == 'clean'
-              assert manifest['frontend_auth_mode'] == 'mystery_public'
-              assert manifest['expected_migration_heads'] == source_heads
-              assert archive.testzip() is None
+              required = {
+                  'git_sha': sys.argv[2],
+                  'source_tree_state': 'clean',
+                  'frontend_auth_mode': 'mystery_public',
+                  'expected_migration_heads': source_heads,
+              }
+              mismatches = {
+                  key: {'expected': expected, 'actual': manifest.get(key)}
+                  for key, expected in required.items()
+                  if manifest.get(key) != expected
+              }
+              if mismatches:
+                  raise SystemExit(f'release manifest contract mismatch: {mismatches}')
+              corrupt_member = archive.testzip()
+              if corrupt_member is not None:
+                  raise SystemExit(f'corrupt ZIP member: {corrupt_member}')
           PY

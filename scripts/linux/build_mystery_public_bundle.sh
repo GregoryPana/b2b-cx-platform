@@ -59,6 +59,7 @@ cp "${REPO_ROOT}/scripts/linux/deploy_mystery_public_backend.sh" "${RELEASE_ROOT
 cp "${REPO_ROOT}/scripts/linux/deploy_mystery_public_nginx.sh" "${RELEASE_ROOT}/scripts/linux/"
 cp "${REPO_ROOT}/scripts/linux/verify_mystery_public.sh" "${RELEASE_ROOT}/scripts/linux/"
 cp "${REPO_ROOT}/scripts/linux/audit_mystery_public_vm.sh" "${RELEASE_ROOT}/scripts/linux/"
+cp "${REPO_ROOT}/scripts/linux/mystery_public_release_guard.py" "${RELEASE_ROOT}/scripts/linux/"
 chmod +x "${RELEASE_ROOT}/scripts/linux/"*.sh
 find "${RELEASE_ROOT}" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "${RELEASE_ROOT}" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
