@@ -46,6 +46,27 @@ jobs:
           if root not in working.parents:
               raise SystemExit('Service working directory is outside the registered application root')
           report = {'target':os.environ['TARGET'], 'hostname':os.uname().nodename, 'working_directory':str(working)}
+          inventory_code = '''
+          import pathlib, subprocess, json
+          roots = [pathlib.Path('/etc/ssl/cwscx'), pathlib.Path('/etc/nginx/ssl'), pathlib.Path('/usr/local/share/ca-certificates')]
+          files = set()
+          for root in roots:
+              if root.exists(): files.update(root.rglob('*.crt'))
+          files.update(p for p in pathlib.Path('/etc/ssl/certs').glob('*.crt') if 'cws' in p.name.lower())
+          records = []
+          for path in sorted(files)[:200]:
+              if 'key' in path.name.lower(): continue
+              result = subprocess.run(['/usr/bin/openssl','x509','-in',str(path),'-noout','-subject','-issuer','-dates','-ext','subjectAltName','-fingerprint','-sha256'],capture_output=True,text=True,timeout=5)
+              if 'subject=' in result.stdout: records.append({'path':str(path),'certificate':result.stdout.strip().splitlines()})
+          print(json.dumps(records))
+          '''
+          import shlex
+          inventory = subprocess.run(['sudo','-n','/usr/bin/bash','-lc','exec /usr/bin/python3 -c '+shlex.quote(inventory_code)],capture_output=True,text=True,timeout=45)
+          report['public_certificate_inventory'] = json.loads(inventory.stdout) if inventory.returncode == 0 else 'unavailable with existing privileges'
+          report['enabled_nginx_site_names'] = sorted(p.name for p in pathlib.Path('/etc/nginx/sites-enabled').iterdir())
+          listeners = subprocess.run(['ss','-ltnH'],capture_output=True,text=True,timeout=5)
+          report['tcp_listening_endpoints'] = sorted({line.split()[3] for line in listeners.stdout.splitlines() if len(line.split()) >= 4})
+          report['available_rollback_bundles'] = [p.name for p in sorted((root/'releases').glob('cwscx-release-*.zip'),key=lambda p:p.stat().st_mtime,reverse=True)[:3]]
           report['disk_free_bytes'] = shutil.disk_usage(root).free
           if report['disk_free_bytes'] < 1024**3:
               raise SystemExit('Insufficient free disk for safe deployment')
