@@ -1,0 +1,24 @@
+{
+  "description": "Shared traffic-light contract: backend report levels and dashboard getTrafficLightMetric must agree on these cases.",
+  "metrics": {
+    "mystery_nps": [
+      {"value": 100, "tone": "good"}, {"value": 50, "tone": "good"}, {"value": 49.99, "tone": "warning"},
+      {"value": 0, "tone": "warning"}, {"value": -0.01, "tone": "bad"}, {"value": -100, "tone": "bad"},
+      {"value": null, "tone": "neutral"}
+    ],
+    "mystery_csat": [
+      {"value": 10, "tone": "good"}, {"value": 8, "tone": "good"}, {"value": 7.99, "tone": "warning"},
+      {"value": 6, "tone": "warning"}, {"value": 5.99, "tone": "bad"}, {"value": 0, "tone": "bad"},
+      {"value": null, "tone": "neutral"}
+    ],
+    "mystery_overall_experience": [
+      {"value": 8, "tone": "good"}, {"value": 7.99, "tone": "warning"}, {"value": 6, "tone": "warning"},
+      {"value": 5.99, "tone": "bad"}, {"value": null, "tone": "neutral"}
+    ],
+    "mystery_quality": [
+      {"value": 5, "tone": "good"}, {"value": 4, "tone": "good"}, {"value": 3.99, "tone": "warning"},
+      {"value": 3, "tone": "warning"}, {"value": 2.99, "tone": "bad"}, {"value": 1, "tone": "bad"},
+      {"value": null, "tone": "neutral"}
+    ]
+  }
+}

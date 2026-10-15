@@ -13,6 +13,7 @@ from typing import Any, List, Dict, Optional
 import base64
 import html as html_lib
 import json
+import uuid
 import logging
 import os
 import smtplib
@@ -23,6 +24,7 @@ from ..core.database import get_db
 from ..core.auth.dependencies import get_current_user, require_role
 from ..core.models import User
 from ..core.traffic_light import get_b2b_metric_grade
+from ..core.analytics_scope import AnalyticsSchemaError, AnalyticsScopeError, ModuleScope, resolve_module_scope
 from ..routers.analytics import get_comprehensive_analytics, get_question_averages, get_yes_no_question_analytics
 
 logger = logging.getLogger(__name__)
@@ -442,6 +444,10 @@ def fetch_dashboard_actions(
     question_number_col = "q.question_number" if has_question_number else ("q.order_index" if has_question_order else "q.id")
     where_clauses = ["1=1"]
     params: dict[str, object] = {}
+
+    if has_visit_survey_type and has_column(db, "questions", "survey_type_id"):
+        # The answered question must belong to the visit's module (a legacy NULL module is tolerated).
+        where_clauses.append("(q.survey_type_id IS NULL OR v.survey_type_id IS NULL OR q.survey_type_id = v.survey_type_id)")
 
     if business_id is not None:
         where_clauses.append("v.business_id = :business_id")
@@ -1058,35 +1064,43 @@ def get_report_surveys_for_business(
         raise HTTPException(status_code=500, detail=f"Failed to load report-eligible surveys: {exc}")
 
 
-def _fetch_single_visit_scores(db: Session, visit_id: str, response_table: str) -> dict:
-    """Fetch raw NPS and CSAT scores for a single visit."""
-    nps_row = db.execute(
-        text(
-            f"""
-            SELECT r.score, q.question_text
+def _fetch_single_visit_scores(db: Session, visit_id: str, response_table: str, scope: ModuleScope | None = None) -> dict:
+    """Fetch the raw NPS and CSAT scores of one B2B visit.
+
+    * NPS: the module's `is_nps` question; CSAT: the canonical `q12_overall_satisfaction` question
+      (never a text match, which also hit relationship-satisfaction questions such as q05).
+    * Both are restricted to the visit's module (visit and question) and to scores inside the question's
+      declared bounds, and ordered so legacy duplicate rows resolve to the freshest one deterministically.
+    """
+    if scope is None:
+        scope = resolve_module_scope(db, "B2B")
+    if response_table == "b2b_visit_responses":
+        freshest = "r.updated_at DESC NULLS LAST, r.created_at DESC NULLS LAST, r.id DESC"
+    else:
+        freshest = "r.id DESC"
+    row_params = {"visit_id": visit_id, **scope.params}
+    base = f"""
             FROM {response_table} r
             JOIN questions q ON r.question_id = q.id
-            WHERE r.visit_id = :visit_id AND q.is_nps = true AND r.score IS NOT NULL
-            LIMIT 1
-            """
-        ),
-        {"visit_id": visit_id},
-    ).mappings().one_or_none()
+            JOIN visits v ON v.id = r.visit_id
+            WHERE r.visit_id = :visit_id
+              {scope.visit_filter}
+              {scope.question_filter}
+              AND r.score IS NOT NULL
+              AND r.score BETWEEN COALESCE(q.score_min, 0) AND COALESCE(q.score_max, 10)
+    """
+    nps_row = db.execute(
+        text(f"SELECT r.score, q.question_text {base} AND q.is_nps = true ORDER BY q.id, {freshest} LIMIT 1"),
+        row_params,
+    ).mappings().first()
 
     csat_row = db.execute(
         text(
-            f"""
-            SELECT r.score, q.question_text
-            FROM {response_table} r
-            JOIN questions q ON r.question_id = q.id
-            WHERE r.visit_id = :visit_id
-              AND (lower(q.question_text) LIKE '%satisfaction%' OR lower(q.question_text) LIKE '%csat%')
-              AND r.score IS NOT NULL
-            LIMIT 1
-            """
+            f"SELECT r.score, q.question_text {base} AND q.question_key = 'q12_overall_satisfaction' "
+            f"ORDER BY q.id, {freshest} LIMIT 1"
         ),
-        {"visit_id": visit_id},
-    ).mappings().one_or_none()
+        row_params,
+    ).mappings().first()
 
     return {
         "nps_raw_score": int(nps_row["score"]) if nps_row else None,
@@ -1144,11 +1158,32 @@ def build_report_payload(
     if not response_table:
         raise HTTPException(status_code=500, detail="No response table found")
 
-    has_visit_survey_type = has_column(db, "visits", "survey_type_id")
-    resolved_survey_type_id = resolve_survey_type_id(db, survey_type, None)
     normalized_report_type = (report_type or "lifetime").strip().lower()
     if normalized_report_type not in {"survey", "date", "lifetime", "action_points"}:
         normalized_report_type = "lifetime"
+
+    # The B2B report is B2B-only: pin the module (missing survey_type means B2B) and fail closed otherwise.
+    try:
+        report_scope = resolve_module_scope(db, survey_type or "B2B")
+    except AnalyticsScopeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except AnalyticsSchemaError as exc:
+        raise HTTPException(status_code=500, detail=f"Report scope unavailable: {exc}")
+    if report_scope.is_mystery:
+        raise HTTPException(status_code=400, detail="Mystery Shopper reports are served by /mystery-shopper/reports")
+    resolved_survey_type_id = report_scope.survey_type_id
+
+    # For action_points reports `visit_id` carries a status filter; otherwise it is a visit UUID.
+    if visit_id and normalized_report_type != "action_points":
+        try:
+            visit_id = str(uuid.UUID(str(visit_id)))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="visit_id must be a valid UUID")
+        owning_module = db.execute(
+            text("SELECT survey_type_id FROM visits WHERE id = :visit_id"), {"visit_id": visit_id}
+        ).first()
+        if owning_module is not None and owning_module[0] != resolved_survey_type_id:
+            raise HTTPException(status_code=400, detail="visit does not belong to the requested survey type")
 
     effective_business_id = business_id
     effective_date_from = date_from
@@ -1179,9 +1214,11 @@ def build_report_payload(
     if effective_visit_id:
         where_parts.append("v.id = :visit_id")
         params["visit_id"] = effective_visit_id
-    if resolved_survey_type_id and has_visit_survey_type:
+    if resolved_survey_type_id is not None:
         where_parts.append("v.survey_type_id = :survey_type_id")
         params["survey_type_id"] = resolved_survey_type_id
+    else:
+        where_parts.append("1 = 0")  # B2B module row missing: nothing can belong to it
 
     where_clause = ""
     if where_parts:
@@ -1196,14 +1233,14 @@ def build_report_payload(
                 v.status,
                 b.id AS business_id,
                 b.name AS business_name,
-                COUNT(r.id) AS response_count,
-                AVG(r.score) FILTER (WHERE r.score IS NOT NULL) AS avg_score,
+                COUNT(CASE WHEN q.id IS NOT NULL THEN r.id END) AS response_count,
+                AVG(CASE WHEN q.id IS NOT NULL THEN r.score END) AS avg_score,
                 SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END) AS mandatory_answered_count,
                 SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END) AS mandatory_total_count
             FROM visits v
             JOIN businesses b ON b.id = v.business_id
             LEFT JOIN {response_table} r ON r.visit_id = v.id
-            LEFT JOIN questions q ON q.id = r.question_id
+            LEFT JOIN questions q ON q.id = r.question_id {report_scope.question_filter}
             {where_clause}
             GROUP BY v.id, v.visit_date, v.status, b.id, b.name
             ORDER BY v.visit_date DESC, b.name ASC
@@ -1317,7 +1354,7 @@ def build_report_payload(
     if weighted_score_count > 0:
         summary_avg_score = round(weighted_score_total / weighted_score_count, 2)
 
-    report_survey_type = survey_type or "B2B"
+    report_survey_type = "B2B"
     filtered_business_ids = str(effective_business_id) if effective_business_id is not None else None
     include_overall_comparison = normalized_report_type == "lifetime"
 
@@ -1327,6 +1364,7 @@ def build_report_payload(
             business_ids=filtered_business_ids,
             date_from=effective_date_from,
             date_to=effective_date_to,
+            visit_id=effective_visit_id,
             db=db,
         )
     except Exception:
@@ -1351,6 +1389,7 @@ def build_report_payload(
             business_ids=filtered_business_ids,
             date_from=effective_date_from,
             date_to=effective_date_to,
+            visit_id=effective_visit_id,
             db=db,
         )
     except Exception:
@@ -1375,6 +1414,7 @@ def build_report_payload(
             business_ids=filtered_business_ids,
             date_from=effective_date_from,
             date_to=effective_date_to,
+            visit_id=effective_visit_id,
             db=db,
         )
     except Exception:
@@ -1620,6 +1660,7 @@ def build_report_payload(
                         FROM b2b_visit_responses r
                         JOIN questions q ON q.id = r.question_id
                         WHERE r.visit_id = :visit_id
+                          {report_scope.question_filter}
                         ORDER BY q.id,
                                  r.updated_at DESC NULLS LAST,
                                  r.created_at DESC NULLS LAST,
@@ -1628,7 +1669,7 @@ def build_report_payload(
                     ORDER BY question_number, question_id
                     """
                 ),
-                {"visit_id": effective_visit_id},
+                {"visit_id": effective_visit_id, **report_scope.params},
             ).mappings().all()
             for row in response_rows:
                 raw_actions = row.get("actions")
@@ -1671,7 +1712,7 @@ def build_report_payload(
             "status_counts": status_counts,
             "is_single_visit": normalized_report_type == "survey" and effective_visit_id is not None,
         },
-        "single_visit_scores": _fetch_single_visit_scores(db, effective_visit_id, response_table) if normalized_report_type == "survey" and effective_visit_id else None,
+        "single_visit_scores": _fetch_single_visit_scores(db, effective_visit_id, response_table, report_scope) if normalized_report_type == "survey" and effective_visit_id else None,
         "analytics_comparison": kpi_comparison,
         "analytics_selected": filtered_analytics,
         "analytics_overall": overall_analytics,

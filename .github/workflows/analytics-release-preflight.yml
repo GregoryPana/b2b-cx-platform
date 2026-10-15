@@ -1,0 +1,90 @@
+name: analytics-release-readonly-preflight
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        type: choice
+        required: true
+        options: [staging, production]
+      require_installed_source:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: analytics-readonly-${{ inputs.target }}
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ${{ fromJSON(inputs.target == 'staging' && '["self-hosted","linux","cwscx-tst01"]' || '["self-hosted","linux","production"]') }}
+    environment: ${{ inputs.target }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only host, runtime, source and database-head checks
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          REQUIRE_INSTALLED_SOURCE: ${{ inputs.require_installed_source }}
+        run: |
+          set -euo pipefail
+          EXPECTED_HOST=cwscx-tst01
+          if [[ "$TARGET" == production ]]; then EXPECTED_HOST=cwscx-app01; fi
+          test "$(hostname -s)" = "$EXPECTED_HOST"
+          systemctl is-active --quiet cwscx-backend
+          systemctl show cwscx-backend -p ActiveEnterTimestamp -p ExecMainPID -p WorkingDirectory
+          WORKING_DIR="$(systemctl show cwscx-backend -p WorkingDirectory --value)"
+          export WORKING_DIR
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, shutil, subprocess, urllib.request
+          working = pathlib.Path(os.environ['WORKING_DIR']).resolve()
+          root = pathlib.Path('/opt/cwscx').resolve()
+          if root not in working.parents:
+              raise SystemExit('Service working directory is outside the registered application root')
+          report = {'target':os.environ['TARGET'], 'hostname':os.uname().nodename, 'working_directory':str(working)}
+          report['disk_free_bytes'] = shutil.disk_usage(root).free
+          if report['disk_free_bytes'] < 1024**3:
+              raise SystemExit('Insufficient free disk for safe deployment')
+          with urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=10) as response:
+              health = json.load(response)
+          report['health'] = {k:health[k] for k in ('status','version','environment','checks') if k in health}
+          checks = health.get('checks', {})
+          if health.get('status') not in ('ok','ready','healthy') or checks.get('database') not in ('ok','ready','healthy'):
+              raise SystemExit('Runtime or database health failed')
+          files = ['app/routers/analytics.py','app/core/analytics_scope.py','app/api/mystery_shopper.py','app/api/visits_dashboard.py','app/api/admin_dashboard.py','app/api/dashboard_compat.py']
+          report['source_matches_checkout'] = {}
+          for name in files:
+              actual, expected = working/name, pathlib.Path('backend')/name
+              report['source_matches_checkout'][name] = actual.is_file() and hashlib.sha256(actual.read_bytes()).digest() == hashlib.sha256(expected.read_bytes()).digest()
+          if os.environ['REQUIRE_INSTALLED_SOURCE'] == 'true' and not all(report['source_matches_checkout'].values()):
+              raise SystemExit('Installed backend does not match the checked release source')
+          candidates = [working/'venv/bin/python', working/'.venv/bin/python']
+          interpreter = next((p for p in candidates if p.is_file()), None)
+          if interpreter is None:
+              raise SystemExit('Registered backend interpreter not found')
+          # Load runtime config inside its own interpreter; never print values or errors
+          # containing connection details. Only a read-only migration-head SELECT is run.
+          code = '''
+          from dotenv import load_dotenv
+          import json, os
+          from sqlalchemy import create_engine, text
+          try:
+              load_dotenv('/opt/cwscx/.env', override=True)
+              url = os.environ.get('DATABASE_URL')
+              if not url: raise RuntimeError('missing runtime database config')
+              engine = create_engine(url, connect_args={'connect_timeout':5,'options':'-c default_transaction_read_only=on -c statement_timeout=5000'})
+              with engine.connect() as connection:
+                  revisions = sorted(connection.execute(text('SELECT version_num FROM alembic_version')).scalars())
+              engine.dispose()
+              print(json.dumps(revisions))
+          except Exception:
+              raise SystemExit('Read-only migration-head verification failed; connection details withheld')
+          '''
+          result = subprocess.run([str(interpreter), '-c', code], capture_output=True, text=True, timeout=20)
+          if result.returncode:
+              raise SystemExit('Read-only migration-head verification failed; details withheld')
+          report['database_heads'] = json.loads(result.stdout)
+          if report['database_heads'] != ['20260714_000032']:
+              raise SystemExit('Live database head differs from the reviewed release head; stop before deployment')
+          print(json.dumps(report, indent=2))
+          PY

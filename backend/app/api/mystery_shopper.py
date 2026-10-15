@@ -3,6 +3,7 @@ import json
 import os
 import re
 import smtplib
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -259,6 +260,46 @@ def validate_mystery_response(question_row: Any, payload: MysteryResponsePayload
         raise HTTPException(status_code=400, detail="Answer is required for this question")
 
 
+MYSTERY_METRIC_THRESHOLDS = {
+    # metric key -> (green at or above, amber at or above); anything lower is red.
+    # Shared with the dashboard via backend/tests/analytics/metric_threshold_contract.json.
+    "mystery_nps": (50.0, 0.0),
+    "mystery_csat": (8.0, 6.0),
+    "mystery_overall_experience": (8.0, 6.0),
+    "mystery_quality": (4.0, 3.0),
+}
+MYSTERY_METRIC_SCALES = {
+    "nps": "-100..100",
+    "csat": "0-10",
+    "overall_experience": "0-10",
+    "quality": "1-5",
+}
+
+
+def _mystery_level(metric: str, value: Any) -> str:
+    if value is None:
+        return "neutral"
+    good_at, warn_at = MYSTERY_METRIC_THRESHOLDS[metric]
+    number = float(value)
+    return "high" if number >= good_at else ("mid" if number >= warn_at else "low")
+
+
+def mystery_nps_level(value: Any) -> str:
+    return _mystery_level("mystery_nps", value)
+
+
+def mystery_csat_level(value: Any) -> str:
+    return _mystery_level("mystery_csat", value)
+
+
+def mystery_overall_experience_level(value: Any) -> str:
+    return _mystery_level("mystery_overall_experience", value)
+
+
+def mystery_quality_level(value: Any) -> str:
+    return _mystery_level("mystery_quality", value)
+
+
 def build_mystery_report_payload(
     db: Session,
     report_type: str | None,
@@ -268,12 +309,28 @@ def build_mystery_report_payload(
     date_from: str | None,
     date_to: str | None,
 ) -> dict[str, Any]:
+    """Build the Mystery Shopper report payload.
+
+    Populations (see docs/testing/ANALYTICS_CALCULATION_ASSURANCE.md):
+    * ``visit_details`` / ``summary.total_visits`` / ``summary.visit_status_counts`` are the
+      selected-scope *inventory* and include every status.
+    * every score metric (NPS, CSAT, Overall Experience, Quality, ``summary.average_score``,
+      ``summary.total_responses``) is the *Approved-only* population, read from the
+      authoritative ``mystery_shopper_answers`` table.
+    * ``overall_*`` metrics are lifetime: all locations, all dates, Approved only.
+    """
     from ..routers.analytics import get_comprehensive_analytics, get_question_averages
 
+    if visit_id:
+        try:
+            visit_id = str(uuid.UUID(str(visit_id)))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="visit_id must be a valid UUID")
+
     survey_type_id = _ensure_mystery_shopper_schema(db)
-    response_table = get_response_table(db)
-    if not response_table:
-        raise HTTPException(status_code=500, detail="No response table found")
+    answer_table = get_mystery_answer_table(db)
+    if not answer_table:
+        raise HTTPException(status_code=500, detail="Mystery Shopper answers table not found")
 
     normalized_report_type = (report_type or "lifetime").strip().lower()
     if normalized_report_type not in {"lifetime", "survey", "date"}:
@@ -282,21 +339,30 @@ def build_mystery_report_payload(
     effective_date_from = date_from
     effective_date_to = date_to
     if report_date:
-      effective_date_from = report_date
-      effective_date_to = report_date
+        effective_date_from = report_date
+        effective_date_to = report_date
+
+    is_single_visit = normalized_report_type == "survey" and bool(visit_id)
+    scoped_visit_id = visit_id if is_single_visit else None
 
     where_clauses = ["v.survey_type_id = :survey_type_id"]
     params: dict[str, Any] = {"survey_type_id": survey_type_id}
     if location_id is not None:
         where_clauses.append("m.location_id = :location_id")
         params["location_id"] = location_id
+    if scoped_visit_id:
+        where_clauses.append("v.id = :scoped_visit_id")
+        params["scoped_visit_id"] = scoped_visit_id
     if effective_date_from:
         where_clauses.append("v.visit_date >= :date_from")
         params["date_from"] = effective_date_from
     if effective_date_to:
         where_clauses.append("v.visit_date <= :date_to")
         params["date_to"] = effective_date_to
+    where_sql = " AND ".join(where_clauses)
 
+    # Inventory: every status. Per-visit figures come from the authoritative answers table;
+    # avg_score is the mean of the 0-10 scale answers only (never mixed with 1-5 answers).
     visit_rows = db.execute(
         text(
             f"""
@@ -310,13 +376,14 @@ def build_mystery_report_payload(
                 m.purpose_of_visit,
                 m.staff_on_duty,
                 m.shopper_name,
-                COUNT(r.id) AS response_count,
-                AVG(CASE WHEN r.score IS NOT NULL THEN r.score END)::float AS average_score
+                COUNT(CASE WHEN q.id IS NOT NULL AND (r.score IS NOT NULL OR COALESCE(r.answer_text, '') <> '') THEN 1 END) AS response_count,
+                AVG(CASE WHEN q.input_type = 'score' AND q.score_max = 10 THEN r.score END)::float AS average_score
             FROM visits v
             JOIN mystery_shopper_assessments m ON m.visit_id = v.id
             JOIN mystery_shopper_locations l ON l.id = m.location_id
-            LEFT JOIN {response_table} r ON r.visit_id = v.id
-            WHERE {' AND '.join(where_clauses)}
+            LEFT JOIN {answer_table} r ON r.visit_id = v.id
+            LEFT JOIN questions q ON q.id = r.question_id AND q.survey_type_id = :survey_type_id
+            WHERE {where_sql}
             GROUP BY v.id, l.id, l.name, v.visit_date, v.status, m.visit_time, m.purpose_of_visit, m.staff_on_duty, m.shopper_name
             ORDER BY v.visit_date DESC, m.visit_time DESC NULLS LAST, v.id DESC
             """
@@ -324,12 +391,47 @@ def build_mystery_report_payload(
         params,
     ).mappings().all()
 
-    total_responses = sum(int(row["response_count"] or 0) for row in visit_rows)
+    approved_rows = [row for row in visit_rows if str(row["status"]) == "Approved"]
     total_visits = len(visit_rows)
     total_locations = len({row["location_id"] for row in visit_rows if row["location_id"] is not None})
-    weighted_score_sum = sum((float(row["average_score"] or 0.0) * int(row["response_count"] or 0)) for row in visit_rows)
-    weighted_score_count = sum(int(row["response_count"] or 0) for row in visit_rows if row["average_score"] is not None)
-    average_score = round(weighted_score_sum / weighted_score_count, 2) if weighted_score_count else None
+    total_responses = sum(int(row["response_count"] or 0) for row in approved_rows)
+    status_order = ["Approved", "Pending", "Draft", "Needs Changes", "Rejected"]
+    status_counts: dict[str, int] = {}
+    for row in visit_rows:
+        status_counts[str(row["status"])] = status_counts.get(str(row["status"]), 0) + 1
+    visit_status_counts = {k: status_counts[k] for k in status_order if k in status_counts}
+    visit_status_counts.update({k: v for k, v in status_counts.items() if k not in visit_status_counts})
+
+    scale_rows = db.execute(
+        text(
+            f"""
+            SELECT q.score_min, q.score_max, AVG(r.score)::float AS average, COUNT(r.score) AS count
+            FROM visits v
+            JOIN mystery_shopper_assessments m ON m.visit_id = v.id
+            JOIN {answer_table} r ON r.visit_id = v.id
+            JOIN questions q ON q.id = r.question_id AND q.survey_type_id = :survey_type_id
+            WHERE {where_sql}
+              AND v.status = 'Approved'
+              AND q.input_type = 'score'
+              AND r.score IS NOT NULL
+              AND r.score BETWEEN COALESCE(q.score_min, 0) AND COALESCE(q.score_max, 10)
+            GROUP BY q.score_min, q.score_max
+            ORDER BY q.score_max DESC, q.score_min
+            """
+        ),
+        params,
+    ).mappings().all()
+    average_score_by_scale = [
+        {
+            "score_min": row["score_min"],
+            "score_max": row["score_max"],
+            "average": round(float(row["average"]), 2),
+            "count": int(row["count"] or 0),
+        }
+        for row in scale_rows
+    ]
+    zero_to_ten = next((s for s in average_score_by_scale if s["score_max"] == 10), None)
+    average_score = zero_to_ten["average"] if zero_to_ten else None
 
     location_filter = str(location_id) if location_id is not None else None
     analytics_selected = get_comprehensive_analytics(
@@ -337,6 +439,7 @@ def build_mystery_report_payload(
         mystery_location_ids=location_filter,
         date_from=effective_date_from,
         date_to=effective_date_to,
+        visit_id=scoped_visit_id,
         db=db,
     )
     analytics_overall = get_comprehensive_analytics(survey_type="Mystery Shopper", db=db)
@@ -345,6 +448,7 @@ def build_mystery_report_payload(
         mystery_location_ids=location_filter,
         date_from=effective_date_from,
         date_to=effective_date_to,
+        visit_id=scoped_visit_id,
         db=db,
     )
 
@@ -364,10 +468,17 @@ def build_mystery_report_payload(
         return round(score_sum / count_sum, 2) if count_sum else None
 
     question_items = list(question_averages_selected.get("items") or [])
-    overall_experience_avg = weighted_average([item for item in question_items if "overall experience" in str(item.get("category") or "").lower()])
+
+    def is_overall_experience(item: dict[str, Any]) -> bool:
+        return "overall experience" in str(item.get("category") or "").lower()
+
+    # Overall Experience keeps its existing definition: pooled mean of the questions in the
+    # "Overall Experience (CSAT & NPS)" category (the NPS question is included). Quality is the
+    # pooled mean of the remaining questions on the 1-5 scale, identified by score_max, not by value.
+    overall_experience_avg = weighted_average([item for item in question_items if is_overall_experience(item)])
     quality_avg = weighted_average([
         item for item in question_items
-        if "overall experience" not in str(item.get("category") or "").lower() and float(item.get("average_score") or 0) <= 5.2
+        if not is_overall_experience(item) and item.get("score_max") is not None and int(item["score_max"]) <= 5
     ])
 
     selected_visit_info = None
@@ -392,10 +503,11 @@ def build_mystery_report_payload(
                 JOIN mystery_shopper_assessments m ON m.visit_id = v.id
                 JOIN mystery_shopper_locations l ON l.id = m.location_id
                 WHERE v.id = :visit_id
+                  AND v.survey_type_id = :survey_type_id
                 LIMIT 1
                 """
             ),
-            {"visit_id": visit_id},
+            {"visit_id": visit_id, "survey_type_id": survey_type_id},
         ).mappings().first()
         if detail:
             selected_visit_info = {
@@ -427,13 +539,14 @@ def build_mystery_report_payload(
                     r.score,
                     r.answer_text,
                     r.verbatim
-                FROM {response_table} r
-                JOIN questions q ON q.id = r.question_id
+                FROM {answer_table} r
+                JOIN questions q ON q.id = r.question_id AND q.survey_type_id = :survey_type_id
+                JOIN visits v ON v.id = r.visit_id AND v.survey_type_id = :survey_type_id
                 WHERE r.visit_id = :visit_id
                 ORDER BY {question_number_select}, q.id
                 """
             ),
-            {"visit_id": visit_id},
+            {"visit_id": visit_id, "survey_type_id": survey_type_id},
         ).mappings().all()
         survey_question_details = [dict(row) for row in qrows]
 
@@ -451,7 +564,13 @@ def build_mystery_report_payload(
             "total_locations": total_locations,
             "total_responses": total_responses,
             "average_score": average_score,
-            "is_single_visit": normalized_report_type == "survey" and bool(visit_id),
+            "average_score_scale": "0-10",
+            "average_score_by_scale": average_score_by_scale,
+            "approved_visits": len(approved_rows),
+            "visit_status_counts": visit_status_counts,
+            "inventory_population": "all_statuses",
+            "kpi_population": "approved_only",
+            "is_single_visit": is_single_visit,
         },
         "mystery_metrics": {
             "selected_nps": (analytics_selected.get("nps") or {}).get("nps"),
@@ -460,6 +579,9 @@ def build_mystery_report_payload(
             "overall_csat": (analytics_overall.get("mystery_shopper") or {}).get("csat_average"),
             "selected_overall_experience": overall_experience_avg,
             "selected_quality": quality_avg,
+            "scales": dict(MYSTERY_METRIC_SCALES),
+            "selected_population": "approved_only",
+            "overall_scope": "all_locations_all_dates_approved",
         },
         "analytics_selected": analytics_selected,
         "analytics_overall": analytics_overall,
@@ -470,6 +592,7 @@ def build_mystery_report_payload(
                 "visit_id": str(row["id"]),
                 "visit_date": row["visit_date"].isoformat() if row["visit_date"] else None,
                 "status": row["status"],
+                "counts_in_kpis": str(row["status"]) == "Approved",
                 "location_id": row["location_id"],
                 "location_name": row["location_name"],
                 "visit_time": row["visit_time"],
@@ -564,28 +687,21 @@ def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> st
         return _badge(s or "—", level_map.get(s, "neutral"))
 
     def _nps_level(nps: Any) -> str:
-        if nps is None:
-            return "neutral"
-        n = float(nps)
-        return "high" if n >= 50 else ("mid" if n >= 0 else "low")
+        return mystery_nps_level(nps)
 
     def _csat_level(csat: Any) -> str:
-        if csat is None:
-            return "neutral"
-        c = float(csat)
-        return "high" if c >= 8 else ("mid" if c >= 6 else "low")
+        return mystery_csat_level(csat)
 
     def _avg_score_level(avg: Any) -> str:
-        if avg is None:
-            return "neutral"
-        a = float(avg)
-        return "high" if a >= 8 else ("mid" if a >= 6 else "low")
+        return mystery_overall_experience_level(avg)
 
     def _fmt(value: Any, decimals: int = 1) -> str:
         if value is None or value == "":
             return "—"
         try:
-            return f"{float(value):.{decimals}f}"
+            formatted = f"{float(value):.{decimals}f}"
+            # Rounding can leave a negative zero (e.g. -0.4 at 0 dp); never render "-0".
+            return formatted[1:] if formatted.startswith("-") and float(formatted) == 0 else formatted
         except Exception:
             return str(value)
 
@@ -617,10 +733,11 @@ def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> st
     kpi_html = (
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px">'
         + _kpi_card("Total Mystery Visits", str(summary.get("total_visits", 0)), "neutral",
-                    "Number of mystery shopper visits included in this report.")
+                    f"Visits listed in this report across all statuses ({summary.get('approved_visits', 0)} Approved). "
+                    "NPS, CSAT and the score KPIs below use Approved visits only.")
         + _kpi_card("Locations Covered", str(summary.get("total_locations", 0)), "neutral",
                     "How many different Cable & Wireless Seychelles locations were visited.")
-        + _kpi_card("NPS — Would Recommend?", _fmt(nps_val, 0), _nps_level(nps_val),
+        + _kpi_card("NPS — Would Recommend?", _fmt(nps_val, 2), _nps_level(nps_val),
                     "Net Promoter Score. Ranges from −100 to +100. "
                     "Above 50 is excellent; 0–49 is good; below 0 needs immediate attention.")
         + _kpi_card("CSAT — Satisfaction Score", _fmt(csat_val, 2), _csat_level(csat_val),
@@ -628,8 +745,8 @@ def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> st
                     "8 or above is excellent; 6–7.9 needs improvement; below 6 is a concern.")
         + _kpi_card("Overall Experience Score", _fmt(oe_val, 2), _avg_score_level(oe_val),
                     "Weighted average of NPS and CSAT questions. Reflects how customers felt overall.")
-        + _kpi_card("Service Quality Score", _fmt(sq_val, 2), _avg_score_level(sq_val),
-                    "Average score across service delivery and staff-behaviour questions (scored 0–5 each).")
+        + _kpi_card("Service Quality Score", _fmt(sq_val, 2), mystery_quality_level(sq_val),
+                    "Average score across service delivery and staff-behaviour questions (scored 1–5 each).")
         + '</div>'
     )
 
@@ -1437,7 +1554,7 @@ def _bootstrap_mystery_shopper_schema(db: Session) -> int:
 
         order_index_column = "order_index," if has_order_index else ""
         order_index_value = ":order_index," if has_order_index else ""
-        order_index_update = "order_index = EXCLUDED.order_index," if has_order_index else ""
+        order_index_update = "order_index = :order_index," if has_order_index else ""
 
         existing_id = db.execute(
             text("SELECT id FROM questions WHERE question_key = :question_key LIMIT 1"),
