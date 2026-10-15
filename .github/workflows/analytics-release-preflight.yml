@@ -36,7 +36,7 @@ jobs:
           WORKING_DIR="$(systemctl show cwscx-backend -p WorkingDirectory --value)"
           export WORKING_DIR
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, shutil, subprocess, urllib.request, urllib.error, re, ssl
+          import hashlib, json, os, pathlib, shutil, subprocess, urllib.request, urllib.error, re, ssl, shlex
           working = pathlib.Path(os.environ['WORKING_DIR']).resolve()
           root = pathlib.Path('/opt/cwscx').resolve()
           if root not in working.parents:
@@ -107,9 +107,14 @@ jobs:
           certificate = subprocess.run(
               ['openssl', 'x509', '-in', str(certificate_path), '-outform', 'PEM'],
               capture_output=True, text=True, timeout=10)
+          if certificate.returncode and certificate_path == pathlib.Path('/etc/ssl/cwscx/cwscx.crt'):
+              # Internal deploy already permits this root wrapper. Read only the
+              # fixed public certificate; do not grant sudo, chmod or read a key.
+              certificate = subprocess.run(
+                  ['sudo', '-n', '/usr/bin/bash', '-lc', 'exec /usr/bin/openssl x509 -in /etc/ssl/cwscx/cwscx.crt -outform PEM'],
+                  capture_output=True, text=True, timeout=10)
           if certificate.returncode:
-              reason = 'permission denied' if 'Permission denied' in certificate.stderr else 'unavailable/invalid'
-              raise SystemExit('Installed public certificate '+str(certificate_path)+' is '+reason+'; no permissions changed')
+              raise SystemExit('Installed public certificate cannot be verified with existing privileges; no permissions changed')
           tls = ssl.create_default_context(cadata=certificate.stdout)
           request = urllib.request.Request('https://'+host+'/dashboard/')
           with urllib.request.urlopen(request, context=tls, timeout=10) as response:
