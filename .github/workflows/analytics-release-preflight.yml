@@ -89,7 +89,7 @@ jobs:
           # An anonymous request must be rejected before any survey data is read.
           # This also distinguishes the internal route surface from mystery_public.
           try:
-              with urllib.request.urlopen('http://127.0.0.1:8000/dashboard-visits/', timeout=10):
+              with urllib.request.urlopen('http://127.0.0.1:8000/dashboard-visits/all', timeout=10):
                   raise SystemExit('Internal API unexpectedly accepted an anonymous request')
           except urllib.error.HTTPError as error:
               if error.code != 401:
