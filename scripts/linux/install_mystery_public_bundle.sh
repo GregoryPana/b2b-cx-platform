@@ -25,7 +25,12 @@ TARGET_ROOT="${TARGET_ROOT:-/opt/cwscx-mystery-public}"
 RELEASES_DIR="${TARGET_ROOT}/releases"
 ENV_FILE="${TARGET_ROOT}/.env"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-EXTRACT_DIR="$(mktemp -d /tmp/cwscx-mystery-public-extract.XXXXXX)"
+mkdir -p "${RELEASES_DIR}"
+[[ -d "${RELEASES_DIR}" && ! -L "${RELEASES_DIR}" && "$(stat -c '%u' "${RELEASES_DIR}")" -eq "${EUID}" ]] \
+  || { echo "Releases directory is not controlled by the installer identity" >&2; exit 1; }
+RELEASES_MODE="$(stat -c '%a' "${RELEASES_DIR}")"
+(( 8#${RELEASES_MODE} & 8#022 )) && { echo "Releases directory must not be group/world writable" >&2; exit 1; }
+EXTRACT_DIR="$(mktemp -d "${RELEASES_DIR}/.extract.XXXXXX")"
 INCOMING_DIR=""
 FINAL_DIR=""
 FINALIZED=0

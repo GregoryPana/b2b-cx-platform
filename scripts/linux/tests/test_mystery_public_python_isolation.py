@@ -281,7 +281,7 @@ class DiscardCandidateGuardTests(IsolationHarness):
         self.assertIn(old, text)
         self.entrypoint.write_text(text.replace(old, f'readonly INSTALLER="{stub}"'), encoding="utf-8")
         (self.sb / "suite-version").write_text(
-            harness.release_guard.privileged_suite_version([self.entrypoint, stub, self.sb / "guard.py"]) + "\n",
+            harness.release_guard.privileged_suite_version([self.entrypoint, stub, self.sb / "guard.py", self.sb / "transaction.py"]) + "\n",
             encoding="ascii")
 
     def failed_deploy(self, mode: str) -> tuple[subprocess.CompletedProcess, Path]:

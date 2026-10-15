@@ -31,6 +31,7 @@ readonly INCOMING_ROOT="${STATE_ROOT}/incoming"
 readonly ARCHIVE_ROOT="${STATE_ROOT}/application-archives"
 readonly BASELINE_MARKER="${ARCHIVE_ROOT}/baseline-release-id"
 readonly NONCE_ROOT="${STATE_ROOT}/operation-nonces"
+readonly BOOTSTRAP_JOURNAL="${STATE_ROOT}/bootstrap-journal.json"
 readonly TRANSACTION_FILE="${STATE_ROOT}/active-operation.json"
 readonly BASELINE_RECOVERY_ROOT="${STATE_ROOT}/baseline-origin-config"
 readonly PREACTIVATION_MARKER="${STATE_ROOT}/preactivation-candidate.json"
@@ -38,6 +39,7 @@ readonly CANDIDATE_PROVENANCE="${STATE_ROOT}/preactivation-candidate-provenance.
 readonly ENTRYPOINT_PATH="/usr/local/sbin/cwscx-mystery-public-deploy"
 readonly INSTALLER="/usr/local/libexec/cwscx-mystery-public/install_mystery_public_bundle.sh"
 readonly RELEASE_GUARD="/usr/local/libexec/cwscx-mystery-public/mystery_public_release_guard.py"
+readonly TRANSACTION_HELPER="/usr/local/libexec/cwscx-mystery-public/mystery_public_bootstrap_transaction.py"
 readonly PRIVILEGED_SUITE_VERSION_FILE="/usr/local/libexec/cwscx-mystery-public/privileged-suite-version"
 readonly ALLOWED_SIGNERS="/etc/cwscx-mystery-public/release-allowed-signers"
 readonly BASH_BIN="/usr/bin/bash"
@@ -114,13 +116,15 @@ require_root_dir "${NONCE_ROOT}" "operation nonce root"
 require_root_file "${ENV_FILE}" "environment file"
 [[ ! -L "${STATE_ROOT}/deploy.lock" ]] || die "deployment lock must not be a symlink"
 exec 9>"${STATE_ROOT}/deploy.lock"
-flock -n -x 9 || die "another deployment or rollback is in progress"
+flock -n -x 9 || die "another bootstrap, deployment or rollback is in progress"
+[[ ! -e "${BOOTSTRAP_JOURNAL}" && ! -L "${BOOTSTRAP_JOURNAL}" ]] \
+  || die "an interrupted privileged-suite bootstrap requires VM-administrator recovery before any deploy operation"
 ENV_MODE="$(stat -c '%a' "${ENV_FILE}")"; [[ "${ENV_MODE}" == "600" || "${ENV_MODE}" == "640" ]] || die "environment file mode must be 600 or 640"
-for item in "${ENTRYPOINT_PATH}" "${INSTALLER}" "${RELEASE_GUARD}" "${PRIVILEGED_SUITE_VERSION_FILE}" "${ALLOWED_SIGNERS}"; do require_root_file "${item}" "privileged support file"; done
+for item in "${ENTRYPOINT_PATH}" "${INSTALLER}" "${RELEASE_GUARD}" "${TRANSACTION_HELPER}" "${PRIVILEGED_SUITE_VERSION_FILE}" "${ALLOWED_SIGNERS}"; do require_root_file "${item}" "privileged support file"; done
 [[ "${ENTRYPOINT_REALPATH}" == "${ENTRYPOINT_PATH}" ]] || die "entrypoint must be invoked from its fixed installed path"
 PRIVILEGED_SUITE_VERSION="$(tr -d '\n' <"${PRIVILEGED_SUITE_VERSION_FILE}")"
 [[ "${PRIVILEGED_SUITE_VERSION}" =~ ^[0-9a-f]{64}$ ]] || die "privileged suite version is invalid"
-INSTALLED_SUITE_VERSION="$("${PYTHON_BIN}" -I "${RELEASE_GUARD}" suite-version "${ENTRYPOINT_PATH}" "${INSTALLER}" "${RELEASE_GUARD}")" \
+INSTALLED_SUITE_VERSION="$("${PYTHON_BIN}" -I "${RELEASE_GUARD}" suite-version "${ENTRYPOINT_PATH}" "${INSTALLER}" "${RELEASE_GUARD}" "${TRANSACTION_HELPER}")" \
   || die "installed privileged suite cannot be verified"
 [[ "${INSTALLED_SUITE_VERSION}" == "${PRIVILEGED_SUITE_VERSION}" ]] || die "installed privileged suite differs from bootstrap identity"
 
@@ -174,7 +178,8 @@ archive_root_is_empty() {
 }
 
 store_baseline_marker() {
-  local release_id="$1" temporary="${ARCHIVE_ROOT}/.baseline-release-id.$$"
+  local release_id="$1" temporary
+  temporary="$(mktemp "${ARCHIVE_ROOT}/.baseline-release-id.XXXXXX")" || return 1
   valid_release_id "${release_id}" || return 1
   [[ ! -e "${BASELINE_MARKER}" ]] || return 1
   printf '%s\n' "${release_id}" >"${temporary}" || return 1
@@ -185,7 +190,8 @@ store_baseline_marker() {
 }
 
 store_previous_release_id() {
-  local release_id="$1" temporary="${ARCHIVE_ROOT}/.previous-release-id.$$"
+  local release_id="$1" temporary
+  temporary="$(mktemp "${ARCHIVE_ROOT}/.previous-release-id.XXXXXX")" || return 1
   valid_release_id "${release_id}" || return 1
   printf '%s\n' "${release_id}" >"${temporary}" || return 1
   chmod 0600 "${temporary}" || return 1
@@ -278,7 +284,8 @@ switch_current_signed() {
 
 switch_current() {
   local release_id="$1" link
-  link="${TARGET_ROOT}/.current.${release_id}.$$"
+  link="$(mktemp "${TARGET_ROOT}/.current.${release_id}.XXXXXX")" || return 1
+  rm -f -- "${link}" || return 1
   ln -s "releases/${release_id}" "${link}"
   mv -Tf "${link}" "${TARGET_ROOT}/current"
   fsync_directory "${TARGET_ROOT}"
@@ -304,7 +311,8 @@ PY
 
 write_transaction() {
   local mode="$1" original_id="$2" failed_id="$3" authorization_sha256="$4" temporary
-  temporary="${STATE_ROOT}/.active-operation.$$"
+  temporary="$(mktemp "${STATE_ROOT}/.active-operation.XXXXXX")" || return 1
+  rm -f -- "${temporary}" || return 1
   "${PYTHON_BIN}" -I - "${temporary}" "${mode}" "${original_id}" "${failed_id}" "${authorization_sha256}" <<'PY'
 import json, os, sys
 path, mode, original, failed, digest = sys.argv[1:]
@@ -384,7 +392,8 @@ PY
 
 write_preactivation_marker() {
   local operation="$1" release_id="$2" bundle_sha256="$3" origin_id="$4" bundle_path="${5:-}" signature_path="${6:-}" temporary
-  temporary="${STATE_ROOT}/.preactivation-candidate.$$"
+  temporary="$(mktemp "${STATE_ROOT}/.preactivation-candidate.XXXXXX")" || return 1
+  rm -f -- "${temporary}" || return 1
   valid_release_id "${release_id}" && valid_release_id "${origin_id}" || return 1
   [[ "${bundle_sha256}" =~ ^[0-9a-f]{64}$ ]] || return 1
   [[ ! -e "${PREACTIVATION_MARKER}" && ! -L "${PREACTIVATION_MARKER}" ]] || return 1
@@ -399,7 +408,8 @@ write_preactivation_marker() {
 # Atomically replace the marker with the same record plus install_verified. Call
 # only after the installer, file verification and database-head gate succeeded.
 mark_preactivation_install_verified() {
-  local temporary="${STATE_ROOT}/.preactivation-candidate.$$"
+  local temporary
+  temporary="$(mktemp "${STATE_ROOT}/.preactivation-candidate.XXXXXX")" || return 1
   load_preactivation_marker || return 1
   [[ -n "${PREACTIVATION_ID}" && "${PREACT_RELEASE_ID}" == "${PREACTIVATION_ID}" ]] || return 1
   rm -f -- "${temporary}" || return 1
@@ -492,7 +502,8 @@ candidate_provenance_matches() {
 }
 
 write_candidate_provenance() {
-  local release_id="$1" bundle_sha256="$2" temporary="${STATE_ROOT}/.preactivation-candidate-provenance.$$"
+  local release_id="$1" bundle_sha256="$2" temporary
+  temporary="$(mktemp "${STATE_ROOT}/.preactivation-candidate-provenance.XXXXXX")" || return 1
   valid_release_id "${release_id}" || return 1
   [[ "${bundle_sha256}" =~ ^[0-9a-f]{64}$ ]] || return 1
   if [[ -e "${CANDIDATE_PROVENANCE}" || -L "${CANDIDATE_PROVENANCE}" ]]; then
@@ -576,7 +587,7 @@ drop_preactivation_marker_and_artifacts() {
 # treated as evidence of an incomplete install: a new bundle is not archived
 # until activation.
 preactivation_install_proven() {
-  local candidate="${RELEASES_ROOT}/${PREACT_RELEASE_ID}" venv manifest_json manifest_id
+  local candidate="${RELEASES_ROOT}/${PREACT_RELEASE_ID}" manifest_json manifest_id
   [[ "${PREACT_INSTALL_VERIFIED}" == "true" ]] || return 1
   if [[ -n "${PREACT_BUNDLE_PATH}" ]]; then
     incoming_artifact_ok "${PREACT_BUNDLE_PATH}" && incoming_artifact_ok "${PREACT_SIGNATURE_PATH}" || return 1
@@ -730,8 +741,9 @@ reconcile_preactivation_marker() {
 }
 
 snapshot_baseline_origin_config() {
-  local temporary="${STATE_ROOT}/.baseline-origin-config.$$" service_user service_group fragment_path
+  local temporary service_user service_group fragment_path
   [[ ! -e "${BASELINE_RECOVERY_ROOT}" ]] || die "baseline recovery snapshot already exists; administrator review required"
+  temporary="$(mktemp -d "${STATE_ROOT}/.baseline-origin-config.XXXXXX")" || die "could not allocate baseline recovery snapshot"
   service_user="$(systemctl show "${SERVICE_NAME}" --property=User --value)"
   service_group="$(systemctl show "${SERVICE_NAME}" --property=Group --value)"
   fragment_path="$(systemctl show "${SERVICE_NAME}" --property=FragmentPath --value)"
@@ -741,7 +753,7 @@ snapshot_baseline_origin_config() {
     || die "legacy backend unit fragment is not the fixed service file"
   systemctl is-active --quiet "${SERVICE_NAME}" || die "legacy backend service must be active before baseline"
   nginx -t || die "legacy NGINX configuration must pass before baseline"
-  mkdir -m 0700 "${temporary}"
+  chmod 0700 "${temporary}"
   if ! "${PYTHON_BIN}" -I - "${EUID}" "${temporary}" \
     "${SERVICE_FILE}" "${NGINX_SITE_FILE}" "${NGINX_LIMIT_FILE}" "${NGINX_HEADERS_FILE}" \
     "${NGINX_LINK_FILE}" <<'PY'
@@ -1117,6 +1129,59 @@ prune_archives() {
   done
 }
 
+cleanup_orphan_artifacts() {
+  # Maintenance is deliberately conservative: run only under deploy.lock and
+  # only when no durable release/bootstrap/preactivation/provenance/recovery
+  # state can reference an artifact. Signed archives, release directories,
+  # current, shared/.env and caller upload sentinels are outside this allowlist.
+  for active in "${BOOTSTRAP_JOURNAL}" "${TRANSACTION_FILE}" "${PREACTIVATION_MARKER}" \
+                "${CANDIDATE_PROVENANCE}" "${BASELINE_RECOVERY_ROOT}"; do
+    [[ ! -e "${active}" && ! -L "${active}" ]] || return 0
+  done
+  "${PYTHON_BIN}" -I - "${EUID}" "${STATE_ROOT}" "${INCOMING_ROOT}" "${RELEASES_ROOT}" \
+    "${TARGET_ROOT}" "${ARCHIVE_ROOT}" <<'PY'
+import os, pathlib, re, shutil, stat, sys, time
+uid=int(sys.argv[1]); state,incoming,releases,target,archives=map(pathlib.Path,sys.argv[2:])
+roots=(state,incoming,releases,target,archives)
+for root in roots:
+    info=root.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_mode & 0o022:
+        raise SystemExit(f"unsafe orphan-cleanup namespace: {root}")
+patterns={
+ incoming: ((re.compile(r"(?:operation\.[A-Za-z0-9]+\.json(?:\.sig)?|authorized\.[A-Za-z0-9]+\.json|manifest\.[A-Za-z0-9]+\.json|bundle\.[A-Za-z0-9]+\.zip(?:\.sig)?)"), False),),
+ state: ((re.compile(r"\.(?:active-operation|preactivation-candidate|preactivation-candidate-provenance)\.[A-Za-z0-9]+"), False),
+         (re.compile(r"\.baseline-origin-config\.[A-Za-z0-9]+"), True)),
+ releases: ((re.compile(r"\.[A-Za-z0-9][A-Za-z0-9._-]{0,159}\.incoming\.[A-Za-z0-9]+"), True),
+            (re.compile(r"\.extract\.[A-Za-z0-9]+"), True)),
+ target: (),
+ archives: ((re.compile(r"\.(?:baseline-release-id|previous-release-id)\.[A-Za-z0-9]+"), False),),
+}
+cutoff=time.time()-86400
+changed=set(); candidates=[]
+for root,rules in patterns.items():
+    for entry in os.scandir(root):
+        rule=next(((regex,want_dir) for regex,want_dir in rules if regex.fullmatch(entry.name)),None)
+        if rule is None: continue
+        info=entry.stat(follow_symlinks=False)
+        if info.st_uid != uid or stat.S_ISLNK(info.st_mode):
+            raise SystemExit(f"unsafe matching orphan artifact preserved: {entry.path}")
+        want_dir=rule[1]
+        if want_dir != stat.S_ISDIR(info.st_mode) or (not want_dir and not stat.S_ISREG(info.st_mode)):
+            raise SystemExit(f"unexpected matching orphan artifact type preserved: {entry.path}")
+        if info.st_mtime <= cutoff: candidates.append((root,pathlib.Path(entry.path),want_dir))
+# Validation of every matching entry completes before the first deletion, so one
+# tampered artifact preserves the entire cleanup set for administrator review.
+for root,path,want_dir in candidates:
+    if want_dir: shutil.rmtree(path)
+    else: path.unlink()
+    changed.add(root)
+for root in changed:
+    fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+PY
+}
+
 ensure_archive_capacity() {
   local incoming_size="$1" available
   available="$(df -B1 --output=avail "${ARCHIVE_ROOT}" | awk 'NR==2{print $1}')"
@@ -1325,6 +1390,7 @@ if [[ -e "${PREACTIVATION_MARKER}" || -L "${PREACTIVATION_MARKER}" ]]; then
   exit 0
 fi
 [[ "${ACTION}" != "recover" ]] || die "no interrupted operation requires recovery"
+cleanup_orphan_artifacts || die "orphan artifact cleanup found unsafe state; nothing ambiguous was removed"
 prune_evidence
 
 if [[ "${ACTION}" == "rollback" ]]; then

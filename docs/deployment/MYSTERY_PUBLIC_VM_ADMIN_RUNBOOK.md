@@ -25,11 +25,11 @@ rule names only that absolute path — it never grants `bash`, `sh`, or any
 other interpreter, so `cxadmin` cannot use its NOPASSWD grant to run
 arbitrary root commands.
 
-Install or update this entrypoint (and its companion installer and signed-
-archive guard) with
+Install or update this entrypoint (and its companion installer, signed-archive
+guard and bootstrap transaction helper) with
 `scripts/linux/bootstrap_mystery_public_deploy_entrypoint.sh`, run once by a
-VM administrator and again only when the entrypoint, installer, or release-guard
-source changes. The bootstrap script refuses to run against a checkout that is not
+VM administrator and again only when the entrypoint, installer, release guard or
+transaction-helper source changes. The bootstrap script refuses to run against a checkout that is not
 already owned by `root`:
 
 After a source fix to the entrypoint, merging the PR and rerunning the
@@ -48,6 +48,16 @@ sudo install -o root -g root -m 0600 /root/reviewed-release-signing-key.pub \
   /root/cwscx-mystery-public-release-signing-key.pub
 sudo bash scripts/linux/bootstrap_mystery_public_deploy_entrypoint.sh
 ```
+
+An independent administrator must compare the exact commit printed above with
+the approved review record, then attest that the checkout and all ancestors are
+root-owned and non-writable before invocation. The bootstrap's self/path checks
+detect accidental ownership, indirection and mode drift, but are not an
+authentication mechanism for the bootstrap itself: a maliciously rewritten
+script could remove its own checks. Root-owned source provenance (commit ID,
+review/approval and controlled acquisition) is therefore a boundary outside the
+self-check. Record public commit/fingerprint provenance only; never copy secret
+values into the attestation.
 
 `reviewed-release-signing-key.pub` must match the dedicated GitHub Environment
 secret `MYSTERY_PUBLIC_RELEASE_SIGNING_KEY`. It must not be the public half of
@@ -105,11 +115,40 @@ manually repaired release is never imported, signed, archived, or treated as an
 approved fallback by this process.
 
 Bootstrap validates every source ancestor as root-owned and non-writable,
-opens each source with `O_NOFOLLOW`, and installs the entrypoint, installer and
-guard only from one root-only snapshot. It records a SHA-256 suite identity;
+opens each source with `O_NOFOLLOW`, and installs the entrypoint, installer,
+guard and transaction helper only from one root-only snapshot. It records a
+SHA-256 suite identity over exactly those four files;
 read-only status reports that identity, and every workflow operation refuses to
-continue unless it matches the exact three privileged sources in the reviewed
+continue unless it matches the exact four privileged sources in the reviewed
 GitHub revision.
+
+Bootstrap validates the entire proposal before cutover: the staged four-file
+suite and identity, proposed signer overlap, every retained archive under that
+proposed trust, and the generated sudoers fragment. It then acquires the same
+root-controlled `/var/lib/cwscx-mystery-public/deploy.lock` used by the fixed
+entrypoint and records an exact root-only recovery snapshot plus
+`bootstrap-journal.json`. Entry point, installer, guard, transaction helper, signer trust and sudoers
+are atomically replaced, with `privileged-suite-version` published last. A
+normal error or TERM restores the prior exact present/absent state and metadata.
+After SIGKILL or power loss, the fixed deploy entrypoint refuses every operation
+while the bootstrap journal exists. An uncommitted journal restores the exact
+prior suite; a durable `committed` journal only finishes recovery-tree cleanup
+and keeps the newly verified coherent suite. Rerun the same reviewed bootstrap
+to reconcile either state before a new proposal is attempted. A legacy
+three-file identity or recovery journal is not silently accepted: it requires a
+VM-admin-reviewed rebootstrap, and malformed metadata remains a fail-closed
+review condition. Never delete or edit the journal/recovery directory manually.
+
+Mutating signed operations perform conservative orphan maintenance only after
+the operation signature, expiry, nonce, action and current-release binding have
+all authorized successfully while the lock is held. Missing, invalid, expired
+or replayed authorization cannot delete an orphan. Cleanup is skipped whenever a bootstrap, release,
+preactivation, completed-candidate provenance or baseline-recovery record could
+reference an artifact. Only allowlisted root-owned artifacts older than 24 hours
+in the existing state/incoming/releases/archive namespaces are eligible;
+unexpected ownership, type or symlinks are preserved and stop the operation.
+Signed archives, release directories, `.env`, shared data, `current`, and caller
+upload files are never cleanup targets. Read-only status performs no cleanup.
 
 The bootstrap also converts the legacy mutable application root to the
 reviewed ownership boundary observed on this VM: `/opt/cwscx-mystery-public`
@@ -250,7 +289,7 @@ Do not trigger the Mystery deployment first.
   rollback, it also reads and verifies the selected local target archive and
   binds that exact archive hash into the signed request.
 - Compares the installed privileged-suite identity returned by status with the
-  entrypoint, installer and guard in the checked-out GitHub revision; a stale or
+  entrypoint, installer, guard and transaction helper in the checked-out GitHub revision; a stale or
   mixed VM bootstrap fails before transfer or activation.
 - Creates canonical JSON with a five-minute expiry and one-time nonce, signs it
   in the operation namespace, and signs fresh deploy bundles in the distinct
@@ -476,7 +515,11 @@ recovery operations, and no migration/downgrade is attempted.
 
 Rotation is an **independent cutover gate**, not evidence that a release is healthy. The VM administrator and credential owners must record an approved inventory (names, owners, expiry/revocation dates, dependencies and restore path; **never values**) for: GitHub Environment `DMZ_SSH_KEY`, `DMZ_SSH_KNOWN_HOSTS`, `MYSTERY_PUBLIC_RELEASE_SIGNING_KEY`, the VM's root-owned release allowed-signers file, the application `.env` database credential and `MYSTERY_AUTH_SECRET_KEY`, SMTP credentials if configured, and the APN TLS certificate/private key. Confirm any shared internal-production use of DB/SMTP credentials before changing them.
 
-1. Prepare new identities in the approved secret store and obtain separate GitHub Environment/VM-admin approval. Keep private material out of git, workflow artifacts, terminal capture and handoffs. Verify the release signing key is distinct from the SSH transport key. Record fingerprints and secret version identifiers only.
+1. Prepare new identities in the approved secret store and obtain separate GitHub Environment/VM-admin approval. Keep private material out of git, workflow artifacts, terminal capture and handoffs. Verify the release signing key is distinct from the SSH transport key. Record fingerprints and secret version identifiers only. Each current/previous public-key
+source must contain exactly one canonical OpenSSH algorithm/blob record (an
+optional printable comment is permitted); blank/additional lines, options and
+principal prefixes are rejected. The generated allowed-signers file supplies the
+single fixed `github-actions` principal itself.
 2. Stage access overlap before revoking old identities. For SSH transport, install and independently verify the new VM authorized key and pinned host key from a trusted administrative channel, test the exact non-interactive runner login and narrow `sudo -n -l`, then change GitHub Environment secrets. Do not trust `ssh-keyscan` without a VM-side fingerprint comparison.
 3. For release signing, VM admin must stage the existing trusted public key as root-owned `/root/cwscx-mystery-public-previous-release-signing-key.pub` and the newly approved key as `/root/cwscx-mystery-public-release-signing-key.pub` before running the reviewed bootstrap. The bootstrap checks that the former key is already trusted, publishes both keys atomically, and refuses publication if the proposed signer set cannot authenticate every retained archive. Verify old-archive rollback eligibility and a new-key operation signature offline; do not dispatch a deployment merely to test rotation. Keep the previous-key file in place through the approved overlap. Removing it and re-running bootstrap is permitted only after a newly signed healthy fallback and recovery drill exist **and no retained archive requires the old signer**; otherwise bootstrap fails closed. This was rehearsed in a disposable container, not on the application VM.
 4. For database credentials, arrange overlap or a coordinated maintenance window with the database owner and internal-production owner; update only the approved stores and VM environment under VM-admin control. Validate the actual application connection and read-only exact Alembic heads after controlled restart. Do not run migrations here. Revoke the old DB identity only after both internal and APN services are confirmed working.

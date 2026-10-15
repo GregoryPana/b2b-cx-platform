@@ -280,7 +280,7 @@ cmd=sys.argv[1]
 manifest={new_manifest!r}
 if cmd == 'suite-version':
     digest=hashlib.sha256()
-    for name, raw in zip(('cwscx_mystery_public_deploy_entrypoint.sh','install_mystery_public_bundle.sh','mystery_public_release_guard.py'),sys.argv[2:]):
+    for name, raw in zip(('cwscx_mystery_public_deploy_entrypoint.sh','install_mystery_public_bundle.sh','mystery_public_release_guard.py','mystery_public_bootstrap_transaction.py'),sys.argv[2:]):
         path=pathlib.Path(raw); data=path.read_bytes()
         digest.update(name.encode('utf-8')+b'\\0'+len(data).to_bytes(8,'big')+data)
     print(digest.hexdigest())
@@ -309,6 +309,9 @@ else: raise SystemExit('unexpected guard command: '+cmd)
             encoding="utf-8",
         )
         guard.chmod(0o700)
+        transaction_helper = sandbox / "transaction.py"
+        transaction_helper.write_text("# test transaction helper\n", encoding="utf-8")
+        transaction_helper.chmod(0o700)
         allowed = sandbox / "allowed-signers"
         allowed.write_text("test\n", encoding="utf-8")
         allowed.chmod(0o600)
@@ -381,6 +384,7 @@ exec "$@"
             'readonly ENTRYPOINT_PATH="/usr/local/sbin/cwscx-mystery-public-deploy"': f'readonly ENTRYPOINT_PATH="{sandbox / "entrypoint.sh"}"',
             'readonly INSTALLER="/usr/local/libexec/cwscx-mystery-public/install_mystery_public_bundle.sh"': f'readonly INSTALLER="{installer}"',
             'readonly RELEASE_GUARD="/usr/local/libexec/cwscx-mystery-public/mystery_public_release_guard.py"': f'readonly RELEASE_GUARD="{guard}"',
+            'readonly TRANSACTION_HELPER="/usr/local/libexec/cwscx-mystery-public/mystery_public_bootstrap_transaction.py"': f'readonly TRANSACTION_HELPER="{transaction_helper}"',
             'readonly PRIVILEGED_SUITE_VERSION_FILE="/usr/local/libexec/cwscx-mystery-public/privileged-suite-version"': f'readonly PRIVILEGED_SUITE_VERSION_FILE="{sandbox / "suite-version"}"',
             'readonly ALLOWED_SIGNERS="/etc/cwscx-mystery-public/release-allowed-signers"': f'readonly ALLOWED_SIGNERS="{allowed}"',
             'readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"': f'readonly SERVICE_FILE="{config_paths["service"]}"',
@@ -453,7 +457,7 @@ exec "$@"
         entrypoint.write_text(entrypoint_text, encoding="utf-8")
         entrypoint.chmod(0o700)
         (sandbox / "suite-version").write_text(
-            release_guard.privileged_suite_version([entrypoint, installer, guard]) + "\n", encoding="ascii"
+            release_guard.privileged_suite_version([entrypoint, installer, guard, transaction_helper]) + "\n", encoding="ascii"
         )
         (sandbox / "suite-version").chmod(0o600)
 
@@ -757,6 +761,24 @@ exec "$@"
         self.secure_installed_tree(installed)
         release_guard.verify_installed_release(installed, self.archives, "release-one", self.allowed, os.geteuid())
 
+    def test_legitimate_signer_overlap_keeps_old_signed_archive_valid(self) -> None:
+        bundle, signature, _ = self.make_bundle()
+        manifest = self.verified_manifest(bundle, signature)
+        release_guard.store_archive(self.archives, bundle, signature, manifest, "2026-09-29T00:01:00Z")
+        new_key = self.root / "new-signing-key"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(new_key)], check=True)
+        proposed = self.root / "proposed-overlap-signers"
+        proposed.write_text(
+            "github-actions " + new_key.with_suffix(".pub").read_text(encoding="ascii")
+            + "github-actions " + self.key.with_suffix(".pub").read_text(encoding="ascii"),
+            encoding="ascii",
+        )
+
+        verified = release_guard.verify_archive(self.archives, "release-one", proposed)
+
+        self.assertEqual(verified["release_id"], "release-one")
+        self.assertEqual(verified["bundle_sha256"], hashlib.sha256(bundle.read_bytes()).hexdigest())
+
     def test_archive_publication_failure_exposes_no_partial_release(self) -> None:
         bundle, signature, _ = self.make_bundle()
         manifest = self.verified_manifest(bundle, signature)
@@ -1026,7 +1048,7 @@ exec "$@"
 
     def test_privileged_suite_identity_changes_for_any_file_or_order(self) -> None:
         files = []
-        for name, content in (("entrypoint", b"one"), ("installer", b"two"), ("guard", b"three")):
+        for name, content in (("entrypoint", b"one"), ("installer", b"two"), ("guard", b"three"), ("helper", b"four")):
             path = self.root / name
             path.write_bytes(content)
             files.append(path)
@@ -1035,6 +1057,8 @@ exec "$@"
         self.assertNotEqual(original, release_guard.privileged_suite_version(list(reversed(files))))
         files[1].write_bytes(b"changed")
         self.assertNotEqual(original, release_guard.privileged_suite_version(files))
+        with self.assertRaisesRegex(release_guard.GuardError, "exactly four"):
+            release_guard.privileged_suite_version(files[:3])
 
     def test_manifest_with_duplicate_heads_or_unsafe_zip_member_is_rejected(self) -> None:
         bundle, _, _ = self.make_bundle("bad-heads", ["head", "head"])

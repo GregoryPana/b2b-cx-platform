@@ -15,6 +15,7 @@ VERIFY="$ROOT/scripts/linux/verify_mystery_public.sh"
 ENTRYPOINT="$ROOT/scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh"
 BOOTSTRAP="$ROOT/scripts/linux/bootstrap_mystery_public_deploy_entrypoint.sh"
 GUARD="$ROOT/scripts/linux/mystery_public_release_guard.py"
+TRANSACTION_HELPER="$ROOT/scripts/linux/mystery_public_bootstrap_transaction.py"
 WORKFLOW="$ROOT/.github/workflows/deploy-mystery-public.yml"
 
 # Execute behavioral signed-archive, tamper, installed-integrity and retention tests.
@@ -25,6 +26,7 @@ python3 "$ROOT/scripts/linux/tests/test_mystery_public_preactivation_sigkill.py"
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_python_isolation.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_runtime_gate.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_application_probe.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_bootstrap_safety.py" || failures=$((failures+1))
 
 # Existing immutable release and permission-recovery contracts.
 require "$BUILD" 'expected_migration_heads' 'bundle records expected migration heads'
@@ -99,12 +101,15 @@ forbid "$ENTRYPOINT" 'source "${ENV_FILE}"' 'entrypoint never shell-sources secr
 
 # Root-only bootstrap; workflow cannot install or replace privileged code.
 require "$BOOTSTRAP" 'RELEASE_GUARD_SRC' 'bootstrap validates and installs release guard'
+require "$BOOTSTRAP" 'TRANSACTION_HELPER_DST' 'bootstrap installs the transaction helper as the fourth canonical suite file'
+require "$ENTRYPOINT" '"${TRANSACTION_HELPER}"' 'entrypoint hashes the installed transaction helper on every invocation'
+require "$BOOTSTRAP" 'TRANSACTION_HELPER_EXEC' 'bootstrap executes only a root-only transaction-helper snapshot'
 require "$BOOTSTRAP" 'source ancestor is not root-controlled' 'bootstrap rejects untrusted source ancestors'
 require "$BOOTSTRAP" 'os.O_RDONLY | os.O_NOFOLLOW' 'bootstrap snapshots opened non-symlink source descriptors'
 require "$BOOTSTRAP" 'ENTRYPOINT_SNAPSHOT' 'bootstrap installs all privileged files from one root-only snapshot'
 require "$ENTRYPOINT" 'privileged_suite_version' 'status reports the installed privileged-suite identity'
 require "$BOOTSTRAP" 'PREVIOUS_SIGNING_PUBLIC_KEY_SRC=' 'bootstrap supports explicit root-owned signer overlap'
-require "$BOOTSTRAP" 'verify-archive "${ARCHIVE_ROOT}" "${release_id}" "${ALLOWED_SIGNERS_TMP}"' 'signer rotation preserves authenticated archives'
+require "$BOOTSTRAP" 'verify-archive "${ARCHIVE_ROOT}" "${release_id}" "${PROPOSED_SIGNERS}"' 'signer rotation preserves authenticated archives'
 require "$ENTRYPOINT" 'installed privileged suite differs from bootstrap identity' 'status and mutations rehash the installed privileged suite'
 require "$ENTRYPOINT" 'must be owned by the deployment account' 'caller-supplied root-owned temporary files are rejected'
 require "$ENTRYPOINT" 'discard_pre_activation_candidate "${PREACTIVATION_ID}"' 'failed preactivation candidates are removed before retry'
@@ -116,8 +121,7 @@ forbid "$ENTRYPOINT" 'rm -rf --one-file-system -- "${RELEASES_ROOT}/${PREACT' 'r
 require "$ENTRYPOINT" 'follow_symlinks=False' 'baseline enabled-site link is inspected without following it'
 require "$ENTRYPOINT" 'os.readlink(link_name, dir_fd=link_parent_fd)' 'baseline recovery validates the exact enabled-site target'
 require "$WORKFLOW" 'EXPECTED_PRIVILEGED_SUITE_VERSION' 'workflow rejects a stale or mixed installed privileged suite'
-require "$BOOTSTRAP" 'install -d -o root -g root -m 0700 "${ARCHIVE_ROOT}"' 'bootstrap creates root-only application archive directory'
-require "$BOOTSTRAP" 'install -d -o root -g root -m 0700 "${NONCE_ROOT}"' 'bootstrap creates root-only replay state directory'
+require "$BOOTSTRAP" '"${INCOMING_ROOT}" "${ARCHIVE_ROOT}" "${NONCE_ROOT}"' 'bootstrap creates root-only incoming, archive and replay directories'
 require "$BOOTSTRAP" 'cwscx-mystery-public-release-signing-key.pub' 'bootstrap installs a release key distinct from SSH transport metadata'
 require "$BOOTSTRAP" '${DEPLOY_USER} ALL=(root) NOPASSWD: ${ENTRYPOINT_DST}' 'sudoers grants one fixed entrypoint only'
 forbid "$BOOTSTRAP" 'NOPASSWD: /usr/bin/bash' 'bootstrap never grants a shell'
@@ -179,7 +183,12 @@ forbid "$ENTRYPOINT" '[[ "$(current_release_id)" != "${release_id}" ]] || return
 for file in "$BUILD" "$INSTALL" "$BACKEND" "$NGINX" "$VERIFY" "$ENTRYPOINT" "$BOOTSTRAP"; do
   bash -n "$file" || { echo "[FAIL] shell syntax: $file" >&2; failures=$((failures+1)); }
 done
-python3 -m py_compile "$GUARD" "$ROOT/scripts/linux/tests/test_mystery_public_release_guard.py" || failures=$((failures+1))
+python3 -I - "$GUARD" "$TRANSACTION_HELPER" "$ROOT/scripts/linux/tests/test_mystery_public_release_guard.py" <<'PY' || failures=$((failures+1))
+import pathlib, sys
+for raw in sys.argv[1:]:
+    source = pathlib.Path(raw)
+    compile(source.read_bytes(), str(source), "exec")
+PY
 
 (( failures == 0 )) || { printf '%d release safety checks failed\n' "$failures" >&2; exit 1; }
 echo 'All Mystery Public deploy/rollback behavior and contracts passed.'

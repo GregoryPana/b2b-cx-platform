@@ -62,7 +62,7 @@ if os.environ.get('GUARD_PROBE_LOG'):
         probe.write(json.dumps([cmd, os.getcwd(), sys.flags.isolated, 'PYTHONPATH' in os.environ]) + '\\n')
 if cmd == 'suite-version':
     digest = hashlib.sha256()
-    for name, raw in zip(('cwscx_mystery_public_deploy_entrypoint.sh', 'install_mystery_public_bundle.sh', 'mystery_public_release_guard.py'), sys.argv[2:]):
+    for name, raw in zip(('cwscx_mystery_public_deploy_entrypoint.sh', 'install_mystery_public_bundle.sh', 'mystery_public_release_guard.py', 'mystery_public_bootstrap_transaction.py'), sys.argv[2:]):
         data = pathlib.Path(raw).read_bytes()
         digest.update(name.encode('utf-8') + b'\\0' + len(data).to_bytes(8, 'big') + data)
     print(digest.hexdigest())
@@ -190,6 +190,9 @@ class EntrypointHarness(unittest.TestCase):
         guard = self.sb / "guard.py"
         guard.write_text(MOCK_GUARD, encoding="utf-8")
         guard.chmod(0o700)
+        transaction_helper = self.sb / "transaction.py"
+        transaction_helper.write_text("# test transaction helper\n", encoding="utf-8")
+        transaction_helper.chmod(0o700)
         allowed = self.sb / "allowed-signers"
         allowed.write_text("test\n", encoding="utf-8")
         allowed.chmod(0o600)
@@ -201,6 +204,7 @@ class EntrypointHarness(unittest.TestCase):
             'readonly ENTRYPOINT_PATH="/usr/local/sbin/cwscx-mystery-public-deploy"': f'readonly ENTRYPOINT_PATH="{self.sb / "entrypoint.sh"}"',
             'readonly INSTALLER="/usr/local/libexec/cwscx-mystery-public/install_mystery_public_bundle.sh"': f'readonly INSTALLER="{INSTALLER_SOURCE}"',
             'readonly RELEASE_GUARD="/usr/local/libexec/cwscx-mystery-public/mystery_public_release_guard.py"': f'readonly RELEASE_GUARD="{guard}"',
+            'readonly TRANSACTION_HELPER="/usr/local/libexec/cwscx-mystery-public/mystery_public_bootstrap_transaction.py"': f'readonly TRANSACTION_HELPER="{transaction_helper}"',
             'readonly PRIVILEGED_SUITE_VERSION_FILE="/usr/local/libexec/cwscx-mystery-public/privileged-suite-version"': f'readonly PRIVILEGED_SUITE_VERSION_FILE="{self.sb / "suite-version"}"',
             'readonly ALLOWED_SIGNERS="/etc/cwscx-mystery-public/release-allowed-signers"': f'readonly ALLOWED_SIGNERS="{allowed}"',
             'readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"': f'readonly SERVICE_FILE="{paths["service"]}"',
@@ -224,7 +228,7 @@ class EntrypointHarness(unittest.TestCase):
         self.entrypoint.write_text(text, encoding="utf-8")
         self.entrypoint.chmod(0o700)
         (self.sb / "suite-version").write_text(
-            release_guard.privileged_suite_version([self.entrypoint, INSTALLER_SOURCE, guard]) + "\n", encoding="ascii")
+            release_guard.privileged_suite_version([self.entrypoint, INSTALLER_SOURCE, guard, transaction_helper]) + "\n", encoding="ascii")
         (self.sb / "suite-version").chmod(0o600)
         self.marker = self.state / "preactivation-candidate.json"
         self.provenance = self.state / "preactivation-candidate-provenance.json"

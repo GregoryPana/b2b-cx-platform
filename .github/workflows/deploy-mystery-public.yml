@@ -133,7 +133,7 @@ jobs:
           set -euo pipefail
           : "${MYSTERY_PUBLIC_BASE_URL:?required}"; : "${DMZ_SSH_KEY:?required}"; : "${DMZ_SSH_KNOWN_HOSTS:?required}"
           : "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY:?required}"
-          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py)"
+          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py scripts/linux/mystery_public_bootstrap_transaction.py)"
           [[ "${BASELINE_CURRENT_RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]]
           [[ "${VERIFY_TLS_MODE}" == "prepublic" || "${VERIFY_TLS_MODE}" == "trusted" ]]
           EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"; mkdir -p "${EVIDENCE_DIR}"
@@ -236,7 +236,7 @@ jobs:
           set -euo pipefail
           : "${MYSTERY_PUBLIC_BASE_URL:?required}"; : "${DMZ_SSH_KEY:?required}"; : "${DMZ_SSH_KNOWN_HOSTS:?required}"
           : "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY:?required}"
-          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py)"
+          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py scripts/linux/mystery_public_bootstrap_transaction.py)"
           [[ "${FALLBACK_RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]]
           [[ "${VERIFY_TLS_MODE}" == "prepublic" || "${VERIFY_TLS_MODE}" == "trusted" ]]
           EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"; mkdir -p "${EVIDENCE_DIR}"
@@ -333,7 +333,7 @@ jobs:
           set -euo pipefail
           : "${MYSTERY_PUBLIC_BASE_URL:?required}"; : "${DMZ_SSH_KEY:?required}"; : "${DMZ_SSH_KNOWN_HOSTS:?required}"
           : "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY:?required}"
-          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py)"
+          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py scripts/linux/mystery_public_bootstrap_transaction.py)"
           [[ "${ROLLBACK_RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]]; test -z "${FALLBACK_RELEASE_ID}"; test -z "${BASELINE_CURRENT_RELEASE_ID}"
           [[ "${VERIFY_TLS_MODE}" == "prepublic" || "${VERIFY_TLS_MODE}" == "trusted" ]]
           EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"; mkdir -p "${EVIDENCE_DIR}"
@@ -430,7 +430,7 @@ jobs:
           test -z "${FALLBACK_RELEASE_ID}${BASELINE_CURRENT_RELEASE_ID}${ROLLBACK_RELEASE_ID}"
           : "${MYSTERY_PUBLIC_BASE_URL:?required}"; : "${DMZ_SSH_KEY:?required}"; : "${DMZ_SSH_KNOWN_HOSTS:?required}"
           : "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY:?required}"
-          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py)"
+          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py scripts/linux/mystery_public_bootstrap_transaction.py)"
           [[ "${VERIFY_TLS_MODE}" == "prepublic" || "${VERIFY_TLS_MODE}" == "trusted" ]]
           EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"; mkdir -p "${EVIDENCE_DIR}"
           SSH_KEY_FILE="$(mktemp)"; RELEASE_KEY_FILE="$(mktemp)"; KNOWN_HOSTS_FILE="$(mktemp)"

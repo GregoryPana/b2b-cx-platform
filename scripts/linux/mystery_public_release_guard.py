@@ -85,9 +85,10 @@ def privileged_suite_version(paths: list[Path]) -> str:
         "cwscx_mystery_public_deploy_entrypoint.sh",
         "install_mystery_public_bundle.sh",
         "mystery_public_release_guard.py",
+        "mystery_public_bootstrap_transaction.py",
     )
     if len(paths) != len(names):
-        raise GuardError("privileged suite must contain exactly three files")
+        raise GuardError("privileged suite must contain exactly four files")
     digest = hashlib.sha256()
     for name, path in zip(names, paths):
         _regular_file(path, "privileged suite source")
