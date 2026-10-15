@@ -6,6 +6,20 @@ concurrency:
 
 on:
   workflow_dispatch:
+    inputs:
+      validated_artifact_run_id:
+        required: true
+        type: string
+      validated_artifact_sha256:
+        required: true
+        type: string
+      validated_source_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -52,7 +66,7 @@ jobs:
     environment: production
     needs: changes
     env:
-      RELEASE_ID: production-${{ github.run_number }}-${{ github.sha }}
+      RELEASE_ID: production-${{ github.run_number }}-${{ inputs.validated_source_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -119,15 +133,24 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Build release bundle
+      - name: Download the exact staging-validated release (no rebuild)
+        uses: actions/download-artifact@v4
+        with:
+          name: cwscx-validated-staging-release
+          run-id: ${{ inputs.validated_artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/validated-release
+      - name: Verify successful staging provenance and approved digest
         shell: bash
         env:
-          BUILD_BACKEND: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.infra == 'true' }}
-          BUILD_DASHBOARD: ${{ needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.infra == 'true' }}
-          BUILD_SURVEYS: ${{ needs.changes.outputs.surveys == 'true' || needs.changes.outputs.infra == 'true' }}
-          BUILD_MYSTERY_SHOPPER: ${{ needs.changes.outputs.mystery == 'true' || needs.changes.outputs.infra == 'true' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_DIGEST: ${{ inputs.validated_artifact_sha256 }}
+          EXPECTED_SOURCE: ${{ inputs.validated_source_sha }}
+          PRODUCER_RUN: ${{ inputs.validated_artifact_run_id }}
         run: |
-          bash scripts/linux/build_release_bundle.sh "${RUNNER_TEMP}/cwscx-release.zip"
+          set -euo pipefail
+          python3 scripts/linux/analytics_release_artifact.py validate --bundle "$RUNNER_TEMP/validated-release/cwscx-release.zip" --receipt "$RUNNER_TEMP/validated-release/release.json" --sha "$EXPECTED_DIGEST" --source "$EXPECTED_SOURCE" --producer "$PRODUCER_RUN"
+          cp "$RUNNER_TEMP/validated-release/cwscx-release.zip" "$RUNNER_TEMP/cwscx-release.zip"
 
       - name: Install and deploy on production VM (local runner)
         shell: bash
@@ -169,7 +192,7 @@ jobs:
 
           deploy_release() {
             ls -lt "${TARGET_ROOT}/releases" | head
-            LATEST_ZIP="$(ls -1t "${TARGET_ROOT}"/releases/cwscx-release-*.zip | head -n1)"
+            LATEST_ZIP="${NEW_BUNDLE}"
             echo "${LATEST_ZIP}"
             unzip -l "${LATEST_ZIP}" | grep -E "dashboard/dist/assets/index|internal-surveys/b2b/dist/assets/index|internal-surveys/installation/dist/assets/index|public/mystery-shopper/dist/assets/index"
             sudo bash scripts/linux/install_release_bundle.sh "${LATEST_ZIP}"

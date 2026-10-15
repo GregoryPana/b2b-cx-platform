@@ -1,0 +1,36 @@
+name: export-validated-staging
+on:
+  workflow_dispatch:
+    inputs:
+      staging_deployment_run:
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+jobs:
+  export:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, cwscx-tst01]
+    environment: staging
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify installed payload and export exact successful staging ZIP
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STAGING_RUN: ${{ inputs.staging_deployment_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet cwscx-backend
+          python3 scripts/linux/analytics_release_artifact.py export --run "$STAGING_RUN" --out "$RUNNER_TEMP/validated-release"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cwscx-validated-staging-release
+          path: ${{ runner.temp }}/validated-release/
+          if-no-files-found: error
+          retention-days: 30
