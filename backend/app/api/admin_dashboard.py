@@ -527,10 +527,13 @@ async def get_analytics(db: Session = Depends(get_db)):
         visit_stats = db.execute(text("""
             SELECT 
                 COUNT(*) as total_visits,
-                COUNT(CASE WHEN status = 'Draft' THEN 1 ELSE 0 END) as draft_visits,
-                COUNT(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_visits,
-                COUNT(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed_visits,
-                COUNT(CASE WHEN status = 'Submitted' THEN 1 ELSE 0 END) as submitted_visits
+                COUNT(CASE WHEN status::text = 'Draft' THEN 1 END) as draft_visits,
+                COUNT(CASE WHEN status::text = 'Pending' THEN 1 END) as pending_visits,
+                COUNT(CASE WHEN status::text = 'Needs Changes' THEN 1 END) as needs_changes_visits,
+                COUNT(CASE WHEN status::text = 'Approved' THEN 1 END) as approved_visits,
+                COUNT(CASE WHEN status::text = 'Rejected' THEN 1 END) as rejected_visits,
+                COUNT(CASE WHEN status::text = 'Completed' THEN 1 END) as completed_visits,
+                COUNT(CASE WHEN status::text = 'Submitted' THEN 1 END) as submitted_visits
             FROM visits
         """)).fetchone()
         
@@ -538,9 +541,9 @@ async def get_analytics(db: Session = Depends(get_db)):
         response_stats = db.execute(text("""
             SELECT 
                 COUNT(*) as total_responses,
-                COUNT(CASE WHEN score IS NOT NULL THEN 1 ELSE 0 END) as scored_responses,
-                AVG(CASE WHEN score IS NOT NULL THEN score ELSE 0 END) as avg_score,
-                COUNT(CASE WHEN answer_text IS NOT NULL AND answer_text != '' THEN 1 ELSE 0 END) as text_responses
+                COUNT(score) as scored_responses,
+                AVG(score) as avg_score,
+                COUNT(CASE WHEN answer_text IS NOT NULL AND answer_text != '' THEN 1 END) as text_responses
             FROM b2b_visit_responses
         """)).fetchone()
         
@@ -548,7 +551,7 @@ async def get_analytics(db: Session = Depends(get_db)):
         business_stats = db.execute(text("""
             SELECT 
                 COUNT(*) as total_businesses,
-                COUNT(CASE WHEN active = true THEN 1 ELSE 0 END) as active_businesses
+                COUNT(CASE WHEN active = true THEN 1 END) as active_businesses
             FROM businesses
         """)).fetchone()
         
@@ -556,24 +559,31 @@ async def get_analytics(db: Session = Depends(get_db)):
         user_stats = db.execute(text("""
             SELECT 
                 COUNT(*) as total_users,
-                COUNT(CASE WHEN role = 'Representative' THEN 1 ELSE 0 END) as representatives,
-                COUNT(CASE WHEN role = 'Manager' THEN 1 ELSE 0 END) as managers,
-                COUNT(CASE WHEN role = 'Admin' THEN 1 ELSE 0 END) as admins
+                COUNT(CASE WHEN role = 'Representative' THEN 1 END) as representatives,
+                COUNT(CASE WHEN role = 'Manager' THEN 1 END) as managers,
+                COUNT(CASE WHEN role = 'Admin' THEN 1 END) as admins
             FROM b2b_users
         """)).fetchone()
         
         return {
+            # Intentionally GLOBAL: every module's visits and the mirrored Mystery rows in
+            # b2b_visit_responses are counted. These are operational counters, not module KPIs;
+            # use /analytics?survey_type=... for module-scoped metrics.
+            "scope": {"module": "all", "global": True, "population": "all_rows_all_statuses"},
             "visits": {
                 "total": visit_stats.total_visits,
                 "draft": visit_stats.draft_visits,
                 "pending": visit_stats.pending_visits,
+                "needs_changes": visit_stats.needs_changes_visits,
+                "approved": visit_stats.approved_visits,
+                "rejected": visit_stats.rejected_visits,
                 "completed": visit_stats.completed_visits,
                 "submitted": visit_stats.submitted_visits
             },
             "responses": {
                 "total": response_stats.total_responses,
                 "scored": response_stats.scored_responses,
-                "avg_score": float(response_stats.avg_score) if response_stats.avg_score else 0,
+                "avg_score": float(response_stats.avg_score) if response_stats.avg_score is not None else None,
                 "text_responses": response_stats.text_responses
             },
             "businesses": {

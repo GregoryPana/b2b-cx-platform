@@ -108,6 +108,7 @@ def b2b_visit(db_available):
 
     db = SessionLocal()
     visit_id = str(uuid.uuid4())
+    business_id = None
     try:
         b2b_stid = db.execute(
             text("SELECT id FROM survey_types WHERE LOWER(name) = 'b2b' LIMIT 1")
@@ -134,16 +135,20 @@ def b2b_visit(db_available):
         if len(q_ids) < 2:
             pytest.skip("fewer than 2 B2B questions configured — skipping")
 
+        business_id = db.execute(
+            text("INSERT INTO businesses (name) VALUES (:name) RETURNING id"),
+            {"name": f"Dedup fixture {uuid.uuid4().hex}"},
+        ).scalar_one()
         db.execute(
             text(
                 """
                 INSERT INTO visits
-                  (id, survey_type_id, visit_date, visit_type, status)
+                  (id, business_id, survey_type_id, visit_date, visit_type, status)
                 VALUES
-                  (:id, :stid, :vdate, 'Planned', 'Draft')
+                  (:id, :business_id, :stid, :vdate, 'Planned', 'Draft')
                 """
             ),
-            {"id": visit_id, "stid": b2b_stid, "vdate": date.today().isoformat()},
+            {"id": visit_id, "business_id": business_id, "stid": b2b_stid, "vdate": date.today().isoformat()},
         )
         db.commit()
         yield {"visit_id": visit_id, "question_ids": q_ids}
@@ -158,6 +163,9 @@ def b2b_visit(db_available):
                 db.commit()
             except Exception:
                 db.rollback()
+        if business_id is not None:
+            db.execute(text("DELETE FROM businesses WHERE id = :id"), {"id": business_id})
+            db.commit()
         db.close()
 
 

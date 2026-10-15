@@ -12,6 +12,10 @@ import {
   YAxis,
 } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
+import { getTrafficLightMetric } from "../../../lib/utils";
+
+// Chart fills for the shared traffic-light tones (same thresholds as the report cards).
+const MYSTERY_TONE_FILL = { good: "#10b981", warning: "#f59e0b", bad: "#ef4444", neutral: "#6b7280" };
 
 const CATEGORY_COLORS = {
   "External Environment & First Impression": "#3b82f6",
@@ -428,12 +432,7 @@ export default function MysteryAnalyticsSummarySection({ mysteryAnalyticsSummary
                   {staffData.map((row) => (
                     <Cell
                       key={row.staff_name}
-                      fill={
-                        row.csat_average == null ? "#6b7280"
-                          : row.csat_average >= 7 ? "#10b981"
-                          : row.csat_average >= 5 ? "#f59e0b"
-                          : "#ef4444"
-                      }
+                      fill={MYSTERY_TONE_FILL[getTrafficLightMetric("mystery_csat", row.csat_average).tone]}
                     />
                   ))}
                 </Bar>

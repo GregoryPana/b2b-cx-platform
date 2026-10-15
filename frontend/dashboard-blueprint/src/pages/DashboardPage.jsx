@@ -1900,12 +1900,12 @@ const platformAbortRef = useRef(null);
    ];
 
    const mysteryReportMetricCards = [
-     { title: "NPS — Would Recommend?", value: reportPreview?.mystery_metrics?.selected_nps ?? "--", metric: "b2b_nps" },
-     ...(reportType === "lifetime" ? [{ title: "Overall NPS (All Time)", value: reportPreview?.mystery_metrics?.overall_nps ?? "--", metric: "b2b_nps" }] : []),
-     { title: "CSAT — Satisfaction (0–10)", value: reportPreview?.mystery_metrics?.selected_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" },
-     ...(reportType === "lifetime" ? [{ title: "Overall CSAT (All Time)", value: reportPreview?.mystery_metrics?.overall_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" }] : []),
-     { title: "Overall Experience Score", value: reportPreview?.mystery_metrics?.selected_overall_experience?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
-     { title: "Service Quality Score", value: reportPreview?.mystery_metrics?.selected_quality?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
+     { title: "NPS — Would Recommend?", value: reportPreview?.mystery_metrics?.selected_nps ?? "--", metric: "mystery_nps" },
+     ...(reportType === "lifetime" ? [{ title: "Overall NPS (All Time)", value: reportPreview?.mystery_metrics?.overall_nps ?? "--", metric: "mystery_nps" }] : []),
+     { title: "CSAT — Satisfaction (0–10)", value: reportPreview?.mystery_metrics?.selected_csat?.toFixed?.(2) ?? "--", metric: "mystery_csat" },
+     ...(reportType === "lifetime" ? [{ title: "Overall CSAT (All Time)", value: reportPreview?.mystery_metrics?.overall_csat?.toFixed?.(2) ?? "--", metric: "mystery_csat" }] : []),
+     { title: "Overall Experience Score", value: reportPreview?.mystery_metrics?.selected_overall_experience?.toFixed?.(2) ?? "--", metric: "mystery_overall_experience" },
+     { title: "Service Quality Score", value: reportPreview?.mystery_metrics?.selected_quality?.toFixed?.(2) ?? "--", metric: "mystery_quality" },
    ];
 
    const installPreviewAverage = (items, key, target) => {

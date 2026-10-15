@@ -32,6 +32,15 @@ const TRAFFIC_LIGHT_CLASSES = {
   },
 };
 
+// Mystery Shopper report/dashboard metrics use their own scales (not the B2B percent rules).
+// Keep in sync with backend MYSTERY_METRIC_THRESHOLDS (contract: backend/tests/analytics/metric_threshold_contract.json).
+export const MYSTERY_METRIC_THRESHOLDS = {
+  mystery_nps: { good: 50, warning: 0 }, // -100..100
+  mystery_csat: { good: 8, warning: 6 }, // 0-10 pooled mean
+  mystery_overall_experience: { good: 8, warning: 6 }, // 0-10
+  mystery_quality: { good: 4, warning: 3 }, // 1-5
+};
+
 function toFiniteNumber(value) {
   if (value == null || value === "") return null;
   const numeric = Number(String(value).replace(/%/g, "").trim());
@@ -52,7 +61,19 @@ export function getTrafficLightMetric(metric, value) {
   let tone = "neutral";
   let label = "No data";
 
-  if (metric === "b2b_nps") {
+  if (MYSTERY_METRIC_THRESHOLDS[metric]) {
+    const { good, warning } = MYSTERY_METRIC_THRESHOLDS[metric];
+    if (numericValue >= good) {
+      tone = "good";
+      label = "Healthy";
+    } else if (numericValue >= warning) {
+      tone = "warning";
+      label = "Watch";
+    } else {
+      tone = "bad";
+      label = "Needs attention";
+    }
+  } else if (metric === "b2b_nps") {
     if (numericValue >= 50) {
       tone = "good";
       label = "Healthy";
