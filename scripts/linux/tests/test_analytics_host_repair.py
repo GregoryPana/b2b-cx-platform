@@ -211,6 +211,18 @@ class RepairTests(unittest.TestCase):
             self.action('production_site',fail)
         self.assertEqual(os.readlink(link),'../available/cwscx-staging')
 
+    def test_reload_waits_for_strict_certificate_convergence(self):
+        with patch.object(m,'verify_https',side_effect=[ssl.SSLCertVerificationError('old worker'),{'verified':True}]) as verifier, patch.object(m.time,'sleep'):
+            proof = m.verify_after_reload('cwscx-tst01.cwsey.com')
+        self.assertEqual(verifier.call_count,2)
+        self.assertEqual(proof['reload_tls_attempts'],2)
+
+    def test_permanent_certificate_failure_remains_fail_closed(self):
+        with patch.object(m,'verify_https',side_effect=ssl.SSLCertVerificationError('wrong certificate')) as verifier, patch.object(m.time,'sleep'):
+            with self.assertRaises(ssl.SSLCertVerificationError):
+                m.verify_after_reload('cwscx-tst01.cwsey.com')
+        self.assertEqual(verifier.call_count,10)
+
     def test_real_https_asset_health_and_auth_contract(self):
         m.generate_certificate(self.cert,self.key,'localhost','127.0.0.1')
         asset_bytes = self.asset.read_bytes()
