@@ -96,7 +96,12 @@ jobs:
                   raise SystemExit('Internal API authentication/route check did not return 401')
           report['anonymous_internal_api_status'] = 401
           host = 'cwscx-tst01.cwsey.com' if os.environ['TARGET'] == 'staging' else 'cwscx-app01.cwsey.com'
-          tls = ssl.create_default_context(cafile='/etc/ssl/cwscx/cwscx.crt')
+          certificate = subprocess.run(
+              ['sudo', '-n', 'openssl', 'x509', '-in', '/etc/ssl/cwscx/cwscx.crt', '-outform', 'PEM'],
+              capture_output=True, text=True, timeout=10)
+          if certificate.returncode:
+              raise SystemExit('Cannot read the installed public TLS certificate for pinned verification')
+          tls = ssl.create_default_context(cadata=certificate.stdout)
           request = urllib.request.Request('https://'+host+'/dashboard/')
           with urllib.request.urlopen(request, context=tls, timeout=10) as response:
               html = response.read(1024*1024).decode('utf-8')
