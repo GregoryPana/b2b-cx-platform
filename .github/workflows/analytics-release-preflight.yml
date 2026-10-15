@@ -36,7 +36,7 @@ jobs:
           WORKING_DIR="$(systemctl show cwscx-backend -p WorkingDirectory --value)"
           export WORKING_DIR
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, shutil, subprocess, urllib.request, urllib.error, re, ssl, shlex
+          import hashlib, json, os, pathlib, shutil, subprocess, urllib.request, urllib.error, re, ssl
           working = pathlib.Path(os.environ['WORKING_DIR']).resolve()
           root = pathlib.Path('/opt/cwscx').resolve()
           if root not in working.parents:
