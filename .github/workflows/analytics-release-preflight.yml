@@ -6,6 +6,9 @@ on:
         type: choice
         required: true
         options: [staging, production]
+      diagnostics_only:
+        type: boolean
+        default: false
       require_installed_source:
         type: boolean
         default: false
@@ -25,6 +28,7 @@ jobs:
         shell: bash
         env:
           TARGET: ${{ inputs.target }}
+          DIAGNOSTICS_ONLY: ${{ inputs.diagnostics_only }}
           REQUIRE_INSTALLED_SOURCE: ${{ inputs.require_installed_source }}
         run: |
           set -euo pipefail
@@ -36,12 +40,33 @@ jobs:
           WORKING_DIR="$(systemctl show cwscx-backend -p WorkingDirectory --value)"
           export WORKING_DIR
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, shutil, subprocess, urllib.request
+          import hashlib, json, os, pathlib, shutil, subprocess, urllib.request, urllib.error, re, ssl
           working = pathlib.Path(os.environ['WORKING_DIR']).resolve()
           root = pathlib.Path('/opt/cwscx').resolve()
           if root not in working.parents:
               raise SystemExit('Service working directory is outside the registered application root')
           report = {'target':os.environ['TARGET'], 'hostname':os.uname().nodename, 'working_directory':str(working)}
+          inventory_code = '''
+          import pathlib, subprocess, json
+          roots = [pathlib.Path('/etc/ssl/cwscx'), pathlib.Path('/etc/nginx/ssl'), pathlib.Path('/usr/local/share/ca-certificates')]
+          files = set()
+          for root in roots:
+              if root.exists(): files.update(root.rglob('*.crt'))
+          files.update(p for p in pathlib.Path('/etc/ssl/certs').glob('*.crt') if 'cws' in p.name.lower())
+          records = []
+          for path in sorted(files)[:200]:
+              if 'key' in path.name.lower(): continue
+              result = subprocess.run(['/usr/bin/openssl','x509','-in',str(path),'-noout','-subject','-issuer','-dates','-ext','subjectAltName','-fingerprint','-sha256'],capture_output=True,text=True,timeout=5)
+              if 'subject=' in result.stdout: records.append({'path':str(path),'certificate':result.stdout.strip().splitlines()})
+          print(json.dumps(records))
+          '''
+          import shlex
+          inventory = subprocess.run(['sudo','-n','/usr/bin/bash','-lc','exec /usr/bin/python3 -c '+shlex.quote(inventory_code)],capture_output=True,text=True,timeout=45)
+          report['public_certificate_inventory'] = json.loads(inventory.stdout) if inventory.returncode == 0 else 'unavailable with existing privileges'
+          report['enabled_nginx_site_names'] = sorted(p.name for p in pathlib.Path('/etc/nginx/sites-enabled').iterdir())
+          listeners = subprocess.run(['ss','-ltnH'],capture_output=True,text=True,timeout=5)
+          report['tcp_listening_endpoints'] = sorted({line.split()[3] for line in listeners.stdout.splitlines() if len(line.split()) >= 4})
+          report['available_rollback_bundles'] = [p.name for p in sorted((root/'releases').glob('cwscx-release-*.zip'),key=lambda p:p.stat().st_mtime,reverse=True)[:3]]
           report['disk_free_bytes'] = shutil.disk_usage(root).free
           if report['disk_free_bytes'] < 1024**3:
               raise SystemExit('Insufficient free disk for safe deployment')
@@ -86,5 +111,81 @@ jobs:
           report['database_heads'] = json.loads(result.stdout)
           if report['database_heads'] != ['20260714_000032']:
               raise SystemExit('Live database head differs from the reviewed release head; stop before deployment')
+          # An anonymous request must be rejected before any survey data is read.
+          # This also distinguishes the internal route surface from mystery_public.
+          try:
+              with urllib.request.urlopen('http://127.0.0.1:8000/dashboard-visits/all', timeout=10):
+                  raise SystemExit('Internal API unexpectedly accepted an anonymous request')
+          except urllib.error.HTTPError as error:
+              if error.code != 401:
+                  raise SystemExit('Internal API authentication/route check did not return 401')
+          report['anonymous_internal_api_status'] = 401
+          host = 'cwscx-tst01.cwsey.com' if os.environ['TARGET'] == 'staging' else 'cwscx-app01.cwsey.com'
+          configs = []
+          for path in pathlib.Path('/etc/nginx/sites-enabled').iterdir():
+              if not path.is_file():
+                  continue
+              try:
+                  content = path.read_text()
+              except (OSError, UnicodeError):
+                  continue
+              names = re.findall(r'^\s*server_name\s+([^;]+);', content, re.M)
+              if 'cwscx' not in path.name.lower() and not any('cwscx' in name.lower() for name in names):
+                  continue
+              configs.append((path, content, names))
+          report['nginx_sites'] = [{'file':str(p), 'server_names':n} for p,c,n in configs]
+          matching = [(p,c,n) for p,c,n in configs if any(host in name.split() for name in n)]
+          if len(matching) == 1:
+              nginx_config, content, names = matching[0]
+          else:
+              preferred = [(p,c,n) for p,c,n in configs if p.name == ('cwscx-staging' if os.environ['TARGET'] == 'staging' else 'cwscx-production')]
+              if len(preferred) != 1:
+                  print(json.dumps(report, indent=2))
+                  raise SystemExit('Cannot uniquely map the registered hostname to an active NGINX site')
+              nginx_config, content, names = preferred[0]
+          report['selected_nginx_site'] = str(nginx_config)
+          matches = sorted(set(re.findall(r'^\s*ssl_certificate\s+([^;]+);', content, re.M)))
+          if len(matches) != 1:
+              raise SystemExit('Cannot identify the registered site public certificate')
+          certificate_path = pathlib.Path(matches[0].strip()).resolve()
+          if not certificate_path.is_relative_to('/etc'):
+              raise SystemExit('Configured certificate is outside the registered system config root')
+          certificate = subprocess.run(
+              ['openssl', 'x509', '-in', str(certificate_path), '-outform', 'PEM'],
+              capture_output=True, text=True, timeout=10)
+          if certificate.returncode and certificate_path == pathlib.Path('/etc/ssl/cwscx/cwscx.crt'):
+              # Internal deploy already permits this root wrapper. Read only the
+              # fixed public certificate; do not grant sudo, chmod or read a key.
+              certificate = subprocess.run(
+                  ['sudo', '-n', '/usr/bin/bash', '-lc', 'exec /usr/bin/openssl x509 -in /etc/ssl/cwscx/cwscx.crt -outform PEM'],
+                  capture_output=True, text=True, timeout=10)
+          if certificate.returncode:
+              raise SystemExit('Installed public certificate cannot be verified with existing privileges; no permissions changed')
+          details = subprocess.run(['openssl','x509','-noout','-subject','-issuer','-dates','-ext','subjectAltName','-fingerprint','-sha256'], input=certificate.stdout, capture_output=True, text=True, timeout=10)
+          report['configured_certificate'] = details.stdout.strip().splitlines()
+          probe = subprocess.run(['openssl','s_client','-connect','127.0.0.1:443','-servername',host,'-showcerts'], input='', capture_output=True, text=True, timeout=15)
+          pem = re.search(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', probe.stdout, re.S)
+          if pem:
+              report['served_certificate_matches_configured'] = hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem.group())).digest() == hashlib.sha256(ssl.PEM_cert_to_DER_cert(certificate.stdout)).digest()
+          report['registered_hostname'] = host
+          if os.environ.get('DIAGNOSTICS_ONLY') == 'true':
+              report['purpose'] = 'inventory_only_not_a_release_gate'
+              print(json.dumps(report, indent=2))
+              raise SystemExit(0)
+          tls = ssl.create_default_context(cadata=certificate.stdout)
+          request = urllib.request.Request('https://'+host+'/dashboard/')
+          with urllib.request.urlopen(request, context=tls, timeout=10) as response:
+              html = response.read(1024*1024).decode('utf-8')
+          assets = re.findall(r'<script[^>]+src=[\"\']([^\"\']+)[\"\']', html)
+          if not assets or not assets[0].startswith('/dashboard/assets/'):
+              raise SystemExit('Dashboard HTML lacks the expected release asset')
+          request = urllib.request.Request('https://'+host+assets[0])
+          with urllib.request.urlopen(request, context=tls, timeout=10) as response:
+              served = response.read(16*1024*1024)
+          asset_name = pathlib.PurePosixPath(assets[0]).name
+          installed_asset = root/'frontends-src/dashboard/dist/assets'/asset_name
+          if not installed_asset.is_file() or hashlib.sha256(served).digest() != hashlib.sha256(installed_asset.read_bytes()).digest():
+              raise SystemExit('Served dashboard bundle differs from installed release asset')
+          report['dashboard_asset_matches_installed'] = True
           print(json.dumps(report, indent=2))
           PY
