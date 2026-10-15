@@ -6,6 +6,8 @@ This is a qualified engineering evidence record, not a production deployment or 
 
 **Exact tested source:** `d3ea9422c473881384edf4c1434aff66611d725f` (`d3ea942`). It is the runtime-tested source checkpoint on draft PR #27's branch `fix/mystery-release-audit-20261013`; later documentation or observability changes must retain their own exact-head CI and test evidence. Cumulative PR #26 remains unmerged. The evidence below does **not** establish that `d3ea942` is merged, deployed to production, or exercised on the actual intranet target. No workflow dispatch, production/intranet access, migration, credential rotation, VM bootstrap, GitHub settings change, commit, or push was performed while consolidating this record.
 
+**Later document/control checkpoint:** `99755b34b3dcbb904f789029b1ba553ac9c608d2` (`99755b3`). Recovery-attempt observability developed after this checkpoint is local and unpublished: it does not add runtime proof to the `d3ea942` matrix below, and its hosted CI result must not be inferred from this note.
+
 ## Gate summary
 
 **Actual local VM release test gate: QUALIFIED PASS — not an all-green matrix.** In disposable no-network Ubuntu 24.04 QEMU guests, the real privileged release path at `d3ea942` established a signed baseline, completed a normal signed deployment and explicit signed rollback, preserved the authenticated baseline through a complete preactivation candidate failure, recovered automatically from a postactivation NGINX `exit 42`, and reconciled one actual preactivation SIGKILL. Each successful deployment/recovery verification cited below reported 18/18 checks passing. Several enclosing harnesses nevertheless failed on fixture-only expectations or result markers, and the first automatic fallback probe in the postactivation run timed out at 30 seconds before the EXIT-trap recovery attempt succeeded. Engineering is therefore not unconditionally finished.
@@ -37,13 +39,19 @@ Across the successful operation/recovery evidence, checks included exact release
 - No frontend-device/APN shopper flow, device TLS trust, APN routing/negative reachability, monitoring/support handover, or business acceptance was exercised.
 - No actual production credential rotation/revocation, first bootstrap, environment protection, repository protection, or GitHub settings change was performed.
 
+## Fresh read-only GitHub control observation at `99755b3`
+
+The following metadata was read without changing settings. `main` was not protected. The `mystery-public` environment had no protection rules, allowed administrator bypass, and had no deployment branch policy. Its secret names were exactly `DMZ_SSH_KEY`, `DMZ_SSH_KNOWN_HOSTS`, and `MYSTERY_PUBLIC_BASE_URL`; repository Actions secrets reported a total count of zero. The required `MYSTERY_PUBLIC_RELEASE_SIGNING_KEY` was therefore absent from both environment and repository scopes. Secret values were not read or recorded.
+
+These are current approval/provisioning blockers: establish the approved branch/environment protections and provision the release-signing secret through the authorized owner process before release. They are GitHub-side controls and are **not** intranet/APN blockers. No settings or secret changes are authorized by this record.
+
 ## Remaining engineering and release controls
 
 Engineering remains open despite the qualified local-VM gate:
 
 1. Investigate or bound the intermittent private-candidate probe latency under software TCG and obtain a complete clean harness run whose aggregate marker and assertions match policy. Do not reinterpret the successful EXIT-trap recovery as proof that the first fallback probe is reliable.
 2. Review and reconcile competing unmerged PRs #26 and #27; merge only the approved exact source after required review and CI. `d3ea942` is evidence-bearing source, not a production release declaration.
-3. Provision and independently verify required repository/environment protections, approval rules, distinct signer trust, narrow VM privileged suite, and credential lifecycle controls. Historical read-only observations are not proof of the latest settings and this document authorizes no settings or credential change.
+3. Remediate and independently re-verify the GitHub gaps observed at `99755b3`: unprotected `main`; no `mystery-public` protection rules or branch policy; administrator bypass enabled; and `MYSTERY_PUBLIC_RELEASE_SIGNING_KEY` absent at environment and repository scopes. Then verify distinct signer trust, the narrow VM privileged suite, and credential lifecycle controls. This document authorizes no settings or credential change.
 4. Execute the approved workflow on the actual target later: verify the target `.env` grammar without exposing values, root-owned bootstrap/source provenance, exact database heads and backup/restore ownership, first signed baseline where applicable, normal deployment, rollback/failure recovery, and retained evidence.
 5. Exercise additional interruption boundaries separately before any all-boundaries or power-loss claim. For future SIGKILL fixtures, capture residual-temporary `lstat` metadata including `mtime`, blocker state, and a policy-correct aged-maintenance lifecycle.
 

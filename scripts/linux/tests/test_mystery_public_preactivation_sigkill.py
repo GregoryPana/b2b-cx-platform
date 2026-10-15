@@ -104,6 +104,11 @@ elif cmd == 'check-candidate-app':
     release = pathlib.Path(sys.argv[2]); release_id = release.name
     if os.environ.get('HARNESS_APP_FAIL_ID') == release_id:
         raise SystemExit(1)
+    once = os.environ.get('HARNESS_APP_FAIL_ONCE_ID')
+    once_marker = pathlib.Path(os.environ.get('HARNESS_APP_FAIL_ONCE_MARKER', '/nonexistent'))
+    if once == release_id and not once_marker.exists():
+        once_marker.write_text('failed-once\\n')
+        raise SystemExit(1)
     manifest = json.loads((release / 'release-manifest.json').read_text())
     print(json.dumps({'release_id': release_id, 'git_sha': manifest['git_sha'], 'ready_status': 'ready',
                       'database': 'ok', 'anonymous_session_status': 401,
@@ -116,11 +121,22 @@ elif cmd == 'store-archive':
     shutil.copyfile(sys.argv[3], release / 'bundle.zip'); shutil.copyfile(sys.argv[4], release / 'bundle.zip.sig')
     (release / 'bundle.zip.sha256').write_text(data['bundle_sha256'] + '  bundle.zip\\n')
     (release / 'metadata.json').write_text(json.dumps({'status': 'deploy_verified'}))
+elif cmd == 'append-recovery-audit':
+    root, nonce = pathlib.Path(sys.argv[2]), sys.argv[3]
+    path = root / ('recovery-attempts-' + nonce + '.jsonl')
+    if path.is_symlink(): raise SystemExit(1)
+    records = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    record = {'attempt_index': len(records) + 1, 'attempt_context': sys.argv[8],
+              'outcome': sys.argv[11], 'failure_class': sys.argv[12],
+              'probe_status': sys.argv[13], 'successful_restoration': sys.argv[14]}
+    with path.open('a') as handle: handle.write(json.dumps(record) + '\\n')
 else:
     raise SystemExit('unexpected guard command: ' + cmd)
 """
 RELEASE_SCRIPTS = {
     "deploy_mystery_public_backend.sh": "#!/usr/bin/env bash\n"
+    "current_id=$(basename \"$(readlink -f \"$TARGET_ROOT/current\")\")\n"
+    "if [[ \"${HARNESS_ACTIVATION_FAIL_ID:-}\" == \"$current_id\" ]]; then exit 42; fi\n"
     "if [[ -n \"${INTERRUPT_ACTIVATION_MARKER:-}\" ]]; then : >\"$INTERRUPT_ACTIVATION_MARKER\"; sleep 30; fi\n"
     "exit 0\n",
     "deploy_mystery_public_nginx.sh": "#!/usr/bin/env bash\nexit 0\n",
@@ -300,7 +316,8 @@ class EntrypointHarness(unittest.TestCase):
         operation = self.sb / f"op{self.counter}.json"
         operation.write_text(json.dumps({
             "action": action, "target_release_id": target, "bundle_sha256": digest,
-            "current_release_id": ORIGIN, "base_url": "https://mystery.internal", "tls_mode": "prepublic"}), encoding="utf-8")
+            "current_release_id": ORIGIN, "base_url": "https://mystery.internal", "tls_mode": "prepublic",
+            "nonce": f"{self.counter:064x}"}), encoding="utf-8")
         signature = self.sb / f"op{self.counter}.json.sig"
         signature.write_text("sig\n", encoding="utf-8")
         args = ["--operation-path", str(operation), "--operation-signature-path", str(signature)]
@@ -497,6 +514,109 @@ class PreactivationSigkillTests(EntrypointHarness):
         self.assertEqual(os.readlink(self.target / "current"), "releases/failed-release")
         self.assertTrue(failed.is_dir())
         self.assertEqual(journal.read_bytes(), saved)
+
+    def test_recovery_audit_preserves_automatic_failure_then_exit_trap_success(self) -> None:
+        bundle = self.make_bundle("new-release")
+        once_marker = self.sb / "fallback-probe-failed-once"
+        result = self.run_entrypoint(
+            self.signed_args("deploy", "new-release", self.sha(bundle), bundle=bundle),
+            HARNESS_ACTIVATION_FAIL_ID="new-release",
+            HARNESS_APP_FAIL_ONCE_ID=ORIGIN,
+            HARNESS_APP_FAIL_ONCE_MARKER=str(once_marker),
+        )
+        self.assertNotEqual(result.returncode, 0, "failed deployment must remain nonzero after recovery")
+        self.assert_current_origin_intact()
+        self.assertFalse((self.state / "active-operation.json").exists())
+        audits = list((self.state / "deploy-evidence").glob("recovery-attempts-*.jsonl"))
+        self.assertEqual(len(audits), 1)
+        records = [json.loads(line) for line in audits[0].read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(record["outcome"], record["attempt_context"]) for record in records], [
+            ("failure", "automatic_explicit"), ("success", "exit_trap")])
+        self.assertEqual(records[0]["failure_class"], "candidate_probe_failed")
+        self.assertEqual(records[0]["probe_status"], "unknown")
+        self.assertEqual(records[1]["successful_restoration"], "exit_trap")
+
+    def test_manual_recover_failure_and_exit_retry_keep_journal_and_nonzero(self) -> None:
+        self.make_installed_release("failed-release")
+        (self.target / "current").unlink()
+        (self.target / "current").symlink_to("releases/failed-release")
+        journal = self.state / "active-operation.json"
+        journal.write_text(json.dumps({
+            "schema_version": 1, "mode": "signed", "original_release_id": ORIGIN,
+            "failed_release_id": "failed-release", "recovery_authorization_sha256": "b" * 64,
+        }), encoding="utf-8")
+        journal.chmod(0o600)
+        result = self.run_entrypoint(
+            self.signed_args("recover", ORIGIN, "b" * 64), HARNESS_APP_FAIL_ID=ORIGIN)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(journal.exists(), "failed attempts must retain the pending journal")
+        audit = next((self.state / "deploy-evidence").glob("recovery-attempts-*.jsonl"))
+        records = [json.loads(line) for line in audit.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(r["outcome"], r["attempt_context"]) for r in records], [
+            ("failure", "manual_signed_recover"), ("failure", "exit_trap")])
+
+    def test_successful_manual_recover_uses_new_invocation_context(self) -> None:
+        self.make_installed_release("failed-release")
+        (self.target / "current").unlink()
+        (self.target / "current").symlink_to("releases/failed-release")
+        journal = self.state / "active-operation.json"
+        journal.write_text(json.dumps({
+            "schema_version": 1, "mode": "signed", "original_release_id": ORIGIN,
+            "failed_release_id": "failed-release", "recovery_authorization_sha256": "b" * 64,
+        }), encoding="utf-8")
+        journal.chmod(0o600)
+        result = self.run_entrypoint(self.signed_args("recover", ORIGIN, "b" * 64))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        audit = next((self.state / "deploy-evidence").glob("recovery-attempts-*.jsonl"))
+        record = json.loads(audit.read_text(encoding="utf-8"))
+        self.assertEqual((record["attempt_index"], record["attempt_context"], record["outcome"]),
+                         (1, "manual_signed_recover", "success"))
+        self.assertEqual(record["successful_restoration"], "explicit")
+
+    def test_audit_failure_does_not_block_successful_recovery_or_touch_collision(self) -> None:
+        self.make_installed_release("failed-release")
+        (self.target / "current").unlink()
+        (self.target / "current").symlink_to("releases/failed-release")
+        journal = self.state / "active-operation.json"
+        journal.write_text(json.dumps({
+            "schema_version": 1, "mode": "signed", "original_release_id": ORIGIN,
+            "failed_release_id": "failed-release", "recovery_authorization_sha256": "b" * 64,
+        }), encoding="utf-8")
+        journal.chmod(0o600)
+        args = self.signed_args("recover", ORIGIN, "b" * 64)
+        nonce = f"{self.counter:064x}"
+        collision_target = self.sb / "collision-target"
+        collision_target.write_text("preserve\n", encoding="utf-8")
+        audit = self.state / "deploy-evidence" / f"recovery-attempts-{nonce}.jsonl"
+        audit.symlink_to(collision_target)
+        result = self.run_entrypoint(args)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(journal.exists())
+        self.assert_current_origin_intact()
+        self.assertEqual(collision_target.read_text(encoding="utf-8"), "preserve\n")
+        self.assertIn("attempt audit could not be appended", result.stderr)
+
+    def test_audit_failure_does_not_clear_failed_recovery_journal(self) -> None:
+        self.make_installed_release("failed-release")
+        (self.target / "current").unlink()
+        (self.target / "current").symlink_to("releases/failed-release")
+        journal = self.state / "active-operation.json"
+        journal.write_text(json.dumps({
+            "schema_version": 1, "mode": "signed", "original_release_id": ORIGIN,
+            "failed_release_id": "failed-release", "recovery_authorization_sha256": "b" * 64,
+        }), encoding="utf-8")
+        journal.chmod(0o600)
+        args = self.signed_args("recover", ORIGIN, "b" * 64)
+        nonce = f"{self.counter:064x}"
+        collision_target = self.sb / "failed-collision-target"
+        collision_target.write_text("preserve\n", encoding="utf-8")
+        audit = self.state / "deploy-evidence" / f"recovery-attempts-{nonce}.jsonl"
+        audit.symlink_to(collision_target)
+        result = self.run_entrypoint(args, HARNESS_APP_FAIL_ID=ORIGIN)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(journal.exists())
+        self.assertEqual(collision_target.read_text(encoding="utf-8"), "preserve\n")
+        self.assertIn("journal remains authoritative", result.stderr)
 
     def test_tampered_markers_are_rejected_without_deleting_anything(self) -> None:
         candidate = self.make_installed_release("marked-release")

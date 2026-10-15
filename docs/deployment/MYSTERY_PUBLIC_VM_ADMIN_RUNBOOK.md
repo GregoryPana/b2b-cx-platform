@@ -97,6 +97,32 @@ Evidence retention is bounded (newest 20 releases) rather than deleted
 immediately after fetch, since deletion right after the workflow's SCP
 would race a slow or retried fetch.
 
+Completed durable-journal recovery attempts can produce a best-effort scoped
+append-only audit at
+`recovery-attempts-<signed-operation-nonce>.jsonl`. The guard derives that
+name from the validated 64-character nonce; callers cannot supply an audit
+path. There is no durable `START` event. Each successfully fsynced `COMPLETED`
+event records its one-based attempt index, explicit
+automatic/EXIT-trap/manual-signed-recover context, monotonic and UTC start/end,
+bounded outcome/failure class, probe status (`ready_http_200` or `unknown`),
+and whether successful restoration was explicit or performed by the EXIT trap.
+Here `ready_http_200` means that the private candidate probe passed; it is not
+a claim about the last activation HTTP check. An unavailable private probe
+result remains `unknown`; raw stderr, exceptions, command
+lines, environment data, keys and response payloads are never audit fields.
+The root-owned mode-`0644` JSONL file is append/fsync persisted, size/event
+bounded, and rejected on symlink, ownership, mode, identity, sequence or
+interrupted-record damage. Never repair or truncate it manually. Audit failure
+is reported but does not retry recovery, relabel its result, clear a pending
+journal, or turn a failed deployment into success. An interruption during
+recovery, or after journal clearing but before the completed-event append, can
+leave no audit row; absence therefore does not prove that no attempt occurred.
+The workflow only uploads this nonce-scoped file when present and does not
+validate audit completeness. Legacy operations without it remain valid and no
+synthetic historical attempt is created. A marker-only signed preactivation
+recovery does not use this attempt audit; it remains recorded by the existing
+release-scoped recovery JSON.
+
 Bootstrap also creates the only new runtime namespace used by this recovery
 path: `/var/lib/cwscx-mystery-public/application-archives`, root-owned mode
 `0700`. Each successful release is retained in an atomically published

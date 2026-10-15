@@ -36,6 +36,29 @@ SHA256_RE = re.compile(r"[0-9a-f]{64}")
 GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 NONCE_RE = re.compile(r"[0-9a-f]{64}")
 HTTPS_ORIGIN_RE = re.compile(r"https://[A-Za-z0-9.-]+")
+RECOVERY_AUDIT_MAX_BYTES = 128 * 1024
+RECOVERY_AUDIT_MAX_EVENTS = 64
+RECOVERY_AUDIT_CONTEXTS = {"automatic_explicit", "exit_trap", "manual_signed_recover"}
+RECOVERY_AUDIT_OUTCOMES = {"success", "failure"}
+RECOVERY_AUDIT_FAILURE_CLASSES = {
+    "none", "baseline_commit_state_invalid", "failed_archive_cleanup",
+    "fallback_archive_authentication_failed", "fallback_runtime_failed",
+    "database_compatibility_failed", "candidate_probe_failed",
+    "current_switch_failed", "activation_verification_failed", "fixed_config_restore_failed",
+    "journal_clear_failed", "unknown_recovery_failure",
+}
+RECOVERY_AUDIT_PROBE_STATUSES = {"ready_http_200", "unknown"}
+RECOVERY_AUDIT_RESTORATIONS = {"explicit", "exit_trap", "none"}
+RECOVERY_AUDIT_FIELDS = {
+    "schema_version", "operation_nonce", "operation_action", "recovery_mode",
+    "original_release_id", "failed_release_id", "attempt_index", "phase",
+    "attempt_context", "started_monotonic_ns", "ended_monotonic_ns",
+    "started_at_utc", "ended_at_utc", "outcome", "failure_class",
+    "probe_status", "successful_restoration", "prior_failed_attempts",
+}
+RECOVERY_AUDIT_IDENTITY_FIELDS = (
+    "operation_action", "recovery_mode", "original_release_id", "failed_release_id",
+)
 OPERATION_FIELDS = {
     "schema_version",
     "action",
@@ -230,6 +253,198 @@ def _utc_timestamp(value: Any, label: str) -> datetime.datetime:
     if parsed.tzinfo != datetime.timezone.utc or parsed.microsecond:
         raise GuardError(f"{label} must use whole UTC seconds")
     return parsed
+
+
+def recovery_audit_path(evidence_root: Path, operation_nonce: str) -> Path:
+    """Derive the only audit path from a signed, validated operation nonce."""
+    if not NONCE_RE.fullmatch(operation_nonce):
+        raise GuardError("recovery audit operation nonce is invalid")
+    return evidence_root / f"recovery-attempts-{operation_nonce}.jsonl"
+
+
+def _validate_recovery_audit_record(record: Any, operation_nonce: str, expected_index: int) -> dict[str, Any]:
+    if not isinstance(record, dict) or set(record) != RECOVERY_AUDIT_FIELDS:
+        raise GuardError("recovery audit record fields are not exact")
+    if record["schema_version"] != 1 or record["operation_nonce"] != operation_nonce:
+        raise GuardError("recovery audit record identity is invalid")
+    if record["operation_action"] not in {"deploy", "establish_baseline", "rollback", "recover"}:
+        raise GuardError("recovery audit operation action is invalid")
+    if record["recovery_mode"] not in {"signed", "signed-new", "baseline-origin"}:
+        raise GuardError("recovery audit mode is invalid")
+    validate_release_id(record["original_release_id"])
+    validate_release_id(record["failed_release_id"])
+    if type(record["attempt_index"]) is not int or record["attempt_index"] != expected_index:
+        raise GuardError("recovery audit attempt sequence is invalid")
+    if record["phase"] != "recovery" or record["attempt_context"] not in RECOVERY_AUDIT_CONTEXTS:
+        raise GuardError("recovery audit context is invalid")
+    for field in ("started_monotonic_ns", "ended_monotonic_ns"):
+        if type(record[field]) is not int or record[field] <= 0:
+            raise GuardError("recovery audit monotonic timestamp is invalid")
+    if record["ended_monotonic_ns"] < record["started_monotonic_ns"]:
+        raise GuardError("recovery audit monotonic interval is invalid")
+    started = _utc_timestamp(record["started_at_utc"], "recovery audit started_at_utc")
+    ended = _utc_timestamp(record["ended_at_utc"], "recovery audit ended_at_utc")
+    if ended < started:
+        raise GuardError("recovery audit wall-clock interval is invalid")
+    if record["outcome"] not in RECOVERY_AUDIT_OUTCOMES \
+            or record["failure_class"] not in RECOVERY_AUDIT_FAILURE_CLASSES \
+            or record["probe_status"] not in RECOVERY_AUDIT_PROBE_STATUSES \
+            or record["successful_restoration"] not in RECOVERY_AUDIT_RESTORATIONS:
+        raise GuardError("recovery audit outcome metadata is invalid")
+    if type(record["prior_failed_attempts"]) is not int or not 0 <= record["prior_failed_attempts"] < expected_index:
+        raise GuardError("recovery audit prior-failure count is invalid")
+    if record["outcome"] == "success":
+        if record["failure_class"] != "none" or record["successful_restoration"] == "none":
+            raise GuardError("successful recovery audit outcome is inconsistent")
+        expected_restoration = "exit_trap" if record["attempt_context"] == "exit_trap" else "explicit"
+        if record["successful_restoration"] != expected_restoration:
+            raise GuardError("successful recovery audit restoration context is inconsistent")
+    elif record["failure_class"] == "none" or record["successful_restoration"] != "none":
+        raise GuardError("failed recovery audit outcome is inconsistent")
+    return record
+
+
+def _read_recovery_audit_descriptor(
+    descriptor: int, operation_nonce: str, *, required_uid: int, max_bytes: int = RECOVERY_AUDIT_MAX_BYTES
+) -> list[dict[str, Any]]:
+    info = os.fstat(descriptor)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != required_uid or stat.S_IMODE(info.st_mode) != 0o644:
+        raise GuardError("recovery audit file ownership or mode is unsafe")
+    if info.st_size == 0:
+        raise GuardError("existing recovery audit file is empty")
+    if info.st_size > max_bytes:
+        raise GuardError("recovery audit file exceeds its bounded size")
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    raw = b""
+    while len(raw) <= max_bytes:
+        block = os.read(descriptor, min(65536, max_bytes + 1 - len(raw)))
+        if not block:
+            break
+        raw += block
+    if len(raw) > max_bytes or (raw and not raw.endswith(b"\n")):
+        raise GuardError("recovery audit file is incomplete or oversized")
+    records: list[dict[str, Any]] = []
+    prior_failed = 0
+    operation_identity: tuple[Any, ...] | None = None
+    for index, line in enumerate(raw.splitlines(), 1):
+        if len(line) > 4096:
+            raise GuardError("recovery audit record exceeds its bounded size")
+        try:
+            record = json.loads(line)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise GuardError("recovery audit file contains a damaged record") from None
+        record = _validate_recovery_audit_record(record, operation_nonce, index)
+        record_identity = tuple(record[field] for field in RECOVERY_AUDIT_IDENTITY_FIELDS)
+        if operation_identity is None:
+            operation_identity = record_identity
+        elif record_identity != operation_identity:
+            raise GuardError("recovery audit operation identity changed within history")
+        if record["prior_failed_attempts"] != prior_failed:
+            raise GuardError("recovery audit prior-failure sequence is invalid")
+        records.append(record)
+        prior_failed += record["outcome"] == "failure"
+        if len(records) > RECOVERY_AUDIT_MAX_EVENTS:
+            raise GuardError("recovery audit file contains too many records")
+    return records
+
+
+def read_recovery_audit(path: Path, operation_nonce: str, *, required_uid: int = 0) -> list[dict[str, Any]]:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        return _read_recovery_audit_descriptor(descriptor, operation_nonce, required_uid=required_uid)
+    finally:
+        os.close(descriptor)
+
+
+def append_recovery_audit(
+    evidence_root: Path,
+    operation_nonce: str,
+    operation_action: str,
+    recovery_mode: str,
+    original_release_id: str,
+    failed_release_id: str,
+    attempt_context: str,
+    started_monotonic_ns: int,
+    started_at_utc: str,
+    outcome: str,
+    failure_class: str,
+    probe_status: str,
+    successful_restoration: str,
+    *,
+    required_uid: int = 0,
+    ended_monotonic_ns: int | None = None,
+    ended_at_utc: str | None = None,
+) -> dict[str, Any]:
+    """Append one sanitized, fsynced event without repairing or replacing history."""
+    path = recovery_audit_path(evidence_root, operation_nonce)
+    root_descriptor = os.open(evidence_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    descriptor: int | None = None
+    created = False
+    try:
+        root_info = os.fstat(root_descriptor)
+        if root_info.st_uid != required_uid or root_info.st_mode & 0o022:
+            raise GuardError("recovery audit root ownership or mode is unsafe")
+        name = path.name
+        flags = os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW
+        try:
+            descriptor = os.open(name, flags, dir_fd=root_descriptor)
+        except FileNotFoundError:
+            try:
+                descriptor = os.open(name, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=root_descriptor)
+            except FileExistsError:
+                descriptor = os.open(name, flags, dir_fd=root_descriptor)
+            else:
+                created = True
+        # Keep a newly created file root-only until its first complete record is
+        # durable. A crash before publication therefore leaves mode 0600, which
+        # later readers reject rather than accepting an empty lost attempt.
+        records = [] if created else _read_recovery_audit_descriptor(
+            descriptor, operation_nonce, required_uid=required_uid
+        )
+        if len(records) >= RECOVERY_AUDIT_MAX_EVENTS:
+            raise GuardError("recovery audit event limit reached")
+        proposed_identity = (operation_action, recovery_mode, original_release_id, failed_release_id)
+        if records and proposed_identity != tuple(
+            records[0][field] for field in RECOVERY_AUDIT_IDENTITY_FIELDS
+        ):
+            raise GuardError("recovery audit proposed operation identity differs from history")
+        prior_failed = sum(record["outcome"] == "failure" for record in records)
+        end_ns = time.monotonic_ns() if ended_monotonic_ns is None else ended_monotonic_ns
+        end_wall = (
+            datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            if ended_at_utc is None else ended_at_utc
+        )
+        record = {
+            "schema_version": 1, "operation_nonce": operation_nonce,
+            "operation_action": operation_action, "recovery_mode": recovery_mode,
+            "original_release_id": original_release_id, "failed_release_id": failed_release_id,
+            "attempt_index": len(records) + 1, "phase": "recovery",
+            "attempt_context": attempt_context, "started_monotonic_ns": started_monotonic_ns,
+            "ended_monotonic_ns": end_ns, "started_at_utc": started_at_utc,
+            "ended_at_utc": end_wall, "outcome": outcome, "failure_class": failure_class,
+            "probe_status": probe_status, "successful_restoration": successful_restoration,
+            "prior_failed_attempts": prior_failed,
+        }
+        _validate_recovery_audit_record(record, operation_nonce, len(records) + 1)
+        encoded = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        if os.fstat(descriptor).st_size + len(encoded) > RECOVERY_AUDIT_MAX_BYTES:
+            raise GuardError("recovery audit append would exceed its bounded size")
+        written = 0
+        while written < len(encoded):
+            count = os.write(descriptor, encoded[written:])
+            if count <= 0:
+                raise GuardError("recovery audit append was interrupted")
+            written += count
+        os.fsync(descriptor)
+        if created:
+            os.fchmod(descriptor, 0o644)
+            os.fsync(descriptor)
+            os.fsync(root_descriptor)
+        return record
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(root_descriptor)
 
 
 def validate_operation_document(document: Any, current_release_id: str, now: datetime.datetime) -> dict[str, Any]:
@@ -1186,6 +1401,20 @@ def _parser() -> argparse.ArgumentParser:
     operation.add_argument("allowed_signers", type=Path)
     operation.add_argument("nonce_root", type=Path)
     operation.add_argument("current_release_id")
+    recovery_audit = sub.add_parser("append-recovery-audit")
+    recovery_audit.add_argument("evidence_root", type=Path)
+    recovery_audit.add_argument("operation_nonce")
+    recovery_audit.add_argument("operation_action")
+    recovery_audit.add_argument("recovery_mode")
+    recovery_audit.add_argument("original_release_id")
+    recovery_audit.add_argument("failed_release_id")
+    recovery_audit.add_argument("attempt_context")
+    recovery_audit.add_argument("started_monotonic_ns", type=int)
+    recovery_audit.add_argument("started_at_utc")
+    recovery_audit.add_argument("outcome")
+    recovery_audit.add_argument("failure_class")
+    recovery_audit.add_argument("probe_status")
+    recovery_audit.add_argument("successful_restoration")
     suite = sub.add_parser("suite-version")
     suite.add_argument("paths", type=Path, nargs="+")
     return parser
@@ -1239,6 +1468,22 @@ def main(argv: list[str] | None = None) -> int:
                     sort_keys=True,
                 )
             )
+        elif args.command == "append-recovery-audit":
+            print(json.dumps(append_recovery_audit(
+                args.evidence_root,
+                args.operation_nonce,
+                args.operation_action,
+                args.recovery_mode,
+                args.original_release_id,
+                args.failed_release_id,
+                args.attempt_context,
+                args.started_monotonic_ns,
+                args.started_at_utc,
+                args.outcome,
+                args.failure_class,
+                args.probe_status,
+                args.successful_restoration,
+            ), sort_keys=True))
         elif args.command == "suite-version":
             print(privileged_suite_version(args.paths))
         else:

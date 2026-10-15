@@ -1117,13 +1117,22 @@ activate_and_verify() {
 recover_release() {
   local failed_id="$1" fallback_id="$2" recovery_evidence
   recovery_evidence="${EVIDENCE_ROOT}/recovery-${failed_id}.json"
+  RECOVER_RELEASE_FAILURE_CLASS="unknown_recovery_failure"; RECOVER_RELEASE_PROBE_STATUS="unknown"
   echo "Activation failed; restoring authenticated fallback ${fallback_id}" >&2
-  verify_archived_installed "${fallback_id}" || return 1
-  check_runtime_usable "${fallback_id}" || return 1
-  check_db_compatible "${fallback_id}" || return 1
-  check_candidate_app "${fallback_id}" || return 1
-  switch_current_signed "${fallback_id}" || return 1
-  activate_and_verify "${fallback_id}" "${recovery_evidence}" || return 1
+  verify_archived_installed "${fallback_id}" \
+    || { RECOVER_RELEASE_FAILURE_CLASS="fallback_archive_authentication_failed"; return 1; }
+  check_runtime_usable "${fallback_id}" \
+    || { RECOVER_RELEASE_FAILURE_CLASS="fallback_runtime_failed"; return 1; }
+  check_db_compatible "${fallback_id}" \
+    || { RECOVER_RELEASE_FAILURE_CLASS="database_compatibility_failed"; return 1; }
+  check_candidate_app "${fallback_id}" \
+    || { RECOVER_RELEASE_FAILURE_CLASS="candidate_probe_failed"; return 1; }
+  RECOVER_RELEASE_PROBE_STATUS="ready_http_200"
+  switch_current_signed "${fallback_id}" \
+    || { RECOVER_RELEASE_FAILURE_CLASS="current_switch_failed"; return 1; }
+  activate_and_verify "${fallback_id}" "${recovery_evidence}" \
+    || { RECOVER_RELEASE_FAILURE_CLASS="activation_verification_failed"; return 1; }
+  RECOVER_RELEASE_FAILURE_CLASS="none"
 }
 
 prune_evidence() {
@@ -1131,7 +1140,7 @@ prune_evidence() {
   while IFS= read -r f; do
     kept=$((kept + 1)); (( kept <= EVIDENCE_RETAIN_COUNT )) && continue
     [[ -f "${f}" && ! -L "${f}" ]] && rm -f -- "${f}"
-  done < <(find "${EVIDENCE_ROOT}" -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' | sort -rn -k1,1 | cut -d' ' -f2-)
+  done < <(find "${EVIDENCE_ROOT}" -maxdepth 1 -type f \( -name '*.json' -o -name 'recovery-attempts-*.jsonl' \) -printf '%T@ %p\n' | sort -rn -k1,1 | cut -d' ' -f2-)
 }
 
 remove_archive() {
@@ -1289,6 +1298,7 @@ ROOT_OPERATION_SIGNATURE="${ROOT_OPERATION}.sig"
 OPERATION_JSON="$(mktemp "${INCOMING_ROOT}/authorized.XXXXXX.json")"
 ROOT_BUNDLE=""; ROOT_BUNDLE_SIGNATURE=""; MANIFEST_JSON=""
 RECOVERY_ARMED=0; RECOVERY_MODE=""; RECOVERY_ORIGINAL_ID=""; RECOVERY_FAILED_ID=""; RECOVERY_AUTHORIZATION_SHA256=""
+RECOVERY_AUDIT_NONCE=""; OPERATION_ACTION=""; RECOVERY_FAILURE_CLASS="unknown_recovery_failure"; RECOVERY_PROBE_STATUS="unknown"
 PREACTIVATION_ID=""
 arm_recovery() {
   RECOVERY_MODE="$1"; RECOVERY_ORIGINAL_ID="$2"; RECOVERY_FAILED_ID="$3"; RECOVERY_AUTHORIZATION_SHA256="$4"
@@ -1304,41 +1314,91 @@ load_recovery() {
 }
 recover_pending_operation() {
   [[ "${RECOVERY_ARMED}" -eq 1 ]] || return 0
+  RECOVERY_FAILURE_CLASS="unknown_recovery_failure"; RECOVERY_PROBE_STATUS="unknown"
   # baseline-release-id is the durable commit point. Re-authenticate the signed
   # archive and re-run activation/readiness before finalizing an interrupted
   # committed baseline; seeing the new symlink alone is never sufficient.
   if [[ "${RECOVERY_MODE}" == "baseline-origin" && -e "${BASELINE_MARKER}" ]]; then
-    [[ "$(baseline_release_id)" == "${RECOVERY_FAILED_ID}" ]] || return 1
-    [[ "$(current_release_id 2>/dev/null || true)" == "${RECOVERY_FAILED_ID}" ]] || return 1
-    verify_archived_installed "${RECOVERY_FAILED_ID}" || return 1
-    check_runtime_usable "${RECOVERY_FAILED_ID}" || return 1
-    check_db_compatible "${RECOVERY_FAILED_ID}" || return 1
-    check_candidate_app "${RECOVERY_FAILED_ID}" || return 1
-    require_fresh_candidate_probe "${RECOVERY_FAILED_ID}" || return 1
-    activate_and_verify "${RECOVERY_FAILED_ID}" "${EVIDENCE_ROOT}/recovery-${RECOVERY_FAILED_ID}.json" || return 1
-    clear_transaction || return 1
+    [[ "$(baseline_release_id)" == "${RECOVERY_FAILED_ID}" ]] \
+      || { RECOVERY_FAILURE_CLASS="baseline_commit_state_invalid"; return 1; }
+    [[ "$(current_release_id 2>/dev/null || true)" == "${RECOVERY_FAILED_ID}" ]] \
+      || { RECOVERY_FAILURE_CLASS="baseline_commit_state_invalid"; return 1; }
+    verify_archived_installed "${RECOVERY_FAILED_ID}" \
+      || { RECOVERY_FAILURE_CLASS="fallback_archive_authentication_failed"; return 1; }
+    check_runtime_usable "${RECOVERY_FAILED_ID}" \
+      || { RECOVERY_FAILURE_CLASS="fallback_runtime_failed"; return 1; }
+    check_db_compatible "${RECOVERY_FAILED_ID}" \
+      || { RECOVERY_FAILURE_CLASS="database_compatibility_failed"; return 1; }
+    check_candidate_app "${RECOVERY_FAILED_ID}" \
+      || { RECOVERY_FAILURE_CLASS="candidate_probe_failed"; return 1; }
+    RECOVERY_PROBE_STATUS="ready_http_200"
+    require_fresh_candidate_probe "${RECOVERY_FAILED_ID}" \
+      || { RECOVERY_FAILURE_CLASS="candidate_probe_failed"; return 1; }
+    activate_and_verify "${RECOVERY_FAILED_ID}" "${EVIDENCE_ROOT}/recovery-${RECOVERY_FAILED_ID}.json" \
+      || { RECOVERY_FAILURE_CLASS="activation_verification_failed"; return 1; }
+    clear_transaction || { RECOVERY_FAILURE_CLASS="journal_clear_failed"; return 1; }
     RECOVERY_ARMED=0
     remove_baseline_origin_snapshot || echo "Committed baseline snapshot cleanup needs administrator review" >&2
+    RECOVERY_FAILURE_CLASS="none"
     return 0
   fi
   if [[ "${RECOVERY_MODE}" == "signed-new" || "${RECOVERY_MODE}" == "baseline-origin" ]]; then
-    discard_uncommitted_archive "${RECOVERY_FAILED_ID}" || return 1
+    discard_uncommitted_archive "${RECOVERY_FAILED_ID}" \
+      || { RECOVERY_FAILURE_CLASS="failed_archive_cleanup"; return 1; }
   fi
   # Recovery is deliberately idempotent. Even when current already names the
   # origin (for example SIGKILL after the recovery switch), repeat archive/config
   # restoration, restart and readiness verification before clearing the journal.
   if [[ "${RECOVERY_MODE}" == "signed" || "${RECOVERY_MODE}" == "signed-new" ]]; then
-    recover_release "${RECOVERY_FAILED_ID}" "${RECOVERY_ORIGINAL_ID}" || return 1
+    recover_release "${RECOVERY_FAILED_ID}" "${RECOVERY_ORIGINAL_ID}" \
+      || { RECOVERY_FAILURE_CLASS="${RECOVER_RELEASE_FAILURE_CLASS:-unknown_recovery_failure}"; RECOVERY_PROBE_STATUS="${RECOVER_RELEASE_PROBE_STATUS:-unknown}"; return 1; }
+    RECOVERY_PROBE_STATUS="${RECOVER_RELEASE_PROBE_STATUS:-ready_http_200}"
   elif [[ "${RECOVERY_MODE}" == "baseline-origin" ]]; then
-    restore_baseline_origin_fixed "${RECOVERY_FAILED_ID}" "${RECOVERY_ORIGINAL_ID}" || return 1
+    restore_baseline_origin_fixed "${RECOVERY_FAILED_ID}" "${RECOVERY_ORIGINAL_ID}" \
+      || { RECOVERY_FAILURE_CLASS="fixed_config_restore_failed"; return 1; }
+    RECOVERY_PROBE_STATUS="ready_http_200"
   else
+    RECOVERY_FAILURE_CLASS="unknown_recovery_failure"
     return 1
   fi
-  clear_transaction || return 1
+  clear_transaction || { RECOVERY_FAILURE_CLASS="journal_clear_failed"; return 1; }
   RECOVERY_ARMED=0
   if [[ "${RECOVERY_MODE}" == "baseline-origin" ]]; then
     remove_baseline_origin_snapshot || echo "Recovered baseline snapshot cleanup needs administrator review" >&2
   fi
+  RECOVERY_FAILURE_CLASS="none"
+}
+append_recovery_attempt_audit() {
+  local context="$1" started_ns="$2" started_at="$3" outcome="$4" restoration="$5"
+  [[ "${RECOVERY_AUDIT_NONCE}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  "${PYTHON_BIN}" -I "${RELEASE_GUARD}" append-recovery-audit \
+    "${EVIDENCE_ROOT}" "${RECOVERY_AUDIT_NONCE}" "${OPERATION_ACTION}" "${RECOVERY_MODE}" \
+    "${RECOVERY_ORIGINAL_ID}" "${RECOVERY_FAILED_ID}" "${context}" "${started_ns}" "${started_at}" \
+    "${outcome}" "${RECOVERY_FAILURE_CLASS}" "${RECOVERY_PROBE_STATUS}" "${restoration}" >/dev/null
+}
+run_recovery_attempt() {
+  local context="$1" started restoration clock_ok=1
+  local -a clock
+  [[ "${RECOVERY_ARMED}" -eq 1 ]] || return 0
+  mapfile -t clock < <("${PYTHON_BIN}" -I -c 'import datetime,time
+print(time.monotonic_ns())
+print(datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"))') \
+    || clock_ok=0
+  [[ "${#clock[@]}" -eq 2 && "${clock[0]}" =~ ^[1-9][0-9]*$ ]] || clock_ok=0
+  started="${clock[0]:-}"
+  if recover_pending_operation; then
+    restoration="explicit"; [[ "${context}" == "exit_trap" ]] && restoration="exit_trap"
+    if [[ "${clock_ok}" -ne 1 ]] \
+       || ! append_recovery_attempt_audit "${context}" "${started}" "${clock[1]:-}" success "${restoration}"; then
+      echo "Recovery succeeded but sanitized attempt audit could not be appended; inspect the root-owned audit namespace" >&2
+    fi
+    return 0
+  fi
+  if [[ "${clock_ok}" -ne 1 ]] \
+     || ! append_recovery_attempt_audit "${context}" "${started}" "${clock[1]:-}" failure none; then
+    echo "Recovery failed and sanitized attempt audit could not be appended; journal remains authoritative" >&2
+  fi
+  return 1
 }
 remove_caller_file() {
   local raw="$1"
@@ -1349,7 +1409,7 @@ remove_caller_file() {
 cleanup() {
   local exit_status=$? keep_bundle=0
   set +e
-  if ! recover_pending_operation; then
+  if ! run_recovery_attempt exit_trap; then
     echo "Interrupted operation could not restore its prior release; VM administrator action required" >&2
     exit_status=1
   fi
@@ -1391,13 +1451,15 @@ install -o root -g root -m 0600 -- "${OPERATION_SIGNATURE_PATH_RAW}" "${ROOT_OPE
 readarray -t OPERATION_VALUES < <("${PYTHON_BIN}" -I - "${OPERATION_JSON}" <<'PY'
 import json, sys
 d=json.load(open(sys.argv[1], encoding="utf-8"))
-for key in ("action", "target_release_id", "bundle_sha256", "current_release_id", "base_url", "tls_mode"):
+for key in ("action", "target_release_id", "bundle_sha256", "current_release_id", "base_url", "tls_mode", "nonce"):
     print(d[key])
 PY
 )
-[[ "${#OPERATION_VALUES[@]}" -eq 6 ]] || die "authorized operation output is incomplete"
+[[ "${#OPERATION_VALUES[@]}" -eq 7 ]] || die "authorized operation output is incomplete"
 ACTION="${OPERATION_VALUES[0]}"; TARGET_RELEASE_ID="${OPERATION_VALUES[1]}"; BUNDLE_SHA256="${OPERATION_VALUES[2]}"
 FALLBACK_RELEASE_ID="${OPERATION_VALUES[3]}"; BASE_URL="${OPERATION_VALUES[4]}"; TLS_MODE="${OPERATION_VALUES[5]}"
+OPERATION_ACTION="${ACTION}"; RECOVERY_AUDIT_NONCE="${OPERATION_VALUES[6]}"
+[[ "${RECOVERY_AUDIT_NONCE}" =~ ^[0-9a-f]{64}$ ]] || die "authorized operation nonce is invalid"
 SERVER_NAME="${BASE_URL#https://}"
 
 if [[ -e "${TRANSACTION_FILE}" ]]; then
@@ -1408,7 +1470,7 @@ if [[ -e "${TRANSACTION_FILE}" ]]; then
   [[ "${TARGET_RELEASE_ID}" == "${PENDING_VALUES[1]}" ]] || die "recover target does not match the journaled origin"
   [[ "${BUNDLE_SHA256}" == "${PENDING_VALUES[3]}" ]] || die "recover authorization checksum does not match the journal"
   load_recovery || die "could not load active operation journal"
-  recover_pending_operation || die "GitHub-authorized crash recovery failed; VM administrator action required"
+  run_recovery_attempt manual_signed_recover || die "GitHub-authorized crash recovery failed; VM administrator action required"
   # SIGKILL between journaling and marker removal can leave both; the journal
   # recovery above already restored the origin, so only reconcile the candidate.
   if [[ -e "${PREACTIVATION_MARKER}" || -L "${PREACTIVATION_MARKER}" ]]; then
@@ -1456,12 +1518,12 @@ if [[ "${ACTION}" == "rollback" ]]; then
   switch_current_signed "${TARGET_RELEASE_ID}"
   EVIDENCE_FILE="${EVIDENCE_ROOT}/${TARGET_RELEASE_ID}.json"
   if ! activate_and_verify "${TARGET_RELEASE_ID}" "${EVIDENCE_FILE}"; then
-    recover_pending_operation || die "rollback activation and automatic recovery both failed"
+    run_recovery_attempt automatic_explicit || die "rollback activation and automatic recovery both failed"
     die "rollback activation failed; previous release was restored"
   fi
   if ! chmod 0644 "${EVIDENCE_FILE}" || \
      ! store_previous_release_id "${CURRENT_ID}"; then
-    recover_pending_operation || die "rollback bookkeeping failed and prior release recovery failed"
+    run_recovery_attempt automatic_explicit || die "rollback bookkeeping failed and prior release recovery failed"
     die "rollback bookkeeping failed; prior release was restored"
   fi
   clear_transaction
@@ -1540,7 +1602,7 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
   switch_current_signed "${NEW_ID}"
   EVIDENCE_FILE="${EVIDENCE_ROOT}/${NEW_ID}.json"
   if ! activate_and_verify "${NEW_ID}" "${EVIDENCE_FILE}"; then
-    recover_pending_operation || die "baseline activation failed and the pre-baseline release could not be restored operationally; VM administrator recovery is required"
+    run_recovery_attempt automatic_explicit || die "baseline activation failed and the pre-baseline release could not be restored operationally; VM administrator recovery is required"
     die "baseline activation failed; the pre-baseline release was restored operationally but remains unverified and unarchived"
   fi
   VERIFIED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -1549,7 +1611,7 @@ if [[ "${ACTION}" == "establish_baseline" ]]; then
      ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-archive "${ARCHIVE_ROOT}" "${NEW_ID}" "${ALLOWED_SIGNERS}" >/dev/null || \
      ! store_baseline_marker "${NEW_ID}"; then
     discard_uncommitted_archive "${NEW_ID}" || die "baseline bookkeeping failed and its uncommitted archive could not be removed; VM administrator recovery is required"
-    recover_pending_operation || die "baseline bookkeeping failed and the pre-baseline release could not be restored operationally; VM administrator recovery is required"
+    run_recovery_attempt automatic_explicit || die "baseline bookkeeping failed and the pre-baseline release could not be restored operationally; VM administrator recovery is required"
     die "baseline bookkeeping failed; the pre-baseline release was restored operationally but remains unverified and unarchived"
   fi
   clear_transaction
@@ -1601,7 +1663,7 @@ fi
 switch_current_signed "${NEW_ID}"
 EVIDENCE_FILE="${EVIDENCE_ROOT}/${NEW_ID}.json"
 if ! activate_and_verify "${NEW_ID}" "${EVIDENCE_FILE}"; then
-  recover_pending_operation || die "new activation and automatic recovery both failed"
+  run_recovery_attempt automatic_explicit || die "new activation and automatic recovery both failed"
   die "new release activation failed; approved fallback was restored"
 fi
 VERIFIED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -1610,7 +1672,7 @@ if ! chmod 0644 "${EVIDENCE_FILE}" || \
    ! "${PYTHON_BIN}" -I "${RELEASE_GUARD}" verify-archive "${ARCHIVE_ROOT}" "${NEW_ID}" "${ALLOWED_SIGNERS}" >/dev/null || \
    ! store_previous_release_id "${CURRENT_ID}"; then
   discard_uncommitted_archive "${NEW_ID}" || die "post-activation bookkeeping failed and its uncommitted archive could not be removed; VM administrator recovery is required"
-  recover_pending_operation || die "post-activation bookkeeping failed and fallback recovery failed"
+  run_recovery_attempt automatic_explicit || die "post-activation bookkeeping failed and fallback recovery failed"
   die "post-activation archive/evidence failed; fallback restored; inspect partial archive before retry"
 fi
 clear_transaction

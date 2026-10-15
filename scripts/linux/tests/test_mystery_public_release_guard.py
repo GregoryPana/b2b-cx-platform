@@ -14,6 +14,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -304,6 +305,7 @@ elif cmd == 'store-archive':
     release=root/rid; release.mkdir(); shutil.copyfile(bundle, release/'bundle.zip'); shutil.copyfile(sig, release/'bundle.zip.sig')
     (release/'bundle.zip.sha256').write_text(digest+'  bundle.zip\\n')
     (release/'metadata.json').write_text(json.dumps({{'status':'deploy_verified'}}))
+elif cmd == 'append-recovery-audit': pass
 else: raise SystemExit('unexpected guard command: '+cmd)
 """,
             encoding="utf-8",
@@ -404,11 +406,14 @@ exec "$@"
             self.assertIn(old, entrypoint_text)
             entrypoint_text = entrypoint_text.replace(old, new)
         if interrupt_recovery_after_origin_switch:
-            recovery_switch = '  switch_current_signed "${fallback_id}" || return 1\n  activate_and_verify'
+            recovery_switch = ('  switch_current_signed "${fallback_id}" \\\n'
+                               '    || { RECOVER_RELEASE_FAILURE_CLASS="current_switch_failed"; return 1; }\n'
+                               '  activate_and_verify')
             self.assertIn(recovery_switch, entrypoint_text)
             entrypoint_text = entrypoint_text.replace(
                 recovery_switch,
-                '  switch_current_signed "${fallback_id}" || return 1\n'
+                '  switch_current_signed "${fallback_id}" \\\n'
+                '    || { RECOVER_RELEASE_FAILURE_CLASS="current_switch_failed"; return 1; }\n'
                 '  if [[ -n "${HARNESS_RECOVERY_INTERRUPT_MARKER:-}" ]]; then '
                 ': >"$HARNESS_RECOVERY_INTERRUPT_MARKER"; sleep 30; fi\n'
                 '  activate_and_verify',
@@ -470,6 +475,7 @@ exec "$@"
             "action": action, "target_release_id": "first-signed-release",
             "bundle_sha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
             "current_release_id": "legacy-unverified", "base_url": "https://mystery.internal", "tls_mode": "prepublic",
+            "nonce": "1" * 64,
         }), encoding="utf-8")
         operation_signature = sandbox / "first-signed-release.operation.json.sig"
         operation_signature.write_text("signature-fixture\n", encoding="utf-8")
@@ -521,6 +527,7 @@ exec "$@"
                 "bundle_sha256": status["pending_operation"]["recovery_authorization_sha256"],
                 "current_release_id": status["release_id"],
                 "base_url": "https://mystery.internal", "tls_mode": "prepublic",
+                "nonce": "2" * 64,
             }), encoding="utf-8")
             recovery_signature = sandbox / "fresh-recovery.operation.json.sig"
             recovery_signature.write_text("signature-fixture\n", encoding="utf-8")
@@ -1321,6 +1328,162 @@ exec "$@"
             release_guard.authorize_operation(
                 expired, expired_signature, self.allowed, nonces, "release-current", now=now, required_uid=os.geteuid()
             )
+
+
+class RecoveryAuditTests(unittest.TestCase):
+    NONCE = "a" * 64
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.root.chmod(0o755)
+        self.addCleanup(self.temp.cleanup)
+
+    def append(self, *, nonce: str | None = None, context: str = "automatic_explicit",
+               outcome: str = "failure", failure: str = "candidate_probe_failed",
+               probe: str = "unknown", restoration: str = "none",
+               started: int = 100, ended: int = 200):
+        return release_guard.append_recovery_audit(
+            self.root, nonce or self.NONCE, "deploy", "signed-new", "origin", "failed",
+            context, started, "2026-10-15T10:00:00Z", outcome, failure, probe, restoration,
+            required_uid=os.geteuid(), ended_monotonic_ns=ended, ended_at_utc="2026-10-15T10:00:01Z",
+        )
+
+    def path(self, nonce: str | None = None) -> Path:
+        return release_guard.recovery_audit_path(self.root, nonce or self.NONCE)
+
+    def test_first_failure_then_exit_success_preserves_both_events(self) -> None:
+        first = self.append()
+        second = self.append(context="exit_trap", outcome="success", failure="none",
+                             probe="ready_http_200", restoration="exit_trap", started=300, ended=400)
+        records = release_guard.read_recovery_audit(self.path(), self.NONCE, required_uid=os.geteuid())
+        self.assertEqual(first["attempt_index"], 1)
+        self.assertEqual((second["attempt_index"], second["prior_failed_attempts"]), (2, 1))
+        self.assertEqual([(r["outcome"], r["attempt_context"], r["successful_restoration"]) for r in records], [
+            ("failure", "automatic_explicit", "none"),
+            ("success", "exit_trap", "exit_trap"),
+        ])
+
+    def test_manual_recover_is_a_new_nonce_and_explicit_context(self) -> None:
+        self.append()
+        manual_nonce = "b" * 64
+        record = self.append(nonce=manual_nonce, context="manual_signed_recover", outcome="success",
+                             failure="none", probe="ready_http_200", restoration="explicit")
+        self.assertEqual(record["attempt_index"], 1)
+        self.assertEqual(record["prior_failed_attempts"], 0)
+        self.assertNotEqual(self.path(), self.path(manual_nonce))
+
+    def test_torn_damaged_symlink_mode_owner_and_collision_fail_closed(self) -> None:
+        self.append()
+        path = self.path()
+        original = path.read_bytes()
+        with path.open("ab") as handle:
+            handle.write(b'{"interrupted":')
+        with self.assertRaisesRegex(release_guard.GuardError, "incomplete"):
+            self.append(started=300, ended=400)
+        self.assertEqual(path.read_bytes(), original + b'{"interrupted":')
+
+        path.write_bytes(b"not-json\n"); path.chmod(0o644)
+        with self.assertRaisesRegex(release_guard.GuardError, "damaged"):
+            self.append()
+        path.unlink()
+        target = self.root / "target"
+        target.write_text("do-not-touch\n", encoding="utf-8")
+        path.symlink_to(target)
+        with self.assertRaises(OSError):
+            self.append()
+        self.assertEqual(target.read_text(encoding="utf-8"), "do-not-touch\n")
+
+        path.unlink(); self.append(); path.chmod(0o600)
+        with self.assertRaisesRegex(release_guard.GuardError, "ownership or mode"):
+            self.append(started=300, ended=400)
+        path.chmod(0o644)
+        with self.assertRaisesRegex(release_guard.GuardError, "ownership or mode"):
+            release_guard.read_recovery_audit(path, self.NONCE, required_uid=os.geteuid() + 1)
+
+        path.unlink()
+        other_nonce = "c" * 64
+        self.append(nonce=other_nonce)
+        self.path(other_nonce).replace(path)
+        with self.assertRaisesRegex(release_guard.GuardError, "identity"):
+            self.append(started=300, ended=400)
+
+    def test_existing_empty_published_file_is_rejected(self) -> None:
+        self.path().touch(mode=0o644)
+        with self.assertRaisesRegex(release_guard.GuardError, "empty"):
+            self.append()
+        self.assertEqual(self.path().read_bytes(), b"")
+
+    def test_each_proposed_operation_identity_mismatch_is_rejected(self) -> None:
+        self.append()
+        original = self.path().read_bytes()
+        mismatches = {
+            "operation_action": ("rollback", "signed-new", "origin", "failed"),
+            "recovery_mode": ("deploy", "signed", "origin", "failed"),
+            "original_release_id": ("deploy", "signed-new", "other-origin", "failed"),
+            "failed_release_id": ("deploy", "signed-new", "origin", "other-failed"),
+        }
+        for field, identity in mismatches.items():
+            with self.subTest(field=field), self.assertRaisesRegex(
+                release_guard.GuardError, "proposed operation identity"
+            ):
+                release_guard.append_recovery_audit(
+                    self.root, self.NONCE, *identity, "exit_trap", 300,
+                    "2026-10-15T10:00:02Z", "success", "none", "ready_http_200", "exit_trap",
+                    required_uid=os.geteuid(), ended_monotonic_ns=400,
+                    ended_at_utc="2026-10-15T10:00:03Z",
+                )
+            self.assertEqual(self.path().read_bytes(), original)
+
+    def test_corrupted_mixed_existing_history_is_rejected_for_each_identity_field(self) -> None:
+        self.append()
+        first = json.loads(self.path().read_text(encoding="utf-8"))
+        replacements = {
+            "operation_action": "rollback",
+            "recovery_mode": "signed",
+            "original_release_id": "other-origin",
+            "failed_release_id": "other-failed",
+        }
+        for field, replacement in replacements.items():
+            with self.subTest(field=field):
+                second = dict(first)
+                second.update({
+                    field: replacement, "attempt_index": 2, "started_monotonic_ns": 300,
+                    "ended_monotonic_ns": 400, "started_at_utc": "2026-10-15T10:00:02Z",
+                    "ended_at_utc": "2026-10-15T10:00:03Z", "prior_failed_attempts": 1,
+                })
+                self.path().write_text(
+                    json.dumps(first, sort_keys=True, separators=(",", ":")) + "\n"
+                    + json.dumps(second, sort_keys=True, separators=(",", ":")) + "\n",
+                    encoding="utf-8",
+                )
+                self.path().chmod(0o644)
+                with self.assertRaisesRegex(release_guard.GuardError, "identity changed"):
+                    release_guard.read_recovery_audit(
+                        self.path(), self.NONCE, required_uid=os.geteuid()
+                    )
+
+    def test_untrusted_failure_payload_is_rejected_without_secret_output(self) -> None:
+        secret = "postgresql://user:secret@example.invalid/db"
+        with self.assertRaisesRegex(release_guard.GuardError, "outcome metadata") as raised:
+            self.append(failure=secret)
+        self.assertNotIn(secret, str(raised.exception))
+        self.assertNotIn(secret.encode(), self.path().read_bytes())
+
+    def test_cli_is_python_optimized_safe(self) -> None:
+        nonce = "d" * 64
+        code = """import importlib.util, os, pathlib, sys
+spec=importlib.util.spec_from_file_location('guard', sys.argv[1])
+module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+module.append_recovery_audit(pathlib.Path(sys.argv[2]), sys.argv[3], 'recover', 'signed',
+    'origin', 'failed', 'manual_signed_recover', 100, '2026-10-15T10:00:00Z',
+    'success', 'none', 'ready_http_200', 'explicit', required_uid=os.geteuid())
+"""
+        command = [sys.executable, "-O", "-c", code, str(MODULE_PATH), str(self.root), nonce]
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        records = release_guard.read_recovery_audit(self.path(nonce), nonce, required_uid=os.geteuid())
+        self.assertEqual(records[0]["attempt_context"], "manual_signed_recover")
 
 
 if __name__ == "__main__":
