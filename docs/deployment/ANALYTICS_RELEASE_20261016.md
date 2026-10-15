@@ -18,6 +18,10 @@ Direct workstation intranet DNS and SSH are unavailable (DNS failure and registe
 
 Publication, hosted CI, merge and actual run/evidence identifiers must be recorded separately when verified. No successful deployment is declared by this planning record. Local tests are not a production data-reconciliation or APN device/business-acceptance proof.
 
+## Database scope decision
+
+Gregory has deferred database/table redesign and data-isolation migration. Retain the shared-boundary/dual-write issue as a future planning risk; no database hardening, table segregation, data backfill or mirror retirement is authorised by the current release. Focus remains the merged analytics corrections and coordination with the separate Mystery Shopper deployment workstream. A future assessment/plan must be separately scoped before implementation.
+
 ## Verified publication and activation hold
 
 - PR28 merged application commit `23efe9e1e0450e1b9f4ec433ecc6b272267704bb` into main at `335b411deeb26ebcd0763c00e38584bfb9400044`. Push and PR head were read back; analytics/backend/dashboard hosted checks passed before merge. Main analytics check `38804720574` also passed.

@@ -6,6 +6,9 @@ on:
         type: choice
         required: true
         options: [staging, production]
+      diagnostics_only:
+        type: boolean
+        default: false
       require_installed_source:
         type: boolean
         default: false
@@ -25,6 +28,7 @@ jobs:
         shell: bash
         env:
           TARGET: ${{ inputs.target }}
+          DIAGNOSTICS_ONLY: ${{ inputs.diagnostics_only }}
           REQUIRE_INSTALLED_SOURCE: ${{ inputs.require_installed_source }}
         run: |
           set -euo pipefail
@@ -96,9 +100,30 @@ jobs:
                   raise SystemExit('Internal API authentication/route check did not return 401')
           report['anonymous_internal_api_status'] = 401
           host = 'cwscx-tst01.cwsey.com' if os.environ['TARGET'] == 'staging' else 'cwscx-app01.cwsey.com'
-          site = 'cwscx-staging' if os.environ['TARGET'] == 'staging' else 'cwscx-production'
-          nginx_config = pathlib.Path('/etc/nginx/sites-enabled')/site
-          matches = re.findall(r'^\s*ssl_certificate\s+([^;]+);', nginx_config.read_text(), re.M)
+          configs = []
+          for path in pathlib.Path('/etc/nginx/sites-enabled').iterdir():
+              if not path.is_file():
+                  continue
+              try:
+                  content = path.read_text()
+              except (OSError, UnicodeError):
+                  continue
+              names = re.findall(r'^\s*server_name\s+([^;]+);', content, re.M)
+              if 'cwscx' not in path.name.lower() and not any('cwscx' in name.lower() for name in names):
+                  continue
+              configs.append((path, content, names))
+          report['nginx_sites'] = [{'file':str(p), 'server_names':n} for p,c,n in configs]
+          matching = [(p,c,n) for p,c,n in configs if any(host in name.split() for name in n)]
+          if len(matching) == 1:
+              nginx_config, content, names = matching[0]
+          else:
+              preferred = [(p,c,n) for p,c,n in configs if p.name == ('cwscx-staging' if os.environ['TARGET'] == 'staging' else 'cwscx-production')]
+              if len(preferred) != 1:
+                  print(json.dumps(report, indent=2))
+                  raise SystemExit('Cannot uniquely map the registered hostname to an active NGINX site')
+              nginx_config, content, names = preferred[0]
+          report['selected_nginx_site'] = str(nginx_config)
+          matches = sorted(set(re.findall(r'^\s*ssl_certificate\s+([^;]+);', content, re.M)))
           if len(matches) != 1:
               raise SystemExit('Cannot identify the registered site public certificate')
           certificate_path = pathlib.Path(matches[0].strip()).resolve()
@@ -115,6 +140,17 @@ jobs:
                   capture_output=True, text=True, timeout=10)
           if certificate.returncode:
               raise SystemExit('Installed public certificate cannot be verified with existing privileges; no permissions changed')
+          details = subprocess.run(['openssl','x509','-noout','-subject','-issuer','-dates','-ext','subjectAltName','-fingerprint','-sha256'], input=certificate.stdout, capture_output=True, text=True, timeout=10)
+          report['configured_certificate'] = details.stdout.strip().splitlines()
+          probe = subprocess.run(['openssl','s_client','-connect','127.0.0.1:443','-servername',host,'-showcerts'], input='', capture_output=True, text=True, timeout=15)
+          pem = re.search(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', probe.stdout, re.S)
+          if pem:
+              report['served_certificate_matches_configured'] = hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem.group())).digest() == hashlib.sha256(ssl.PEM_cert_to_DER_cert(certificate.stdout)).digest()
+          report['registered_hostname'] = host
+          if os.environ.get('DIAGNOSTICS_ONLY') == 'true':
+              report['purpose'] = 'inventory_only_not_a_release_gate'
+              print(json.dumps(report, indent=2))
+              raise SystemExit(0)
           tls = ssl.create_default_context(cadata=certificate.stdout)
           request = urllib.request.Request('https://'+host+'/dashboard/')
           with urllib.request.urlopen(request, context=tls, timeout=10) as response:
