@@ -36,7 +36,7 @@ jobs:
           WORKING_DIR="$(systemctl show cwscx-backend -p WorkingDirectory --value)"
           export WORKING_DIR
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, shutil, subprocess, urllib.request
+          import hashlib, json, os, pathlib, shutil, subprocess, urllib.request, urllib.error, re, ssl
           working = pathlib.Path(os.environ['WORKING_DIR']).resolve()
           root = pathlib.Path('/opt/cwscx').resolve()
           if root not in working.parents:
@@ -86,5 +86,30 @@ jobs:
           report['database_heads'] = json.loads(result.stdout)
           if report['database_heads'] != ['20260714_000032']:
               raise SystemExit('Live database head differs from the reviewed release head; stop before deployment')
+          # An anonymous request must be rejected before any survey data is read.
+          # This also distinguishes the internal route surface from mystery_public.
+          try:
+              with urllib.request.urlopen('http://127.0.0.1:8000/dashboard-visits/', timeout=10):
+                  raise SystemExit('Internal API unexpectedly accepted an anonymous request')
+          except urllib.error.HTTPError as error:
+              if error.code != 401:
+                  raise SystemExit('Internal API authentication/route check did not return 401')
+          report['anonymous_internal_api_status'] = 401
+          host = 'cwscx-tst01.cwsey.com' if os.environ['TARGET'] == 'staging' else 'cwscx-app01.cwsey.com'
+          tls = ssl.create_default_context(cafile='/etc/ssl/cwscx/cwscx.crt')
+          request = urllib.request.Request('https://'+host+'/dashboard/')
+          with urllib.request.urlopen(request, context=tls, timeout=10) as response:
+              html = response.read(1024*1024).decode('utf-8')
+          assets = re.findall(r'<script[^>]+src=[\"\']([^\"\']+)[\"\']', html)
+          if not assets or not assets[0].startswith('/dashboard/assets/'):
+              raise SystemExit('Dashboard HTML lacks the expected release asset')
+          request = urllib.request.Request('https://'+host+assets[0])
+          with urllib.request.urlopen(request, context=tls, timeout=10) as response:
+              served = response.read(16*1024*1024)
+          asset_name = pathlib.PurePosixPath(assets[0]).name
+          installed_asset = root/'frontends-src/dashboard/dist/assets'/asset_name
+          if not installed_asset.is_file() or hashlib.sha256(served).digest() != hashlib.sha256(installed_asset.read_bytes()).digest():
+              raise SystemExit('Served dashboard bundle differs from installed release asset')
+          report['dashboard_asset_matches_installed'] = True
           print(json.dumps(report, indent=2))
           PY
