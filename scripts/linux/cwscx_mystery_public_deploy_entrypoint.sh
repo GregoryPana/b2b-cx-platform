@@ -843,25 +843,35 @@ PY
 
 preflight_baseline_origin() {
   local original_id="$1" release_dir working_directory exec_start environment_files launcher
+  local canonical_working_directory canonical_launcher
   valid_release_id "${original_id}" || die "invalid pre-baseline release ID"
   release_dir="$(realpath -e -- "${RELEASES_ROOT}/${original_id}")" \
     || die "pre-baseline release path cannot be resolved"
   [[ "${release_dir}" == "${RELEASES_ROOT}/${original_id}" ]] \
     || die "pre-baseline release path is indirect or escapes releases root"
   require_root_dir "${release_dir}" "pre-baseline release directory"
-  "${PYTHON_BIN}" -I - "${EUID}" "${TARGET_ROOT}" "${RELEASES_ROOT}" "${release_dir}" <<'PY'
-import pathlib, stat, sys
+  "${PYTHON_BIN}" -I - "${EUID}" "${TARGET_ROOT}" "${RELEASES_ROOT}" "${release_dir}" "${original_id}" <<'PY'
+import os, pathlib, stat, sys
 required_uid = int(sys.argv[1])
-for raw in sys.argv[2:]:
-    path = pathlib.Path(raw)
+target, releases, release = map(pathlib.Path, sys.argv[2:5])
+original_id = sys.argv[5]
+for path in (target, releases, release):
     info = path.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != required_uid or info.st_mode & 0o022:
         raise SystemExit(f"unsafe pre-baseline path ownership or mode: {path}")
+current = target / "current"
+info = current.lstat()
+if not stat.S_ISLNK(info.st_mode) or info.st_uid != required_uid:
+    raise SystemExit("unsafe pre-baseline current link")
+if os.readlink(current) != f"releases/{original_id}" or current.resolve(strict=True) != release:
+    raise SystemExit("pre-baseline current link does not target the named release")
 PY
   working_directory="$(systemctl show "${SERVICE_NAME}" --property=WorkingDirectory --value)"
   exec_start="$(systemctl show "${SERVICE_NAME}" --property=ExecStart --value)"
   environment_files="$(systemctl show "${SERVICE_NAME}" --property=EnvironmentFiles --value)"
-  [[ -n "${working_directory}" && "$(realpath -e -- "${working_directory}")" == "${release_dir}"/* ]] \
+  [[ -n "${working_directory}" ]] \
+    || die "legacy backend WorkingDirectory must resolve inside the pre-baseline release"
+  canonical_working_directory="$(realpath -e -- "${working_directory}")" \
     || die "legacy backend WorkingDirectory must resolve inside the pre-baseline release"
   launcher="$("${PYTHON_BIN}" -I - "${exec_start}" <<'PY'
 import re, sys
@@ -870,20 +880,48 @@ if not match: raise SystemExit(1)
 print(match.group(1))
 PY
 )" || die "legacy backend ExecStart path could not be validated"
-  [[ "$(realpath -e -- "${launcher}")" == "${release_dir}"/* ]] \
+  canonical_launcher="$(realpath -e -- "${launcher}")" \
     || die "legacy backend ExecStart must resolve inside the pre-baseline release"
   require_root_file "${launcher}" "legacy backend launcher"
   require_root_dir "${working_directory}" "legacy backend WorkingDirectory"
-  "${PYTHON_BIN}" -I - "${EUID}" "${release_dir}" "${working_directory}" "$(dirname "${launcher}")" <<'PY'
+  "${PYTHON_BIN}" -I - "${EUID}" "${TARGET_ROOT}" "${release_dir}" \
+    "${working_directory}" "${launcher}" "${canonical_working_directory}" "${canonical_launcher}" <<'PY'
 import pathlib, stat, sys
-uid, release = int(sys.argv[1]), pathlib.Path(sys.argv[2])
-for raw in sys.argv[3:]:
-    path = pathlib.Path(raw)
+uid = int(sys.argv[1])
+target, release = map(pathlib.Path, sys.argv[2:4])
+raw_working, raw_launcher = map(pathlib.Path, sys.argv[4:6])
+working, launcher = map(pathlib.Path, sys.argv[6:8])
+current = target / "current"
+
+def inside(path):
+    return path != release and release in path.parents
+
+# Unit metadata may use the controlled current symlink or the canonical release
+# path. No other lexical symlink ancestor is accepted before canonical checks.
+for raw in (raw_working, raw_launcher):
+    if not raw.is_absolute():
+        raise SystemExit(f"pre-baseline path is not absolute: {raw}")
+    if current not in raw.parents and release not in raw.parents:
+        raise SystemExit(f"pre-baseline path has an untrusted lexical origin: {raw}")
+    lexical_root = current if current in raw.parents else release
+    component = raw.parent
+    while component != lexical_root:
+        info = component.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            raise SystemExit(f"unsafe pre-baseline symlink ancestor: {component}")
+        component = component.parent
+
+if not inside(working):
+    raise SystemExit(f"legacy backend WorkingDirectory escapes release: {working}")
+if not inside(launcher):
+    raise SystemExit(f"legacy backend ExecStart escapes release: {launcher}")
+for path in (working, launcher.parent):
     while True:
         info = path.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_mode & 0o022:
             raise SystemExit(f"unsafe pre-baseline traversal component: {path}")
-        if path == release: break
+        if path == release:
+            break
         if release not in path.parents:
             raise SystemExit(f"pre-baseline path escapes release: {path}")
         path = path.parent

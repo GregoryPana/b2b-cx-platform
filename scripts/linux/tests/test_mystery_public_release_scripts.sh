@@ -28,6 +28,7 @@ python3 "$ROOT/scripts/linux/tests/test_mystery_public_runtime_gate.py" || failu
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_application_probe.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_bootstrap_safety.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_bundle_contract.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_baseline_origin_preflight.py" || failures=$((failures+1))
 
 # Existing immutable release and permission-recovery contracts.
 require "$BUILD" 'expected_migration_heads' 'bundle records expected migration heads'
@@ -188,7 +189,8 @@ done
 python3 -I - "$GUARD" "$TRANSACTION_HELPER" \
   "$ROOT/scripts/linux/validate_mystery_public_bundle.py" \
   "$ROOT/scripts/linux/tests/test_mystery_public_release_guard.py" \
-  "$ROOT/scripts/linux/tests/test_mystery_public_bundle_contract.py" <<'PY' || failures=$((failures+1))
+  "$ROOT/scripts/linux/tests/test_mystery_public_bundle_contract.py" \
+  "$ROOT/scripts/linux/tests/test_mystery_public_baseline_origin_preflight.py" <<'PY' || failures=$((failures+1))
 import pathlib, sys
 for raw in sys.argv[1:]:
     source = pathlib.Path(raw)
