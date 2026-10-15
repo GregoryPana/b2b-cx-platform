@@ -96,11 +96,20 @@ jobs:
                   raise SystemExit('Internal API authentication/route check did not return 401')
           report['anonymous_internal_api_status'] = 401
           host = 'cwscx-tst01.cwsey.com' if os.environ['TARGET'] == 'staging' else 'cwscx-app01.cwsey.com'
+          site = 'cwscx-staging' if os.environ['TARGET'] == 'staging' else 'cwscx-production'
+          nginx_config = pathlib.Path('/etc/nginx/sites-enabled')/site
+          matches = re.findall(r'^\s*ssl_certificate\s+([^;]+);', nginx_config.read_text(), re.M)
+          if len(matches) != 1:
+              raise SystemExit('Cannot identify the registered site public certificate')
+          certificate_path = pathlib.Path(matches[0].strip()).resolve()
+          if not certificate_path.is_relative_to('/etc'):
+              raise SystemExit('Configured certificate is outside the registered system config root')
           certificate = subprocess.run(
-              ['sudo', '-n', 'openssl', 'x509', '-in', '/etc/ssl/cwscx/cwscx.crt', '-outform', 'PEM'],
+              ['openssl', 'x509', '-in', str(certificate_path), '-outform', 'PEM'],
               capture_output=True, text=True, timeout=10)
           if certificate.returncode:
-              raise SystemExit('Cannot read the installed public TLS certificate for pinned verification')
+              reason = 'permission denied' if 'Permission denied' in certificate.stderr else 'unavailable/invalid'
+              raise SystemExit('Installed public certificate '+str(certificate_path)+' is '+reason+'; no permissions changed')
           tls = ssl.create_default_context(cadata=certificate.stdout)
           request = urllib.request.Request('https://'+host+'/dashboard/')
           with urllib.request.urlopen(request, context=tls, timeout=10) as response:
