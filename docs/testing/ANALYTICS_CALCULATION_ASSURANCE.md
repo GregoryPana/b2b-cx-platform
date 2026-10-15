@@ -1,5 +1,7 @@
 # Analytics Calculation Assurance
 
+**Historical preintegration test/audit record.** Publication and deployment statements below describe the earlier b83afa5 candidate, not current status. The integrated release subsequently passed backend318 (including analytics237), Node5/build and hosted CI; it is deployed to tst01 and app01 at application source1631859f71d8fe56befb7a6b400ea0a212e32285. Current runtime/service/migration/TLS/immutable-artifact evidence and remaining acceptance boundaries are in `docs/deployment/ANALYTICS_RELEASE_20261016.md` and the 16 October deployment handoff. Earlier count301 is historical, not a current failing/skipped suite.
+
 ## Status and boundary
 
 CWSCX Platform, local branch `feature/analytics-counts-regression-20261015`, base `b83afa5` with existing local application source preserved. No commit, push, merge, migration or deployment. Original checkout untouched. Gregory approved calculation CI and, after Claude's quota interrupted the follow-up, approved Hermes finishing the remaining small fixes directly.
