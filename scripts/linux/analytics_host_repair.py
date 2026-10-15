@@ -20,6 +20,7 @@ import ssl
 import stat
 import subprocess
 import tempfile
+import time
 
 ROOT = Path('/opt/cwscx')
 CERT = Path('/etc/ssl/cwscx/cwscx.crt')
@@ -119,6 +120,22 @@ def verify_https(host):
     return {'tls_hostname_verified': True, 'dashboard_asset_verified': True, 'database_health': 'ok', 'anonymous_api': 401}
 
 
+def verify_after_reload(host):
+    # systemctl reload acknowledges the signal before old NGINX workers retire.
+    # Retry only transient connection/certificate transitions; every attempt still
+    # validates the exact new trust anchor, hostname, assets, health and auth.
+    for attempt in range(10):
+        try:
+            proof = verify_https(host)
+            proof['reload_tls_attempts'] = attempt + 1
+            return proof
+        except (ssl.SSLCertVerificationError, ConnectionRefusedError, ConnectionResetError):
+            if attempt == 9:
+                raise
+            time.sleep(0.25)
+    raise RuntimeError('Unreachable readiness state')
+
+
 def repair(action, operation):
     if os.geteuid() != 0:
         raise RuntimeError('Approved repair must run as root')
@@ -198,7 +215,7 @@ def _repair_locked(action, operation):
             (ENABLED/'cwscx-production').symlink_to(AVAILABLE/'cwscx-production')
         run('nginx', '-t')
         run('systemctl', 'reload', 'nginx')
-        proof = verify_https(host)
+        proof = verify_after_reload(host)
         if action == 'staging_tls':
             if original_routes != {p.name:digest(p) for p in ENABLED.iterdir() if p.is_file()}:
                 raise RuntimeError('Unrelated NGINX routes changed')
