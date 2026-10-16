@@ -3,7 +3,7 @@ set -euo pipefail
 
 OUTPUT_ZIP="${1:-/tmp/cwscx-mystery-public-release.zip}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-STAGE_ROOT="$(mktemp -d /tmp/cwscx-mystery-public-stage.XXXXXX)"
+STAGE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/cwscx-mystery-public-stage.XXXXXX")"
 RELEASE_ROOT="${STAGE_ROOT}/release"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 FRONTEND_AUTH_MODE="mystery_public"
@@ -32,35 +32,6 @@ if [[ "${REQUIRE_CLEAN_TREE:-0}" == "1" && "${TREE_STATE}" != "clean" ]]; then
   exit 1
 fi
 
-mapfile -t EXPECTED_HEADS < <("${PYTHON_BIN}" - "${REPO_ROOT}/backend/alembic/versions" <<'PY'
-import ast
-import pathlib
-import sys
-
-revisions = set()
-parents = set()
-for path in pathlib.Path(sys.argv[1]).glob("*.py"):
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    values = {}
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id in {"revision", "down_revision"}:
-                    values[target.id] = ast.literal_eval(node.value)
-    revision = values.get("revision")
-    if revision:
-        revisions.add(str(revision))
-    down = values.get("down_revision")
-    if isinstance(down, (tuple, list)):
-        parents.update(str(v) for v in down if v)
-    elif down:
-        parents.add(str(down))
-for head in sorted(revisions - parents):
-    print(head)
-PY
-)
-(( ${#EXPECTED_HEADS[@]} > 0 )) || { echo "No Alembic heads discovered" >&2; exit 1; }
-
 pushd "${REPO_ROOT}/frontend/mystery-shopper" >/dev/null
 npm ci --no-audit --no-fund
 VITE_API_URL="/api" \
@@ -88,6 +59,7 @@ cp "${REPO_ROOT}/scripts/linux/deploy_mystery_public_backend.sh" "${RELEASE_ROOT
 cp "${REPO_ROOT}/scripts/linux/deploy_mystery_public_nginx.sh" "${RELEASE_ROOT}/scripts/linux/"
 cp "${REPO_ROOT}/scripts/linux/verify_mystery_public.sh" "${RELEASE_ROOT}/scripts/linux/"
 cp "${REPO_ROOT}/scripts/linux/audit_mystery_public_vm.sh" "${RELEASE_ROOT}/scripts/linux/"
+cp "${REPO_ROOT}/scripts/linux/mystery_public_release_guard.py" "${RELEASE_ROOT}/scripts/linux/"
 chmod +x "${RELEASE_ROOT}/scripts/linux/"*.sh
 find "${RELEASE_ROOT}" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "${RELEASE_ROOT}" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
@@ -110,7 +82,11 @@ find "${RELEASE_ROOT}" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 "${STAGE_ROOT}/wheelhouse-smoke/bin/python" -m pip check
 "${STAGE_ROOT}/wheelhouse-smoke/bin/python" -c 'import fastapi, uvicorn, sqlalchemy, alembic, psycopg, psycopg2'
 
-HEADS_JSON="$(printf '%s\n' "${EXPECTED_HEADS[@]}" | "${PYTHON_BIN}" -c 'import json,sys; print(json.dumps([line.strip() for line in sys.stdin if line.strip()]))')"
+# Use Alembic's real revision graph, not an AST approximation of down_revision.
+# Abort the bundle before signing if the graph is forked or has missing ancestors.
+HEADS_JSON="$("${STAGE_ROOT}/wheelhouse-smoke/bin/python" \
+  "${REPO_ROOT}/scripts/linux/mystery_public_release_guard.py" source-heads \
+  "${REPO_ROOT}/backend/alembic.ini")"
 export RELEASE_ID GIT_SHA BUILD_TIMESTAMP_UTC FRONTEND_AUTH_MODE TREE_STATE HEADS_JSON
 "${PYTHON_BIN}" - "${RELEASE_ROOT}/release-manifest.json" <<'PY'
 import json

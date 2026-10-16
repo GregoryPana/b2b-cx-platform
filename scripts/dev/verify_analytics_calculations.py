@@ -53,6 +53,10 @@ SCOPE_STEPS = {
 
 def backend_env(pg_url: str, pgdata: str, nonce: str) -> dict:
     env = dict(os.environ)
+    # Never let a caller-provided startup proof URL escape into a runner child.
+    # Full scope installs its own URL only after creating an empty database on
+    # the attested disposable cluster.
+    env.pop("STARTUP_NO_DDL_POSTGRES_URL", None)
     env.update(
         {
             "TESTING": "true",
@@ -66,6 +70,70 @@ def backend_env(pg_url: str, pgdata: str, nonce: str) -> dict:
         }
     )
     return env
+
+
+def _fixture_database_url(sqlalchemy, base_url: str, database: str, *, plain_postgresql: bool = False) -> str:
+    url = sqlalchemy.engine.make_url(base_url).set(database=database)
+    if plain_postgresql:
+        # test_startup_no_ddl_postgresql.py connects with psycopg directly, so
+        # do not leak a SQLAlchemy-specific driver suffix into its child.
+        url = url.set(drivername="postgresql")
+    return url.render_as_string(hide_password=False)
+
+
+def _database_ddl(sqlalchemy, base_url: str, pgdata: str, nonce: str, statement: str) -> None:
+    """Execute fixture-database DDL only after a fresh cluster attestation."""
+    from fixture_guard import attest_disposable_cluster
+
+    attest_disposable_cluster(base_url, pgdata, nonce)
+    admin_engine = sqlalchemy.create_engine(base_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            conn.execute(sqlalchemy.text(statement))
+    finally:
+        admin_engine.dispose()
+
+
+def _drop_fixture_databases(
+    sqlalchemy, base_url: str, pgdata: str, nonce: str, databases: list[str]
+) -> None:
+    """Attempt every fixture cleanup, even if an earlier DROP fails."""
+    first_error: BaseException | None = None
+    for database in reversed(databases):
+        try:
+            _database_ddl(
+                sqlalchemy,
+                base_url,
+                pgdata,
+                nonce,
+                f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)',
+            )
+        except BaseException as exc:  # cleanup must continue for the remaining database
+            if first_error is None:
+                first_error = exc
+    if first_error is not None:
+        raise first_error
+
+
+def _provision_full_suite_databases(sqlalchemy, base_url: str, pgdata: str, nonce: str):
+    """Create separate migration and empty startup-no-DDL fixture databases."""
+    migration_db = "migration_fixture_" + secrets.token_hex(12)
+    startup_db = "startup_noddl_fixture_" + secrets.token_hex(12)
+    if migration_db == startup_db:  # defensive even if prefixes are later changed
+        raise RuntimeError("fixture database identities must be distinct")
+
+    created: list[str] = []
+    try:
+        for database in (migration_db, startup_db):
+            _database_ddl(sqlalchemy, base_url, pgdata, nonce, f'CREATE DATABASE "{database}"')
+            created.append(database)
+    except BaseException:
+        _drop_fixture_databases(sqlalchemy, base_url, pgdata, nonce, created)
+        raise
+
+    migration_url = _fixture_database_url(sqlalchemy, base_url, migration_db)
+    startup_url = _fixture_database_url(sqlalchemy, base_url, startup_db, plain_postgresql=True)
+    return migration_url, startup_url, created
 
 
 def run_pytest(target: str, env: dict, extra: list[str]) -> int:
@@ -164,20 +232,21 @@ def main() -> int:
                         fixture_session.commit()
                 finally:
                     fixture_engine.dispose()
-                # Migration regressions reset public schema, so give them their own
-                # empty database rather than the application fixture database.
-                migration_db = "migration_fixture_" + secrets.token_hex(12)
-                admin_engine = sqlalchemy.create_engine(url, isolation_level="AUTOCOMMIT")
+                # Migration regressions reset public schema, while startup-no-DDL
+                # must begin empty. Give each a distinct database, separate from
+                # the application fixture schema, on this same attested cluster.
+                created_databases: list[str] = []
                 try:
-                    with admin_engine.connect() as conn:
-                        conn.execute(sqlalchemy.text(f'CREATE DATABASE "{migration_db}"'))
-                    migration_url = sqlalchemy.engine.make_url(url).set(database=migration_db)
-                    env["MIGRATION_TEST_DATABASE_URL"] = migration_url.render_as_string(hide_password=False)
+                    migration_url, startup_url, created_databases = _provision_full_suite_databases(
+                        sqlalchemy, url, str(pgdata), nonce
+                    )
+                    env["MIGRATION_TEST_DATABASE_URL"] = migration_url
+                    env["STARTUP_NO_DDL_POSTGRES_URL"] = startup_url
                     results["full backend suite (pytest tests)"] = run_pytest("tests", env, args.extra)
                 finally:
-                    with admin_engine.connect() as conn:
-                        conn.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{migration_db}" WITH (FORCE)'))
-                    admin_engine.dispose()
+                    _drop_fixture_databases(sqlalchemy, url, str(pgdata), nonce, created_databases)
+                    if created_databases:
+                        print(f"cleaned {len(created_databases)} disposable full-suite fixture databases")
         finally:
             server.cleanup()
             shutil.rmtree(pgdata, ignore_errors=True)

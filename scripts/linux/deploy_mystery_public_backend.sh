@@ -24,7 +24,7 @@ run_as_root() {
 ENV_MODE="$(stat -c '%a' "${ENV_FILE}")"
 [[ "${ENV_MODE}" == "600" || "${ENV_MODE}" == "640" ]] || { echo "Environment file mode must be 600 or 640" >&2; exit 1; }
 
-read -r APP_VERSION RELEASE_ID < <("${VENV_DIR}/bin/python" - "${CURRENT_DIR}/release-manifest.json" <<'PY'
+read -r APP_VERSION RELEASE_ID < <("${VENV_DIR}/bin/python" -I - "${CURRENT_DIR}/release-manifest.json" <<'PY'
 import json, re, sys
 m=json.load(open(sys.argv[1],encoding="utf-8"))
 sha=str(m.get("git_sha", "")); release=str(m.get("release_id", ""))
@@ -34,28 +34,11 @@ print(sha, release)
 PY
 )
 
-# Validate required configuration by key and policy without sourcing or printing values.
-"${VENV_DIR}/bin/python" - "${ENV_FILE}" <<'PY'
-import pathlib, sys, urllib.parse
-path = pathlib.Path(sys.argv[1])
-values = {}
-for raw in path.read_text(encoding="utf-8-sig").splitlines():
-    line = raw.strip()
-    if not line or line.startswith("#") or "=" not in line: continue
-    key, value = line.split("=", 1)
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'": value = value[1:-1]
-    values[key.strip()] = value
-required = ["ENVIRONMENT", "AUTH_MODE", "DATABASE_URL", "CORS_ALLOW_ORIGINS", "MYSTERY_AUTH_SECRET_KEY"]
-missing = [key for key in required if not values.get(key)]
-if missing: raise SystemExit("Missing required environment keys: " + ", ".join(missing))
-if values["ENVIRONMENT"] != "production": raise SystemExit("ENVIRONMENT must be production")
-if values["AUTH_MODE"] != "mystery_public": raise SystemExit("AUTH_MODE must be mystery_public")
-url = urllib.parse.urlsplit(values["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1))
-mode = urllib.parse.parse_qs(url.query).get("sslmode", [""])[-1].lower()
-if mode not in {"require", "verify-ca", "verify-full"}: raise SystemExit("DATABASE_URL must enforce PostgreSQL SSL")
-print("Environment metadata validated: required keys present; production/public auth/DB SSL policies pass")
-PY
+# Use the same restricted, non-disclosing EnvironmentFile parser and policy as
+# the preactivation candidate probe. Unsupported escapes, continuations or mixed
+# quoting fail before the live service is restarted.
+"${VENV_DIR}/bin/python" -I "${CURRENT_DIR}/scripts/linux/mystery_public_release_guard.py" \
+  check-production-environment "${ENV_FILE}"
 
 cat >"${TMP_SERVICE_FILE}" <<EOF
 [Unit]
@@ -70,6 +53,9 @@ Group=${SERVICE_GROUP}
 WorkingDirectory=${BACKEND_DIR}
 EnvironmentFile=${ENV_FILE}
 Environment=PYTHONDONTWRITEBYTECODE=1
+# Do not probe an absent optional client certificate under ProtectHome=yes.
+# This does not relax DATABASE_URL sslmode=require/verify-ca/verify-full.
+Environment=PGSSLCERTMODE=disable
 Environment=APP_VERSION=${APP_VERSION}
 Environment=RELEASE_ID=${RELEASE_ID}
 ExecStart=${VENV_DIR}/bin/uvicorn app.main:app --host 127.0.0.1 --port 8011 --proxy-headers --forwarded-allow-ips=127.0.0.1

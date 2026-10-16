@@ -2,6 +2,24 @@ name: deploy-mystery-public
 
 on:
   workflow_dispatch:
+    inputs:
+      action:
+        description: "Approved operation"
+        required: true
+        type: choice
+        options: [establish_baseline, deploy, rollback, recover]
+      baseline_current_release_id:
+        description: "FIRST BASELINE only: exact currently installed unverified release ID"
+        required: false
+        type: string
+      fallback_release_id:
+        description: "DEPLOY only: approved signed current fallback release ID"
+        required: false
+        type: string
+      rollback_release_id:
+        description: "ROLLBACK only: approved signed target release ID"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -15,26 +33,41 @@ env:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (inputs.action == 'deploy' || inputs.action == 'establish_baseline')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
       release_id: ${{ steps.identity.outputs.release_id }}
       bundle_sha256: ${{ steps.bundle.outputs.bundle_sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/mystery-shopper/package-lock.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          # Match cwscx-web01's Python 3.12: the offline wheelhouse contains
-          # interpreter-specific wheels that Python 3.12 cannot load from 3.11.
           python-version: "3.12"
+      - name: Validate approved deployment inputs
+        shell: bash
+        env:
+          ACTION: ${{ inputs.action }}
+          BASELINE_CURRENT_RELEASE_ID: ${{ inputs.baseline_current_release_id }}
+          FALLBACK_RELEASE_ID: ${{ inputs.fallback_release_id }}
+          ROLLBACK_RELEASE_ID: ${{ inputs.rollback_release_id }}
+        run: |
+          set -euo pipefail
+          test -z "${ROLLBACK_RELEASE_ID}"
+          if [[ "${ACTION}" == "deploy" ]]; then
+            [[ "${FALLBACK_RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]]
+            test -z "${BASELINE_CURRENT_RELEASE_ID}"
+          else
+            [[ "${BASELINE_CURRENT_RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]]
+            test -z "${FALLBACK_RELEASE_ID}"
+          fi
       - name: Define immutable release identity
         id: identity
         shell: bash
@@ -43,7 +76,7 @@ jobs:
           test "${GITHUB_REF}" = "refs/heads/main"
           RELEASE_ID="mystery-public-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
           echo "release_id=${RELEASE_ID}" >> "${GITHUB_OUTPUT}"
-      - name: Static deployment tests
+      - name: Deployment behavior and contract tests
         shell: bash
         run: bash scripts/linux/tests/test_mystery_public_release_scripts.sh
       - name: Build bundle and checksum
@@ -59,7 +92,7 @@ jobs:
           BUNDLE_SHA256="$(sha256sum "${BUNDLE}" | cut -d' ' -f1)"
           printf '%s  %s\n' "${BUNDLE_SHA256}" "$(basename "${BUNDLE}")" > "${RUNNER_TEMP}/cwscx-mystery-public-release.zip.sha256"
           echo "bundle_sha256=${BUNDLE_SHA256}" >> "${GITHUB_OUTPUT}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mystery-public-${{ steps.identity.outputs.release_id }}
           path: |
@@ -68,8 +101,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  deploy:
-    if: github.ref == 'refs/heads/main'
+  establish-baseline:
+    if: github.ref == 'refs/heads/main' && inputs.action == 'establish_baseline'
     needs: build
     runs-on: [self-hosted, linux, production]
     environment: mystery-public
@@ -77,91 +110,396 @@ jobs:
     env:
       RELEASE_ID: ${{ needs.build.outputs.release_id }}
       BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
+      BASELINE_CURRENT_RELEASE_ID: ${{ inputs.baseline_current_release_id }}
       DMZ_HOST: 172.17.0.200
       DMZ_USER: cxadmin
       MYSTERY_PUBLIC_BASE_URL: ${{ secrets.MYSTERY_PUBLIC_BASE_URL }}
       VERIFY_TLS_MODE: ${{ vars.MYSTERY_PUBLIC_TLS_MODE || 'prepublic' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: mystery-public-${{ needs.build.outputs.release_id }}
           path: ${{ runner.temp }}/mystery-public-artifact
-      - name: Deploy from internal runner to APN application VM over pinned SSH
-        id: deploy
+      - name: Establish first signed GitHub-controlled baseline
         shell: bash
         env:
           DMZ_SSH_KEY: ${{ secrets.DMZ_SSH_KEY }}
           DMZ_SSH_KNOWN_HOSTS: ${{ secrets.DMZ_SSH_KNOWN_HOSTS }}
+          MYSTERY_PUBLIC_RELEASE_SIGNING_KEY: ${{ secrets.MYSTERY_PUBLIC_RELEASE_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          : "${DMZ_HOST:?DMZ_HOST variable is required}"
-          : "${DMZ_USER:?DMZ_USER variable is required}"
-          : "${MYSTERY_PUBLIC_BASE_URL:?MYSTERY_PUBLIC_BASE_URL variable is required}"
-          : "${VERIFY_TLS_MODE:?MYSTERY_PUBLIC_TLS_MODE variable is required}"
-          : "${DMZ_SSH_KEY:?DMZ_SSH_KEY secret is required}"
-          : "${DMZ_SSH_KNOWN_HOSTS:?DMZ_SSH_KNOWN_HOSTS secret is required}"
-          EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"
-          mkdir -p "${EVIDENCE_DIR}"
-          KEY_FILE="$(mktemp)"; KNOWN_HOSTS_FILE="$(mktemp)"
-          trap 'rm -f "${KEY_FILE}" "${KNOWN_HOSTS_FILE}"' EXIT
-          printf '%s' "${DMZ_SSH_KEY}" | base64 -d > "${KEY_FILE}"
-          printf '%s\n' "${DMZ_SSH_KNOWN_HOSTS}" > "${KNOWN_HOSTS_FILE}"
-          chmod 600 "${KEY_FILE}" "${KNOWN_HOSTS_FILE}"
-          ssh-keygen -y -f "${KEY_FILE}" >/dev/null
+          : "${MYSTERY_PUBLIC_BASE_URL:?required}"; : "${DMZ_SSH_KEY:?required}"; : "${DMZ_SSH_KNOWN_HOSTS:?required}"
+          : "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY:?required}"
+          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py scripts/linux/mystery_public_bootstrap_transaction.py)"
+          [[ "${BASELINE_CURRENT_RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]]
+          [[ "${VERIFY_TLS_MODE}" == "prepublic" || "${VERIFY_TLS_MODE}" == "trusted" ]]
+          EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"; mkdir -p "${EVIDENCE_DIR}"
+          SSH_KEY_FILE="$(mktemp)"; RELEASE_KEY_FILE="$(mktemp)"; KNOWN_HOSTS_FILE="$(mktemp)"
+          trap 'rm -f "${SSH_KEY_FILE}" "${RELEASE_KEY_FILE}" "${KNOWN_HOSTS_FILE}"' EXIT
+          printf '%s' "${DMZ_SSH_KEY}" | base64 -d >"${SSH_KEY_FILE}"
+          printf '%s' "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY}" | base64 -d >"${RELEASE_KEY_FILE}"
+          printf '%s\n' "${DMZ_SSH_KNOWN_HOSTS}" >"${KNOWN_HOSTS_FILE}"
+          chmod 600 "${SSH_KEY_FILE}" "${RELEASE_KEY_FILE}" "${KNOWN_HOSTS_FILE}"
+          ssh-keygen -y -f "${SSH_KEY_FILE}" >"${RUNNER_TEMP}/ssh-key.pub"
+          ssh-keygen -y -f "${RELEASE_KEY_FILE}" >"${RUNNER_TEMP}/release-key.pub"
+          ! cmp -s "${RUNNER_TEMP}/ssh-key.pub" "${RUNNER_TEMP}/release-key.pub" || { echo 'Release signing key must differ from SSH key' >&2; exit 1; }
           ssh-keygen -l -f "${KNOWN_HOSTS_FILE}" >/dev/null
-          SSH_OPTS=(-i "${KEY_FILE}" -o "UserKnownHostsFile=${KNOWN_HOSTS_FILE}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15)
-          # Fail before transferring or installing a release unless the VM
-          # exposes only the fixed deployment entrypoint without a password.
-          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" 'sudo -n -l' \
-            | python3 scripts/linux/check_mystery_deploy_sudo.py
+          SSH_OPTS=(-i "${SSH_KEY_FILE}" -o "UserKnownHostsFile=${KNOWN_HOSTS_FILE}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15)
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" 'sudo -n -l' | python3 scripts/linux/check_mystery_deploy_sudo.py
+          STATUS_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --action status)
+          printf -v REMOTE_STATUS_CMD '%q ' "${STATUS_CMD[@]}"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/before.json"
+          python3 - "${EVIDENCE_DIR}/before.json" "${BASELINE_CURRENT_RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" <<'PY'
+          import json, sys
+          state=json.load(open(sys.argv[1], encoding="utf-8"))
+          if state.get("privileged_suite_version") != sys.argv[3]:
+              raise SystemExit("installed privileged deploy suite differs from this reviewed GitHub revision; VM-admin bootstrap is required")
+          if state["release_id"] != sys.argv[2]:
+              raise SystemExit("live current release differs from the explicitly approved first-baseline starting release")
+          if state["signed_archive_verified"] or state["baseline_established"]:
+              raise SystemExit("an authenticated baseline/fallback already exists; use normal deploy")
+          PY
           BUNDLE="${RUNNER_TEMP}/mystery-public-artifact/cwscx-mystery-public-release.zip"
           printf '%s  %s\n' "${BUNDLE_SHA256}" "${BUNDLE}" | sha256sum --check --strict
-          REMOTE_BUNDLE="/tmp/${RELEASE_ID}.zip"
-          REMOTE_SIGNATURE="${REMOTE_BUNDLE}.sig"
-          REMOTE_EVIDENCE="/var/lib/cwscx-mystery-public/deploy-evidence/${RELEASE_ID}.json"
-          # Only the bundle crosses to /tmp on the internal application VM; the installer,
-          # backend/nginx deploy scripts and verifier already live on the VM
-          # at fixed, root-owned paths installed by the one-time VM-admin
-          # bootstrap script (scripts/linux/bootstrap_mystery_public_deploy_entrypoint.sh).
+          ssh-keygen -Y sign -f "${RELEASE_KEY_FILE}" -n cwscx-mystery-public-release "${BUNDLE}"
+          REMOTE_BUNDLE="/tmp/${RELEASE_ID}.zip"; REMOTE_OPERATION="/tmp/${RELEASE_ID}.operation.json"
           scp "${SSH_OPTS[@]}" "${BUNDLE}" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_BUNDLE}"
-          ssh-keygen -Y sign -f "${KEY_FILE}" -n cwscx-mystery-public "${BUNDLE}"
-          scp "${SSH_OPTS[@]}" "${BUNDLE}.sig" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_SIGNATURE}"
-          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" \
-            "printf '%s  %s\\n' '${BUNDLE_SHA256}' '${REMOTE_BUNDLE}' | sha256sum --check --strict"
-          # Exactly one privileged call: the fixed, root-owned deploy
-          # entrypoint. It installs the release, deploys the backend and
-          # NGINX, verifies, and writes evidence itself under a fixed
-          # root-owned directory (never /tmp) — this workflow performs no
-          # other sudo command.
-          DEPLOY_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy \
-            --bundle-path "${REMOTE_BUNDLE}" \
-            --bundle-sha256 "${BUNDLE_SHA256}" \
-            --signature-path "${REMOTE_SIGNATURE}" \
-            --base-url "${MYSTERY_PUBLIC_BASE_URL}" \
-            --tls-mode "${VERIFY_TLS_MODE}")
-          printf -v REMOTE_DEPLOY_CMD '%q ' "${DEPLOY_CMD[@]}"
-          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_DEPLOY_CMD}" \
-            2>&1 | tee "${EVIDENCE_DIR}/deploy.log"
-          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_EVIDENCE}" "${EVIDENCE_DIR}/verification.json"
-          python3 - "${EVIDENCE_DIR}/verification.json" <<'PY'
-          import json, sys
-          data=json.load(open(sys.argv[1],encoding="utf-8"))
-          assert data["summary"]["total"] == len(data["checks"])
-          assert data["summary"]["passed"] + data["summary"]["failed"] == data["summary"]["total"]
-          assert data["summary"]["failed"] == 0
+          scp "${SSH_OPTS[@]}" "${BUNDLE}.sig" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_BUNDLE}.sig"
+          OPERATION="${RUNNER_TEMP}/${RELEASE_ID}.operation.json"
+          export OPERATION ACTION=establish_baseline TARGET_RELEASE_ID="${RELEASE_ID}" CURRENT_RELEASE_ID="${BASELINE_CURRENT_RELEASE_ID}"
+          export GITHUB_RUN_ID GITHUB_RUN_ATTEMPT BUNDLE_SHA256 MYSTERY_PUBLIC_BASE_URL VERIFY_TLS_MODE
+          python3 - <<'PY'
+          import datetime, json, os, secrets
+          now=datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+          data={"schema_version":1,"action":os.environ["ACTION"],"target_release_id":os.environ["TARGET_RELEASE_ID"],"bundle_sha256":os.environ["BUNDLE_SHA256"],"current_release_id":os.environ["CURRENT_RELEASE_ID"],"base_url":os.environ["MYSTERY_PUBLIC_BASE_URL"],"tls_mode":os.environ["VERIFY_TLS_MODE"],"github_run_id":os.environ["GITHUB_RUN_ID"],"github_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"issued_at_utc":now.isoformat().replace("+00:00","Z"),"expires_at_utc":(now+datetime.timedelta(minutes=5)).isoformat().replace("+00:00","Z"),"nonce":secrets.token_hex(32)}
+          open(os.environ["OPERATION"],"w",encoding="utf-8").write(json.dumps(data,sort_keys=True,separators=(",",":"))+"\n")
           PY
-          printf '{"release_id":"%s","git_sha":"%s","bundle_sha256":"%s"}\n' "${RELEASE_ID}" "${GITHUB_SHA}" "${BUNDLE_SHA256}" > "${EVIDENCE_DIR}/workflow-release.json"
-          # The entrypoint already removed the /tmp bundle on exit (its own
-          # trap); evidence is retained on the VM under bounded, root-owned
-          # retention rather than deleted here after fetch.
+          OPERATION_NONCE="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["nonce"])' "${OPERATION}")"
+          ssh-keygen -Y sign -f "${RELEASE_KEY_FILE}" -n cwscx-mystery-public-operation "${OPERATION}"
+          scp "${SSH_OPTS[@]}" "${OPERATION}" "${OPERATION}.sig" "${DMZ_USER}@${DMZ_HOST}:/tmp/"
+          BASELINE_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --operation-path "${REMOTE_OPERATION}" --operation-signature-path "${REMOTE_OPERATION}.sig" --bundle-path "${REMOTE_BUNDLE}" --bundle-signature-path "${REMOTE_BUNDLE}.sig")
+          printf -v REMOTE_BASELINE_CMD '%q ' "${BASELINE_CMD[@]}"
+          set +e
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_BASELINE_CMD}" 2>&1 | tee "${EVIDENCE_DIR}/establish-baseline.log"
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/${RELEASE_ID}.json" "${EVIDENCE_DIR}/verification.json" 2>/dev/null || true
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-${RELEASE_ID}.json" "${EVIDENCE_DIR}/recovery.json" 2>/dev/null || true
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-attempts-${OPERATION_NONCE}.jsonl" "${EVIDENCE_DIR}/recovery-attempts.jsonl" 2>/dev/null || true
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/after.json" || true
+          if (( STATUS != 0 )); then
+            echo 'First-baseline operation failed. The entrypoint attempted operational restoration of the pre-baseline release; it remains unverified and no authenticated rollback is asserted.' >&2
+            python3 scripts/linux/mystery_public_workflow_evidence.py classify-recovery "${EVIDENCE_DIR}/before.json" "${EVIDENCE_DIR}/after.json" "${EVIDENCE_DIR}/recovery.json" "${BASELINE_CURRENT_RELEASE_ID}" "${RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" 2>&1 | tee -a "${EVIDENCE_DIR}/recovery-classification.txt" >&2 || true
+            exit "${STATUS}"
+          fi
+          python3 scripts/linux/mystery_public_workflow_evidence.py verify-success baseline "${EVIDENCE_DIR}/verification.json" "${EVIDENCE_DIR}/after.json" "${RELEASE_ID}" "${GITHUB_SHA}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}"
+          printf 'Mystery first baseline: %s (%s)\n' "${RELEASE_ID}" "${GITHUB_SHA}" >>"${GITHUB_STEP_SUMMARY}"
+      - name: Upload first-baseline evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mystery-public-first-baseline-evidence-${{ needs.build.outputs.release_id }}
+          path: ${{ runner.temp }}/mystery-public-evidence
+          if-no-files-found: warn
+          retention-days: 90
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && inputs.action == 'deploy'
+    needs: build
+    runs-on: [self-hosted, linux, production]
+    environment: mystery-public
+    timeout-minutes: 30
+    env:
+      RELEASE_ID: ${{ needs.build.outputs.release_id }}
+      BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
+      FALLBACK_RELEASE_ID: ${{ inputs.fallback_release_id }}
+      DMZ_HOST: 172.17.0.200
+      DMZ_USER: cxadmin
+      MYSTERY_PUBLIC_BASE_URL: ${{ secrets.MYSTERY_PUBLIC_BASE_URL }}
+      VERIFY_TLS_MODE: ${{ vars.MYSTERY_PUBLIC_TLS_MODE || 'prepublic' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: mystery-public-${{ needs.build.outputs.release_id }}
+          path: ${{ runner.temp }}/mystery-public-artifact
+      - name: Deploy through GitHub-authorized signed operation
+        shell: bash
+        env:
+          DMZ_SSH_KEY: ${{ secrets.DMZ_SSH_KEY }}
+          DMZ_SSH_KNOWN_HOSTS: ${{ secrets.DMZ_SSH_KNOWN_HOSTS }}
+          MYSTERY_PUBLIC_RELEASE_SIGNING_KEY: ${{ secrets.MYSTERY_PUBLIC_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          : "${MYSTERY_PUBLIC_BASE_URL:?required}"; : "${DMZ_SSH_KEY:?required}"; : "${DMZ_SSH_KNOWN_HOSTS:?required}"
+          : "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY:?required}"
+          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py scripts/linux/mystery_public_bootstrap_transaction.py)"
+          [[ "${FALLBACK_RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]]
+          [[ "${VERIFY_TLS_MODE}" == "prepublic" || "${VERIFY_TLS_MODE}" == "trusted" ]]
+          EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"; mkdir -p "${EVIDENCE_DIR}"
+          SSH_KEY_FILE="$(mktemp)"; RELEASE_KEY_FILE="$(mktemp)"; KNOWN_HOSTS_FILE="$(mktemp)"
+          trap 'rm -f "${SSH_KEY_FILE}" "${RELEASE_KEY_FILE}" "${KNOWN_HOSTS_FILE}"' EXIT
+          printf '%s' "${DMZ_SSH_KEY}" | base64 -d >"${SSH_KEY_FILE}"
+          printf '%s' "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY}" | base64 -d >"${RELEASE_KEY_FILE}"
+          printf '%s\n' "${DMZ_SSH_KNOWN_HOSTS}" >"${KNOWN_HOSTS_FILE}"
+          chmod 600 "${SSH_KEY_FILE}" "${RELEASE_KEY_FILE}" "${KNOWN_HOSTS_FILE}"
+          ssh-keygen -y -f "${SSH_KEY_FILE}" >"${RUNNER_TEMP}/ssh-key.pub"
+          ssh-keygen -y -f "${RELEASE_KEY_FILE}" >"${RUNNER_TEMP}/release-key.pub"
+          ! cmp -s "${RUNNER_TEMP}/ssh-key.pub" "${RUNNER_TEMP}/release-key.pub" || { echo 'Release signing key must differ from SSH key' >&2; exit 1; }
+          ssh-keygen -l -f "${KNOWN_HOSTS_FILE}" >/dev/null
+          SSH_OPTS=(-i "${SSH_KEY_FILE}" -o "UserKnownHostsFile=${KNOWN_HOSTS_FILE}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15)
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" 'sudo -n -l' | python3 scripts/linux/check_mystery_deploy_sudo.py
+          STATUS_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --action status)
+          printf -v REMOTE_STATUS_CMD '%q ' "${STATUS_CMD[@]}"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/before.json"
+          python3 - "${EVIDENCE_DIR}/before.json" "${FALLBACK_RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" <<'PY'
+          import json, sys
+          state=json.load(open(sys.argv[1], encoding="utf-8"))
+          if state.get("privileged_suite_version") != sys.argv[3]:
+              raise SystemExit("installed privileged deploy suite differs from this reviewed GitHub revision; VM-admin bootstrap is required")
+          if state["release_id"] != sys.argv[2] or not state["signed_archive_verified"]:
+              raise SystemExit("live current release differs from approved signed fallback")
+          PY
+          BUNDLE="${RUNNER_TEMP}/mystery-public-artifact/cwscx-mystery-public-release.zip"
+          printf '%s  %s\n' "${BUNDLE_SHA256}" "${BUNDLE}" | sha256sum --check --strict
+          ssh-keygen -Y sign -f "${RELEASE_KEY_FILE}" -n cwscx-mystery-public-release "${BUNDLE}"
+          REMOTE_BUNDLE="/tmp/${RELEASE_ID}.zip"; REMOTE_OPERATION="/tmp/${RELEASE_ID}.operation.json"
+          scp "${SSH_OPTS[@]}" "${BUNDLE}" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_BUNDLE}"
+          scp "${SSH_OPTS[@]}" "${BUNDLE}.sig" "${DMZ_USER}@${DMZ_HOST}:${REMOTE_BUNDLE}.sig"
+          # Sign authorization only after the potentially long bundle transfer,
+          # keeping the server-enforced five-minute validity window useful.
+          OPERATION="${RUNNER_TEMP}/${RELEASE_ID}.operation.json"
+          export OPERATION ACTION=deploy TARGET_RELEASE_ID="${RELEASE_ID}" CURRENT_RELEASE_ID="${FALLBACK_RELEASE_ID}"
+          export GITHUB_RUN_ID GITHUB_RUN_ATTEMPT BUNDLE_SHA256 MYSTERY_PUBLIC_BASE_URL VERIFY_TLS_MODE
+          python3 - <<'PY'
+          import datetime, json, os, secrets
+          now=datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+          data={"schema_version":1,"action":os.environ["ACTION"],"target_release_id":os.environ["TARGET_RELEASE_ID"],"bundle_sha256":os.environ["BUNDLE_SHA256"],"current_release_id":os.environ["CURRENT_RELEASE_ID"],"base_url":os.environ["MYSTERY_PUBLIC_BASE_URL"],"tls_mode":os.environ["VERIFY_TLS_MODE"],"github_run_id":os.environ["GITHUB_RUN_ID"],"github_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"issued_at_utc":now.isoformat().replace("+00:00","Z"),"expires_at_utc":(now+datetime.timedelta(minutes=5)).isoformat().replace("+00:00","Z"),"nonce":secrets.token_hex(32)}
+          open(os.environ["OPERATION"],"w",encoding="utf-8").write(json.dumps(data,sort_keys=True,separators=(",",":"))+"\n")
+          PY
+          OPERATION_NONCE="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["nonce"])' "${OPERATION}")"
+          ssh-keygen -Y sign -f "${RELEASE_KEY_FILE}" -n cwscx-mystery-public-operation "${OPERATION}"
+          scp "${SSH_OPTS[@]}" "${OPERATION}" "${OPERATION}.sig" "${DMZ_USER}@${DMZ_HOST}:/tmp/"
+          DEPLOY_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --operation-path "${REMOTE_OPERATION}" --operation-signature-path "${REMOTE_OPERATION}.sig" --bundle-path "${REMOTE_BUNDLE}" --bundle-signature-path "${REMOTE_BUNDLE}.sig")
+          printf -v REMOTE_DEPLOY_CMD '%q ' "${DEPLOY_CMD[@]}"
+          set +e
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_DEPLOY_CMD}" 2>&1 | tee "${EVIDENCE_DIR}/deploy.log"
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/${RELEASE_ID}.json" "${EVIDENCE_DIR}/verification.json" 2>/dev/null || true
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-${RELEASE_ID}.json" "${EVIDENCE_DIR}/recovery.json" 2>/dev/null || true
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-attempts-${OPERATION_NONCE}.jsonl" "${EVIDENCE_DIR}/recovery-attempts.jsonl" 2>/dev/null || true
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/after.json" || true
+          if (( STATUS != 0 )); then
+            python3 scripts/linux/mystery_public_workflow_evidence.py classify-recovery "${EVIDENCE_DIR}/before.json" "${EVIDENCE_DIR}/after.json" "${EVIDENCE_DIR}/recovery.json" "${FALLBACK_RELEASE_ID}" "${RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" 2>&1 | tee -a "${EVIDENCE_DIR}/recovery-classification.txt" >&2 || true
+            exit "${STATUS}"
+          fi
+          python3 scripts/linux/mystery_public_workflow_evidence.py verify-success deploy "${EVIDENCE_DIR}/verification.json" "${EVIDENCE_DIR}/after.json" "${RELEASE_ID}" "${GITHUB_SHA}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}"
+          printf 'Mystery release: %s (%s)\n' "${RELEASE_ID}" "${GITHUB_SHA}" >>"${GITHUB_STEP_SUMMARY}"
       - name: Upload deployment evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mystery-public-deployment-evidence-${{ needs.build.outputs.release_id }}
+          path: ${{ runner.temp }}/mystery-public-evidence
+          if-no-files-found: warn
+          retention-days: 90
+
+  rollback:
+    if: github.ref == 'refs/heads/main' && inputs.action == 'rollback'
+    runs-on: [self-hosted, linux, production]
+    environment: mystery-public
+    timeout-minutes: 30
+    env:
+      ROLLBACK_RELEASE_ID: ${{ inputs.rollback_release_id }}
+      FALLBACK_RELEASE_ID: ${{ inputs.fallback_release_id }}
+      BASELINE_CURRENT_RELEASE_ID: ${{ inputs.baseline_current_release_id }}
+      DMZ_HOST: 172.17.0.200
+      DMZ_USER: cxadmin
+      MYSTERY_PUBLIC_BASE_URL: ${{ secrets.MYSTERY_PUBLIC_BASE_URL }}
+      VERIFY_TLS_MODE: ${{ vars.MYSTERY_PUBLIC_TLS_MODE || 'prepublic' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - name: Roll back through GitHub-authorized signed operation
+        shell: bash
+        env:
+          DMZ_SSH_KEY: ${{ secrets.DMZ_SSH_KEY }}
+          DMZ_SSH_KNOWN_HOSTS: ${{ secrets.DMZ_SSH_KNOWN_HOSTS }}
+          MYSTERY_PUBLIC_RELEASE_SIGNING_KEY: ${{ secrets.MYSTERY_PUBLIC_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          : "${MYSTERY_PUBLIC_BASE_URL:?required}"; : "${DMZ_SSH_KEY:?required}"; : "${DMZ_SSH_KNOWN_HOSTS:?required}"
+          : "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY:?required}"
+          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py scripts/linux/mystery_public_bootstrap_transaction.py)"
+          [[ "${ROLLBACK_RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]]; test -z "${FALLBACK_RELEASE_ID}"; test -z "${BASELINE_CURRENT_RELEASE_ID}"
+          [[ "${VERIFY_TLS_MODE}" == "prepublic" || "${VERIFY_TLS_MODE}" == "trusted" ]]
+          EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"; mkdir -p "${EVIDENCE_DIR}"
+          SSH_KEY_FILE="$(mktemp)"; RELEASE_KEY_FILE="$(mktemp)"; KNOWN_HOSTS_FILE="$(mktemp)"
+          trap 'rm -f "${SSH_KEY_FILE}" "${RELEASE_KEY_FILE}" "${KNOWN_HOSTS_FILE}"' EXIT
+          printf '%s' "${DMZ_SSH_KEY}" | base64 -d >"${SSH_KEY_FILE}"
+          printf '%s' "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY}" | base64 -d >"${RELEASE_KEY_FILE}"
+          printf '%s\n' "${DMZ_SSH_KNOWN_HOSTS}" >"${KNOWN_HOSTS_FILE}"
+          chmod 600 "${SSH_KEY_FILE}" "${RELEASE_KEY_FILE}" "${KNOWN_HOSTS_FILE}"
+          ssh-keygen -y -f "${SSH_KEY_FILE}" >"${RUNNER_TEMP}/ssh-key.pub"
+          ssh-keygen -y -f "${RELEASE_KEY_FILE}" >"${RUNNER_TEMP}/release-key.pub"
+          ! cmp -s "${RUNNER_TEMP}/ssh-key.pub" "${RUNNER_TEMP}/release-key.pub" || { echo 'Release signing key must differ from SSH key' >&2; exit 1; }
+          ssh-keygen -l -f "${KNOWN_HOSTS_FILE}" >/dev/null
+          SSH_OPTS=(-i "${SSH_KEY_FILE}" -o "UserKnownHostsFile=${KNOWN_HOSTS_FILE}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15)
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" 'sudo -n -l' | python3 scripts/linux/check_mystery_deploy_sudo.py
+          STATUS_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --action status)
+          printf -v REMOTE_STATUS_CMD '%q ' "${STATUS_CMD[@]}"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/before.json"
+          TARGET_STATUS_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --action status --release-id "${ROLLBACK_RELEASE_ID}")
+          printf -v REMOTE_TARGET_STATUS_CMD '%q ' "${TARGET_STATUS_CMD[@]}"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_TARGET_STATUS_CMD}" >"${EVIDENCE_DIR}/target.json"
+          readarray -t STATUS_VALUES < <(python3 - "${EVIDENCE_DIR}/before.json" "${EVIDENCE_DIR}/target.json" "${ROLLBACK_RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" <<'PY'
+          import json, sys
+          current=json.load(open(sys.argv[1],encoding="utf-8")); target=json.load(open(sys.argv[2],encoding="utf-8"))["requested_release"]
+          if current.get("privileged_suite_version") != sys.argv[4]:
+              raise SystemExit("installed privileged deploy suite differs from this reviewed GitHub revision; VM-admin bootstrap is required")
+          if not current["signed_archive_verified"] or not target or not target["signed_archive_verified"] or target["release_id"] != sys.argv[3]:
+              raise SystemExit("current or rollback target is not an authenticated installed archive")
+          print(current["release_id"]); print(target["bundle_sha256"])
+          PY
+          )
+          CURRENT_RELEASE_ID="${STATUS_VALUES[0]}"; BUNDLE_SHA256="${STATUS_VALUES[1]}"
+          OPERATION="${RUNNER_TEMP}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.operation.json"
+          export OPERATION ACTION=rollback TARGET_RELEASE_ID="${ROLLBACK_RELEASE_ID}" CURRENT_RELEASE_ID BUNDLE_SHA256
+          export GITHUB_RUN_ID GITHUB_RUN_ATTEMPT MYSTERY_PUBLIC_BASE_URL VERIFY_TLS_MODE
+          python3 - <<'PY'
+          import datetime, json, os, secrets
+          now=datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+          data={"schema_version":1,"action":os.environ["ACTION"],"target_release_id":os.environ["TARGET_RELEASE_ID"],"bundle_sha256":os.environ["BUNDLE_SHA256"],"current_release_id":os.environ["CURRENT_RELEASE_ID"],"base_url":os.environ["MYSTERY_PUBLIC_BASE_URL"],"tls_mode":os.environ["VERIFY_TLS_MODE"],"github_run_id":os.environ["GITHUB_RUN_ID"],"github_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"issued_at_utc":now.isoformat().replace("+00:00","Z"),"expires_at_utc":(now+datetime.timedelta(minutes=5)).isoformat().replace("+00:00","Z"),"nonce":secrets.token_hex(32)}
+          open(os.environ["OPERATION"],"w",encoding="utf-8").write(json.dumps(data,sort_keys=True,separators=(",",":"))+"\n")
+          PY
+          OPERATION_NONCE="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["nonce"])' "${OPERATION}")"
+          ssh-keygen -Y sign -f "${RELEASE_KEY_FILE}" -n cwscx-mystery-public-operation "${OPERATION}"
+          REMOTE_OPERATION="/tmp/$(basename "${OPERATION}")"
+          scp "${SSH_OPTS[@]}" "${OPERATION}" "${OPERATION}.sig" "${DMZ_USER}@${DMZ_HOST}:/tmp/"
+          ROLLBACK_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --operation-path "${REMOTE_OPERATION}" --operation-signature-path "${REMOTE_OPERATION}.sig")
+          printf -v REMOTE_ROLLBACK_CMD '%q ' "${ROLLBACK_CMD[@]}"
+          set +e
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_ROLLBACK_CMD}" 2>&1 | tee "${EVIDENCE_DIR}/rollback.log"
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/${ROLLBACK_RELEASE_ID}.json" "${EVIDENCE_DIR}/verification.json" 2>/dev/null || true
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-${ROLLBACK_RELEASE_ID}.json" "${EVIDENCE_DIR}/recovery.json" 2>/dev/null || true
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-attempts-${OPERATION_NONCE}.jsonl" "${EVIDENCE_DIR}/recovery-attempts.jsonl" 2>/dev/null || true
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/after.json" || true
+          if (( STATUS != 0 )); then
+            python3 scripts/linux/mystery_public_workflow_evidence.py classify-recovery "${EVIDENCE_DIR}/before.json" "${EVIDENCE_DIR}/after.json" "${EVIDENCE_DIR}/recovery.json" "${CURRENT_RELEASE_ID}" "${ROLLBACK_RELEASE_ID}" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" 2>&1 | tee -a "${EVIDENCE_DIR}/recovery-classification.txt" >&2 || true
+            exit "${STATUS}"
+          fi
+          python3 scripts/linux/mystery_public_workflow_evidence.py verify-success rollback "${EVIDENCE_DIR}/verification.json" "${EVIDENCE_DIR}/after.json" "${ROLLBACK_RELEASE_ID}" "" "${EXPECTED_PRIVILEGED_SUITE_VERSION}"
+          printf 'Mystery rollback: %s -> %s\n' "${CURRENT_RELEASE_ID}" "${ROLLBACK_RELEASE_ID}" >>"${GITHUB_STEP_SUMMARY}"
+      - name: Upload rollback evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mystery-public-rollback-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mystery-public-evidence
+          if-no-files-found: warn
+          retention-days: 90
+
+  recover:
+    if: github.ref == 'refs/heads/main' && inputs.action == 'recover'
+    runs-on: [self-hosted, linux, production]
+    environment: mystery-public
+    timeout-minutes: 30
+    env:
+      FALLBACK_RELEASE_ID: ${{ inputs.fallback_release_id }}
+      BASELINE_CURRENT_RELEASE_ID: ${{ inputs.baseline_current_release_id }}
+      ROLLBACK_RELEASE_ID: ${{ inputs.rollback_release_id }}
+      DMZ_HOST: 172.17.0.200
+      DMZ_USER: cxadmin
+      MYSTERY_PUBLIC_BASE_URL: ${{ secrets.MYSTERY_PUBLIC_BASE_URL }}
+      VERIFY_TLS_MODE: ${{ vars.MYSTERY_PUBLIC_TLS_MODE || 'prepublic' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - name: Recover interrupted operation through signed authorization
+        shell: bash
+        env:
+          DMZ_SSH_KEY: ${{ secrets.DMZ_SSH_KEY }}
+          DMZ_SSH_KNOWN_HOSTS: ${{ secrets.DMZ_SSH_KNOWN_HOSTS }}
+          MYSTERY_PUBLIC_RELEASE_SIGNING_KEY: ${{ secrets.MYSTERY_PUBLIC_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          test -z "${FALLBACK_RELEASE_ID}${BASELINE_CURRENT_RELEASE_ID}${ROLLBACK_RELEASE_ID}"
+          : "${MYSTERY_PUBLIC_BASE_URL:?required}"; : "${DMZ_SSH_KEY:?required}"; : "${DMZ_SSH_KNOWN_HOSTS:?required}"
+          : "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY:?required}"
+          EXPECTED_PRIVILEGED_SUITE_VERSION="$(python3 scripts/linux/mystery_public_release_guard.py suite-version scripts/linux/cwscx_mystery_public_deploy_entrypoint.sh scripts/linux/install_mystery_public_bundle.sh scripts/linux/mystery_public_release_guard.py scripts/linux/mystery_public_bootstrap_transaction.py)"
+          [[ "${VERIFY_TLS_MODE}" == "prepublic" || "${VERIFY_TLS_MODE}" == "trusted" ]]
+          EVIDENCE_DIR="${RUNNER_TEMP}/mystery-public-evidence"; mkdir -p "${EVIDENCE_DIR}"
+          SSH_KEY_FILE="$(mktemp)"; RELEASE_KEY_FILE="$(mktemp)"; KNOWN_HOSTS_FILE="$(mktemp)"
+          trap 'rm -f "${SSH_KEY_FILE}" "${RELEASE_KEY_FILE}" "${KNOWN_HOSTS_FILE}"' EXIT
+          printf '%s' "${DMZ_SSH_KEY}" | base64 -d >"${SSH_KEY_FILE}"
+          printf '%s' "${MYSTERY_PUBLIC_RELEASE_SIGNING_KEY}" | base64 -d >"${RELEASE_KEY_FILE}"
+          printf '%s\n' "${DMZ_SSH_KNOWN_HOSTS}" >"${KNOWN_HOSTS_FILE}"
+          chmod 600 "${SSH_KEY_FILE}" "${RELEASE_KEY_FILE}" "${KNOWN_HOSTS_FILE}"
+          ssh-keygen -y -f "${SSH_KEY_FILE}" >"${RUNNER_TEMP}/ssh-key.pub"
+          ssh-keygen -y -f "${RELEASE_KEY_FILE}" >"${RUNNER_TEMP}/release-key.pub"
+          ! cmp -s "${RUNNER_TEMP}/ssh-key.pub" "${RUNNER_TEMP}/release-key.pub" || { echo 'Release signing key must differ from SSH key' >&2; exit 1; }
+          ssh-keygen -l -f "${KNOWN_HOSTS_FILE}" >/dev/null
+          SSH_OPTS=(-i "${SSH_KEY_FILE}" -o "UserKnownHostsFile=${KNOWN_HOSTS_FILE}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15)
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" 'sudo -n -l' | python3 scripts/linux/check_mystery_deploy_sudo.py
+          STATUS_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --action status)
+          printf -v REMOTE_STATUS_CMD '%q ' "${STATUS_CMD[@]}"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/before.json"
+          readarray -t RECOVERY_VALUES < <(python3 - "${EVIDENCE_DIR}/before.json" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" <<'PY'
+          import json, re, sys
+          state=json.load(open(sys.argv[1],encoding="utf-8")); pending=state.get("pending_operation")
+          if state.get("privileged_suite_version") != sys.argv[2]: raise SystemExit("VM-admin bootstrap is required")
+          if not state.get("recovery_required") or not pending: raise SystemExit("no interrupted operation requires recovery")
+          for value in (state["release_id"], pending["original_release_id"], pending["failed_release_id"]):
+              if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", value): raise SystemExit("invalid recovery release identity")
+          if not re.fullmatch(r"[0-9a-f]{64}", pending["recovery_authorization_sha256"]): raise SystemExit("invalid recovery authorization checksum")
+          committed = (pending["mode"] == "baseline-origin" and
+                       state["release_id"] == pending["failed_release_id"] and
+                       state.get("baseline_release_id") == pending["failed_release_id"] and
+                       state.get("signed_archive_verified") is True)
+          expected = pending["failed_release_id"] if committed else pending["original_release_id"]
+          print(state["release_id"]); print(pending["original_release_id"]); print(pending["recovery_authorization_sha256"])
+          print(pending["failed_release_id"]); print(expected); print(pending["mode"])
+          PY
+          )
+          CURRENT_RELEASE_ID="${RECOVERY_VALUES[0]}"; TARGET_RELEASE_ID="${RECOVERY_VALUES[1]}"; BUNDLE_SHA256="${RECOVERY_VALUES[2]}"
+          FAILED_RELEASE_ID="${RECOVERY_VALUES[3]}"; EXPECTED_RECOVERY_RELEASE_ID="${RECOVERY_VALUES[4]}"
+          PENDING_RECOVERY_MODE="${RECOVERY_VALUES[5]}"
+          OPERATION="${RUNNER_TEMP}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.recovery.json"
+          export OPERATION ACTION=recover CURRENT_RELEASE_ID TARGET_RELEASE_ID BUNDLE_SHA256
+          export GITHUB_RUN_ID GITHUB_RUN_ATTEMPT MYSTERY_PUBLIC_BASE_URL VERIFY_TLS_MODE
+          python3 - <<'PY'
+          import datetime, json, os, secrets
+          now=datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+          data={"schema_version":1,"action":os.environ["ACTION"],"target_release_id":os.environ["TARGET_RELEASE_ID"],"bundle_sha256":os.environ["BUNDLE_SHA256"],"current_release_id":os.environ["CURRENT_RELEASE_ID"],"base_url":os.environ["MYSTERY_PUBLIC_BASE_URL"],"tls_mode":os.environ["VERIFY_TLS_MODE"],"github_run_id":os.environ["GITHUB_RUN_ID"],"github_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"issued_at_utc":now.isoformat().replace("+00:00","Z"),"expires_at_utc":(now+datetime.timedelta(minutes=5)).isoformat().replace("+00:00","Z"),"nonce":secrets.token_hex(32)}
+          open(os.environ["OPERATION"],"w",encoding="utf-8").write(json.dumps(data,sort_keys=True,separators=(",",":"))+"\n")
+          PY
+          OPERATION_NONCE="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["nonce"])' "${OPERATION}")"
+          ssh-keygen -Y sign -f "${RELEASE_KEY_FILE}" -n cwscx-mystery-public-operation "${OPERATION}"
+          REMOTE_OPERATION="/tmp/$(basename "${OPERATION}")"
+          scp "${SSH_OPTS[@]}" "${OPERATION}" "${OPERATION}.sig" "${DMZ_USER}@${DMZ_HOST}:/tmp/"
+          RECOVER_CMD=(sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --operation-path "${REMOTE_OPERATION}" --operation-signature-path "${REMOTE_OPERATION}.sig")
+          printf -v REMOTE_RECOVER_CMD '%q ' "${RECOVER_CMD[@]}"
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_RECOVER_CMD}" 2>&1 | tee "${EVIDENCE_DIR}/recover.log"
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-${FAILED_RELEASE_ID}.json" "${EVIDENCE_DIR}/recovery.json"
+          scp "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}:/var/lib/cwscx-mystery-public/deploy-evidence/recovery-attempts-${OPERATION_NONCE}.jsonl" "${EVIDENCE_DIR}/recovery-attempts.jsonl" 2>/dev/null || true
+          ssh "${SSH_OPTS[@]}" "${DMZ_USER}@${DMZ_HOST}" "${REMOTE_STATUS_CMD}" >"${EVIDENCE_DIR}/after.json"
+          python3 scripts/linux/mystery_public_workflow_evidence.py final-recover "${EVIDENCE_DIR}/after.json" "${EXPECTED_RECOVERY_RELEASE_ID}" "${EVIDENCE_DIR}/recovery.json" "${EXPECTED_PRIVILEGED_SUITE_VERSION}" "${FAILED_RELEASE_ID}" "${TARGET_RELEASE_ID}" "${PENDING_RECOVERY_MODE}" "${BUNDLE_SHA256}"
+          printf 'Mystery crash recovery: %s -> %s\n' "${CURRENT_RELEASE_ID}" "${EXPECTED_RECOVERY_RELEASE_ID}" >>"${GITHUB_STEP_SUMMARY}"
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mystery-public-recovery-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/mystery-public-evidence
           if-no-files-found: warn
           retention-days: 90

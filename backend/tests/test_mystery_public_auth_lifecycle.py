@@ -476,8 +476,8 @@ def _bootstrap_mystery_shopper(engine):
     """Ensure the mystery shopper reference tables and questions exist.
 
     DDL adapts to the current database engine (PostgreSQL or SQLite).
-    Also creates a minimal ``visits`` table to satisfy ``init_db()`` which
-    runs ALTER TABLE statements against it during startup.
+    Also creates the minimal ``visits`` table required by the mystery shopper
+    answer foreign key; application startup no longer creates or alters schema.
     """
     from app.api.mystery_shopper import MYSTERY_SHOPPER_QUESTIONS
 
@@ -501,7 +501,7 @@ def _bootstrap_mystery_shopper(engine):
         # Core shared tables needed by mystery shopper schema
         f"CREATE TABLE IF NOT EXISTS survey_types ({pk}, name TEXT NOT NULL UNIQUE, description TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
         f"CREATE TABLE IF NOT EXISTS questions ({pk}, survey_type_id INTEGER NOT NULL REFERENCES survey_types(id), question_number INTEGER NOT NULL, question_text TEXT NOT NULL, category TEXT, is_mandatory INTEGER DEFAULT 1, is_nps INTEGER DEFAULT 0, input_type TEXT DEFAULT 'text', score_min INTEGER, score_max INTEGER, choices TEXT, helper_text TEXT, requires_issue INTEGER DEFAULT 0, requires_escalation INTEGER DEFAULT 0, question_key TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
-        # Minimal visits table (needed by init_db() ALTER TABLE + mystery_shopper_answers FK)
+        # Minimal visits table required by mystery_shopper_answers FK
         "CREATE TABLE IF NOT EXISTS visits (id VARCHAR(36) PRIMARY KEY, business_id INTEGER NOT NULL DEFAULT 0, representative_id INTEGER NOT NULL DEFAULT 0, created_by INTEGER NOT NULL DEFAULT 0, visit_date DATE NOT NULL DEFAULT '2026-01-01', visit_type VARCHAR(50) NOT NULL DEFAULT 'Planned', escalation_occurred INTEGER NOT NULL DEFAULT 0, issue_experienced INTEGER NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'Draft', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
         # Mystery shopper tables
         f"CREATE TABLE IF NOT EXISTS mystery_shopper_locations ({pk}, name VARCHAR(255) NOT NULL UNIQUE, business_id INTEGER, active INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
