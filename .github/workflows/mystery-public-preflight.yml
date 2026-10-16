@@ -1,0 +1,64 @@
+name: mystery-public-preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mystery-public-production
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  preflight:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, production]
+    environment: mystery-public
+    timeout-minutes: 8
+    steps:
+      - name: Initialize sanitized failure report
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' '{"schema_version":1,"read_only":true,"deployment_acceptance":false,"preflight_ok":false,"strict_trust_gate":false,"failures":["workflow_setup_or_credentials_failed"]}' > "${RUNNER_TEMP}/mystery-public-preflight.json"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Run read-only collector regressions
+        shell: bash
+        run: python3 -m unittest discover -s scripts/linux/tests -p 'test_mystery_public_preflight.py' -v
+      - name: Read-only web01 status and public certificate inventory
+        shell: bash
+        env:
+          DMZ_SSH_KEY: ${{ secrets.DMZ_SSH_KEY }}
+          DMZ_SSH_KNOWN_HOSTS: ${{ secrets.DMZ_SSH_KNOWN_HOSTS }}
+          MYSTERY_PUBLIC_BASE_URL: ${{ secrets.MYSTERY_PUBLIC_BASE_URL }}
+          VERIFY_TLS_MODE: ${{ vars.MYSTERY_PUBLIC_TLS_MODE || 'prepublic' }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/main"
+          umask 077
+          SSH_KEY_FILE=""; KNOWN_HOSTS_FILE=""
+          trap 'rm -f -- "${SSH_KEY_FILE}" "${KNOWN_HOSTS_FILE}"' EXIT
+          SSH_KEY_FILE="$(mktemp "${RUNNER_TEMP}/mystery-preflight-key.XXXXXX")"
+          KNOWN_HOSTS_FILE="$(mktemp "${RUNNER_TEMP}/mystery-preflight-hosts.XXXXXX")"
+          test -n "${DMZ_SSH_KEY}"; test -n "${DMZ_SSH_KNOWN_HOSTS}"
+          printf '%s' "${DMZ_SSH_KEY}" | base64 -d > "${SSH_KEY_FILE}" 2>/dev/null
+          printf '%s\n' "${DMZ_SSH_KNOWN_HOSTS}" > "${KNOWN_HOSTS_FILE}"
+          chmod 600 "${SSH_KEY_FILE}" "${KNOWN_HOSTS_FILE}"
+          unset DMZ_SSH_KEY DMZ_SSH_KNOWN_HOSTS
+          python3 scripts/linux/mystery_public_preflight.py --key "${SSH_KEY_FILE}" --known-hosts "${KNOWN_HOSTS_FILE}" --output "${RUNNER_TEMP}/mystery-public-preflight.json"
+      - name: Upload sanitized read-only report (not deployment acceptance)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mystery-public-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mystery-public-preflight.json
+          if-no-files-found: error
+          retention-days: 30
