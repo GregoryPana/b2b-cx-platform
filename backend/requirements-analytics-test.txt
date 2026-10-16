@@ -1,0 +1,3 @@
+# CI-only test dependencies for analytics-calculation-assurance workflow.
+# Installed in addition to backend/requirements.txt; never used at runtime.
+pgserver==0.1.4

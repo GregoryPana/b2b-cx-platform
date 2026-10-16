@@ -1,0 +1,88 @@
+name: analytics-host-repair
+on:
+  pull_request:
+    paths:
+      - 'scripts/linux/analytics_host_repair.py'
+      - 'scripts/linux/analytics_release_artifact.py'
+      - 'scripts/linux/tests/test_analytics_release_artifact.py'
+      - '.github/workflows/export-validated-staging.yml'
+      - '.github/workflows/deploy-production.yml'
+      - 'scripts/linux/tests/test_analytics_host_repair.py'
+      - '.github/workflows/analytics-host-repair.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/linux/analytics_host_repair.py'
+      - 'scripts/linux/analytics_release_artifact.py'
+      - 'scripts/linux/tests/test_analytics_release_artifact.py'
+      - '.github/workflows/export-validated-staging.yml'
+      - '.github/workflows/deploy-production.yml'
+      - 'scripts/linux/tests/test_analytics_host_repair.py'
+      - '.github/workflows/analytics-host-repair.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        required: true
+        options: [staging_tls, production_site]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.action == 'staging_tls' && 'staging-deploy' || 'production-deploy') || format('analytics-repair-tests-{0}', github.ref) }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Disposable repair, rollback and real HTTPS regressions
+        run: >
+          docker run --rm --network none --cap-drop ALL
+          --security-opt no-new-privileges --read-only
+          --tmpfs /scratch:rw,nosuid,noexec,size=64m -e TMPDIR=/scratch
+          -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo python:3.12-slim
+          python -m unittest discover -s scripts/linux/tests -p "test_analytics_*.py" -v
+  repair:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ${{ fromJSON(inputs.action == 'staging_tls' && '["self-hosted","linux","cwscx-tst01"]' || '["self-hosted","linux","production"]') }}
+    environment: ${{ inputs.action == 'staging_tls' && 'staging' || 'production' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply the approved bounded host repair
+        id: apply
+        shell: bash
+        env:
+          REPAIR_ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet cwscx-backend
+          git rev-parse HEAD
+          sha256sum scripts/linux/analytics_host_repair.py
+          python3 - <<'PY'
+          import os, pathlib, shlex, subprocess
+          action = os.environ['REPAIR_ACTION']
+          if action not in ('staging_tls','production_site'):
+              raise SystemExit('Unsupported repair target')
+          script = pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'scripts/linux/analytics_host_repair.py'
+          operation = 'analytics-repair-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
+          command = shlex.join(['/usr/bin/python3',str(script),action,'--operation',operation])
+          report = pathlib.Path(os.environ['RUNNER_TEMP'])/'analytics-host-repair.json'
+          with report.open('w') as output:
+              subprocess.run(['sudo','-n','/usr/bin/bash','-lc','exec '+command],stdout=output,check=True,timeout=180)
+          print(report.read_text())
+          if action == 'staging_tls':
+              public = subprocess.run(['sudo','-n','/usr/bin/bash','-lc','exec /usr/bin/openssl x509 -in /etc/ssl/cwscx/cwscx.crt -outform PEM'],capture_output=True,check=True,timeout=10)
+              (pathlib.Path(os.environ['RUNNER_TEMP'])/'cwscx-tst01.crt').write_bytes(public.stdout)
+          PY
+      - name: Public certificate and sanitized verification evidence only
+        if: steps.apply.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: analytics-host-repair-${{ inputs.action }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/analytics-host-repair.json
+            ${{ runner.temp }}/cwscx-tst01.crt
+          if-no-files-found: error
+          retention-days: 30

@@ -24,7 +24,12 @@ def app():
     from app.core.auth.dependencies import get_current_user
     from app.core.auth.entra import AuthUser
 
-    _app = create_app()
+    from unittest.mock import patch
+
+    # Public-auth tests configure a different route surface. Construct the
+    # shared internal client explicitly rather than depending on collection order.
+    with patch.dict(os.environ, {"AUTH_MODE": "entra"}):
+        _app = create_app()
 
     def _test_admin() -> AuthUser:
         return AuthUser(

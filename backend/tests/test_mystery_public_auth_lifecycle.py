@@ -481,6 +481,21 @@ def _bootstrap_mystery_shopper(engine):
     """
     from app.api.mystery_shopper import MYSTERY_SHOPPER_QUESTIONS
 
+    if engine.dialect.name == "postgresql" and os.getenv("CWSCX_ANALYTICS_PG_URL"):
+        # The full-suite runner supplies an attested PostgreSQL-native schema.
+        # Do not overwrite its booleans, UUIDs, JSONB or status enum with the
+        # SQLite-compatible fallback DDL below. Re-attest before bootstrap DDL.
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent / "analytics"))
+        from fixture_guard import attest_disposable_cluster, PG_DATA_ENV, PG_NONCE_ENV
+        from app.api.mystery_shopper import _bootstrap_mystery_shopper_schema
+        attest_disposable_cluster(str(engine.url), os.getenv(PG_DATA_ENV), os.getenv(PG_NONCE_ENV))
+        with sessionmaker(bind=engine)() as session:
+            _bootstrap_mystery_shopper_schema(session)
+            session.commit()
+        return
+
     pk = _pk_autoincrement()
     bootstrap_ddl = [
         # Core shared tables needed by mystery shopper schema
