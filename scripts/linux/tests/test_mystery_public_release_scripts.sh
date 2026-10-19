@@ -20,6 +20,7 @@ WORKFLOW="$ROOT/.github/workflows/deploy-mystery-public.yml"
 
 # Execute behavioral signed-archive, tamper, installed-integrity and retention tests.
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_release_guard.py" || failures=$((failures+1))
+python3 "$ROOT/scripts/linux/tests/test_mystery_public_evidence_export.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_check_mystery_deploy_sudo.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_workflow_evidence.py" || failures=$((failures+1))
 python3 "$ROOT/scripts/linux/tests/test_mystery_public_preactivation_sigkill.py" || failures=$((failures+1))
@@ -102,7 +103,7 @@ require "$ENTRYPOINT" 'journal remains authoritative' 'audit failure cannot rela
 require "$GUARD" 'recovery-attempts-{operation_nonce}.jsonl' 'guard derives recovery audit names only from signed operation nonces'
 require "$GUARD" 'os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW' 'recovery audit appends without following or replacing an existing entry'
 require "$GUARD" 'RECOVERY_AUDIT_MAX_BYTES' 'recovery audit parsing and growth are bounded'
-require "$WORKFLOW" 'recovery-attempts-${OPERATION_NONCE}.jsonl' 'workflow optionally uploads the scoped recovery-attempt audit without completeness validation'
+require "$WORKFLOW" 'fetch_mystery_evidence audit "${OPERATION_NONCE}"' 'workflow optionally uploads the scoped recovery-attempt audit without completeness validation'
 require "$GUARD" 'os.replace(temp_dir, paths["root"])' 'archive publishes its complete file set with one atomic directory rename'
 require "$ENTRYPOINT" 'check-db-heads' 'deploy and rollback enforce exact read-only migration compatibility'
 require "$ENTRYPOINT" 'store-archive' 'only verified deployment stores exact signed bundle archive'
@@ -150,7 +151,7 @@ forbid "$WORKFLOW" '--action rollback' 'workflow cannot invoke an unsigned direc
 forbid "$ENTRYPOINT" '"${ACTION}" == "rollback" ||' 'entrypoint parser does not expose direct local rollback'
 if DIRECT_ROLLBACK_OUTPUT="$(bash "$ENTRYPOINT" --action rollback 2>&1)"; then
   echo '[FAIL] direct local rollback invocation was accepted' >&2; failures=$((failures+1))
-elif [[ "$DIRECT_ROLLBACK_OUTPUT" == *'--action accepts status only; deploy and rollback require a signed operation'* ]]; then
+elif [[ "$DIRECT_ROLLBACK_OUTPUT" == *'--action accepts status or evidence only; mutations require a signed operation'* ]]; then
   echo '[PASS] direct local rollback invocation is behaviorally rejected'
 else
   echo "[FAIL] direct local rollback failed for the wrong reason: ${DIRECT_ROLLBACK_OUTPUT}" >&2; failures=$((failures+1))
@@ -172,7 +173,7 @@ require "$WORKFLOW" "inputs.action == 'recover'" 'crash recovery has a separate 
 require "$WORKFLOW" 'recovery_required' 'recovery workflow reads the durable journal through status'
 require "$WORKFLOW" 'ACTION=recover' 'recovery workflow signs an explicit recover operation'
 require "$WORKFLOW" 'EXPECTED_RECOVERY_RELEASE_ID' 'recovery accepts an authenticated committed baseline as the verified end state'
-require "$WORKFLOW" 'recovery-${FAILED_RELEASE_ID}.json' 'recovery workflow fetches exact recovery readiness evidence'
+require "$WORKFLOW" 'fetch_mystery_evidence recovery "${FAILED_RELEASE_ID}"' 'recovery workflow fetches exact recovery readiness evidence'
 count_exactly "$WORKFLOW" 'sudo -n /usr/local/sbin/cwscx-mystery-public-deploy' 9 'baseline, deploy, rollback and recovery use read-only status plus fixed privileged operations'
 forbid "$WORKFLOW" 'apt-get install' 'workflow does not mutate VM prerequisites'
 forbid "$WORKFLOW" '/tmp/install_mystery_public_bundle.sh' 'workflow cannot upload an installer to the VM'
