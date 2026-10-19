@@ -10,6 +10,41 @@ from test_endpoint_module_boundaries import db, ns, admin_user, run  # noqa: F40
 from test_mystery_report import payload
 
 
+def _assert_pdf_metric_binding(compact):
+    # Chromium/PDF extractors may group a grid's labels and values by row,
+    # by card, or visit form labels after page values. Keep exact values and
+    # their logical order; HTML assertions below independently bind each card.
+    metric_tokens = re.findall(r'overallexperiencescore|servicequalityscore|\d+\.\d{2}', compact)
+    tokens = tuple(token for token in metric_tokens if token in {
+        'overallexperiencescore', 'servicequalityscore', '8.00', '5.00',
+    })
+    expected = {
+        ('overallexperiencescore', 'servicequalityscore', '8.00', '5.00'),
+        ('overallexperiencescore', '8.00', 'servicequalityscore', '5.00'),
+        ('8.00', '5.00', 'overallexperiencescore', 'servicequalityscore'),
+    }
+    assert tokens in expected, ('PDF metric binding tokens', tokens)
+
+
+@pytest.mark.parametrize('tokens', [
+    ('overallexperiencescore', 'servicequalityscore', '8.00', '5.00'),
+    ('overallexperiencescore', '8.00', 'servicequalityscore', '5.00'),
+    ('8.00', '5.00', 'overallexperiencescore', 'servicequalityscore'),
+])
+def test_pdf_metric_binding_accepts_grid_orders_but_rejects_wrong_values(tokens):
+    # Include unrelated headline values and explanatory text, as in a real PDF.
+    compact = '100.00description7.50' + 'explanation'.join(tokens)
+    _assert_pdf_metric_binding(compact)
+    with pytest.raises(AssertionError):
+        _assert_pdf_metric_binding(compact.replace('8.00', '9.00'))
+    with pytest.raises(AssertionError):
+        _assert_pdf_metric_binding(compact.replace('5.00', '6.00'))
+    with pytest.raises(AssertionError):
+        _assert_pdf_metric_binding(compact.replace('8.00', 'TEMP').replace('5.00', '8.00').replace('TEMP', '5.00'))
+    with pytest.raises(AssertionError):
+        _assert_pdf_metric_binding(compact.replace('servicequalityscore', ''))
+
+
 def test_mixed_declared_scales_render_honest_html_and_pdf(db, fx):
     from app.api.mystery_shopper import render_mystery_report_html, render_mystery_report_pdf
     from pypdf import PdfReader
@@ -46,8 +81,7 @@ def test_mixed_declared_scales_render_honest_html_and_pdf(db, fx):
     assert pdf.startswith(b'%PDF-')
     pdf_text = ' '.join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
     compact = re.sub(r'\s+', '', pdf_text).lower()
-    # Chromium emits the grid labels before the adjacent row of values.
-    assert 'overallexperiencescoreservicequalityscore8.005.00' in compact
+    _assert_pdf_metric_binding(compact)
     assert 'questionsscored0–5' not in compact
     assert 'incompatiblescalesareexcluded' in compact
 
