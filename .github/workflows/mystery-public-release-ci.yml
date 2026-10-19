@@ -52,6 +52,17 @@ jobs:
           bash scripts/linux/tests/test_mystery_public_release_scripts.sh
           python -m unittest discover -s scripts/linux/tests -p 'test_mystery_public_migration_heads.py' -v
           git diff --check
+      - name: Exercise installed root evidence exporter in disposable container
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --cpus 1 --memory 512m \
+            --cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add FOWNER \
+            --security-opt no-new-privileges \
+            --mount "type=bind,src=${GITHUB_WORKSPACE},dst=/source,readonly" \
+            --tmpfs /scratch:rw,nosuid,nodev,mode=1777 \
+            -e TMPDIR=/scratch -e PYTHONDONTWRITEBYTECODE=1 -e CWSCX_EXPORT_DISPOSABLE=1 \
+            python:3.12-slim@sha256:ccc7089399c8bb65dd1fb3ed6d55efa538a3f5e7fca3f5988ac3b5b87e593bf0 \
+            python -O -c 'import sys, unittest; suite = unittest.defaultTestLoader.discover("/source/scripts/linux/tests", pattern="test_mystery_public_evidence_export.py"); result = unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(0 if result.wasSuccessful() and result.testsRun == 10 and not result.skipped else 1)'
       - name: Build clean APN-only bundle without signing or deployment
         env:
           REQUIRE_CLEAN_TREE: "1"

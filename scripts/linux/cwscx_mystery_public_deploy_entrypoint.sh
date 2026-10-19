@@ -62,14 +62,17 @@ export TARGET_ROOT
 
 ACTION=""; STATUS_RELEASE_ID=""; BUNDLE_PATH_RAW=""; BUNDLE_SIGNATURE_PATH_RAW=""
 OPERATION_PATH_RAW=""; OPERATION_SIGNATURE_PATH_RAW=""
+EVIDENCE_KIND=""; EVIDENCE_NONCE=""
 declare -A SEEN=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --action|--release-id|--bundle-path|--bundle-signature-path|--operation-path|--operation-signature-path)
+    --action|--release-id|--kind|--nonce|--bundle-path|--bundle-signature-path|--operation-path|--operation-signature-path)
       flag="$1"; [[ -z "${SEEN[$flag]:-}" ]] || die "duplicate argument: ${flag}"
       SEEN["$flag"]=1; [[ $# -ge 2 ]] || die "missing value for ${flag}"
       case "$flag" in
         --action) ACTION="$2" ;;
+        --kind) EVIDENCE_KIND="$2" ;;
+        --nonce) EVIDENCE_NONCE="$2" ;;
         --bundle-path) BUNDLE_PATH_RAW="$2" ;;
         --release-id) STATUS_RELEASE_ID="$2" ;;
         --bundle-signature-path) BUNDLE_SIGNATURE_PATH_RAW="$2" ;;
@@ -80,7 +83,7 @@ while [[ $# -gt 0 ]]; do
     *) die "unknown argument: $1" ;;
   esac
 done
-[[ -z "${ACTION}" || "${ACTION}" == "status" ]] || die "--action accepts status only; deploy and rollback require a signed operation"
+[[ -z "${ACTION}" || "${ACTION}" == "status" || "${ACTION}" == "evidence" ]] || die "--action accepts status or evidence only; mutations require a signed operation"
 [[ "${EUID}" -eq 0 ]] || die "must run as root (invoke via sudo)"
 [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]] || die "SUDO_USER must identify the deployment account"
 id -u "${SUDO_USER}" >/dev/null 2>&1 || die "SUDO_USER does not resolve to an account"
@@ -115,7 +118,12 @@ require_root_dir "${NONCE_ROOT}" "operation nonce root"
 [[ "$(stat -c '%a' "${NONCE_ROOT}")" == "700" ]] || die "operation nonce root must be mode 0700"
 require_root_file "${ENV_FILE}" "environment file"
 [[ ! -L "${STATE_ROOT}/deploy.lock" ]] || die "deployment lock must not be a symlink"
-exec 9>"${STATE_ROOT}/deploy.lock"
+if [[ "${ACTION}" == "evidence" ]]; then
+  require_root_file "${STATE_ROOT}/deploy.lock" "existing deployment lock"
+  exec 9<"${STATE_ROOT}/deploy.lock"
+else
+  exec 9>"${STATE_ROOT}/deploy.lock"
+fi
 flock -n -x 9 || die "another bootstrap, deployment or rollback is in progress"
 [[ ! -e "${BOOTSTRAP_JOURNAL}" && ! -L "${BOOTSTRAP_JOURNAL}" ]] \
   || die "an interrupted privileged-suite bootstrap requires VM-administrator recovery before any deploy operation"
@@ -1236,6 +1244,23 @@ ensure_archive_capacity() {
   (( available - incoming_size >= MIN_FREE_BYTES )) || die "archive would breach the 10 GiB free-space reserve"
 }
 
+# Read-only export exits before current-state parsing, maintenance, authorization,
+# staging and recovery traps. Even a failed target can have retained evidence.
+if [[ "${ACTION}" == "evidence" ]]; then
+  [[ -z "${BUNDLE_PATH_RAW}${BUNDLE_SIGNATURE_PATH_RAW}${OPERATION_PATH_RAW}${OPERATION_SIGNATURE_PATH_RAW}" ]] || die "evidence rejects operation and bundle arguments"
+  case "${EVIDENCE_KIND}" in
+    verification|recovery)
+      valid_release_id "${STATUS_RELEASE_ID}" && [[ -z "${EVIDENCE_NONCE}" ]] || die "invalid evidence release selector"
+      EVIDENCE_SELECTOR="${STATUS_RELEASE_ID}" ;;
+    audit)
+      [[ "${EVIDENCE_NONCE}" =~ ^[0-9a-f]{64}$ && -z "${STATUS_RELEASE_ID}" ]] || die "invalid evidence nonce selector"
+      EVIDENCE_SELECTOR="${EVIDENCE_NONCE}" ;;
+    *) die "invalid evidence kind" ;;
+  esac
+  "${PYTHON_BIN}" -I "${RELEASE_GUARD}" export-evidence "${STATE_ROOT}" "${EVIDENCE_KIND}" "${EVIDENCE_SELECTOR}"
+  exit 0
+fi
+[[ -z "${EVIDENCE_KIND}${EVIDENCE_NONCE}" ]] || die "evidence selectors require --action evidence"
 CURRENT_ID="$(current_release_id)" || die "current release is missing or unsafe"
 if [[ "${ACTION}" == "status" ]]; then
   [[ -z "${BUNDLE_PATH_RAW}${BUNDLE_SIGNATURE_PATH_RAW}${OPERATION_PATH_RAW}${OPERATION_SIGNATURE_PATH_RAW}" ]] || die "status accepts no operation or bundle arguments"
