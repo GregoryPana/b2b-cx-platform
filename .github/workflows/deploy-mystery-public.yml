@@ -267,6 +267,10 @@ jobs:
           if state["release_id"] != sys.argv[2] or not state["signed_archive_verified"]:
               raise SystemExit("live current release differs from approved signed fallback")
           PY
+          # Prove actual CI SSH/sudo evidence retrieval before uploading or
+          # authorizing activation. Historical evidence is not fresh health;
+          # retrieval failure must leave the current signed fallback serving.
+          fetch_mystery_evidence verification "${FALLBACK_RELEASE_ID}" "${EVIDENCE_DIR}/fallback-verification.json"
           BUNDLE="${RUNNER_TEMP}/mystery-public-artifact/cwscx-mystery-public-release.zip"
           printf '%s  %s\n' "${BUNDLE_SHA256}" "${BUNDLE}" | sha256sum --check --strict
           ssh-keygen -Y sign -f "${RELEASE_KEY_FILE}" -n cwscx-mystery-public-release "${BUNDLE}"
