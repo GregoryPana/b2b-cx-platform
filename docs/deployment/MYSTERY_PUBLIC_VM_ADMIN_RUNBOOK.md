@@ -1,5 +1,47 @@
 # Mystery Shopper APN Application-VM Admin Runbook
 
+## Read-only evidence export (19 October 2026)
+
+The first signed-baseline workflow 39199292656 failed its runner evidence gate after
+its privileged operation returned success. The supplied after-state records a committed
+signed baseline with no pending recovery. This is **evidence transport failure**, not
+proof of failed activation and not authorization to repeat baseline or trigger recovery.
+
+`STATE_ROOT` remains root:root 0700. An internal report being 0644 does not make it
+traversable by cxadmin; direct SCP of deploy-evidence therefore cannot work.
+Never chmod the private parent to 0755 or expose archives, nonces or journals.
+
+After independent review/merge and approved VM-administrator bootstrap of the new
+four-helper suite, the existing fixed sudo command supports unsigned **read-only**:
+
+```sh
+sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --action evidence --kind verification --release-id RELEASE_ID
+sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --action evidence --kind recovery --release-id FAILED_RELEASE_ID
+sudo -n /usr/local/sbin/cwscx-mystery-public-deploy --action evidence --kind audit --nonce OPERATION_NONCE
+```
+
+Selectors are exclusive; no caller paths or mutation flags are accepted. Reports must
+be root-owned 0644 single-link regular files, bounded to 128 KiB, beneath nonfollowing
+root-controlled ancestors and a 0700 state root. JSON is UTF-8, schema-allowlisted and
+validated before stdout; verifier free-form diagnostics are replaced with fixed safe
+text except the strict release/full-SHA identity. Recovery reports may name the restored
+origin, not the failed target. Audit history retains its existing sequence/identity/size
+validation. The installed suite is rehashed and the existing lock is opened read-only;
+export performs no cleanup, reconciliation, signature authorization or environment load.
+A missing existing lock fails closed. Error output is generic and contains no report data.
+
+All four workflow actions use the fixed SSH exporter, staging local output and publishing
+only after successful SSH and JSON validation. Optional reports remain best-effort; primary
+reports remain mandatory at the existing success/final-recover gates. A failed operation
+retains its original exit status even when evidence export fails. Export errors are labeled
+`evidence_export_unavailable`; they never relabel a completed operation as failed activation.
+
+Local proof uses a disposable network-disabled, capability-limited root container and
+runuser direct-read denial plus the actual installed entrypoint. It is not real SSH/sudo
+end-to-end proof. Require read-only export via the actual deployment account after approved
+bootstrap before relying on a future workflow. Do not redo the already committed baseline.
+
+
 ## Scope
 
 Use this runbook on `cwscx-web01` after the release-readiness pull request is merged. The host remains an internal, non-public application VM reached through APN connectivity; it is not a public DMZ host. No public DNS, public IP, Internet NAT or WAF is required. Legacy `mystery_public` and `DMZ_*` identifiers remain compatibility names.

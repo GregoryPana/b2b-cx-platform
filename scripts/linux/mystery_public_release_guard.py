@@ -1349,9 +1349,148 @@ def eligible_prune_ids(archive_root: Path, protected: set[str], retain_count: in
     return [release_id for _, release_id in reversed(records) if release_id not in keep]
 
 
+EVIDENCE_CHECK_NAMES = frozenset((
+    "tls_mode", "base_url", "current_release", "release_identity", "environment_metadata",
+    "database_ssl", "migration_heads", "loopback_listener", "service_active", "restart_metadata",
+    "serving_release_identity", "fresh_restart", "local_ready", "local_session", "public_ready",
+    "public_session", "public_frontend", "nginx_config",
+))
+
+
+def _evidence_require(condition: object) -> None:
+    if not condition:
+        raise GuardError("evidence schema is invalid")
+
+
+def _evidence_json(raw: bytes) -> Any:
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise GuardError("duplicate evidence field")
+            result[key] = value
+        return result
+    # Decode explicitly: json.loads(bytes) otherwise accepts UTF-16/32.
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=unique,
+                      parse_constant=lambda _: (_ for _ in ()).throw(GuardError("nonfinite evidence")))
+
+
+def _sanitize_verification(data: Any, release_id: str | None) -> dict:
+    _evidence_require(isinstance(data, dict) and set(data) == {
+        "schema_version", "generated_at_utc", "tls_verification_mode", "service_name", "summary", "checks"})
+    _evidence_require(type(data["schema_version"]) is int and data["schema_version"] == 1)
+    _utc_timestamp(data["generated_at_utc"], "evidence timestamp")
+    _evidence_require(data["tls_verification_mode"] in {"prepublic", "trusted"}
+                      and data["service_name"] == "cwscx-mystery-public-backend")
+    checks, summary = data["checks"], data["summary"]
+    _evidence_require(isinstance(checks, list) and 0 < len(checks) <= 18)
+    names = set()
+    clean = []
+    for row in checks:
+        _evidence_require(isinstance(row, dict) and set(row) == {"status", "name", "detail"})
+        name, status, detail = row["name"], row["status"], row["detail"]
+        _evidence_require(isinstance(name, str) and name in EVIDENCE_CHECK_NAMES and name not in names
+                          and status in {"pass", "fail"} and isinstance(detail, str) and len(detail) <= 4096)
+        names.add(name)
+        # Never export free-form diagnostics, environment values or paths.
+        safe_detail = "validated check result"
+        if name == "release_identity" and status == "pass":
+            match = re.fullmatch(r"release_id=([A-Za-z0-9][A-Za-z0-9._-]{0,159}); git_sha=([0-9a-f]{40})", detail)
+            _evidence_require(match is not None and (release_id is None or match[1] == release_id))
+            safe_detail = detail
+        clean.append({"name": name, "status": status, "detail": safe_detail})
+    _evidence_require(isinstance(summary, dict) and set(summary) == {"total", "passed", "failed"})
+    _evidence_require(all(type(v) is int for v in summary.values()) and summary == {
+        "total": len(checks), "passed": sum(r["status"] == "pass" for r in checks),
+        "failed": sum(r["status"] == "fail" for r in checks)})
+    # Partial failed reports remain useful; successful reports must be complete.
+    _evidence_require(summary["failed"] > 0 or names == EVIDENCE_CHECK_NAMES)
+    return {**data, "checks": clean}
+
+
+def _sanitize_recovery(data: Any, release_id: str) -> dict:
+    _evidence_require(isinstance(data, dict))
+    if "checks" in data:
+        # Recovery verifier reports name the restored origin, NOT the failed target.
+        return _sanitize_verification(data, None)
+    if data.get("recovery") == "fixed_config_snapshot":
+        _evidence_require(set(data) == {"failed_release_id", "restored_release_id", "recovery", "approved_fallback"})
+        validate_release_id(data["restored_release_id"])
+        _evidence_require(data["failed_release_id"] == release_id and data["approved_fallback"] is False)
+        return data
+    fields = {"schema_version", "recovery", "preactivation_operation", "failed_release_id", "origin_release_id",
+              "authorization_sha256", "candidate_disposition", "switch_occurred", "config_restored",
+              "origin_authenticated", "approved_fallback", "origin_ready", "origin_health_probe", "generated_at_utc"}
+    _evidence_require(set(data) == fields and type(data["schema_version"]) is int and data["schema_version"] == 1
+                      and data["recovery"] == "preactivation_cleanup_unauthenticated_origin"
+                      and data["failed_release_id"] == release_id)
+    validate_release_id(data["origin_release_id"])
+    _evidence_require(isinstance(data["authorization_sha256"], str) and SHA256_RE.fullmatch(data["authorization_sha256"])
+                      and data["preactivation_operation"] in {"deploy", "establish_baseline", "rollback"}
+                      and data["candidate_disposition"] in {"removed", "preserved_complete", "absent"})
+    _evidence_require(all(data[k] is False for k in ("switch_occurred", "config_restored", "origin_authenticated", "approved_fallback"))
+                      and data["origin_ready"] is True and data["origin_health_probe"] == "systemd_active_and_loopback_ready")
+    _utc_timestamp(data["generated_at_utc"], "evidence timestamp")
+    return data
+
+
+def export_evidence(state_root: Path, kind: str, selector: str, *, required_uid: int = 0) -> str:
+    """Read only a bounded, sanitized report. All opens are descriptor-relative and nonfollowing.
+
+    The fixed entrypoint alone supplies state_root. This helper is not a sudo command.
+    No application environment, archive, journal or arbitrary filename is accepted.
+    """
+    _evidence_require(kind in {"verification", "recovery", "audit"})
+    if kind == "audit":
+        _evidence_require(isinstance(selector, str) and NONCE_RE.fullmatch(selector))
+        filename = f"recovery-attempts-{selector}.jsonl"
+    else:
+        validate_release_id(selector)
+        filename = ("recovery-" if kind == "recovery" else "") + selector + ".json"
+    _evidence_require(state_root.is_absolute() and ".." not in state_root.parts)
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for component in state_root.parts[1:] + ("deploy-evidence",):
+            next_fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+            info = os.fstat(fd)
+            _evidence_require(stat.S_ISDIR(info.st_mode) and info.st_uid == required_uid
+                              and not info.st_mode & 0o022)
+            if component == state_root.name:
+                _evidence_require(stat.S_IMODE(info.st_mode) == 0o700)
+        report_fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        try:
+            info = os.fstat(report_fd)
+            _evidence_require(stat.S_ISREG(info.st_mode) and info.st_uid == required_uid
+                              and stat.S_IMODE(info.st_mode) == 0o644 and info.st_nlink == 1
+                              and 0 < info.st_size <= RECOVERY_AUDIT_MAX_BYTES)
+            raw = os.read(report_fd, RECOVERY_AUDIT_MAX_BYTES + 1)
+            _evidence_require(0 < len(raw) <= RECOVERY_AUDIT_MAX_BYTES)
+            if kind == "audit":
+                # Reject duplicate keys/mixed encodings before the existing sequence validator.
+                _evidence_require(raw.endswith(b"\n") and len(raw.splitlines()) <= RECOVERY_AUDIT_MAX_EVENTS)
+                for line in raw.splitlines():
+                    _evidence_require(len(line) <= 4096)
+                    _evidence_json(line)
+                records = _read_recovery_audit_descriptor(report_fd, selector, required_uid=required_uid)
+                return "".join(json.dumps(r, sort_keys=True) + "\n" for r in records)
+            data = _evidence_json(raw)
+            data = _sanitize_recovery(data, selector) if kind == "recovery" else _sanitize_verification(data, selector)
+            return json.dumps(data, sort_keys=True) + "\n"
+        finally:
+            os.close(report_fd)
+    finally:
+        os.close(fd)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
+    evidence = sub.add_parser("export-evidence")
+    evidence.add_argument("state_root", type=Path)
+    evidence.add_argument("kind", choices=("verification", "recovery", "audit"))
+    evidence.add_argument("selector")
     bundle = sub.add_parser("verify-bundle")
     bundle.add_argument("bundle", type=Path)
     bundle.add_argument("sha256")
@@ -1423,7 +1562,13 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        if args.command == "verify-bundle":
+        if args.command == "export-evidence":
+            try:
+                output = export_evidence(args.state_root, args.kind, args.selector)
+            except Exception:
+                raise GuardError("evidence export rejected: missing or unsafe report") from None
+            print(output, end="")
+        elif args.command == "verify-bundle":
             result = verify_bundle(args.bundle, args.sha256, args.signature, args.allowed_signers)
             print(json.dumps(result, sort_keys=True))
         elif args.command == "verify-archive":
