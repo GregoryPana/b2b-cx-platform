@@ -68,6 +68,9 @@ fetch_mystery_evidence verification candidate "$2" || exit 22
         self.assertEqual(workflow.count('fetch_mystery_evidence audit'),4)
         self.assertEqual(workflow.count('fetch_mystery_evidence recovery'),4)
         self.assertEqual(workflow.count('fetch_mystery_evidence verification'),3)
+        backend_ci=(SOURCE.parents[1]/'.github/workflows/backend-ci.yml').read_text()
+        self.assertIn('on:\n  push:\n  pull_request:\n', backend_ci)
+        self.assertNotIn('    paths:', backend_ci)
 
     def test_recovery_origin_is_not_failed_target(self):
         self.assertEqual(g._sanitize_recovery(report('origin'), 'candidate')['summary']['passed'], 18)
