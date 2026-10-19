@@ -325,7 +325,7 @@ export default function MysteryVisitDetailCard({
 
         <div className="pt-2">
           <Button type="button" variant="outline" onClick={onClose}>
-            ← Back to Review Queue
+            Close visit details
           </Button>
         </div>
       </CardContent>

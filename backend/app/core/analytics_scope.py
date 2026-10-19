@@ -52,6 +52,42 @@ class ModuleScope:
         return self.module == "mystery"
 
 
+def visit_belongs_to_scope(db: Session, visit_id: str, scope: ModuleScope) -> bool:
+    """Return whether a selected visit belongs to the resolved module.
+
+    Shared-table callers must use this before reads or writes addressed by ID.
+    A missing survey-type row deliberately matches nothing.
+    """
+    if scope.survey_type_id is None:
+        return False
+    return bool(
+        db.execute(
+            text("SELECT 1 FROM visits WHERE id = :visit_id AND survey_type_id = :survey_type_id LIMIT 1"),
+            {"visit_id": visit_id, "survey_type_id": scope.survey_type_id},
+        ).scalar()
+    )
+
+
+def question_belongs_to_scope(db: Session, question_id: int, scope: ModuleScope) -> bool:
+    """Return whether a selected question belongs to the resolved module.
+
+    Only B2B accepts legacy NULL question ownership; Mystery must always have
+    explicit ownership. Visits are never permitted to have NULL ownership.
+    """
+    if scope.survey_type_id is None:
+        return False
+    if scope.is_mystery:
+        predicate = "survey_type_id = :survey_type_id"
+    else:
+        predicate = "(survey_type_id IS NULL OR survey_type_id = :survey_type_id)"
+    return bool(
+        db.execute(
+            text(f"SELECT 1 FROM questions WHERE id = :question_id AND {predicate} LIMIT 1"),
+            {"question_id": question_id, "survey_type_id": scope.survey_type_id},
+        ).scalar()
+    )
+
+
 def _module_from_survey_types_table(db: Session, raw: str) -> str | None:
     if not has_table(db, "survey_types"):
         return None

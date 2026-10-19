@@ -25,34 +25,32 @@ const sections = [
     ],
   },
   {
-    title: "Starting Or Resuming Work",
-    summary: "Choose New when you are starting fresh and Draft when you are continuing saved work.",
+    title: "Start an assessment",
+    summary: "Use the Assessment page to record one completed installation job.",
     steps: [
-      "Choose whether to start a new assessment or continue a draft.",
-      "If resuming, open the correct draft from the list.",
-      "Complete the installation details before scoring questions.",
+      "Open Assessment from the left menu.",
+      "Enter the Quality Assurance Inspector, work order, customer, location, work date, customer type and worker type.",
+      "For Field Team work, add at least one team member. For Contractor work, select the contractor name.",
     ],
     notes: [
-      "If you pick the wrong draft, you may continue the wrong job record.",
       "Check the work order and customer details before moving on.",
+      "This version does not save installation assessments as drafts. Keep the page open until you submit.",
       "The Assessment page is the clipboard-icon page in the left menu.",
     ],
     images: [
-      { src: `${GUIDE_BASE}new-vs-draft.png`, alt: "New versus draft" },
-      { src: `${GUIDE_BASE}draft-dropdown.png`, alt: "Draft dropdown" },
       { src: `${GUIDE_BASE}details-form.png`, alt: "Installation details form" },
     ],
   },
   {
-    title: "Scoring The Assessment",
-    summary: "This is where you score the installation quality from 1 to 5 and make sure each required question is complete.",
+    title: "Score the assessment",
+    summary: "Score every installation check using the range shown with that question.",
     steps: [
-      "Move through the assessment sections and score each question from 1 to 5.",
-      "Use the progress display to identify incomplete questions.",
+      "Read each installation question, then choose one score from its displayed range.",
+      "Use the answered count to identify incomplete questions.",
       "Confirm worker details such as contractor or field team members before submission.",
     ],
     notes: [
-      "Use the full 1 to 5 scale carefully and consistently.",
+      "The current Installation Assessment questions use a 1-to-5 scale. Follow the range displayed on the live question if it differs.",
       "Make sure the correct worker type is selected so reporting is accurate later.",
       "If Contractor is selected, use the correct contractor name from the list.",
       "The details section, category scoring area, progress section, and submit controls all work together on the same Assessment page.",
@@ -64,21 +62,18 @@ const sections = [
     ],
   },
   {
-    title: "Saving Or Submitting",
-    summary: "Save a draft when you still need time. Submit only when the full assessment is correct and complete.",
+    title: "Submit the assessment",
+    summary: "Submit only after all job details and question scores are complete and correct.",
     steps: [
-      "Save a draft if the assessment is not finished.",
-      "Delete a draft only when it should be discarded.",
+      "Review the current overall score and any action points.",
       "Submit when all required details and scores are complete.",
     ],
     notes: [
-      "Deleting a draft removes unfinished work, so do this only when you are certain.",
       "Before submitting, check the work order, customer, worker details, and progress one last time.",
-      "The save draft and submit actions are on the same Assessment page, below the scoring area.",
+      "The Submit Survey button stays disabled until the required details and all question scores are complete.",
+      "After submission, keep the reference number shown in the confirmation message.",
     ],
     images: [
-      { src: `${GUIDE_BASE}save-draft.png`, alt: "Save draft" },
-      { src: `${GUIDE_BASE}delete-draft.png`, alt: "Delete draft" },
       { src: `${GUIDE_BASE}submit-button.png`, alt: "Submit assessment" },
     ],
   },
@@ -108,7 +103,7 @@ export default function UserGuidePage() {
         <Card>
           <CardHeader>
             <CardTitle>Installation Assessment User Guide</CardTitle>
-            <CardDescription>How to use the installation survey frontend, including the updated worker details flow.</CardDescription>
+            <CardDescription>How to record job details, score installation checks and submit a completed assessment.</CardDescription>
           </CardHeader>
         </Card>
 

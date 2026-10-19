@@ -8,7 +8,7 @@
  *   onLogout   () => void
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { BookOpen, CalendarDays, ChevronLeft, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
 import { GuidePage, ScoringKeyCard } from "./SurveyGuide";
@@ -63,8 +63,8 @@ function getScoreOptions(question) {
 
 function normalizeQuestionValue(question, draft = {}, existing = null) {
   const score = question?.input_type === "score" ? String(draft.score ?? existing?.score ?? "") : "";
-  const answerText = question?.input_type === "score" ? "" : String(draft.answer_text ?? existing?.answer_text ?? "").trim();
-  const verbatim = String(draft.verbatim ?? existing?.verbatim ?? "").trim();
+  const answerText = question?.input_type === "score" ? "" : String(draft.answer_text ?? existing?.answer_text ?? "");
+  const verbatim = String(draft.verbatim ?? existing?.verbatim ?? "");
   return { score, answerText, verbatim };
 }
 
@@ -79,20 +79,33 @@ function QuestionField({ question, draft, onUpdate }) {
 
   if (question.input_type === "score") {
     const scoreOptions = getScoreOptions(question);
+    if (!scoreOptions.length) {
+      return <p className="text-sm text-destructive">This question has no valid score range. Ask an administrator to correct it before answering.</p>;
+    }
+    const scoreMin = scoreOptions[0];
+    const scoreMax = scoreOptions[scoreOptions.length - 1];
     return (
-      <div className="option-grid score-option-grid" role="radiogroup" aria-label="Select score">
-        {scoreOptions.map((scoreValue) => (
-          <Button
-            key={`${question.id}-score-${scoreValue}`}
-            type="button"
-            variant={String(draft.score ?? "") === String(scoreValue) ? "default" : "outline"}
-            size="sm"
-            className="option-pill score-pill"
-            onClick={() => onUpdate("score", String(scoreValue))}
-          >
-            {scoreValue}
-          </Button>
-        ))}
+      <div>
+        <div className="option-grid score-option-grid" role="group" aria-label={`Select a score from ${scoreMin} to ${scoreMax}`}>
+          {scoreOptions.map((scoreValue) => {
+            const selected = String(draft.score ?? "") === String(scoreValue);
+            return (
+              <Button
+                key={`${question.id}-score-${scoreValue}`}
+                type="button"
+                variant={selected ? "default" : "outline"}
+                size="sm"
+                className="option-pill score-pill"
+                aria-pressed={selected}
+                aria-label={`Score ${scoreValue} out of ${scoreMax}`}
+                onClick={() => onUpdate("score", String(scoreValue))}
+              >
+                {scoreValue}
+              </Button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">Scale: {scoreMin} (lowest) to {scoreMax} (highest)</p>
       </div>
     );
   }
@@ -129,6 +142,8 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const [guideReturnAnchor, setGuideReturnAnchor] = useState(null);
 
   const [questions, setQuestions] = useState([]);
+  const [questionnaireState, setQuestionnaireState] = useState("unloaded");
+  const questionnaireReady = questionnaireState === "ready" && questions.length > 0;
   const [locations, setLocations] = useState([]);
   const [purposeOptions, setPurposeOptions] = useState(DEFAULT_PURPOSE_OPTIONS);
   const [draftVisits, setDraftVisits] = useState([]);
@@ -152,6 +167,12 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
 
   const [responseDrafts, setResponseDrafts] = useState({});
   const [responsesByQuestion, setResponsesByQuestion] = useState({});
+
+  const selection = useRef(0);
+  const operation = useRef(null);
+  const liveDrafts = useRef(responseDrafts);
+  liveDrafts.current = responseDrafts;
+  useEffect(() => () => { selection.current += 1; operation.current = null; }, []);
 
   // Shopper name comes from the signed-in account and is not editable.
   useEffect(() => {
@@ -180,9 +201,9 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const hasMeaningfulAnswer = useCallback((question, draft = {}, existing = null) => {
     if (question.input_type === "score") {
       const candidate = draft.score ?? existing?.score;
-      if (candidate === null || candidate === undefined || candidate === "") return false;
+      if (candidate === null || candidate === undefined || !["string", "number"].includes(typeof candidate) || String(candidate).trim() === "") return false;
       const numeric = Number(candidate);
-      if (Number.isNaN(numeric)) return false;
+      if (!Number.isFinite(numeric)) return false;
       const min = Number(question.score_min ?? 0);
       const max = Number(question.score_max ?? 10);
       return numeric >= min && numeric <= max;
@@ -248,47 +269,58 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
 
   // --- Data initialisation ---
   const initialize = useCallback(async () => {
-    const [questionsRes, locationsRes, purposesRes] = await Promise.all([
-      apiFetch(`${API_BASE}/questions?survey_type=Mystery%20Shopper`),
-      apiFetch(`${API_BASE}/mystery-shopper/locations`),
-      apiFetch(`${API_BASE}/mystery-shopper/purposes`),
-    ]);
+    setQuestionnaireState("loading");
+    try {
+      const [questionsRes, locationsRes, purposesRes] = await Promise.all([
+        apiFetch(`${API_BASE}/questions?survey_type=Mystery%20Shopper`),
+        apiFetch(`${API_BASE}/mystery-shopper/locations`),
+        apiFetch(`${API_BASE}/mystery-shopper/purposes`),
+      ]);
 
-    if (!questionsRes.res.ok) throw new Error(questionsRes.data?.detail || "Failed to load questions");
-    if (!locationsRes.res.ok) throw new Error(locationsRes.data?.detail || "Failed to load locations");
-    if (!purposesRes.res.ok) throw new Error(purposesRes.data?.detail || "Failed to load purpose options");
+      if (!questionsRes.res.ok) throw new Error(questionsRes.data?.detail || "Failed to load questions");
+      if (!locationsRes.res.ok) throw new Error(locationsRes.data?.detail || "Failed to load locations");
+      if (!purposesRes.res.ok) throw new Error(purposesRes.data?.detail || "Failed to load purpose options");
 
-    const nextQuestions = Array.isArray(questionsRes.data) ? questionsRes.data : [];
-    const nextLocations = (Array.isArray(locationsRes.data) ? locationsRes.data : []).filter((l) => l.active);
-    const nextPurposes = (Array.isArray(purposesRes.data) ? purposesRes.data : [])
-      .filter((p) => p.active)
-      .map((p) => p.name);
+      const nextQuestions = Array.isArray(questionsRes.data) ? questionsRes.data : [];
+      const nextLocations = (Array.isArray(locationsRes.data) ? locationsRes.data : []).filter((l) => l.active);
+      const nextPurposes = (Array.isArray(purposesRes.data) ? purposesRes.data : [])
+        .filter((p) => p.active)
+        .map((p) => p.name);
 
-    setQuestions(nextQuestions);
-    setLocations(nextLocations);
-    setPurposeOptions(nextPurposes.length ? nextPurposes : DEFAULT_PURPOSE_OPTIONS);
+      setQuestions(nextQuestions);
+      setQuestionnaireState(nextQuestions.length ? "ready" : "empty");
+      setLocations(nextLocations);
+      setPurposeOptions(nextPurposes.length ? nextPurposes : DEFAULT_PURPOSE_OPTIONS);
 
-    if (!headerForm.location_id && nextLocations[0]?.id) {
-      setHeaderForm((prev) => ({ ...prev, location_id: String(nextLocations[0].id) }));
+      if (!headerForm.location_id && nextLocations[0]?.id) {
+        setHeaderForm((prev) => ({ ...prev, location_id: String(nextLocations[0].id) }));
+      }
+      if (nextQuestions[0]?.category) setCurrentCategory(nextQuestions[0].category);
+    } catch (error) {
+      setQuestionnaireState("error");
+      throw error;
     }
-    if (nextQuestions[0]?.category) setCurrentCategory(nextQuestions[0].category);
   }, [apiFetch, headerForm.location_id]);
 
   const loadDrafts = useCallback(async () => {
+    const owner = selection.current;
     setLoadingDrafts(true);
     try {
       const { res, data } = await apiFetch(`${API_BASE}/mystery-shopper/visits/drafts`);
+      if (selection.current !== owner) return;
       if (!res.ok) throw new Error(data?.detail || "Failed to load draft visits");
       setDraftVisits(Array.isArray(data) ? data : []);
     } catch (error) {
-      raiseMessage(error.message || "Failed to load draft visits", "error");
+      if (selection.current === owner) raiseMessage(error.message || "Failed to load draft visits", "error");
     } finally {
-      setLoadingDrafts(false);
+      if (selection.current === owner) setLoadingDrafts(false);
     }
   }, [apiFetch, raiseMessage]);
 
-  const loadVisitDetail = useCallback(async (targetVisitId) => {
+  const loadVisitDetail = useCallback(async (targetVisitId, preserveDrafts = false) => {
+    const owner = selection.current;
     const { res, data } = await apiFetch(`${API_BASE}/mystery-shopper/visits/${targetVisitId}`);
+    if (selection.current !== owner) return null;
     if (!res.ok) throw new Error(data?.detail || "Failed to load visit detail");
 
     setVisitId(String(data.id));
@@ -305,7 +337,8 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
       };
     });
     setResponsesByQuestion(nextResponses);
-    setResponseDrafts((prev) => ({ ...prev, ...nextDrafts }));
+    if (!preserveDrafts) { liveDrafts.current = nextDrafts; setResponseDrafts(nextDrafts); }
+    return nextResponses;
   }, [apiFetch]);
 
   useEffect(() => {
@@ -340,6 +373,11 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
 
   // --- Actions ---
   const selectDraftVisit = useCallback(async (visit) => {
+    const owner = ++selection.current;
+    operation.current = null;
+    setSavingQuestionId(null); setSubmitting(false);
+    setVisitId(""); setResponsesByQuestion({});
+    liveDrafts.current = {}; setResponseDrafts({});
     setHeaderForm({
       location_id: String(visit.location_id),
       visit_date: visit.visit_date || "",
@@ -348,16 +386,20 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
       staff_on_duty: visit.staff_on_duty || "",
       shopper_name: userInfo?.name || visit.shopper_name || "",
     });
-    await loadVisitDetail(visit.visit_id);
+    try { await loadVisitDetail(visit.visit_id); }
+    catch (error) { if (selection.current === owner) raiseMessage(error.message, "error"); return; }
+    if (selection.current !== owner) return;
     setEntryChoicePending(false);
     setActiveTab("survey");
-  }, [purposeOptions, loadVisitDetail, userInfo?.name]);
+  }, [purposeOptions, loadVisitDetail, userInfo?.name, raiseMessage]);
 
   const createVisitFn = useCallback(async () => {
     if (!headerForm.location_id || !headerForm.visit_date || !headerForm.visit_time || !headerForm.staff_on_duty || !headerForm.shopper_name) {
       raiseMessage("Complete all visit header fields before creating a visit.", "error");
       return;
     }
+    if (creatingVisit || visitId) return;
+    const owner = ++selection.current;
     setCreatingVisit(true);
     try {
       const payload = {
@@ -374,6 +416,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (selection.current !== owner) return;
       if (!res.ok) throw new Error(data?.detail || "Failed to create visit");
       setVisitId(data.visit_id);
       setStatus(data.status || "Draft");
@@ -381,105 +424,146 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
       raiseMessage("Mystery Shopper visit created.", "success");
       setActiveTab("survey");
       await loadDrafts();
+      if (selection.current !== owner) return;
       await loadVisitDetail(data.visit_id);
     } catch (error) {
-      raiseMessage(error.message || "Failed to create visit", "error");
+      if (selection.current === owner) raiseMessage(error.message || "Failed to create visit", "error");
     } finally {
-      setCreatingVisit(false);
+      if (selection.current === owner) setCreatingVisit(false);
     }
-  }, [headerForm, apiFetch, loadDrafts, loadVisitDetail, raiseMessage]);
+  }, [headerForm, apiFetch, loadDrafts, loadVisitDetail, raiseMessage, creatingVisit, visitId]);
 
   const updateQuestionDraft = useCallback((questionId, field, value) => {
-    setResponseDrafts((prev) => ({
-      ...prev,
-      [questionId]: { ...(prev[questionId] || {}), [field]: value },
-    }));
+    const next = { ...liveDrafts.current, [questionId]: { ...(liveDrafts.current[questionId] || {}), [field]: value } };
+    liveDrafts.current = next;
+    setResponseDrafts(next);
   }, []);
+
+  // A readback never replaces drafts. Each operation owns its selection and
+  // snapshots only the values being saved, so edits during IO remain dirty.
+  const readSaved = useCallback(async (target, owner) => {
+    const { res, data } = await apiFetch(`${API_BASE}/mystery-shopper/visits/${target}`);
+    if (selection.current !== owner) throw new Error("Selection changed");
+    if (!res.ok) throw new Error(data?.detail || "Could not verify saved answers. Your drafts are retained; retry Save to check the server.");
+    if (String(data.id) !== String(target)) throw new Error("Visit identity did not match readback.");
+    const rows = {};
+    const responseIds = new Set();
+    for (const row of data.responses || []) {
+      if (!row.response_id || rows[row.question_id] || responseIds.has(String(row.response_id))) throw new Error("Invalid or duplicate answer identity in readback.");
+      responseIds.add(String(row.response_id));
+      rows[row.question_id] = row;
+    }
+    setResponsesByQuestion(rows);
+    return { rows, status: data.status };
+  }, [apiFetch]);
+
+  const persistAnswer = useCallback(async (question, draft, target, owner, existing) => {
+    if (selection.current !== owner) throw new Error("Selection changed");
+    const current = (await readSaved(target, owner)).rows[question.id];
+    if (current && !isQuestionDirty(question, draft, current)) return current;
+    if (Boolean(current) !== Boolean(existing) || (current && (current.response_id !== existing.response_id || isQuestionDirty(question, current, existing)))) {
+      throw new Error(`Saved Q${displayQuestionNumber(question)} changed since confirmation. Draft retained; retry to review the overwrite.`);
+    }
+    const payload = {
+      question_id: question.id,
+      score: question.input_type === "score" ? Number(draft.score) : null,
+      answer_text: question.input_type === "score" ? null : draft.answer_text || null,
+      verbatim: draft.verbatim || null,
+      actions: [],
+    };
+    let lostReply;
+    let reply;
+    try {
+      reply = await apiFetch(`${API_BASE}/mystery-shopper/visits/${target}/responses${existing ? `/${existing.response_id}` : ""}`, {
+        method: existing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+    } catch (error) { lostReply = error; }
+    if (selection.current !== owner) throw new Error("Selection changed");
+    // Explicit validation failures must not be converted into successful saves.
+    if (reply && !reply.res.ok) throw new Error(typeof reply.data?.detail === "string" ? reply.data.detail : JSON.stringify(reply.data?.detail || "Failed to save response"));
+    const { rows } = await readSaved(target, owner);
+    const confirmed = rows[question.id];
+    if (!confirmed || isQuestionDirty(question, draft, confirmed) || (existing && confirmed.response_id !== existing.response_id)) {
+      throw new Error(`Q${displayQuestionNumber(question)} could not be verified${lostReply ? " after a connection issue" : ""}. Drafts retained; retry Save to check before overwriting.`);
+    }
+    return confirmed;
+  }, [apiFetch, readSaved]);
 
   const saveQuestion = useCallback(async (question) => {
     if (!visitId) { raiseMessage("Create or select a visit before saving responses.", "error"); return; }
-    const draft = responseDrafts[question.id] || {};
-    const existing = responsesByQuestion[question.id];
-    const hasChanges = isQuestionDirty(question, draft, existing);
-    const qLabel = displayQuestionNumber(question);
-    if (!hasChanges) {
-      raiseMessage(existing?.response_id ? `Q${qLabel} is already saved.` : `No response entered yet for Q${qLabel}.`, existing?.response_id ? "success" : "info");
-      return;
-    }
-    if (question.input_type === "score") { const n = Number(draft.score); if (Number.isNaN(n)) { raiseMessage(`Enter a score for Q${qLabel}.`, "info"); return; } }
-    if (question.input_type === "yes_no" && !draft.answer_text) { raiseMessage(`Select Yes or No for Q${qLabel}.`, "info"); return; }
-
+    if (operation.current) return;
+    const draft = { ...(liveDrafts.current[question.id] || {}) };
+    if (!hasMeaningfulAnswer(question, draft)) { raiseMessage(`Enter a valid answer for Q${displayQuestionNumber(question)}.`, "error"); return; }
+    const token = { owner: selection.current };
+    operation.current = token;
     setSavingQuestionId(question.id);
     try {
-      const endpoint = existing
-        ? `${API_BASE}/mystery-shopper/visits/${visitId}/responses/${existing.response_id}`
-        : `${API_BASE}/mystery-shopper/visits/${visitId}/responses`;
-      const { res, data } = await apiFetch(endpoint, {
-        method: existing ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question_id: question.id,
-          score: question.input_type === "score" ? Number(draft.score) : null,
-          answer_text: question.input_type === "score" ? null : draft.answer_text || null,
-          verbatim: draft.verbatim || null,
-          actions: [],
-        }),
-      });
-      if (!res.ok) throw new Error(data?.detail || "Failed to save response");
-      setResponsesByQuestion((prev) => ({ ...prev, [question.id]: data }));
-      raiseMessage(`Saved Q${qLabel}.`, "success");
+      const { rows } = await readSaved(visitId, token.owner);
+      const existing = rows[question.id];
+      if (existing && isQuestionDirty(question, draft, existing) && !window.confirm(`Overwrite the saved answer for Q${displayQuestionNumber(question)}? Your new answer will replace it.`)) return;
+      await persistAnswer(question, draft, visitId, token.owner, existing);
+      if (selection.current === token.owner) raiseMessage(`Saved Q${displayQuestionNumber(question)} (verified on server).`, "success");
     } catch (error) {
-      raiseMessage(error.message || "Failed to save response", "error");
+      if (selection.current === token.owner) raiseMessage(error.message || "Save could not be verified. Drafts retained.", "error");
     } finally {
-      setSavingQuestionId(null);
+      if (operation.current === token) { operation.current = null; setSavingQuestionId(null); }
     }
-  }, [visitId, responseDrafts, responsesByQuestion, apiFetch, raiseMessage]);
+  }, [visitId, hasMeaningfulAnswer, readSaved, persistAnswer, raiseMessage]);
 
   const submitVisitFn = useCallback(async () => {
     if (!visitId) { raiseMessage("No visit selected.", "error"); return; }
-
-    // Re-fetch from the server before validating, so a response that only
-    // exists in local state (e.g. a save that silently failed due to a
-    // dropped connection) doesn't get counted as answered.
-    const answeredBeforeRefresh = new Set(Object.keys(responsesByQuestion));
-    try {
-      await loadVisitDetail(visitId);
-    } catch (error) {
-      raiseMessage(error.message || "Failed to verify saved responses before submit.", "error");
-      return;
-    }
-
-    const unsavedAfterRefresh = questions.filter(
-      (q) => answeredBeforeRefresh.has(String(q.id)) && !responsesByQuestion[q.id]
-    );
-    if (unsavedAfterRefresh.length > 0) {
-      const labels = unsavedAfterRefresh.map((q) => `Q${displayQuestionNumber(q)}`).join(", ");
-      raiseMessage(`Some responses did not save, possibly due to a connection issue: ${labels}. Please try again before submitting.`, "error");
-      return;
-    }
-
-    const unanswered = questions.filter((q) => q.is_mandatory && !responsesByQuestion[q.id]);
-    if (unanswered.length > 0) { raiseMessage(`Complete all required questions before submit (${unanswered.length} remaining).`, "error"); return; }
+    if (!questionnaireReady) { raiseMessage("The questionnaire is not ready. Reload it before submitting.", "error"); return; }
+    if (operation.current) return;
+    const token = { owner: selection.current };
+    operation.current = token;
     setSubmitting(true);
+    const snapshot = Object.fromEntries(questions.map(q => [q.id, { ...(liveDrafts.current[q.id] || {}) }]));
+    const answered = questions.filter(q => hasMeaningfulAnswer(q, snapshot[q.id]));
     try {
-      const { res, data } = await apiFetch(`${API_BASE}/mystery-shopper/visits/${visitId}/submit`, { method: "PUT" });
-      if (!res.ok) {
-        const detail = data?.detail;
-        if (detail && typeof detail === "object") {
-          const missingLabels = (detail.missing_questions || []).map((q) => `Q${q.question_number}`).join(", ");
-          throw new Error(missingLabels ? `${detail.message} Missing: ${missingLabels}.` : detail.message || "Failed to submit visit");
-        }
-        throw new Error(detail || "Failed to submit visit");
+      const before = (await readSaved(visitId, token.owner)).rows;
+      const overwritten = answered.filter(q => before[q.id] && isQuestionDirty(q, snapshot[q.id], before[q.id]));
+      if (overwritten.length && !window.confirm(`Overwrite previously saved answers: ${overwritten.map(q => `Q${displayQuestionNumber(q)}`).join(", ")}? Submit will save all answered questions, then check for unanswered questions.`)) return;
+      for (const q of answered) await persistAnswer(q, snapshot[q.id], visitId, token.owner, before[q.id]);
+      const verified = await readSaved(visitId, token.owner);
+      if (answered.some(q => !verified.rows[q.id] || isQuestionDirty(q, snapshot[q.id], verified.rows[q.id]))) throw new Error("Some saved answers changed during verification. Drafts retained; check and retry.");
+      if (questions.some(q => isQuestionDirty(q, liveDrafts.current[q.id] || {}, snapshot[q.id]))) throw new Error("Answers edited while saving. Saved answers are retained; submit again to include your latest changes.");
+      const missing = questions.filter(q => !hasMeaningfulAnswer(q, snapshot[q.id]) || !hasMeaningfulAnswer(q, {}, verified.rows[q.id]));
+      const labels = list => list.map(q => `Q${displayQuestionNumber(q)}${q.question_text ? `: ${q.question_text}` : ""}`).join("; ");
+      const required = missing.filter(q => q.is_mandatory);
+      const optional = missing.filter(q => !q.is_mandatory);
+      // An explicit cleared/invalid field is not an untouched optional omission.
+      // Without a supported clear mutation, do not submit its old persisted value.
+      const unresolvedClears = questions.filter(q => {
+        const field = q.input_type === "score" ? "score" : "answer_text";
+        return Object.prototype.hasOwnProperty.call(snapshot[q.id], field)
+          && !hasMeaningfulAnswer(q, snapshot[q.id])
+          && hasMeaningfulAnswer(q, {}, verified.rows[q.id]);
+      });
+      if (unresolvedClears.length) {
+        raiseMessage(`Answered questions saved and verified. Visit remains Draft. Cleared or invalid answers still have saved values: ${labels(unresolvedClears)}. Restore or replace these answers before submitting.${required.length ? ` Required unanswered: ${labels(required)}.` : ""}${optional.length ? ` Optional unanswered: ${labels(optional)}.` : ""}`, "error");
+        return;
       }
-      setStatus("Pending");
+      if (required.length) {
+        raiseMessage(`Answered questions saved and verified. Visit remains Draft. Required unanswered: ${labels(required)}.${optional.length ? ` Optional unanswered: ${labels(optional)}.` : ""}`, "error");
+        return;
+      }
+      if (optional.length && !window.confirm(`Answered questions saved. Optional unanswered: ${labels(optional)}. Submit anyway?`)) {
+        raiseMessage("Answered questions saved and verified. Visit remains Draft.", "success"); return;
+      }
+      const { res, data } = await apiFetch(`${API_BASE}/mystery-shopper/visits/${visitId}/submit`, { method: "PUT" });
+      if (selection.current !== token.owner) return;
+      if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : JSON.stringify(data?.detail || "Failed to submit visit"));
+      const after = await readSaved(visitId, token.owner);
+      if (after.status !== "Pending" || answered.some(q => !after.rows[q.id] || isQuestionDirty(q, snapshot[q.id], after.rows[q.id]))) throw new Error("Submission could not be verified. Answers retained; check this visit before retrying.");
+      setStatus(after.status);
       raiseMessage(`Submitted for review. Report date: ${data.report_completed_date || "N/A"} (UTC+4).`, "success");
       await loadDrafts();
     } catch (error) {
-      raiseMessage(error.message || "Failed to submit visit", "error");
+      if (selection.current === token.owner) raiseMessage(error.message || "Could not verify submission. Saved answers and drafts are retained.", "error");
     } finally {
-      setSubmitting(false);
+      if (operation.current === token) { operation.current = null; setSubmitting(false); }
     }
-  }, [visitId, questions, responsesByQuestion, apiFetch, loadDrafts, loadVisitDetail, raiseMessage]);
+  }, [visitId, questions, questionnaireReady, hasMeaningfulAnswer, readSaved, persistAnswer, apiFetch, loadDrafts, raiseMessage]);
 
   const scrollToCategory = useCallback((category) => {
     setCurrentCategory(category);
@@ -819,6 +903,13 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                     </Card>
 
                     <div className="space-y-6">
+                      {groupedQuestions.length === 0 ? (
+                        <Card>
+                          <CardContent className="p-5 text-sm text-muted-foreground">
+                            No Mystery Shopper questions are available. You cannot complete this visit until an administrator configures the questionnaire.
+                          </CardContent>
+                        </Card>
+                      ) : null}
                       {groupedQuestions.map(([category, items]) => (
                         <Card key={category} id={categoryToId(category)}>
                           <CardHeader><CardTitle>{category}</CardTitle></CardHeader>
@@ -848,7 +939,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                                     <p className={cn("text-xs", hasChanges ? "text-amber-700" : hasSavedResponse ? "text-emerald-700" : "text-muted-foreground")}>
                                       {statusText}
                                     </p>
-                                    <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={savingQuestionId === question.id || !hasChanges}>
+                                    <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={submitting || savingQuestionId !== null || !hasChanges}>
                                       {btnLabel}
                                     </Button>
                                   </div>
@@ -862,8 +953,9 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                       <Card>
                         <CardContent className="pt-6">
                           <div className="flex flex-wrap items-center justify-between gap-3">
+                            {!questionnaireReady ? <p role="status" className="text-sm text-muted-foreground">{questionnaireState === "loading" ? "Loading questionnaire..." : questionnaireState === "empty" ? "The questionnaire has no questions. Ask an administrator to configure it before submitting." : "The questionnaire has not loaded. Reload the page before submitting."}</p> : null}
                             <Badge variant="secondary">Mandatory completion: {completedMandatory}/{totalMandatory || 0}</Badge>
-                            <Button type="button" onClick={submitVisitFn} disabled={submitting || !visitId}>
+                            <Button type="button" onClick={submitVisitFn} disabled={submitting || savingQuestionId !== null || !visitId || !questionnaireReady}>
                               {submitting ? "Submitting..." : "Submit for Review"}
                             </Button>
                           </div>

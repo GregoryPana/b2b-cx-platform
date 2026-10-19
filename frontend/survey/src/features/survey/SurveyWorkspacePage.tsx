@@ -213,6 +213,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [accountExecutives, setAccountExecutives] = useState<AccountExecutive[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [questionnaireState, setQuestionnaireState] = useState("unloaded");
   const [draftVisits, setDraftVisits] = useState<DraftVisit[]>([]);
   const [submittedVisits, setSubmittedVisits] = useState<DraftVisit[]>([]);
   const [isLoadingSubmitted, setIsLoadingSubmitted] = useState(false);
@@ -244,6 +245,16 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     team_member_names: [""],
   });
   const animationRef = useRef<HTMLDivElement | null>(null);
+  type VisitOwner = { id: string; saves: Set<number>; records?: Record<number, ResponseRecord>; uncertain?: Set<number>; submitting?: boolean };
+  const visitScope = useRef<VisitOwner>({ id: "", saves: new Set<number>() });
+  const responseReadScope = useRef<object | null>(null);
+  const responseDraftsRef = useRef(responseDrafts);
+  responseDraftsRef.current = responseDrafts;
+  const overdueInFlight = useRef(new Set<string>());
+  useEffect(() => () => { visitScope.current = { id: "", saves: new Set<number>() }; }, [headers]);
+  useEffect(() => {
+    if (isPlannedRoute) visitScope.current = { id: "", saves: new Set<number>() };
+  }, [isPlannedRoute]);
   const canManageAccountExecutives = role === "Admin";
 
   const pushToast = useCallback((kind: ToastKind, title: string, duration = 2600) => {
@@ -254,10 +265,16 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
 
   const visibleQuestions = useMemo(() => {
     const q16Question = questions.find((q) => q.question_key === Q16_KEY);
-    const q16Answer = q16Question ? responseDrafts[q16Question.id]?.answer_text || responsesByQuestion[q16Question.id]?.answer_text || "" : "";
+    const q16Answer = q16Question
+      ? (Object.prototype.hasOwnProperty.call(responseDrafts, q16Question.id)
+        ? responseDrafts[q16Question.id]?.answer_text
+        : responsesByQuestion[q16Question.id]?.answer_text) || ""
+      : "";
     const q16IsYes = normalizeYesNo(q16Answer) === "Y";
     return questions.filter((q) => (q.question_key !== Q17_KEY && q.question_key !== Q18_KEY) || q16IsYes);
   }, [questions, responseDrafts, responsesByQuestion]);
+
+  const questionnaireReady = questionnaireState === "ready" && visibleQuestions.length > 0;
 
   const groupedQuestions = useMemo(() => {
     const grouped = visibleQuestions.reduce<Record<string, Question[]>>((acc, question) => {
@@ -318,25 +335,33 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     };
 
     const loadQuestions = async () => {
-      const params = new URLSearchParams({ survey_type: SURVEY_TYPE });
-      const res = await fetch(`${API_BASE}/questions?${params.toString()}`, { headers });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.detail || "Failed to load questions");
-        return;
-      }
-      const rows = (Array.isArray(data) ? data : []).map((question: Question & { order_index?: number; order?: number }) => ({
-        ...question,
-        question_number: question.question_number ?? question.order_index ?? question.order ?? question.id,
-      }));
-      setQuestions(rows);
-      setResponseDrafts((prev) => {
-        const next = { ...prev };
-        rows.forEach((question: Question) => {
-          if (!next[question.id]) next[question.id] = { ...emptyDraft };
+      setQuestionnaireState("loading");
+      try {
+        const params = new URLSearchParams({ survey_type: SURVEY_TYPE });
+        const res = await fetch(`${API_BASE}/questions?${params.toString()}`, { headers });
+        const data = await res.json();
+        if (!res.ok) {
+          setQuestionnaireState("error");
+          setError(data.detail || "Failed to load questions");
+          return;
+        }
+        const rows = (Array.isArray(data) ? data : []).map((question: Question & { order_index?: number; order?: number }) => ({
+          ...question,
+          question_number: question.question_number ?? question.order_index ?? question.order ?? question.id,
+        }));
+        setQuestions(rows);
+        setQuestionnaireState(rows.length ? "ready" : "empty");
+        setResponseDrafts((prev) => {
+          const next = { ...prev };
+          rows.forEach((question: Question) => {
+            if (!next[question.id]) next[question.id] = { ...emptyDraft };
+          });
+          return next;
         });
-        return next;
-      });
+      } catch {
+        setQuestionnaireState("error");
+        setError("Failed to load questions. Reload the page to try again.");
+      }
     };
 
     const loadAccountExecutives = async () => {
@@ -355,7 +380,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     loadAccountExecutives();
   }, [headers]);
 
-  const loadDrafts = async () => {
+  const loadDrafts = async (owner?: typeof visitScope.current) => {
     setIsLoadingDrafts(true);
     setError("");
     const params = new URLSearchParams({
@@ -365,6 +390,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     });
     const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
     const data = await res.json();
+    if (owner && owner !== visitScope.current) return;
     setIsLoadingDrafts(false);
     if (!res.ok) {
       setError(data.detail || "Failed to load draft visits");
@@ -404,11 +430,32 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     loadSubmittedVisits();
   }, [headers]);
 
-  const loadVisitResponses = async (targetVisitId: string) => {
-    if (!targetVisitId) return;
+  const beginVisitSelection = (id: string) => {
+    const owner: VisitOwner = { id, saves: new Set<number>() };
+    visitScope.current = owner;
+    responseReadScope.current = null;
+    setResponseDrafts({});
+    setResponsesByQuestion({});
+    setSavingQuestionId(null);
+    setIsSubmittingVisit(false);
+    setIsCreatingVisit(false);
+    setError("");
+    setMessage("");
+    return owner;
+  };
+
+  const loadVisitResponses = async (targetVisitId: string, preserveDrafts = false, owner = visitScope.current) => {
+    if (!targetVisitId || owner !== visitScope.current || owner.id !== targetVisitId) return;
+    const read = {};
+    responseReadScope.current = read;
     const res = await fetch(`${API_BASE}/dashboard-visits/${targetVisitId}?_cb=${Date.now()}`, { headers });
     const data = await res.json();
-    if (!res.ok) return;
+    if (owner !== visitScope.current || responseReadScope.current !== read) return;
+    if (!res.ok) { setError(data.detail || "Failed to verify saved responses."); return; }
+    if (String(data.id ?? data.visit_id) !== String(targetVisitId)) {
+      setError("Visit identity could not be verified. Your drafts are retained; check this same visit before retrying.");
+      return;
+    }
 
     const nextResponses: Record<number, ResponseRecord> = {};
     const nextDrafts: Record<number, ResponseDraft> = {};
@@ -432,11 +479,14 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
           action_owner: action.action_owner || "",
           action_timeframe: action.action_timeframe || "",
           action_support_needed: action.action_support_needed || "",
+          action_comments: action.action_comments || "",
         })),
       };
     });
+    owner.records = preserveDrafts ? { ...owner.records, ...nextResponses } : nextResponses;
     setResponsesByQuestion(nextResponses);
-    setResponseDrafts((prev) => ({ ...prev, ...nextDrafts }));
+    if (!preserveDrafts) setResponseDrafts(nextDrafts);
+    if (!preserveDrafts) {
     setSubmissionSignature({
       name: data.submitted_by_name || "",
       email: data.submitted_by_email || "",
@@ -451,6 +501,8 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       team_member_names: Array.isArray(data.team_member_names) && data.team_member_names.length > 0 ? data.team_member_names : [""],
     }));
     setAccountExecutiveSearch(data.account_executive_name || "");
+    }
+    return nextResponses;
   };
 
   const resolveBusinessName = (draft: DraftVisit) => {
@@ -508,9 +560,11 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     }
   };
 
-  const handleSelectPlannedVisit = async (draft: DraftVisit) => {
+  const handleSelectPlannedVisit = async (draft: DraftVisit, selection?: typeof visitScope.current) => {
     const selectedId = draft.visit_id ?? draft.id ?? "";
     if (!selectedId) return;
+    const owner = selection || beginVisitSelection(selectedId);
+    if (owner !== visitScope.current) return;
     setIsViewingSubmitted(false);
     setSelectedDraftId(selectedId);
     setVisitSource("planned");
@@ -528,14 +582,68 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
         : prev.team_member_names,
     }));
     setAccountExecutiveSearch(draft.account_executive_name || "");
-    await loadVisitResponses(selectedId);
+    let records;
+    try { records = await loadVisitResponses(selectedId, false, owner); }
+    catch {
+      if (owner !== visitScope.current) return;
+      if (selection) throw new Error("Visit date accepted; readback failed.");
+      setError("Could not load this visit. Check the connection and select the same visit again.");
+      return;
+    }
+    if (owner !== visitScope.current || !records) return;
     setMessage(`Loaded planned visit for ${resolveBusinessName(draft)}.`);
     navigate("/survey");
+    return true;
+  };
+
+  const handleSelectOverdueVisit = async (draft: DraftVisit) => {
+    const selectedId = draft.visit_id ?? draft.id ?? "";
+    if (!selectedId || overdueInFlight.current.has(selectedId)) return;
+    const confirmed = window.confirm(
+      `This visit was planned for ${draft.visit_date || "an earlier date"}, which has already passed. ` +
+        `Continuing will update the visit date to today (${todayString}). Continue?`
+    );
+    if (!confirmed) return;
+    const owner = beginVisitSelection(selectedId);
+    overdueInFlight.current.add(selectedId);
+    let accepted = false;
+    pushToast("info", "Updating visit date...", 1600);
+    try {
+      const res = await fetch(`${API_BASE}/dashboard-visits/${selectedId}/draft`, {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ visit_date: todayString }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (owner !== visitScope.current) return;
+      if (!res.ok) {
+        setError(data.detail || "Failed to update the visit date");
+        return;
+      }
+      accepted = true;
+      const loaded = await handleSelectPlannedVisit({ ...draft, visit_date: todayString }, owner);
+      if (owner !== visitScope.current) return;
+      if (!loaded) {
+        setError("Visit date updated, but the visit could not be confirmed. Check this same visit before continuing; do not create another visit.");
+        return;
+      }
+      // A successful PUT remains accepted even if subsequent verification fails.
+      setVisitForm((prev) => ({ ...prev, visit_date: todayString }));
+      await loadDrafts(owner);
+    } catch (error) {
+      if (owner !== visitScope.current) return;
+      setError(accepted
+        ? "Visit date updated, but the visit could not be confirmed. Check this same visit before continuing; do not create another visit."
+        : (error instanceof Error ? error.message : "Could not confirm the visit date update. Check this visit before retrying."));
+    } finally {
+      overdueInFlight.current.delete(selectedId);
+    }
   };
 
   const handleViewSubmittedVisit = async (draft: DraftVisit) => {
     const selectedId = draft.visit_id ?? draft.id ?? "";
     if (!selectedId) return;
+    const owner = beginVisitSelection(selectedId);
     setIsViewingSubmitted(true);
     setVisitSource("planned");
     setSelectedDraftId(selectedId);
@@ -552,7 +660,13 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
         : prev.team_member_names,
     }));
     setAccountExecutiveSearch(draft.account_executive_name || "");
-    await loadVisitResponses(selectedId);
+    let records;
+    try { records = await loadVisitResponses(selectedId, false, owner); }
+    catch {
+      if (owner === visitScope.current) setError("Could not load this submitted visit. Check the connection and try again.");
+      return;
+    }
+    if (owner !== visitScope.current || !records) return;
     setMessage(`Viewing submitted visit for ${resolveBusinessName(draft)} (read-only, including any action points added during review).`);
     navigate("/survey");
   };
@@ -581,6 +695,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   };
 
   const handleCreateVisit = async () => {
+    const owner = beginVisitSelection(visitSource === "planned" ? selectedDraftId : "");
     pushToast("info", visitSource === "planned" ? "Preparing planned visit..." : "Creating visit...", 1500);
     setIsViewingSubmitted(false);
     setIsCreatingVisit(true);
@@ -604,13 +719,16 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
           }),
         });
         const data = await res.json();
+        if (owner !== visitScope.current) return;
         if (!res.ok) {
           setError(data.detail || "Failed to update planned visit");
           return;
         }
-        setVisitId(data.visit_id);
+        owner.id = data.visit_id;
+      setVisitId(data.visit_id);
         setStatus(data.status || "Draft");
-        await Promise.all([loadDrafts(), loadVisitResponses(data.visit_id)]);
+        await Promise.all([loadDrafts(owner), loadVisitResponses(data.visit_id, false, owner)]);
+        if (owner !== visitScope.current) return;
         setMessage("Planned visit loaded and ready for responses.");
         navigate("/survey");
         return;
@@ -635,22 +753,27 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       };
       const res = await fetch(`${API_BASE}/dashboard-visits?_cb=${Date.now()}`, { method: "POST", headers, body: JSON.stringify(payload) });
       const data = await res.json();
+        if (owner !== visitScope.current) return;
       if (!res.ok) {
         setError(data.detail || "Failed to create visit");
         return;
       }
+      owner.id = data.visit_id;
       setVisitId(data.visit_id);
       setStatus(data.status || "Draft");
-      await loadDrafts();
-      await loadVisitResponses(data.visit_id);
+      await loadDrafts(owner);
+      if (owner !== visitScope.current) return;
+      await loadVisitResponses(data.visit_id, false, owner);
+      if (owner !== visitScope.current) return;
       setMessage("Visit created. You can now fill the survey.");
       navigate("/survey");
     } finally {
-      setIsCreatingVisit(false);
+      if (owner === visitScope.current) setIsCreatingVisit(false);
     }
   };
 
   const saveActiveVisitDetails = async () => {
+    const owner = visitScope.current;
     if (!visitId) {
       setError("No active survey to update.");
       return false;
@@ -672,6 +795,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
         }),
       });
       const data = await res.json();
+      if (owner !== visitScope.current) return false;
       if (!res.ok) {
         setError(data.detail || "Failed to save visit details");
         return false;
@@ -687,11 +811,12 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
           : prev.team_member_names,
       }));
       setAccountExecutiveSearch(data.account_executive_name || "");
-      await loadDrafts();
+      await loadDrafts(owner);
+      if (owner !== visitScope.current) return false;
       setMessage("Visit details saved.");
       return true;
     } finally {
-      setIsCreatingVisit(false);
+      if (owner === visitScope.current) setIsCreatingVisit(false);
     }
   };
 
@@ -761,7 +886,9 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   };
 
   const buildResponsePayload = (question: Question, responseForm: ResponseDraft) => {
-    const scoreNum = Number(responseForm.score);
+    const rawScore = responseForm.score;
+    const scoreNum = (typeof rawScore === "number" || (typeof rawScore === "string" && rawScore.trim() !== ""))
+      ? Number(rawScore) : NaN;
     const normalizedAnswerText = question.input_type === "yes_no"
       ? normalizeYesNo(responseForm.answer_text)
       : (responseForm.answer_text || "").trim();
@@ -796,7 +923,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     if (question.input_type === "score") {
       const min = question.score_min ?? 0;
       const max = question.score_max ?? 10;
-      if (responseForm.score === "" || Number.isNaN(scoreNum) || scoreNum < min || scoreNum > max) {
+      if (!Number.isFinite(scoreNum) || scoreNum < min || scoreNum > max) {
         return `Enter a valid score (${min}-${max}) for Q${question.question_number || question.id}.`;
       }
     }
@@ -832,6 +959,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       return { ok: false, error: "Create or select a visit first." };
     }
 
+    const owner = visitScope.current;
     const responseForm = responseDrafts[question.id] || { ...emptyDraft };
     const validationError = validateResponseDraft(question, responseForm);
     if (validationError) {
@@ -840,7 +968,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     }
 
     const { payload } = buildResponsePayload(question, responseForm);
-    const existing = responsesByQuestion[question.id];
+    const existing = owner.records?.[question.id] || responsesByQuestion[question.id];
     const endpoint = existing
       ? `${API_BASE}/dashboard-visits/${visitId}/responses/${existing.response_id}?_cb=${Date.now()}`
       : `${API_BASE}/dashboard-visits/${visitId}/responses?_cb=${Date.now()}`;
@@ -851,22 +979,36 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       pushToast("info", `Saving response for Q${question.question_number || question.id}...`, 1400);
     }
 
-    const res = await fetch(endpoint, { method, headers, body: JSON.stringify(payload) });
-    const data = await res.json();
-    if (!options?.silent) {
-      setSavingQuestionId(null);
-    }
-    if (!res.ok) {
-      const message = data.detail || "Failed to save response";
-      if (!options?.silent) setError(message);
+    try {
+      const res = await fetch(endpoint, { method, headers, body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (owner !== visitScope.current) return { ok: false, error: "Selection changed." };
+      if (!res.ok) {
+        const message = data.detail || "Failed to save response";
+        if (!options?.silent) setError(message);
+        return { ok: false, error: message };
+      }
+      const responseId = data.response_id || data.id || existing?.response_id;
+      if (responseId) {
+        const record = { ...payload, ...data, response_id: responseId } as ResponseRecord;
+        owner.records = { ...owner.records, [question.id]: record };
+        // Retain accepted identity for recovery without claiming verified Saved UI.
+
+      }
+      return { ok: true, data };
+    } catch {
+      (owner.uncertain ||= new Set()).add(question.id);
+      const message = "Could not confirm response save. Check this visit before retrying.";
+      if (owner === visitScope.current && !options?.silent) setError(message);
       return { ok: false, error: message };
+    } finally {
+      if (owner === visitScope.current && !options?.silent) setSavingQuestionId(null);
     }
-    return { ok: true, data };
   };
 
-  const isQuestionSaved = (question: Question) => {
+  const isQuestionSaved = (question: Question, records = responsesByQuestion) => {
     const draft = responseDrafts[question.id] || { ...emptyDraft };
-    const existing = responsesByQuestion[question.id];
+    const existing = records[question.id];
     if (!existing) return false;
     const left = normalizeResponseDraftForCompare(draft);
     const right = normalizeResponseRecordForCompare(existing);
@@ -877,10 +1019,51 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   };
 
   const handleSaveQuestionResponse = async (question: Question) => {
-    const result = await persistQuestionResponse(question);
-    if (!result.ok) return;
-    setMessage("Response saved.");
-    await loadVisitResponses(visitId);
+    const owner = visitScope.current;
+    if (owner.id !== visitId || owner.saves.size || owner.submitting) return;
+    owner.saves.add(question.id);
+    const submitted = JSON.stringify(responseDrafts[question.id] || emptyDraft);
+    try {
+      if (owner.uncertain?.has(question.id)) {
+        const recovered = await loadVisitResponses(visitId, true, owner);
+        if (owner !== visitScope.current) return;
+        if (!recovered?.[question.id]) {
+          setError("Previous save remains unconfirmed. Check/reopen this same visit before retrying; no duplicate answer was created.");
+          return;
+        }
+        owner.uncertain.delete(question.id);
+      }
+      const existing = owner.records?.[question.id] || responsesByQuestion[question.id];
+      if (existing && !window.confirm(`Replace the saved answer for Q${question.question_number || question.id}? Your current draft will replace that answer on this same visit.`)) return;
+      const result = await persistQuestionResponse(question);
+      if (owner !== visitScope.current || !result.ok) return;
+      const records = await loadVisitResponses(visitId, true, owner);
+      if (owner !== visitScope.current) return;
+      if (!records) {
+        (owner.uncertain ||= new Set()).add(question.id);
+        setError("Response saved, but readback could not be confirmed. Your drafts are retained; check this visit before retrying.");
+        return;
+      }
+      // Only reconcile the submitted revision of this question, never other
+      // drafts or edits made while the POST/readback was pending.
+      const record = records[question.id];
+      const submittedValue = normalizeResponseDraftForCompare(JSON.parse(submitted));
+      const savedValue = normalizeResponseRecordForCompare(record);
+      if (!record || JSON.stringify(submittedValue) !== JSON.stringify(savedValue)) {
+        setError("Response save could not be verified. Your drafts are retained; check this visit before retrying.");
+        return;
+      }
+      setResponseDrafts((prev) => {
+        if (owner !== visitScope.current || JSON.stringify(prev[question.id] || emptyDraft) !== submitted) return prev;
+        return { ...prev, [question.id]: { score: String(record.score ?? ""), answer_text: record.answer_text || "", verbatim: record.verbatim || "", actions: record.actions || [] } };
+      });
+      setMessage("Response saved.");
+    } catch {
+      (owner.uncertain ||= new Set()).add(question.id);
+      if (owner === visitScope.current) setError("Response saved, but readback could not be confirmed. Your drafts are retained; check this visit before retrying.");
+    } finally {
+      owner.saves.delete(question.id);
+    }
   };
 
   const handleSubmitVisit = async () => {
@@ -888,15 +1071,31 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       setError("Create a visit first.");
       return;
     }
+    if (!questionnaireReady) {
+      setError("The questionnaire is not ready. Reload it before submitting.");
+      return;
+    }
+    const owner = visitScope.current;
+    if (owner.id !== visitId || owner.saves.size || owner.submitting) return;
+    owner.submitting = true;
+    const submittedDrafts = JSON.stringify(responseDrafts);
+    try {
     const visitDetailsSaved = await saveActiveVisitDetails();
+    if (owner !== visitScope.current) return;
     if (!visitDetailsSaved) {
       return;
     }
 
-    const draftQuestions = visibleQuestions.filter((question) => {
+    const answeredQuestions = visibleQuestions.filter((question) => {
       const draft = responseDrafts[question.id] || emptyDraft;
+      return Boolean((draft.score !== "" && draft.score != null) || draft.answer_text?.trim() || draft.verbatim?.trim() || (draft.actions || []).length);
+    });
+    const draftQuestions = answeredQuestions.filter((question) => {
+      const draft = responseDrafts[question.id] || emptyDraft;
+      // Preserve valid partial progress before reporting invalid local fields.
+      if (validateResponseDraft(question, draft)) return false;
       const hasDraftContent = Boolean(
-        draft.score || draft.answer_text?.trim() || draft.verbatim?.trim() || (draft.actions || []).some((action) => action.action_required || action.action_owner || action.action_timeframe || action.action_support_needed || action.action_comments)
+        (draft.score !== "" && draft.score != null) || draft.answer_text?.trim() || draft.verbatim?.trim() || (draft.actions || []).some((action) => action.action_required || action.action_owner || action.action_timeframe || action.action_support_needed || action.action_comments)
       );
       if (!hasDraftContent) return false;
       const existing = responsesByQuestion[question.id];
@@ -909,20 +1108,64 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       );
     });
 
+    if (owner.uncertain?.size) {
+      const recovered = await loadVisitResponses(visitId, true, owner);
+      if (owner !== visitScope.current) return;
+      if (!recovered || [...owner.uncertain].some((id) => !recovered[id])) {
+        setError("Previous save remains unconfirmed. Check/reopen this visit before retrying; submission has not advanced.");
+        return;
+      }
+      owner.uncertain.clear();
+    }
+    const overwrites = draftQuestions.filter((question) => owner.records?.[question.id] || responsesByQuestion[question.id]);
+    if (overwrites.length && !window.confirm(`Replace saved answers for ${overwrites.map((q) => `Q${q.question_number || q.id}`).join(", ")} with your current drafts before submitting?`)) return;
     for (const question of draftQuestions) {
       const result = await persistQuestionResponse(question, { silent: true });
+      if (owner !== visitScope.current) return;
       if (!result.ok) {
         setError(result.error || `Failed to save Q${question.question_number || question.id} before submit.`);
         return;
       }
     }
 
-    await loadVisitResponses(visitId);
+    let savedResponses: Record<number, ResponseRecord> | undefined;
+    try { savedResponses = await loadVisitResponses(visitId, true, owner); }
+    catch {
+      if (owner === visitScope.current) {
+        draftQuestions.forEach((q) => (owner.uncertain ||= new Set()).add(q.id));
+        setError("Could not confirm saved responses. Your drafts are retained; check this same visit before retrying.");
+      }
+      return;
+    }
+    if (owner !== visitScope.current || !savedResponses) return;
+    if (JSON.stringify(responseDraftsRef.current) !== submittedDrafts) {
+      setError("Answers changed while saving. Saved revisions are retained; review your current drafts before submitting again.");
+      return;
+    }
+
+    // An explicit clear is not an untouched optional omission. Without a
+    // verified clear contract, never submit the server's old answer instead.
+    const invalidLocalQuestions = visibleQuestions.filter((question) => {
+      if (!Object.prototype.hasOwnProperty.call(responseDrafts, question.id)) return false;
+      const draft = responseDrafts[question.id];
+      const record = savedResponses[question.id];
+      const hasSavedValue = question.input_type === "score"
+        ? record?.score != null : Boolean(record?.answer_text?.trim());
+      const primaryIsBlank = question.input_type === "score"
+        ? draft.score == null || String(draft.score).trim() === ""
+        : !draft.answer_text?.trim();
+      return (hasSavedValue && primaryIsBlank)
+        || ((hasSavedValue || answeredQuestions.includes(question)) && Boolean(validateResponseDraft(question, draft)));
+    });
+    if (invalidLocalQuestions.length) {
+      setError(`Answers saved. Review cleared or invalid local answers before submitting: ${invalidLocalQuestions.map((q) => `Q${q.question_number || q.id}`).join(", ")}. Drafts retained; old saved values have not been submitted.`);
+      return;
+    }
 
     // Confirm every response we just tried to save actually landed on the
     // server — a POST can report success while a dropped connection means
     // the row never committed, or a reload race can miss it.
-    const unsavedAfterPersist = draftQuestions.filter((question) => !responsesByQuestion[question.id]);
+    const unsavedAfterPersist = answeredQuestions.filter((question) => !isQuestionSaved(question, savedResponses));
     if (unsavedAfterPersist.length > 0) {
       const unsavedLabels = unsavedAfterPersist
         .map((question) => `Q${question.question_number || question.id}`)
@@ -932,39 +1175,61 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
     }
 
     const mandatoryQuestions = visibleQuestions.filter((question) => question.is_mandatory);
-    const unanswered = mandatoryQuestions.filter((question) => !responsesByQuestion[question.id]);
+    const hasSavedAnswer = (question: Question) => {
+      const record = savedResponses[question.id];
+      if (!record) return false;
+      if (question.input_type === "score") return record.score != null && Number.isFinite(Number(record.score));
+      return Boolean(String(record.answer_text || "").trim());
+    };
+    const optionalMissing = visibleQuestions.filter((q) => !q.is_mandatory && !hasSavedAnswer(q));
+    const optionalNotice = optionalMissing.length ? `Unanswered optional questions: ${optionalMissing.map((q) => `Q${q.question_number || q.id}`).join(", ")}.` : "";
+    const unanswered = mandatoryQuestions.filter((question) => !hasSavedAnswer(question));
     if (unanswered.length > 0) {
       const missingQuestionLabels = unanswered
         .map((question) => `Q${question.question_number || question.id}`)
         .join(", ");
-      setError(`Complete all required questions before submit. Missing: ${missingQuestionLabels}.`);
+      setError(`Answers saved. Complete all required questions before submit. Missing: ${missingQuestionLabels}. ${optionalNotice}`.trim());
       return;
     }
 
+    if (optionalNotice) pushToast("info", optionalNotice, 6000);
     setIsSubmittingVisit(true);
     pushToast("info", "Submitting visit for review...", 1600);
-    const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}/submit?_cb=${Date.now()}`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ submit_notes: null }),
-    });
-    const data = await res.json();
-    setIsSubmittingVisit(false);
-    if (!res.ok) {
-      const detail = data.detail;
-      if (detail && typeof detail === "object") {
-        const missingLabels = (detail.missing_questions || [])
-          .map((q: { question_number?: number }) => `Q${q.question_number}`)
-          .join(", ");
-        setError(missingLabels ? `${detail.message} Missing: ${missingLabels}.` : detail.message || "Failed to submit visit");
-      } else {
-        setError(detail || "Failed to submit visit");
+    try {
+      const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}/submit?_cb=${Date.now()}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ submit_notes: null }),
+      });
+      const data = await res.json();
+      if (owner !== visitScope.current) return;
+      setIsSubmittingVisit(false);
+      if (!res.ok) {
+        const detail = data.detail;
+        if (detail && typeof detail === "object") {
+          const missingLabels = (detail.missing_questions || [])
+            .map((q: { question_number?: number }) => `Q${q.question_number}`)
+            .join(", ");
+          setError(missingLabels ? `${detail.message} Missing: ${missingLabels}.` : detail.message || "Failed to submit visit");
+        } else {
+          setError(detail || "Failed to submit visit");
+        }
+        return;
       }
-      return;
+      setStatus(data.status || "Pending");
+      setMessage("Survey submitted for review.");
+      await loadDrafts(owner);
+    } catch {
+      if (owner !== visitScope.current) return;
+      setError("Could not confirm submission. Check the visit status before trying again.");
+    } finally {
+      if (owner === visitScope.current) setIsSubmittingVisit(false);
     }
-    setStatus(data.status || "Pending");
-    setMessage("Survey submitted for review.");
-    await loadDrafts();
+    } catch {
+      if (owner === visitScope.current) setError("Could not confirm saved answers. Your drafts are retained; check this same visit before retrying.");
+    } finally {
+      owner.submitting = false;
+    }
   };
 
   const todayString = useMemo(() => {
@@ -985,7 +1250,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   const plannedToday = sortByPriority(draftVisits.filter((visit) => (visit.visit_date || "") === todayString));
   const plannedUpcoming = sortByPriority(draftVisits.filter((visit) => (visit.visit_date || "") > todayString));
   const plannedOverdue = sortByPriority(
-    draftVisits.filter((visit) => (visit.visit_date || "") < todayString && visit.is_started)
+    draftVisits.filter((visit) => (visit.visit_date || "") < todayString)
   );
   const submittedSorted = sortByPriority(submittedVisits);
   const isReadOnly = Boolean(isViewingSubmitted || status !== "Draft");
@@ -1071,12 +1336,12 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                       <div className="mb-3 flex items-center justify-between rounded-md border bg-red-50 px-3 py-2">
                         <div className="flex items-center gap-2">
                           <Clock3 className="h-4 w-4 text-red-700" />
-                          <p className="text-sm font-semibold text-red-900">Overdue (In Progress)</p>
+                          <p className="text-sm font-semibold text-red-900">Overdue</p>
                         </div>
                         <Badge variant="destructive">{plannedOverdue.length}</Badge>
                       </div>
                       <p className="mb-3 text-xs text-muted-foreground">
-                        These visits are past their planned date but were already started. Continue and submit them to complete the survey.
+                        These visits are past their planned date. Continuing will update the visit date to today.
                       </p>
                       <div className="space-y-3 lg:hidden">
                         {plannedOverdue.map((draft) => (
@@ -1086,7 +1351,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                 <div>
                                   <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
                                 </div>
-                                <Badge variant="destructive">Overdue</Badge>
+                                <Badge variant="destructive">{draft.is_started ? "Overdue (In Progress)" : "Overdue"}</Badge>
                               </div>
                               <div className="grid grid-cols-2 gap-3 text-sm">
                                 <div>
@@ -1098,8 +1363,8 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                   <p>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</p>
                                 </div>
                               </div>
-                              <Button className="w-full" onClick={() => handleSelectPlannedVisit(draft)}>
-                                Continue <ArrowRight className="h-4 w-4" />
+                              <Button className="w-full" onClick={() => handleSelectOverdueVisit(draft)}>
+                                {draft.is_started ? "Continue" : "Start"} <ArrowRight className="h-4 w-4" />
                               </Button>
                             </CardContent>
                           </Card>
@@ -1123,10 +1388,10 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                 <TableCell>{resolveBusinessName(draft)}</TableCell>
                                 <TableCell>{draft.visit_date || "--"}</TableCell>
                                 <TableCell>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</TableCell>
-                                <TableCell><Badge variant="destructive">Overdue</Badge></TableCell>
+                                <TableCell><Badge variant="destructive">{draft.is_started ? "Overdue (In Progress)" : "Overdue"}</Badge></TableCell>
                                 <TableCell>
-                                  <Button size="sm" onClick={() => handleSelectPlannedVisit(draft)}>
-                                    Continue <ArrowRight className="h-4 w-4" />
+                                  <Button size="sm" onClick={() => handleSelectOverdueVisit(draft)}>
+                                    {draft.is_started ? "Continue" : "Start"} <ArrowRight className="h-4 w-4" />
                                   </Button>
                                 </TableCell>
                               </TableRow>
@@ -1558,6 +1823,11 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                   </div>
 
                   <div className="space-y-6">
+                    {groupedQuestions.length === 0 ? (
+                      <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                        No B2B survey questions are available. You cannot complete this visit until an administrator configures the questionnaire.
+                      </div>
+                    ) : null}
                     {groupedQuestions.map((category) => (
                       <div key={category} id={categoryToId(category)} className="space-y-3">
                         <div className="flex items-center justify-between">
@@ -1589,23 +1859,36 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                   </CardHeader>
                                   <CardContent className="space-y-4">
                                     {isReadOnly ? (
-                                      <div className="rounded bg-muted/30 px-3 py-2 text-sm">{draft.answer_text || "--"}</div>
+                                      <div className="rounded bg-muted/30 px-3 py-2 text-sm">
+                                        {question.input_type === "score"
+                                          ? draft.score != null && draft.score !== "" ? `${draft.score} / ${question.score_max ?? 10}` : "No score recorded"
+                                          : draft.answer_text || "No answer recorded"}
+                                      </div>
                                     ) : question.input_type === "score" ? (
                                       <div className="space-y-2">
-                                        <div className="flex flex-wrap gap-2">
-                                          {scoreOptions.map((scoreValue) => (
+                                        {scoreOptions.length === 0 ? (
+                                          <p className="text-xs text-destructive">This question has no valid score range. Ask an administrator to correct it before answering.</p>
+                                        ) : (
+                                        <div className="flex flex-wrap gap-2" role="group" aria-label={`Select a score from ${question.score_min ?? 0} to ${question.score_max ?? 10}`}>
+                                          {scoreOptions.map((scoreValue) => {
+                                            const selected = String(scoreValue) === String(draft.score);
+                                            return (
                                             <Button
                                               key={`${question.id}-score-${scoreValue}`}
                                               type="button"
                                               size="sm"
-                                              variant={String(scoreValue) === String(draft.score) ? "default" : "outline"}
+                                              variant={selected ? "default" : "outline"}
                                               className="min-w-10"
+                                              aria-pressed={selected}
+                                              aria-label={`Score ${scoreValue} out of ${question.score_max ?? 10}`}
                                               onClick={() => updateQuestionDraft(question.id, "score", String(scoreValue))}
                                             >
                                               {scoreValue}
                                             </Button>
-                                          ))}
+                                            );
+                                          })}
                                         </div>
+                                        )}
                                         <p className="text-xs text-muted-foreground">Select a score in the range {scoreRangeLabel}.</p>
                                         {scoreValidationMessage ? <p className="text-xs text-destructive">{scoreValidationMessage}</p> : null}
                                       </div>
@@ -1740,11 +2023,12 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                       : "bg-amber-600 text-white hover:bg-amber-700"
                   )}
                   onClick={handleSubmitVisit}
-                  disabled={isSubmittingVisit || status === "Pending"}
+                  disabled={isSubmittingVisit || status === "Pending" || !questionnaireReady}
                   title="Send this survey to the review queue once every required answer has been saved"
                 >
                   {isSubmittingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} {status === "Pending" ? "Submitted for Review" : "Submit for Review"}
                 </Button>
+                {!questionnaireReady ? <p role="status" className="text-sm text-muted-foreground">{questionnaireState === "loading" ? "Loading questionnaire..." : questionnaireState === "empty" ? "The questionnaire has no questions. Ask an administrator to configure it before submitting." : "The questionnaire has not loaded. Reload the page before submitting."}</p> : null}
                 <Badge variant="secondary">Current status: {status}</Badge>
               </CardContent>
             </Card>

@@ -3,6 +3,7 @@ import MysteryReviewQueueTable from "./MysteryReviewQueueTable";
 
 export default function MysteryReviewQueueSection({
   pendingVisits,
+  loading,
   loadingVisitId,
   onView,
   onApprove,
@@ -26,6 +27,9 @@ export default function MysteryReviewQueueSection({
         </div>
       </CardHeader>
       <CardContent>
+        {loading ? (
+          <p className="py-8 text-center text-sm text-muted-foreground" role="status">Loading Mystery Shopper visits awaiting review...</p>
+        ) : (
         <MysteryReviewQueueTable
           data={pendingVisits}
           loadingVisitId={loadingVisitId}
@@ -33,6 +37,7 @@ export default function MysteryReviewQueueSection({
           onApprove={onApprove}
           onReject={onReject}
         />
+        )}
       </CardContent>
     </Card>
   );

@@ -11,9 +11,9 @@ Usage (from the repository root):
            [--build-outdir DIR] [-- <extra pytest args>]
 
 Scopes (default: focused):
-  focused   analytics assurance suite (pytest, tests/analytics) + dashboard Node metric tests
+  focused   analytics assurance suite (pytest, tests/analytics) + frontend module tests
   analytics analytics assurance suite only
-  frontend  dashboard Node metric tests only
+  frontend  recursive module-boundary Node tests + Mystery Vitest (all five affected apps)
   full      the ENTIRE backend suite (`pytest tests`) on the disposable cluster
   build     dashboard production build written to --build-outdir (must be outside the repository)
   all       analytics + full backend suite + Node tests + dashboard build (every step above)
@@ -143,17 +143,9 @@ def run_pytest(target: str, env: dict, extra: list[str]) -> int:
 
 
 def run_frontend() -> int:
-    node = shutil.which("node")
-    if not node:
-        print("node not found; cannot run dashboard metric tests", file=sys.stderr)
-        return 127
-    tests = sorted(str(p) for p in (DASHBOARD / "src" / "lib").glob("*.test.mjs"))
-    if not tests:
-        print("no dashboard metric tests found", file=sys.stderr)
-        return 1
-    cmd = [node, "--test", *tests]
+    cmd = [sys.executable, str(REPO_ROOT / "scripts/dev/verify_frontend_modules.py"), "--scope", "tests"]
     print("+", " ".join(cmd), flush=True)
-    return subprocess.call(cmd, cwd=DASHBOARD)
+    return subprocess.call(cmd, cwd=REPO_ROOT)
 
 
 def run_build(outdir: str | None) -> int:
@@ -251,7 +243,7 @@ def main() -> int:
             server.cleanup()
             shutil.rmtree(pgdata, ignore_errors=True)
     if "frontend" in steps:
-        results["dashboard Node metric tests"] = run_frontend()
+        results["frontend module-boundary tests (Node + Vitest)"] = run_frontend()
     if "build" in steps:
         results["dashboard production build"] = run_build(args.build_outdir)
 

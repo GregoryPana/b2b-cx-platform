@@ -46,7 +46,7 @@ export default function MainLayout({ children, onLogout, onSwitchPlatform, userN
         pendingReviewCount={pendingReviewCount}
       />
       <div className={cn("flex min-w-0 flex-1 flex-col transition-all duration-300", collapsed ? "lg:pl-20" : "lg:pl-72")}>
-        <Header theme={theme} toggleTheme={toggleTheme} onOpenMobileNav={() => setMobileOpen(true)} />
+        <Header theme={theme} toggleTheme={toggleTheme} onOpenMobileNav={() => setMobileOpen(true)} activePlatform={activePlatform} />
         <main className="custom-scrollbar flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>

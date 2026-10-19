@@ -70,8 +70,9 @@ class B2BVisitCreate(BaseModel):
     """Schema for creating a new B2B visit."""
     business_id: int
     visit_date: str
-    visit_type: str | None = None
-    status: str = "draft"
+    visit_type: str = "Planned"
+    status: str = "Draft"
+    representative_id: int | None = None
 
 
 class B2BVisitUpdate(BaseModel):
@@ -84,7 +85,7 @@ class B2BVisitUpdate(BaseModel):
 
 class B2BVisitOut(BaseModel):
     """Schema for B2B visit response data."""
-    id: int
+    id: str
     business_id: int
     representative_id: int
     visit_date: str

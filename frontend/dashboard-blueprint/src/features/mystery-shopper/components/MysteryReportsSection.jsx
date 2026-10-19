@@ -62,7 +62,7 @@ export default function MysteryReportsSection({
                   <button
                     key={option.key}
                     type="button"
-                    onClick={() => setReportType(option.key)}
+                    onClick={() => { setReportType(option.key); setReportBusinessId(""); setReportVisitId(""); }}
                     className={cn(
                       "shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
                       reportType === option.key
@@ -86,7 +86,7 @@ export default function MysteryReportsSection({
                         type="button"
                         className="mt-auto w-full"
                         variant={reportType === option.key ? "default" : "outline"}
-                        onClick={() => setReportType(option.key)}
+                        onClick={() => { setReportType(option.key); setReportBusinessId(""); setReportVisitId(""); }}
                       >
                         {reportType === option.key ? "Selected" : `Use ${option.label}`}
                       </Button>
@@ -126,6 +126,7 @@ export default function MysteryReportsSection({
                       onChange={(event) => {
                         const match = mysteryLocations.find((item) => item.name === event.target.value);
                         setReportBusinessId(match ? String(match.id) : "");
+                        setReportVisitId("");
                       }}
                     />
                     <datalist id="report-mystery-location-list">
@@ -136,7 +137,7 @@ export default function MysteryReportsSection({
                   </div>
                   <div>
                     <label className="text-xs font-medium text-muted-foreground mb-1 block">Survey</label>
-                    <Select value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)}>
+                    <Select aria-label="Approved Mystery Shopper visit" value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)} disabled={!reportBusinessId || reportSurveyLoading}>
                       <option value="">Select approved survey</option>
                       {reportEligibleSurveys.map((visit) => (
                         <option key={visit.visit_id} value={visit.visit_id}>Survey on {visit.visit_date || "--"} ({visit.status})</option>

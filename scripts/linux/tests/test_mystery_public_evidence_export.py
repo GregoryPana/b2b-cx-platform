@@ -67,7 +67,13 @@ fetch_mystery_evidence verification candidate "$2" || exit 22
         self.assertEqual(workflow.count('source scripts/linux/fetch_mystery_public_evidence.sh'),4)
         self.assertEqual(workflow.count('fetch_mystery_evidence audit'),4)
         self.assertEqual(workflow.count('fetch_mystery_evidence recovery'),4)
-        self.assertEqual(workflow.count('fetch_mystery_evidence verification'),3)
+        self.assertEqual(workflow.count('fetch_mystery_evidence verification'),4)
+        deploy=workflow.split('  deploy:\n',1)[1].split('  rollback:\n',1)[0]
+        probe='fetch_mystery_evidence verification "${FALLBACK_RELEASE_ID}" "${EVIDENCE_DIR}/fallback-verification.json"'
+        self.assertIn(probe+'\n',deploy)
+        self.assertNotIn(probe+' ||',deploy)
+        self.assertLess(deploy.index(probe),deploy.index('scp "${SSH_OPTS[@]}" "${BUNDLE}"'))
+        self.assertLess(deploy.index(probe),deploy.index('DEPLOY_CMD=('))
         backend_ci=(SOURCE.parents[1]/'.github/workflows/backend-ci.yml').read_text()
         self.assertIn('on:\n  push:\n  pull_request:\n', backend_ci)
         self.assertNotIn('    paths:', backend_ci)

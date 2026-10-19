@@ -87,30 +87,19 @@ jobs:
           interpreter = next((p for p in candidates if p.is_file()), None)
           if interpreter is None:
               raise SystemExit('Registered backend interpreter not found')
-          # Load runtime config inside its own interpreter; never print values or errors
-          # containing connection details. Only a read-only migration-head SELECT is run.
-          code = '''
-          from dotenv import load_dotenv
-          import json, os
-          from sqlalchemy import create_engine, text
+          # Use the installed interpreter/config, but the reviewed checkout helper.
+          # It emits only allowlisted metadata, never SQL/DSNs/authentication rows.
+          helper = pathlib.Path('scripts/linux/inspect_auth_timestamp_metadata.py').resolve()
           try:
-              load_dotenv('/opt/cwscx/.env', override=True)
-              url = os.environ.get('DATABASE_URL')
-              if not url: raise RuntimeError('missing runtime database config')
-              engine = create_engine(url, connect_args={'connect_timeout':5,'options':'-c default_transaction_read_only=on -c statement_timeout=5000'})
-              with engine.connect() as connection:
-                  revisions = sorted(connection.execute(text('SELECT version_num FROM alembic_version')).scalars())
-              engine.dispose()
-              print(json.dumps(revisions))
-          except Exception:
-              raise SystemExit('Read-only migration-head verification failed; connection details withheld')
-          '''
-          result = subprocess.run([str(interpreter), '-c', code], capture_output=True, text=True, timeout=20)
-          if result.returncode:
-              raise SystemExit('Read-only migration-head verification failed; details withheld')
-          report['database_heads'] = json.loads(result.stdout)
-          if report['database_heads'] != ['20260714_000032']:
-              raise SystemExit('Live database head differs from the reviewed release head; stop before deployment')
+              result = subprocess.run([str(interpreter), '-I', str(helper)], capture_output=True, text=True, timeout=20)
+              metadata = json.loads(result.stdout)
+          except (subprocess.TimeoutExpired, ValueError, OSError):
+              raise SystemExit('Read-only database compatibility inspection failed; details withheld') from None
+          report['database_auth_timestamp_metadata'] = metadata
+          report['database_heads'] = metadata.get('heads', [])
+          if result.returncode or metadata.get('compatible') is not True or report['database_heads'] != ['20260714_000032']:
+              print(json.dumps(report, indent=2))
+              raise SystemExit('Live database head/auth timestamp catalog is incompatible or unavailable; stop before deployment; no repair attempted')
           # An anonymous request must be rejected before any survey data is read.
           # This also distinguishes the internal route surface from mystery_public.
           try:
