@@ -103,4 +103,10 @@ def api_client(db):
     for router in (analytics_router, compat_router, admin_router):
         app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
+    from app.core.auth.dependencies import get_current_user
+    from app.core.auth.entra import AuthUser
+    app.dependency_overrides[get_current_user] = lambda: AuthUser(
+        sub="analytics-admin", name="Fixture Admin", preferred_username="fixture@example.invalid",
+        roles=("CX_SUPER_ADMIN",), claims={"auth_mode": "entra"},
+    )
     return TestClient(app, raise_server_exceptions=False)

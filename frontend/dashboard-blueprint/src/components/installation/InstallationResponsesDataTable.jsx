@@ -14,7 +14,7 @@ import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
 import { DataTableViewOptions } from "../ui/data-table-view-options";
 
-export default function InstallationResponsesDataTable({ responses }) {
+export default function InstallationResponsesDataTable({ responses = [] }) {
   const [sorting, setSorting] = useState([{ id: "question_number", desc: false }]);
   const [columnFilters, setColumnFilters] = useState([]);
   const [columnVisibility, setColumnVisibility] = useState({});
@@ -23,7 +23,7 @@ export default function InstallationResponsesDataTable({ responses }) {
   const columns = useMemo(() => [
     { accessorKey: "question_number", headerTitle: "Question #", header: ({ column }) => <DataTableColumnHeader column={column} title="Question #" />, cell: ({ row }) => `Q${row.original.question_number}` },
     { accessorKey: "question_text", headerTitle: "Question", header: ({ column }) => <DataTableColumnHeader column={column} title="Question" />, cell: ({ row }) => row.original.question_text || "--" },
-    { accessorKey: "score", headerTitle: "Score (1-5)", header: ({ column }) => <DataTableColumnHeader column={column} title="Score (1-5)" />, cell: ({ row }) => row.original.score },
+    { accessorKey: "score", headerTitle: "Score (/5)", header: ({ column }) => <DataTableColumnHeader column={column} title="Score (/5)" />, cell: ({ row }) => row.original.score != null ? `${row.original.score} / 5` : "No score" },
   ], []);
 
   const table = useReactTable({
@@ -48,16 +48,16 @@ export default function InstallationResponsesDataTable({ responses }) {
       <div className="rounded-md border">
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <Select value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
+            <Select aria-label="Response filter column" value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
               <option value="question_text">Filter by question</option>
               <option value="question_number">Filter by question #</option>
               <option value="score">Filter by score</option>
             </Select>
-            <Input value={activeFilterValue} onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)} className="md:max-w-sm" />
+            <Input aria-label={`Filter responses by ${filterColumn.replaceAll("_", " ")}`} placeholder="Enter a response filter" value={activeFilterValue} onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)} className="md:max-w-sm" />
           </div>
           <div className="flex gap-2">
             <DataTableViewOptions table={table} />
-            <Select value={`${table.getState().pagination.pageSize}`} onChange={(event) => table.setPageSize(Number(event.target.value))} className="md:w-[120px]">
+            <Select aria-label="Responses per page" value={`${table.getState().pagination.pageSize}`} onChange={(event) => table.setPageSize(Number(event.target.value))} className="md:w-[120px]">
               {[7, 10, 20].map((size) => <option key={size} value={`${size}`}>{size} rows</option>)}
             </Select>
           </div>
@@ -80,7 +80,7 @@ export default function InstallationResponsesDataTable({ responses }) {
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No responses found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No saved question responses match the current table filter.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

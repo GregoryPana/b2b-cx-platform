@@ -21,15 +21,23 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pydantic import BaseModel, EmailStr
 from ..core.database import get_db
-from ..core.auth.dependencies import get_current_user, require_role
+from ..core.auth.dependencies import get_current_user, require_roles, B2B_ROLES
+from ..core.answer_validity import require_valid_completion, require_visit_state, b2b_question_applicability_sql
 from ..core.models import User
 from ..core.traffic_light import get_b2b_metric_grade
-from ..core.analytics_scope import AnalyticsSchemaError, AnalyticsScopeError, ModuleScope, resolve_module_scope
+from ..core.analytics_scope import (
+    AnalyticsSchemaError,
+    AnalyticsScopeError,
+    ModuleScope,
+    question_belongs_to_scope,
+    resolve_module_scope,
+    visit_belongs_to_scope,
+)
 from ..routers.analytics import get_comprehensive_analytics, get_question_averages, get_yes_no_question_analytics
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/dashboard-visits", tags=["dashboard-visits"])
+router = APIRouter(dependencies=[Depends(require_roles(*B2B_ROLES))], prefix="/dashboard-visits", tags=["dashboard-visits"])
 
 _visit_signature_columns_checked = False
 _visit_metadata_columns_checked = False
@@ -45,6 +53,38 @@ def get_response_table(db: Session) -> str | None:
     if has_table(db, "responses"):
         return "responses"
     return None
+
+
+def _b2b_scope(
+    db: Session,
+    survey_type: str | None = "B2B",
+    survey_type_id: int | None = None,
+) -> ModuleScope:
+    """Resolve the dedicated B2B surface and reject attempts to widen it."""
+    try:
+        scope = resolve_module_scope(db, survey_type or "B2B")
+    except AnalyticsScopeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except AnalyticsSchemaError as exc:
+        raise HTTPException(status_code=500, detail=f"B2B scope unavailable: {exc}")
+    if scope.is_mystery:
+        raise HTTPException(status_code=400, detail="Mystery Shopper data is served by /mystery-shopper")
+    if survey_type_id is not None and survey_type_id != scope.survey_type_id:
+        raise HTTPException(status_code=400, detail="survey_type_id does not belong to B2B")
+    return scope
+
+
+def _require_b2b_visit(db: Session, visit_id: str) -> ModuleScope:
+    scope = _b2b_scope(db)
+    if not visit_belongs_to_scope(db, visit_id, scope):
+        raise HTTPException(status_code=404, detail="Visit not found")
+    return scope
+
+
+def _require_b2b_question(db: Session, question_id: int, scope: ModuleScope | None = None) -> None:
+    scope = scope or _b2b_scope(db)
+    if not question_belongs_to_scope(db, question_id, scope):
+        raise HTTPException(status_code=404, detail="Question not found")
 
 
 ACTION_TIMEFRAME_OPTIONS = {"<1 month", "<3 months", "<6 months", ">6 months"}
@@ -433,21 +473,25 @@ def fetch_dashboard_actions(
     action_status: str | None,
     business_id: int | None,
 ) -> list[dict]:
+    scope = _b2b_scope(db, survey_type)
     response_table = get_response_table(db)
     if not response_table:
         return []
 
     has_visit_survey_type = has_column(db, "visits", "survey_type_id")
-    resolved_survey_type_id = resolve_survey_type_id(db, survey_type, None)
+    resolved_survey_type_id = scope.survey_type_id
     has_question_number = has_column(db, "questions", "question_number")
     has_question_order = has_column(db, "questions", "order_index")
     question_number_col = "q.question_number" if has_question_number else ("q.order_index" if has_question_order else "q.id")
-    where_clauses = ["1=1"]
-    params: dict[str, object] = {}
+    where_clauses = ["v.survey_type_id = :survey_type_id"]
+    params: dict[str, object] = dict(scope.params)
 
     if has_visit_survey_type and has_column(db, "questions", "survey_type_id"):
-        # The answered question must belong to the visit's module (a legacy NULL module is tolerated).
-        where_clauses.append("(q.survey_type_id IS NULL OR v.survey_type_id IS NULL OR q.survey_type_id = v.survey_type_id)")
+        # B2B alone tolerates legacy NULL question ownership.
+        where_clauses.append("(q.survey_type_id IS NULL OR q.survey_type_id = :survey_type_id)")
+
+    if resolved_survey_type_id is None or not has_visit_survey_type:
+        return []
 
     if business_id is not None:
         where_clauses.append("v.business_id = :business_id")
@@ -647,12 +691,11 @@ def create_visit(
         if not business_id or not visit_date:
             raise HTTPException(status_code=400, detail="business_id and visit_date are required")
 
-        survey_type_id = resolve_survey_type_id(db, survey_type, survey_type_id)
+        requested_scope = _b2b_scope(db, survey_type, survey_type_id)
+        survey_type_id = requested_scope.survey_type_id
 
-        if survey_type_id is None and has_table(db, "survey_types"):
-            survey_type_id = db.execute(text(
-                "SELECT id FROM survey_types WHERE name = 'B2B'"
-            )).scalar()
+        if survey_type_id is None:
+            raise HTTPException(status_code=500, detail="B2B survey type is not configured")
         
         # Check for duplicate visit
         if check_duplicate_visit(business_id, visit_date, db, survey_type_id=survey_type_id):
@@ -758,7 +801,12 @@ def get_all_visits(
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         has_question_survey_type = has_column(db, "questions", "survey_type_id")
 
-        resolved_survey_type_id = resolve_survey_type_id(db, survey_type, survey_type_id)
+        scope = _b2b_scope(db, survey_type, survey_type_id)
+        resolved_survey_type_id = scope.survey_type_id
+        if resolved_survey_type_id is None:
+            return []
+        where_conditions.append("v.survey_type_id = :survey_type_id")
+        params["survey_type_id"] = resolved_survey_type_id
         
         if status:
             where_conditions.append("v.status = :status")
@@ -778,7 +826,7 @@ def get_all_visits(
 
         mandatory_total_expr = "(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true)"
         if has_visit_survey_type and has_question_survey_type:
-            mandatory_total_expr = "(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = v.survey_type_id)"
+            mandatory_total_expr = f"(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND (q2.survey_type_id IS NULL OR q2.survey_type_id = v.survey_type_id) AND {b2b_question_applicability_sql(question_alias='q2', response_table=get_response_table(db))})"
         
         # Build WHERE clause string
         where_clause = ""
@@ -817,8 +865,13 @@ def get_all_visits(
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at,
-                COUNT(DISTINCT r.question_id) as response_count,
-                COUNT(DISTINCT CASE WHEN q.is_mandatory = true THEN r.question_id END) as mandatory_answered_count,
+                COUNT(DISTINCT CASE WHEN q.id IS NOT NULL THEN r.question_id END) as response_count,
+                COUNT(DISTINCT CASE WHEN q.is_mandatory = true AND {b2b_question_applicability_sql(response_table=response_table)} AND (CASE WHEN COALESCE(q.input_type, 'score') = 'score' THEN
+                    r.score IS NOT NULL AND (q.score_min IS NULL OR r.score >= q.score_min)
+                    AND (q.score_max IS NULL OR r.score <= q.score_max)
+                WHEN q.input_type = 'yes_no' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('y','n','yes','no')
+                WHEN q.input_type = 'always_sometimes_never' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('always','sometimes','monthly','never')
+                WHEN q.input_type = 'text' THEN length(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) > 0 ELSE false END) THEN r.question_id END) as mandatory_answered_count,
                 {mandatory_total_expr} as mandatory_total_count,
                 false as is_started,
                 false as is_completed,
@@ -828,6 +881,7 @@ def get_all_visits(
             LEFT JOIN users u ON v.representative_id = u.id
             {response_join}
             LEFT JOIN questions q ON r.question_id = q.id
+                AND (q.survey_type_id IS NULL OR q.survey_type_id = :survey_type_id)
             {team_members_join}
             {where_clause}
             GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.account_executive_name, v.submitted_by_name, v.submitted_by_email, v.submitted_at, {team_members_select}
@@ -865,6 +919,8 @@ def get_all_visits(
         
         return visits
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error getting all visits: %s", e)
         raise HTTPException(status_code=500, detail="Failed to get visits")
@@ -952,9 +1008,20 @@ def update_action_status(
         if response_table != "b2b_visit_responses":
             raise HTTPException(status_code=400, detail="Action status updates are supported for B2B responses only")
 
+        scope = _b2b_scope(db)
         row = db.execute(
-            text("SELECT actions FROM b2b_visit_responses WHERE CAST(id AS TEXT) = :response_id"),
-            {"response_id": str(request.response_id)},
+            text(
+                """
+                SELECT r.actions
+                FROM b2b_visit_responses r
+                JOIN visits v ON v.id = r.visit_id
+                JOIN questions q ON q.id = r.question_id
+                WHERE CAST(r.id AS TEXT) = :response_id
+                  AND v.survey_type_id = :survey_type_id
+                  AND (q.survey_type_id IS NULL OR q.survey_type_id = :survey_type_id)
+                """
+            ),
+            {"response_id": str(request.response_id), **scope.params},
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Response not found")
@@ -1008,13 +1075,19 @@ def get_report_surveys_for_business(
     """List business surveys and whether each is report-eligible."""
     try:
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
-        resolved_survey_type_id = resolve_survey_type_id(db, survey_type, None)
+        report_scope = _b2b_scope(db, survey_type)
+        resolved_survey_type_id = report_scope.survey_type_id
 
-        where_clauses = ["v.business_id = :business_id"]
-        params: dict[str, object] = {"business_id": business_id}
-        if resolved_survey_type_id and has_visit_survey_type:
-            where_clauses.append("v.survey_type_id = :survey_type_id")
-            params["survey_type_id"] = resolved_survey_type_id
+        if not has_visit_survey_type or resolved_survey_type_id is None:
+            return {
+                "business_id": business_id,
+                "survey_type": "B2B",
+                "eligible": [],
+                "ineligible": [],
+                "eligible_statuses": ["Approved", "Completed"],
+            }
+        where_clauses = ["v.business_id = :business_id", "v.survey_type_id = :survey_type_id"]
+        params: dict[str, object] = {"business_id": business_id, "survey_type_id": resolved_survey_type_id}
 
         rows = db.execute(
             text(
@@ -1060,6 +1133,8 @@ def get_report_surveys_for_business(
             "ineligible": ineligible,
             "eligible_statuses": sorted(eligible_statuses),
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load report-eligible surveys: {exc}")
 
@@ -1235,8 +1310,15 @@ def build_report_payload(
                 b.name AS business_name,
                 COUNT(CASE WHEN q.id IS NOT NULL THEN r.id END) AS response_count,
                 AVG(CASE WHEN q.id IS NOT NULL THEN r.score END) AS avg_score,
-                SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END) AS mandatory_answered_count,
-                SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END) AS mandatory_total_count
+                SUM(CASE WHEN q.is_mandatory = true AND {b2b_question_applicability_sql(response_table=response_table)} AND (CASE WHEN COALESCE(q.input_type, 'score') = 'score' THEN
+                    r.score IS NOT NULL AND (q.score_min IS NULL OR r.score >= q.score_min)
+                    AND (q.score_max IS NULL OR r.score <= q.score_max)
+                WHEN q.input_type = 'yes_no' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('y','n','yes','no')
+                WHEN q.input_type = 'always_sometimes_never' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('always','sometimes','monthly','never')
+                WHEN q.input_type = 'text' THEN length(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) > 0 ELSE false END) THEN 1 ELSE 0 END) AS mandatory_answered_count,
+                (SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true
+                    AND (q2.survey_type_id = v.survey_type_id OR q2.survey_type_id IS NULL)
+                    AND {b2b_question_applicability_sql(question_alias='q2', response_table=response_table)}) AS mandatory_total_count
             FROM visits v
             JOIN businesses b ON b.id = v.business_id
             LEFT JOIN {response_table} r ON r.visit_id = v.id
@@ -2749,11 +2831,14 @@ def get_draft_visits(db: Session = Depends(get_db)):
     """Get draft visits for dashboard."""
     try:
         ensure_visit_submission_columns(db)
+        scope = _b2b_scope(db)
+        if scope.survey_type_id is None:
+            return []
         has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         has_question_survey_type = has_column(db, "questions", "survey_type_id")
         mandatory_total_expr = "(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true)"
         if has_visit_survey_type and has_question_survey_type:
-            mandatory_total_expr = "(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = v.survey_type_id)"
+            mandatory_total_expr = f"(SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND (q2.survey_type_id IS NULL OR q2.survey_type_id = v.survey_type_id) AND {b2b_question_applicability_sql(question_alias='q2', response_table=get_response_table(db))})"
 
         response_table = get_response_table(db)
         response_join = ""
@@ -2787,8 +2872,13 @@ def get_draft_visits(db: Session = Depends(get_db)):
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at,
-                COUNT(DISTINCT r.question_id) as response_count,
-                COUNT(DISTINCT CASE WHEN q.is_mandatory = true THEN r.question_id END) as mandatory_answered_count,
+                COUNT(DISTINCT CASE WHEN q.id IS NOT NULL THEN r.question_id END) as response_count,
+                COUNT(DISTINCT CASE WHEN q.is_mandatory = true AND {b2b_question_applicability_sql(response_table=response_table)} AND (CASE WHEN COALESCE(q.input_type, 'score') = 'score' THEN
+                    r.score IS NOT NULL AND (q.score_min IS NULL OR r.score >= q.score_min)
+                    AND (q.score_max IS NULL OR r.score <= q.score_max)
+                WHEN q.input_type = 'yes_no' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('y','n','yes','no')
+                WHEN q.input_type = 'always_sometimes_never' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('always','sometimes','monthly','never')
+                WHEN q.input_type = 'text' THEN length(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) > 0 ELSE false END) THEN r.question_id END) as mandatory_answered_count,
                 {mandatory_total_expr} as mandatory_total_count,
                 v.account_executive_name,
                 {team_members_select} as team_member_names
@@ -2797,12 +2887,13 @@ def get_draft_visits(db: Session = Depends(get_db)):
             LEFT JOIN users u ON v.representative_id = u.id
             {response_join}
             LEFT JOIN questions q ON r.question_id = q.id
+                AND (q.survey_type_id IS NULL OR q.survey_type_id = :survey_type_id)
             {team_members_join}
-            WHERE v.status = 'Draft'
+            WHERE v.status = 'Draft' AND v.survey_type_id = :survey_type_id
             GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.submitted_by_name, v.submitted_by_email, v.submitted_at, v.account_executive_name, {team_members_select}
             ORDER BY v.visit_date DESC
             """
-        )).all()
+        ), scope.params).all()
 
         return [
             {
@@ -2839,11 +2930,14 @@ def get_draft_visits(db: Session = Depends(get_db)):
 def get_pending_visits(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _manager_access: bool = Depends(require_role("Manager"))
+    _manager_access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN"))
 ):
     """Get pending visits for dashboard - requires Manager role."""
     try:
         ensure_visit_submission_columns(db)
+        scope = _b2b_scope(db)
+        if scope.survey_type_id is None:
+            return []
         team_members_join = ""
         if has_table(db, "meeting_attendees"):
             team_members_join = (
@@ -2872,10 +2966,10 @@ def get_pending_visits(
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             {team_members_join}
-            WHERE v.status = 'Pending'
+            WHERE v.status = 'Pending' AND v.survey_type_id = :survey_type_id
             ORDER BY v.visit_date DESC
             """
-        )).all()
+        ), scope.params).all()
 
         return [
             {
@@ -2910,6 +3004,7 @@ def get_pending_visits(
 def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(get_db)):
     """Update a draft visit."""
     try:
+        scope = _require_b2b_visit(db, visit_id)
         ensure_visit_metadata_columns(db)
         ensure_visit_edit_audit_columns(db)
         # Get current visit details to check business_id
@@ -2924,7 +3019,13 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
         new_visit_date = visit_data.get("visit_date")
         
         # Check for duplicate visit if date is being changed
-        if new_visit_date and check_duplicate_visit(business_id, new_visit_date, db, exclude_visit_id=visit_id):
+        if new_visit_date and check_duplicate_visit(
+            business_id,
+            new_visit_date,
+            db,
+            exclude_visit_id=visit_id,
+            survey_type_id=scope.survey_type_id,
+        ):
             raise HTTPException(
                 status_code=400, 
                 detail=f"A visit for this business already exists on {new_visit_date}. Only one visit per business per day is allowed."
@@ -3037,6 +3138,7 @@ def delete_draft_visit(
     cannot remove drafts they did not create.
     """
     try:
+        _require_b2b_visit(db, visit_id)
         response_table = get_response_table(db)
         visit_row = db.execute(text(
             "SELECT status, created_by, representative_id FROM visits WHERE id = :visit_id"
@@ -3049,7 +3151,7 @@ def delete_draft_visit(
         if status_value != "Draft":
             raise HTTPException(status_code=400, detail="Only Draft visits can be deleted")
 
-        admin_roles = ("CX_SUPER_ADMIN", "B2B_ADMIN", "MYSTERY_ADMIN", "INSTALL_ADMIN")
+        admin_roles = ("CX_SUPER_ADMIN", "B2B_ADMIN")
         is_admin = bool(getattr(current_user, "has_any_role", lambda _r: False)(admin_roles))
         if not is_admin:
             actor_user_id = resolve_actor_user_id(db, current_user)
@@ -3095,6 +3197,11 @@ def create_response(
 ):
     """Create a response for a visit."""
     try:
+        scope = _require_b2b_visit(db, visit_id)
+        question_id = response_data.get("question_id")
+        if not isinstance(question_id, int):
+            raise HTTPException(status_code=400, detail="question_id must be an integer")
+        _require_b2b_question(db, question_id, scope)
         response_table = get_response_table(db)
         if response_table == "b2b_visit_responses":
             # Upsert on (visit_id, question_id): a re-save updates the existing
@@ -3183,6 +3290,11 @@ def update_response(
 ):
     """Update a response for a visit."""
     try:
+        scope = _require_b2b_visit(db, visit_id)
+        question_id = response_data.get("question_id")
+        if not isinstance(question_id, int):
+            raise HTTPException(status_code=400, detail="question_id must be an integer")
+        _require_b2b_question(db, question_id, scope)
         response_table = get_response_table(db)
         if response_table == "b2b_visit_responses":
             result = db.execute(text(
@@ -3194,7 +3306,7 @@ def update_response(
                     verbatim = :verbatim,
                     actions = :actions,
                     updated_at = NOW()
-                WHERE id = :response_id AND visit_id = :visit_id
+                WHERE id = :response_id AND visit_id = :visit_id AND question_id = :question_id
                 RETURNING id, question_id, score, answer_text, verbatim, actions, updated_at
                 """
             ), {
@@ -3220,7 +3332,7 @@ def update_response(
                     action_owner = :action_owner,
                     action_timeframe = :action_timeframe,
                     action_support_needed = :action_support_needed
-                WHERE id = :response_id AND visit_id = :visit_id
+                WHERE id = :response_id AND visit_id = :visit_id AND question_id = :question_id
                 RETURNING id, question_id, score, answer_text, verbatim
                 """
             ), {
@@ -3238,16 +3350,16 @@ def update_response(
         else:
             raise HTTPException(status_code=500, detail="No response table found")
         
+        row = result.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Response not found")
+
         mark_visit_edited(db, visit_id, current_user)
 
         # Commit the transaction to save changes
         db.commit()
         
         # Get the updated response
-        row = result.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Response not found")
-            
         payload = {
             "response_id": str(row[0]),
             "question_id": row[1],
@@ -3278,97 +3390,16 @@ def submit_visit(
 ):
     """Submit a visit for review."""
     try:
+        scope = _require_b2b_visit(db, visit_id)
+        question_count = db.execute(
+            text("SELECT COUNT(*) FROM questions WHERE survey_type_id = :survey_type_id OR survey_type_id IS NULL"),
+            scope.params,
+        ).scalar()
+        if not question_count:
+            raise HTTPException(status_code=422, detail="B2B questionnaire is empty or unavailable")
         response_table = get_response_table(db)
-        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
-        has_question_survey_type = has_column(db, "questions", "survey_type_id")
-        if has_visit_survey_type and has_question_survey_type:
-            mandatory_counts_row = db.execute(
-                text(
-                    f"""
-                    SELECT
-                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
-                        COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
-                    FROM questions q
-                    JOIN visits v ON (
-                        v.survey_type_id = q.survey_type_id
-                        OR (v.survey_type_id IS NULL AND q.survey_type_id IS NULL)
-                    )
-                    LEFT JOIN {response_table} r
-                        ON r.visit_id = v.id
-                        AND r.question_id = q.id
-                    WHERE v.id = :visit_id
-                    """
-                ),
-                {"visit_id": visit_id},
-            ).fetchone()
-        else:
-            mandatory_counts_row = db.execute(
-                text(
-                    f"""
-                    SELECT
-                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
-                        COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
-                    FROM questions q
-                    JOIN {response_table} r
-                        ON r.question_id = q.id
-                        AND r.visit_id = :visit_id
-                    """
-                ),
-                {"visit_id": visit_id},
-            ).fetchone()
-
-        mandatory_answered_count = int(mandatory_counts_row[0] or 0) if mandatory_counts_row else 0
-        mandatory_total_count = int(mandatory_counts_row[1] or 0) if mandatory_counts_row else 0
-
-        if mandatory_answered_count < mandatory_total_count:
-            has_question_number = has_column(db, "questions", "question_number")
-            question_number_col = "q.question_number" if has_question_number else "q.id"
-            if has_visit_survey_type and has_question_survey_type:
-                missing_rows = db.execute(
-                    text(
-                        f"""
-                        SELECT {question_number_col}, q.question_text
-                        FROM questions q
-                        JOIN visits v ON (
-                            v.survey_type_id = q.survey_type_id
-                            OR (v.survey_type_id IS NULL AND q.survey_type_id IS NULL)
-                        )
-                        LEFT JOIN {response_table} r
-                            ON r.visit_id = v.id
-                            AND r.question_id = q.id
-                        WHERE v.id = :visit_id AND q.is_mandatory = true AND r.id IS NULL
-                        ORDER BY {question_number_col}
-                        """
-                    ),
-                    {"visit_id": visit_id},
-                ).fetchall()
-            else:
-                missing_rows = db.execute(
-                    text(
-                        f"""
-                        SELECT {question_number_col}, q.question_text
-                        FROM questions q
-                        LEFT JOIN {response_table} r
-                            ON r.question_id = q.id
-                            AND r.visit_id = :visit_id
-                        WHERE q.is_mandatory = true AND r.id IS NULL
-                        ORDER BY {question_number_col}
-                        """
-                    ),
-                    {"visit_id": visit_id},
-                ).fetchall()
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": (
-                        f"{mandatory_total_count - mandatory_answered_count} mandatory response(s) "
-                        "were not saved. Please answer them and try submitting again."
-                    ),
-                    "missing_questions": [
-                        {"question_number": row[0], "question_text": row[1]} for row in missing_rows
-                    ],
-                },
-            )
+        require_visit_state(db, visit_id, {"Draft"})
+        require_valid_completion(db, visit_id, response_table, legacy_questions=True)
 
         # Update visit status to Pending
         has_submitted_by_name = has_column(db, "visits", "submitted_by_name")
@@ -3419,9 +3450,11 @@ def approve_visit(
     visit_id: str,
     approval_data: dict,
     db: Session = Depends(get_db),
-    _manager_access: bool = Depends(require_role("Manager")),
+    _manager_access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN")),
 ):
     """Approve a visit."""
+    _require_b2b_visit(db, visit_id)
+    require_visit_state(db, visit_id, {"Pending"})
     try:
         # Update visit status to Approved
         db.execute(text(
@@ -3456,9 +3489,11 @@ def reject_visit(
     visit_id: str,
     rejection_data: dict,
     db: Session = Depends(get_db),
-    _manager_access: bool = Depends(require_role("Manager")),
+    _manager_access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN")),
 ):
     """Reject a visit."""
+    _require_b2b_visit(db, visit_id)
+    require_visit_state(db, visit_id, {"Pending"})
     try:
         # Update visit status to Rejected
         db.execute(text(
@@ -3493,9 +3528,11 @@ def request_changes(
     visit_id: str,
     changes_data: dict,
     db: Session = Depends(get_db),
-    _manager_access: bool = Depends(require_role("Manager")),
+    _manager_access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN")),
 ):
     """Request changes for a visit."""
+    _require_b2b_visit(db, visit_id)
+    require_visit_state(db, visit_id, {"Pending"})
     try:
         # Update visit status back to Draft with change notes
         db.execute(text(
@@ -3537,6 +3574,7 @@ def get_visit_detail(
     previously-saved answers.
     """
     try:
+        scope = _require_b2b_visit(db, visit_id)
         ensure_visit_submission_columns(db)
         ensure_visit_metadata_columns(db)
         ensure_visit_edit_audit_columns(db)
@@ -3604,11 +3642,12 @@ def get_visit_detail(
                 q.input_type,
                 q.category
             FROM {response_table} r
-            LEFT JOIN questions q ON r.question_id = q.id
+            JOIN questions q ON r.question_id = q.id
             WHERE r.visit_id = :visit_id
+              AND (q.survey_type_id IS NULL OR q.survey_type_id = :survey_type_id)
             ORDER BY {question_order_col}
             """
-        ), {"visit_id": visit_id}).mappings().all()
+        ), {"visit_id": visit_id, **scope.params}).mappings().all()
 
         logger.debug("Found {len(response_rows)} response rows")
 
@@ -3638,12 +3677,17 @@ def get_visit_detail(
                 text(
                     f"""
                     SELECT
-                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
-                        COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND {b2b_question_applicability_sql(response_table=response_table)} AND (CASE WHEN COALESCE(q.input_type, 'score') = 'score' THEN
+                    r.score IS NOT NULL AND (q.score_min IS NULL OR r.score >= q.score_min)
+                    AND (q.score_max IS NULL OR r.score <= q.score_max)
+                WHEN q.input_type = 'yes_no' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('y','n','yes','no')
+                WHEN q.input_type = 'always_sometimes_never' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('always','sometimes','monthly','never')
+                WHEN q.input_type = 'text' THEN length(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) > 0 ELSE false END) THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND {b2b_question_applicability_sql(response_table=response_table)} THEN 1 ELSE 0 END), 0) AS mandatory_total_count
                     FROM questions q
                     JOIN visits v ON (
                         v.survey_type_id = q.survey_type_id
-                        OR (v.survey_type_id IS NULL AND q.survey_type_id IS NULL)
+                        OR q.survey_type_id IS NULL
                     )
                     LEFT JOIN {response_table} r
                         ON r.visit_id = v.id
@@ -3662,7 +3706,12 @@ def get_visit_detail(
                 text(
                     f"""
                     SELECT
-                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
+                        COALESCE(SUM(CASE WHEN q.is_mandatory = true AND (CASE WHEN COALESCE(q.input_type, 'score') = 'score' THEN
+                    r.score IS NOT NULL AND (q.score_min IS NULL OR r.score >= q.score_min)
+                    AND (q.score_max IS NULL OR r.score <= q.score_max)
+                WHEN q.input_type = 'yes_no' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('y','n','yes','no')
+                WHEN q.input_type = 'always_sometimes_never' THEN lower(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) IN ('always','sometimes','monthly','never')
+                WHEN q.input_type = 'text' THEN length(trim(COALESCE(r.answer_text, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))) > 0 ELSE false END) THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
                         COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
                     FROM questions q
                     JOIN {response_table} r

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import PageContainer from "../../components/layout/PageContainer";
 import { Button } from "../../components/ui/button";
@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Skeleton } from "../../components/ui/skeleton";
+import { savedAnswersMatch } from "./saveVerification";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 
@@ -17,6 +18,10 @@ function scoreBandLabel(value) {
   if (value >= 3 && value < 4) return "Pass - Needs Improvement";
   if (value >= 2) return "Fail - Rework Required";
   return "Critical Fail";
+}
+
+function parseScore(value) {
+  return value == null || (typeof value === "string" && !value.trim()) ? NaN : Number(value);
 }
 
 function getScoreRange(question) {
@@ -47,6 +52,12 @@ export default function InstallationSurveyPage({ headers }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
+  const [questionsReady, setQuestionsReady] = useState(false);
+  const saveScope = useRef({ generation: 0, busy: false, attempted: false, accepted: null, controller: null });
+  useEffect(() => () => {
+    saveScope.current.generation += 1;
+    saveScope.current.controller?.abort();
+  }, []);
 
   const [formData, setFormData] = useState({
     inspector_name: "",
@@ -93,14 +104,15 @@ export default function InstallationSurveyPage({ headers }) {
   useEffect(() => {
     const loadQuestions = async () => {
       setLoadingQuestions(true);
-      setError("");
+      setQuestionsReady(false);
       try {
         const res = await fetch(`${API_BASE}/installation/questions`, { headers });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.detail || "Failed to load questions");
         setQuestions(Array.isArray(data) ? data : []);
+        setQuestionsReady(true);
       } catch (err) {
-        setError(err.message);
+        if (!saveScope.current.attempted) setError(err.message);
       } finally {
         setLoadingQuestions(false);
       }
@@ -112,7 +124,7 @@ export default function InstallationSurveyPage({ headers }) {
 
   const answeredCount = useMemo(() => {
     return questions.filter((q) => {
-      const score = Number(scoresByQuestion[q.question_number]);
+      const score = parseScore(scoresByQuestion[q.question_number]);
       if (!Number.isFinite(score)) return false;
       const { min, max } = getScoreRange(q);
       return score >= min && score <= max;
@@ -123,7 +135,7 @@ export default function InstallationSurveyPage({ headers }) {
     if (!questions.length) return null;
     const values = questions
       .map((q) => {
-        const score = Number(scoresByQuestion[q.question_number]);
+        const score = parseScore(scoresByQuestion[q.question_number]);
         const { min, max } = getScoreRange(q);
         if (!Number.isFinite(score) || score < min || score > max) return null;
         return score;
@@ -133,24 +145,25 @@ export default function InstallationSurveyPage({ headers }) {
     return values.reduce((s, v) => s + v, 0) / values.length;
   }, [questions, scoresByQuestion]);
 
-  const canSubmit = useMemo(() => {
-    const cleanedFieldTeamMembers = (formData.field_team_members || []).map((member) => member.trim()).filter(Boolean);
-    const workerSpecificValid =
-      formData.job_done_by === "Contractor"
-        ? Boolean(formData.contractor_name.trim())
-        : cleanedFieldTeamMembers.length > 0 && cleanedFieldTeamMembers.length <= 5;
-
-    const requiredMeta =
-      formData.inspector_name.trim() &&
-      formData.work_order.trim() &&
-      formData.customer_name.trim() &&
-      formData.location.trim() &&
-      formData.date_work_done &&
-      CUSTOMER_TYPES.includes(formData.customer_type) &&
-      WORKER_TYPES.includes(formData.job_done_by) &&
-      workerSpecificValid;
-    return Boolean(requiredMeta && questions.length > 0 && answeredCount === questions.length && !submitting);
-  }, [answeredCount, formData, questions.length, submitting]);
+  const missingDetails = useMemo(() => {
+    const missing = [];
+    for (const [key, label] of Object.entries({ inspector_name: "Quality Assurance Inspector", work_order: "Work Order", customer_name: "Customer Name", location: "Location", date_work_done: "Date Work Done" })) {
+      if (!formData[key]?.trim()) missing.push(label);
+    }
+    if (!CUSTOMER_TYPES.includes(formData.customer_type)) missing.push("Customer Type");
+    if (!WORKER_TYPES.includes(formData.job_done_by)) missing.push("Job Done By");
+    if (formData.job_done_by === "Contractor" && !formData.contractor_name.trim()) missing.push("Contractor Name");
+    const members = (formData.field_team_members || []).map(member => member.trim()).filter(Boolean);
+    if (formData.job_done_by === "Field Team" && (!members.length || members.length > 5)) missing.push("Field Team Members (1 to 5)");
+    return missing;
+  }, [formData]);
+  const missingQuestions = questions.filter(q => {
+    const score = parseScore(scoresByQuestion[q.question_number]);
+    const { min, max } = getScoreRange(q);
+    return !Number.isFinite(score) || score < min || score > max;
+  });
+  const canSubmit = questionsReady && !loadingQuestions && questions.length > 0 &&
+    !missingDetails.length && !missingQuestions.length && !submitting && !saveScope.current.attempted;
 
   const updateForm = (key, value) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -160,88 +173,101 @@ export default function InstallationSurveyPage({ headers }) {
     setScoresByQuestion((prev) => ({ ...prev, [questionNumber]: scoreValue }));
   };
 
+  // One POST creates the entire assessment. Never replay an uncertain create.
+  const verifyExisting = async (accepted = saveScope.current.accepted) => {
+    const scope = saveScope.current;
+    if (!accepted || scope.busy || accepted !== scope.accepted) return;
+    scope.busy = true;
+    const generation = scope.generation;
+    const controller = new AbortController();
+    scope.controller = controller;
+    const owns = () => scope.generation === generation && scope.accepted === accepted;
+    setSubmitting(true);
+    try {
+      const verifyRes = await fetch(`${API_BASE}/installation/surveys/${encodeURIComponent(accepted.survey_id)}`, { headers, signal: controller.signal });
+      const verifyData = await verifyRes.json();
+      if (!owns()) return;
+      const saveVerified = verifyRes.ok && savedAnswersMatch(verifyData, accepted.survey_id, accepted.snapshot.responses);
+      setSuccess({ ...accepted, saveVerified });
+      scope.accepted = { ...accepted, saveVerified };
+    } catch {
+      if (owns()) setSuccess({ ...accepted, saveVerified: false });
+    } finally {
+      if (scope.generation === generation) {
+        scope.busy = false;
+        scope.controller = null;
+        setSubmitting(false);
+      }
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!canSubmit) return;
-
-    const responses = questions.map((q) => ({
-      question_number: q.question_number,
-      score: Number(scoresByQuestion[q.question_number]),
-    }));
-
-    const actionPoints = (formData.action_points || []).map((point) => point.trim()).filter(Boolean).slice(0, 5);
-
+    const scope = saveScope.current;
+    if (!canSubmit || scope.busy || scope.attempted) return;
+    const snapshot = {
+      inspector_name: formData.inspector_name.trim(),
+      work_order: formData.work_order.trim(),
+      customer_name: formData.customer_name.trim(),
+      customer_type: formData.customer_type,
+      location: formData.location.trim(),
+      date_work_done: formData.date_work_done,
+      job_done_by: formData.job_done_by,
+      contractor_name: formData.job_done_by === "Contractor" ? formData.contractor_name.trim() : null,
+      field_team_members: formData.job_done_by === "Field Team" ? formData.field_team_members.map(member => member.trim()).filter(Boolean).slice(0, 5) : [],
+      action_points: formData.action_points.map(point => point.trim()).filter(Boolean).slice(0, 5),
+      responses: questions.map(q => ({ question_number: q.question_number, score: parseScore(scoresByQuestion[q.question_number]) })),
+    };
+    scope.busy = true;
+    scope.attempted = true;
+    const generation = scope.generation;
+    const controller = new AbortController();
+    scope.controller = controller;
     setSubmitting(true);
     setError("");
-    setSuccess(null);
-
     try {
       const res = await fetch(`${API_BASE}/installation/surveys`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...headers,
-        },
-        body: JSON.stringify({
-          inspector_name: formData.inspector_name.trim(),
-          work_order: formData.work_order.trim(),
-          customer_name: formData.customer_name.trim(),
-          customer_type: formData.customer_type,
-          location: formData.location.trim(),
-          date_work_done: formData.date_work_done,
-          job_done_by: formData.job_done_by,
-          contractor_name: formData.job_done_by === "Contractor" ? formData.contractor_name.trim() : null,
-          field_team_members:
-            formData.job_done_by === "Field Team"
-              ? (formData.field_team_members || []).map((member) => member.trim()).filter(Boolean).slice(0, 5)
-              : [],
-          action_points: actionPoints,
-          responses,
-        }),
+        method: "POST", headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(snapshot), signal: controller.signal,
       });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || "Failed to submit survey");
-
-      let saveVerified = true;
-      try {
-        const verifyRes = await fetch(`${API_BASE}/installation/surveys/${data.survey_id}`, { headers });
-        const verifyData = await verifyRes.json();
-        saveVerified = verifyRes.ok && (verifyData.responses || []).length === responses.length;
-      } catch {
-        saveVerified = false;
-      }
-
-      setSuccess({
-        survey_id: data.survey_id,
-        overall_score: Number(data.overall_score),
-        action_points: actionPoints,
-        saveVerified,
-      });
-
-      setScoresByQuestion({});
-      setFormData((prev) => ({
-        ...prev,
-        work_order: "",
-        customer_name: "",
-        location: "",
-        date_work_done: "",
-        contractor_name: "",
-        field_team_members: [""],
-        action_points: [""],
-      }));
-    } catch (err) {
-      setError(err.message);
+      if (scope.generation !== generation) return;
+      if (!res.ok || data?.survey_id == null || !String(data.survey_id).trim()) throw new Error("No accepted reference received");
+      const accepted = { survey_id: data.survey_id, overall_score: Number(data.overall_score), action_points: snapshot.action_points, snapshot, saveVerified: false };
+      scope.accepted = accepted;
+      setSuccess(accepted);
+      scope.busy = false;
+      await verifyExisting(accepted);
+    } catch {
+      if (scope.generation === generation) setError("Submission outcome unknown or not confirmed. Your details are retained in this page. Check assessment records with an administrator before submitting again; creating another assessment could duplicate this one. Do not refresh or close this page until you have checked. This API cannot safely retry an unknown create.");
     } finally {
-      setSubmitting(false);
+      if (scope.generation === generation) {
+        scope.busy = false;
+        scope.controller = null;
+        setSubmitting(false);
+      }
     }
+  };
+
+  const startNewAssessment = () => {
+    const scope = saveScope.current;
+    if (scope.busy || !scope.accepted?.saveVerified) return;
+    if (!window.confirm("Start a new assessment? This clears the retained form, including any edits made since submission.")) return;
+    scope.generation += 1;
+    scope.controller?.abort();
+    scope.accepted = null;
+    scope.attempted = false;
+    setSuccess(null);
+    setError("");
+    setScoresByQuestion({});
+    setFormData(prev => ({ ...prev, work_order: "", customer_name: "", location: "", date_work_done: "", contractor_name: "", field_team_members: [""], action_points: [""] }));
   };
 
   return (
     <PageContainer>
       <div className="mb-8">
-        <h1 className="text-4xl font-bold tracking-tight">Installation Assessment</h1>
-        <p className="text-muted-foreground mt-2">Complete the quality assessment checklist and submit.</p>
+        <h1 className="text-4xl font-bold tracking-tight">Assess an installation</h1>
+        <p className="text-muted-foreground mt-2">Record the job details, score every installation check on its stated scale, then submit the assessment.</p>
       </div>
 
       <form onSubmit={handleSubmit}>
@@ -256,14 +282,16 @@ export default function InstallationSurveyPage({ headers }) {
                 {error && <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
                 {success && !success.saveVerified && (
                   <div className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
-                    <div>Survey submitted (Reference: <strong>{success.survey_id}</strong>), but we couldn't confirm all responses were saved.</div>
-                    <div>This may be due to a connection issue. Please check with an admin or re-submit to be safe.</div>
+                    <div>Submission accepted (Reference: <strong>{success.survey_id}</strong>), but we couldn't confirm all responses were saved. Retained details exist only in this page; do not refresh or close it until checked.</div>
+                    <div>Keep this reference and ask an administrator to check the saved answers before submitting again, to avoid a duplicate. Your form has not been cleared.</div>
+                    <Button type="button" variant="outline" disabled={submitting} onClick={() => verifyExisting()}>Reverify existing assessment</Button>
                   </div>
                 )}
-                {success && (
+                {success && success.saveVerified && (
                   <div className="rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success">
-                    <div>Survey submitted. Reference: <strong>{success.survey_id}</strong></div>
-                    <div>Overall score: <strong>{success.overall_score.toFixed(2)}</strong> ({scoreBandLabel(success.overall_score)})</div>
+                    <div>Saved answers verified. Reference: <strong>{success.survey_id}</strong></div>
+                    <Button type="button" variant="outline" disabled={submitting} onClick={startNewAssessment}>Start new assessment</Button>
+                    <div>Overall score: <strong>{Number.isFinite(success.overall_score) ? `${success.overall_score.toFixed(2)} / 5` : "Unavailable"}</strong> {Number.isFinite(success.overall_score) ? `(${scoreBandLabel(success.overall_score)})` : ""}</div>
                     {success.action_points?.length ? (
                       <div className="mt-2">
                         <div>Action points / recommendations:</div>
@@ -277,6 +305,7 @@ export default function InstallationSurveyPage({ headers }) {
                   </div>
                 )}
 
+                {success && <p className="text-sm text-muted-foreground">The reference and result above apply to the submitted snapshot only. Edits below are retained but are not saved to that assessment. Start a new assessment only after verification; this clears the form with confirmation.</p>}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="inspector_name">Quality Assurance Inspector</Label>
@@ -431,8 +460,8 @@ export default function InstallationSurveyPage({ headers }) {
 
             <Card className="mt-6">
               <CardHeader>
-                <CardTitle>Question Scores</CardTitle>
-                <CardDescription>{answeredCount}/{questions.length || 0} answered</CardDescription>
+                <CardTitle>Score each installation check</CardTitle>
+                <CardDescription>{answeredCount} of {questions.length || 0} questions answered. Each question shows the score range supplied for that question.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {loadingQuestions ? (
@@ -440,6 +469,10 @@ export default function InstallationSurveyPage({ headers }) {
                     {[1,2,3,4,5,6,7].map((n) => (
                       <Skeleton key={n} className="h-24 w-full" />
                     ))}
+                  </div>
+                ) : questions.length === 0 ? (
+                  <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+                    No installation questions are available. The assessment cannot be submitted until an administrator configures them.
                   </div>
                 ) : (
                   questions.map((question) => (
@@ -450,19 +483,22 @@ export default function InstallationSurveyPage({ headers }) {
                           <p className="mt-1 font-medium">Q{question.question_number}. {question.question_text}</p>
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-3">
+                      <div className="flex flex-wrap gap-3" role="group" aria-label={`Score Q${question.question_number} from ${getScoreRange(question).min} to ${getScoreRange(question).max}`}>
                         {getScoreOptions(question).map((score) => (
                           <Button
                             key={score}
                             type="button"
-                            variant={Number(scoresByQuestion[question.question_number]) === score ? "default" : "outline"}
+                            variant={parseScore(scoresByQuestion[question.question_number]) === score ? "default" : "outline"}
                             size="sm"
+                            aria-pressed={parseScore(scoresByQuestion[question.question_number]) === score}
+                            aria-label={`Score ${score} out of ${getScoreRange(question).max}`}
                             onClick={() => setQuestionScore(question.question_number, score)}
                           >
                             {score}
                           </Button>
                         ))}
                       </div>
+                      <p className="text-xs text-muted-foreground">Allowed score: {getScoreRange(question).min} to {getScoreRange(question).max}</p>
                     </div>
                   ))
                 )}
@@ -537,7 +573,7 @@ export default function InstallationSurveyPage({ headers }) {
                   <p className="text-muted-foreground">High-quality install. No further action needed.</p>
                 </div>
                 <div className="rounded-md border p-3">
-                  <p className="font-medium">3 to 4 - Pass (Needs Improvement)</p>
+                  <p className="font-medium">3 to less than 4 - Pass (Needs Improvement)</p>
                   <p className="text-muted-foreground">Minor issues. Quality Assurance Inspector can correct small items and log feedback.</p>
                 </div>
                 <div className="rounded-md border p-3">
@@ -553,12 +589,22 @@ export default function InstallationSurveyPage({ headers }) {
 
             <Card className="mt-6">
               <CardHeader>
-                <CardTitle>Overall Assessment</CardTitle>
+                <CardTitle>Current overall score</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="text-3xl font-bold">{averageScore ? averageScore.toFixed(2) : "--"}</div>
-                <p className="text-xs text-muted-foreground">Scale: 1 (Critical Fail) to 5 (Pass - Excellent)</p>
+                <div className="text-3xl font-bold">{averageScore != null ? `${averageScore.toFixed(2)} / 5` : "Not scored"}</div>
+                <p className="text-xs text-muted-foreground">Mean of the questions answered so far. Final scale: 1 (Critical Fail) to 5 (Pass - Excellent).</p>
                 <div className="pt-4">
+                  {(!questionsReady || loadingQuestions) && <p role="status">Questions are not ready. Submission is unavailable.</p>}
+                  {(missingDetails.length > 0 || missingQuestions.length > 0) && (
+                    <div className="mb-3 text-sm" aria-live="polite">
+                      <p>Complete these items before submitting:</p>
+                      <ul className="list-disc pl-5">
+                        {missingDetails.map(label => <li key={label}>{label}</li>)}
+                        {missingQuestions.map(q => <li key={`q-${q.question_number}`}>Q{q.question_number}. {q.question_text}</li>)}
+                      </ul>
+                    </div>
+                  )}
                   <Button type="submit" disabled={!canSubmit} className="w-full">
                     {submitting ? (
                       <>

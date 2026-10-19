@@ -1,531 +1,286 @@
+"""Global administrator operations, with explicit optional module filters.
+
+Unfiltered reads retain existing DASHBOARD_ROLES global visibility; they are
+operational tools, never module KPIs. Unfiltered destructive operations require
+CX_SUPER_ADMIN. Scoped operations require the selected module's administrator.
+The module filter cannot be widened by program_code or a foreign selected ID.
 """
-Admin Dashboard API - Complete visit management with search capabilities
-"""
+from datetime import date
+import csv
+import json
+from io import StringIO
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List, Dict, Optional
-from datetime import date, datetime
-import json
+from sqlalchemy.orm import Session
+
 from ..core.database import get_db
-from ..core.auth.dependencies import get_current_user, require_role
-from ..core.models import User
+from ..core.auth.dependencies import get_current_user, require_roles, DASHBOARD_ROLES
+from ..core.analytics_scope import resolve_module_scope, AnalyticsScopeError
+from ..core.visit_cleanup import delete_legacy_visit_responses
 
 router = APIRouter(prefix="/admin-dashboard", tags=["admin-dashboard"])
 
 
-def resolve_survey_type_id(db: Session, survey_type: str | None) -> int | None:
-    if not survey_type:
-        return None
+def _scope(db, user, survey_type, *, write=False):
+    if survey_type is None:
+        roles = ("CX_SUPER_ADMIN",) if write else DASHBOARD_ROLES
+        scope = None
+    else:
+        if not survey_type.strip():
+            raise HTTPException(400, "survey_type must identify a module; omit it for global operations")
+        try:
+            scope = resolve_module_scope(db, survey_type)
+        except AnalyticsScopeError as exc:
+            raise HTTPException(400, str(exc))
+        roles = ("CX_SUPER_ADMIN", "MYSTERY_ADMIN" if scope.is_mystery else "B2B_ADMIN")
+    if not user.has_any_role(roles):
+        raise HTTPException(403, "Insufficient administrator permissions for requested scope")
+    return scope
 
-    return db.execute(
-        text("SELECT id FROM survey_types WHERE name = :survey_type"),
-        {"survey_type": survey_type},
-    ).scalar()
+
+def _label(scope):
+    return {"module": scope.module if scope else "all", "global": scope is None}
+
+
+def _id(value):
+    try:
+        return str(UUID(value))
+    except ValueError:
+        raise HTTPException(404, "Record not found")
+
+
+def _where(scope, conditions=(), params=None, *, questions=False):
+    clause = " AND ".join(["true", *conditions])
+    if scope:
+        clause += scope.visit_filter
+        if questions:
+            clause += scope.question_filter
+    elif questions:
+        # Global shared-store reads may include all modules, but never an answer
+        # whose question belongs to another module than its visit.
+        clause += " AND (q.survey_type_id = v.survey_type_id OR (q.survey_type_id IS NULL AND v.survey_type_id IN (SELECT id FROM survey_types WHERE lower(name)='b2b')))"
+    return clause, {**(scope.params if scope else {}), **(params or {})}
+
+
+@router.get("/")
+async def get_admin_overview(_access: bool = Depends(require_roles(*DASHBOARD_ROLES))):
+    return {"title": "Admin Dashboard", "scope": _label(None),
+            "description": "Global operational management; not module-specific KPIs"}
+
+
+_VISITS = """FROM visits v LEFT JOIN businesses b ON b.id=v.business_id
+             LEFT JOIN users u ON u.id=v.representative_id"""
+
+
+@router.get("/visits")
+async def get_all_visits(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=1000),
+                         business_id: int | None = None, business_name: str | None = None,
+                         representative_id: int | None = None, status: str | None = None,
+                         search: str | None = None,
+                         date_from: date | None = None, date_to: date | None = None,
+                         survey_type: str | None = None, db: Session = Depends(get_db),
+                         current_user=Depends(get_current_user)):
+    scope = _scope(db, current_user, survey_type)
+    conditions, params = [], {}
+    for key, value, expr in (("business_id", business_id, "v.business_id = :business_id"),
+                             ("representative_id", representative_id, "v.representative_id = :representative_id"),
+                             ("status", status, "v.status::text = :status"),
+                             ("date_from", date_from, "v.visit_date >= :date_from"),
+                             ("date_to", date_to, "v.visit_date <= :date_to")):
+        if value is not None:
+            conditions.append(expr)
+            params[key] = value
+    if business_name is not None:
+        conditions.append("b.name ILIKE :business_name")
+        params["business_name"] = f"%{business_name}%"
+    if search is not None:
+        conditions.append("(b.name ILIKE :search OR u.name ILIKE :search)")
+        params["search"] = f"%{search}%"
+    where, params = _where(scope, conditions, params)
+    total = db.execute(text(f"SELECT COUNT(*) {_VISITS} WHERE {where}"), params).scalar_one()
+    rows = db.execute(text(f"""SELECT v.id, v.business_id, b.name AS business_name,
+        v.representative_id, u.name AS representative_name, v.visit_date, v.visit_type,
+        v.status, b.priority_level AS business_priority, v.survey_type_id
+        {_VISITS} WHERE {where} ORDER BY v.visit_date DESC, v.id
+        LIMIT :limit OFFSET :offset"""), {**params, "limit": limit, "offset": (page-1)*limit}).mappings().all()
+    return {"scope": _label(scope), "visits": [dict(row) for row in rows],
+            "pagination": {"page": page, "limit": limit, "total": total, "has_more": page*limit < total}}
+
+
+@router.get("/search/visits")
+async def search_visits(query: str = Query(...), page: int = Query(1, ge=1),
+                        limit: int = Query(20, ge=1, le=1000), survey_type: str | None = None,
+                        db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    # Search and pagination share the same filtered population.
+    return await get_all_visits(page=page, limit=limit, search=query.strip(), db=db,
+                               current_user=current_user, survey_type=survey_type)
+
+
+def _responses(db, scope, conditions=(), params=None):
+    # Mystery scoped views use authoritative answers, never their shared mirror.
+    table = scope.response_table if scope else "b2b_visit_responses"
+    if table is None:
+        return []
+    where, params = _where(scope, conditions, params, questions=True)
+    rows = db.execute(text(f"""SELECT CAST(r.id AS text) AS response_id, r.visit_id, r.question_id,
+        r.score, r.answer_text, r.verbatim, r.actions, r.created_at, r.updated_at,
+        q.question_text, q.category, v.visit_date, b.name AS business_name,
+        u.name AS representative_name
+        FROM {table} r JOIN visits v ON v.id=r.visit_id
+        JOIN questions q ON q.id=r.question_id
+        LEFT JOIN businesses b ON b.id=v.business_id LEFT JOIN users u ON u.id=v.representative_id
+        WHERE {where} ORDER BY v.visit_date DESC, r.id"""), params).mappings().all()
+    return [dict(row) for row in rows]
+
+
+@router.get("/visits/{visit_id}")
+async def get_visit_with_responses(visit_id: str, survey_type: str | None = None,
+                                   db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    scope = _scope(db, current_user, survey_type)
+    where, params = _where(scope, ["v.id=:visit_id"], {"visit_id": _id(visit_id)})
+    row = db.execute(text(f"SELECT v.* {_VISITS} WHERE {where}"), params).mappings().first()
+    if row is None:
+        raise HTTPException(404, "Visit not found")
+    return {**dict(row), "scope": _label(scope),
+            "responses": _responses(db, scope, ["v.id=:visit_id"], {"visit_id": _id(visit_id)})}
+
+
+@router.get("/responses")
+async def get_all_responses(page: int = Query(1, ge=1), limit: int = Query(100, ge=1, le=1000),
+                            question_id: int | None = None, category: str | None = None,
+                            score_min: int | None = None, score_max: int | None = None,
+                            answer_text: str | None = None, survey_type: str | None = None,
+                            db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    scope = _scope(db, current_user, survey_type)
+    conditions, params = [], {}
+    for key, value, expr in (("question_id", question_id, "r.question_id=:question_id"),
+                             ("category", category, "q.category=:category"),
+                             ("score_min", score_min, "r.score>=:score_min"),
+                             ("score_max", score_max, "r.score<=:score_max"),
+                             ("answer_text", answer_text, "r.answer_text ILIKE :answer_text")):
+        if value is not None:
+            conditions.append(expr)
+            params[key] = f"%{value}%" if key == "answer_text" else value
+    rows = _responses(db, scope, conditions, params)
+    return {"scope": _label(scope), "responses": rows[(page-1)*limit:page*limit],
+            "pagination": {"page": page, "limit": limit, "total": len(rows), "has_more": page*limit < len(rows)}}
+
+
+@router.get("/export/responses")
+async def export_responses(format: str = "json", business_id: int | None = None,
+                           date_from: date | None = None, date_to: date | None = None,
+                           survey_type: str | None = None, db: Session = Depends(get_db),
+                           current_user=Depends(get_current_user)):
+    scope = _scope(db, current_user, survey_type)
+    if format.lower() not in {"json", "csv"}:
+        raise HTTPException(400, "format must be json or csv")
+    conditions, params = [], {}
+    for key, value, expr in (("business_id", business_id, "v.business_id=:business_id"),
+                             ("date_from", date_from, "v.visit_date>=:date_from"),
+                             ("date_to", date_to, "v.visit_date<=:date_to")):
+        if value is not None:
+            conditions.append(expr)
+            params[key] = value
+    rows = _responses(db, scope, conditions, params)
+    result = {"scope": _label(scope), "format": format.lower(), "total_count": len(rows)}
+    if format.lower() == "json":
+        return {**result, "responses": rows}
+    output = StringIO()
+    fields = ["visit_id", "visit_date", "business_name", "representative_name", "response_id",
+              "question_id", "score", "answer_text", "verbatim", "actions", "category", "created_at", "updated_at"]
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({**row, "actions": json.dumps(row["actions"])})
+    return {**result, "data": output.getvalue()}
 
 
 @router.delete("/visits/purge")
-async def purge_visits_before_date(
-    before_date: str = Query(..., description="Delete visits with visit_date strictly before this date (YYYY-MM-DD)."),
-    dry_run: bool = Query(True, description="When true, only return counts and do not delete."),
-    survey_type: Optional[str] = Query(None, description="Optional survey type codename/name (e.g., B2B)."),
-    db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
-    _admin_access: bool = Depends(require_role("Admin")),
-):
-    """Purge old visits and their responses (Admin only).
-
-    This is intended for removing test data safely.
-    """
-
+async def purge_visits_before_date(before_date: str = Query(...), dry_run: bool = True,
+                                   survey_type: str | None = None, db: Session = Depends(get_db),
+                                   current_user=Depends(get_current_user)):
+    scope = _scope(db, current_user, survey_type, write=True)
     try:
         cutoff = date.fromisoformat(before_date)
     except ValueError:
-        raise HTTPException(status_code=400, detail="before_date must be in YYYY-MM-DD format")
+        raise HTTPException(400, "before_date must be in YYYY-MM-DD format")
+    where, params = _where(scope, ["v.visit_date < :cutoff"], {"cutoff": cutoff})
+    ids = db.execute(text(f"SELECT v.id FROM visits v WHERE {where} FOR UPDATE"), params).scalars().all()
+    count = db.execute(text(f"SELECT COUNT(*) FROM b2b_visit_responses r JOIN visits v ON v.id=r.visit_id WHERE {where}"), params).scalar_one()
+    if not dry_run:
+        try:
+            for visit_id in ids:
+                _delete_visit(db, str(visit_id), scope)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+    return {"scope": _label(scope), "dry_run": dry_run, "before_date": before_date,
+            "survey_type": survey_type, "visits_to_delete" if dry_run else "visits_deleted": len(ids),
+            "responses_to_delete" if dry_run else "responses_deleted": count}
 
-    survey_type_id = resolve_survey_type_id(db, survey_type)
-    if survey_type and survey_type_id is None:
-        raise HTTPException(status_code=400, detail=f"Unknown survey_type: {survey_type}")
 
-    where_extra = ""
-    params: Dict[str, object] = {"cutoff": cutoff}
-    if survey_type_id is not None:
-        where_extra = " AND v.survey_type_id = :survey_type_id"
-        params["survey_type_id"] = survey_type_id
-
-    # Preview counts
-    visits_count = db.execute(
-        text(
-            f"""
-            SELECT COUNT(*)
-            FROM visits v
-            WHERE v.visit_date < :cutoff
-            {where_extra}
-            """
-        ),
-        params,
-    ).scalar() or 0
-
-    responses_count = db.execute(
-        text(
-            f"""
-            SELECT COUNT(*)
-            FROM b2b_visit_responses r
-            JOIN visits v ON v.id = r.visit_id
-            WHERE v.visit_date < :cutoff
-            {where_extra}
-            """
-        ),
-        params,
-    ).scalar() or 0
-
-    if dry_run:
-        return {
-            "dry_run": True,
-            "before_date": before_date,
-            "survey_type": survey_type,
-            "visits_to_delete": int(visits_count),
-            "responses_to_delete": int(responses_count),
-        }
-
-    # Delete within a transaction
-    try:
-        db.execute(
-            text(
-                f"""
-                DELETE FROM b2b_visit_responses r
-                USING visits v
-                WHERE v.id = r.visit_id
-                  AND v.visit_date < :cutoff
-                  {where_extra}
-                """
-            ),
-            params,
-        )
-
-        db.execute(
-            text(
-                f"""
-                DELETE FROM visits v
-                WHERE v.visit_date < :cutoff
-                {where_extra}
-                """
-            ),
-            params,
-        )
-
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-
-    return {
-        "dry_run": False,
-        "before_date": before_date,
-        "survey_type": survey_type,
-        "visits_deleted": int(visits_count),
-        "responses_deleted": int(responses_count),
-    }
+def _delete_visit(db, visit_id, scope):
+    where, params = _where(scope, ["v.id=:visit_id"], {"visit_id": _id(visit_id)})
+    row = db.execute(text(f"SELECT v.id, v.visit_date, v.status FROM visits v WHERE {where} FOR UPDATE"), params).mappings().first()
+    if row is None:
+        raise HTTPException(404, "Visit not found")
+    delete_legacy_visit_responses(db, where, params)
+    # Assessment metadata deliberately has no visit FK in the legacy schema.
+    # Bind cleanup to the already locked/scoped target, never a global child DELETE.
+    db.execute(text("DELETE FROM mystery_shopper_assessments WHERE visit_id=:visit_id"),
+               {"visit_id": row["id"]})
+    db.execute(text(f"DELETE FROM visits v WHERE {where}"), params)
+    return dict(row)
 
 
 @router.delete("/visits/{visit_id}")
-async def admin_delete_visit(
-    visit_id: str,
-    db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
-    _admin_access: bool = Depends(require_role("Admin")),
-):
-    """Delete a single visit (any status) and all related response data (Admin only)."""
-
-    # Verify visit exists (and capture date/status for a nicer response)
-    visit_row = db.execute(
-        text(
-            """
-            SELECT id, visit_date, status
-            FROM visits
-            WHERE id = :visit_id
-            """
-        ),
-        {"visit_id": visit_id},
-    ).fetchone()
-
-    if not visit_row:
-        raise HTTPException(status_code=404, detail="Visit not found")
-
+async def admin_delete_visit(visit_id: str, survey_type: str | None = None,
+                             db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    scope = _scope(db, current_user, survey_type, write=True)
     try:
-        # responses/response_actions (ORM tables)
-        deleted_response_actions = db.execute(
-            text(
-                """
-                DELETE FROM response_actions
-                WHERE response_id IN (
-                    SELECT id FROM responses WHERE visit_id = :visit_id
-                )
-                """
-            ),
-            {"visit_id": visit_id},
-        ).rowcount or 0
-
-        deleted_responses = db.execute(
-            text("DELETE FROM responses WHERE visit_id = :visit_id"),
-            {"visit_id": visit_id},
-        ).rowcount or 0
-
-        # b2b_visit_responses (raw SQL table used by dashboard-visits endpoints)
-        deleted_b2b_responses = db.execute(
-            text("DELETE FROM b2b_visit_responses WHERE visit_id = :visit_id"),
-            {"visit_id": visit_id},
-        ).rowcount or 0
-
-        deleted_visits = db.execute(
-            text("DELETE FROM visits WHERE id = :visit_id"),
-            {"visit_id": visit_id},
-        ).rowcount or 0
-
+        row = _delete_visit(db, visit_id, scope)
         db.commit()
     except Exception:
         db.rollback()
         raise
+    return {"scope": _label(scope), "visit_id": str(row["id"]), "previous_status": row["status"],
+            "visit_date": row["visit_date"], "deleted": {"visits": 1}}
 
-    return {
-        "visit_id": str(visit_row[0]),
-        "visit_date": visit_row[1].isoformat() if visit_row[1] else None,
-        "previous_status": visit_row[2],
-        "deleted": {
-            "visits": int(deleted_visits),
-            "b2b_visit_responses": int(deleted_b2b_responses),
-            "responses": int(deleted_responses),
-            "response_actions": int(deleted_response_actions),
-        },
-    }
 
-@router.get("/")
-async def get_admin_overview():
-    """Get admin dashboard overview with all visit statistics."""
-    try:
-        return {
-            "title": "Admin Dashboard",
-            "description": "Complete overview of all visits and responses",
-            "stats": {
-                "total_visits": "Total number of visits",
-                "total_responses": "Total number of responses",
-                "pending_visits": "Visits pending review",
-                "completed_visits": "Visits completed",
-                "draft_visits": "Draft visits in progress"
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to load admin overview")
+@router.delete("/responses/{response_id}")
+async def delete_response(response_id: str, survey_type: str | None = None,
+                           db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    scope = _scope(db, current_user, survey_type, write=True)
+    table = scope.response_table if scope else "b2b_visit_responses"
+    if table is None:
+        raise HTTPException(404, "Response not found")
+    where, params = _where(scope, ["CAST(r.id AS text)=:response_id"], {"response_id": response_id}, questions=True)
+    row = db.execute(text(f"DELETE FROM {table} r USING visits v, questions q WHERE v.id=r.visit_id AND q.id=r.question_id AND {where} RETURNING r.visit_id, r.question_id"), params).first()
+    if row is None:
+        raise HTTPException(404, "Response not found")
+    if scope and scope.is_mystery:
+        db.execute(text("DELETE FROM b2b_visit_responses WHERE visit_id=:visit_id AND question_id=:question_id"),
+                   {"visit_id": row[0], "question_id": row[1]})
+    if scope is None:
+        db.execute(text("""DELETE FROM mystery_shopper_answers r USING visits v, survey_types st
+            WHERE r.visit_id=:visit_id AND r.question_id=:question_id AND v.id=r.visit_id
+            AND st.id=v.survey_type_id AND lower(st.name)='mystery shopper'"""),
+                   {"visit_id": row[0], "question_id": row[1]})
+    db.commit()
+    return {"scope": _label(scope), "message": f"Response {response_id} deleted successfully"}
 
-@router.get("/visits")
-async def get_all_visits(
-    page: int = 1,
-    limit: int = 50,
-    business_id: Optional[int] = None,
-    business_name: Optional[str] = None,
-    representative_id: Optional[int] = None,
-    status: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """Get all visits with filtering and pagination."""
-    try:
-        # Build WHERE clause for filtering
-        where_conditions = []
-        params = {}
-        
-        if business_id:
-            where_conditions.append("v.business_id = :business_id")
-            params["business_id"] = business_id
-        if business_name:
-            where_conditions.append("LOWER(b.name) LIKE LOWER(:business_name)")
-            params["business_name"] = f"%{business_name}%"
-        if representative_id:
-            where_conditions.append("v.representative_id = :representative_id")
-            params["representative_id"] = representative_id
-        if status:
-            where_conditions.append("v.status = :status")
-            params["status"] = status
-        if date_from:
-            where_conditions.append("v.visit_date >= :date_from")
-            params["date_from"] = date_from
-        if date_to:
-            where_conditions.append("v.visit_date <= :date_to")
-            params["date_to"] = date_to
-        
-        # Build WHERE clause string
-        where_clause = ""
-        if where_conditions:
-            where_clause = "WHERE " + " AND ".join(where_conditions)
-        
-        params.update({
-            "limit": limit,
-            "offset": (page - 1) * limit
-        })
-        
-        # Build the complete query
-        base_query = f"""
-            SELECT 
-                v.id,
-                v.business_id,
-                b.name as business_name,
-                v.representative_id,
-                u.name as representative_name,
-                v.visit_date,
-                v.visit_type,
-                v.status,
-                b.priority_level as business_priority
-            FROM visits v
-            JOIN businesses b ON v.business_id = b.id
-            LEFT JOIN b2b_users u ON v.representative_id = u.id
-            {where_clause}
-            ORDER BY v.visit_date DESC
-            LIMIT :limit OFFSET :offset
-        """
-        
-        # Execute query
-        result = db.execute(text(base_query), params)
-        
-        # Get total count
-        count_query = f"SELECT COUNT(*) FROM visits v {where_clause}"
-        count_result = db.execute(text(count_query), params)
-        
-        total_count = count_result.scalar()
-        
-        # Fetch visits
-        visits = []
-        for row in result:
-            visits.append({
-                "id": row[0],
-                "business_id": row[1],
-                "business_name": row[2],
-                "representative_id": row[3],
-                "representative_name": row[4],
-                "visit_date": row[5].isoformat() if row[5] else None,
-                "visit_type": row[6],
-                "status": row[7],
-                "business_priority": row[8],
-                "response_count": 0  # Default to 0, can be calculated separately if needed
-            })
-        
-        return {
-            "visits": visits,
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total": total_count,
-                "has_more": (page * limit) < total_count
-            },
-            "filters": {
-                "business_id": business_id,
-                "business_name": business_name,
-                "representative_id": representative_id,
-                "status": status,
-                "date_from": date_from,
-                "date_to": date_to
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to fetch visits")
-
-@router.get("/visits/{visit_id}")
-async def get_visit_with_responses(visit_id: str, db: Session = Depends(get_db)):
-    """Get visit details with all responses included."""
-    try:
-        # Get visit details
-        visit_result = db.execute(text(
-            """
-            SELECT 
-                v.id,
-                v.business_id,
-                b.name as business_name,
-                v.representative_id,
-                u.name as representative_name,
-                v.visit_date,
-                v.visit_type,
-                v.status,
-                b.priority_level as business_priority
-            FROM visits v
-            JOIN businesses b ON v.business_id = b.id
-            LEFT JOIN b2b_users u ON v.representative_id = u.id
-            WHERE v.id = :visit_id
-            """
-        ), {"visit_id": visit_id})
-        
-        if not visit_result.rowcount:
-            raise HTTPException(status_code=404, detail="Visit not found")
-        
-        visit_row = visit_result.fetchone()
-        
-        # Get all responses for this visit
-        responses_result = db.execute(text(
-            """
-            SELECT 
-                r.id as response_id,
-                r.question_id,
-                r.score,
-                r.answer_text,
-                r.verbatim,
-                r.actions,
-                r.created_at,
-                r.updated_at,
-                q.question_text,
-                q.category
-            FROM b2b_visit_responses r
-            JOIN questions q ON r.question_id = q.id
-            WHERE r.visit_id = :visit_id
-            ORDER BY q.question_id
-            """
-        ), {"visit_id": visit_id})
-        
-        # Format visit data
-        visit_data = {
-            "id": visit_row[0],
-            "business_id": visit_row[1],
-            "business_name": visit_row[2],
-            "representative_id": visit_row[3],
-            "representative_name": visit_row[4],
-            "visit_date": visit_row[5].isoformat() if visit_row[5] else None,
-            "visit_type": visit_row[6],
-            "status": visit_row[7],
-            "business_priority": visit_row[8],
-            "responses": []
-        }
-        
-        # Format responses
-        responses = []
-        for row in responses_result:
-            actions = json.loads(row[5]) if row[5] else []
-            responses.append({
-                "response_id": str(row[0]),
-                "question_id": row[1],
-                "score": row[2],
-                "answer_text": row[3],
-                "verbatim": row[4],
-                "actions": actions,
-                "question_text": row[6],
-                "category": row[7],
-                "created_at": row[8].isoformat() if row[8] else None,
-                "updated_at": row[9].isoformat() if row[9] else None
-            })
-        
-        visit_data["responses"] = responses
-        
-        return visit_data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to fetch visit with responses")
-
-@router.get("/responses")
-async def get_all_responses(
-    page: int = 1,
-    limit: int = 100,
-    question_id: Optional[int] = None,
-    category: Optional[str] = None,
-    score_min: Optional[int] = None,
-    score_max: Optional[int] = None,
-    answer_text: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """Get all responses with filtering and pagination."""
-    try:
-        # Build WHERE clause for filtering
-        where_conditions = []
-        params = {}
-        
-        if question_id:
-            where_conditions.append("r.question_id = :question_id")
-            params["question_id"] = question_id
-        if category:
-            where_conditions.append("q.category = :category")
-            params["category"] = category
-        if score_min is not None:
-            where_conditions.append("r.score >= :score_min")
-            params["score_min"] = score_min
-        if score_max is not None:
-            where_conditions.append("r.score <= :score_max")
-            params["score_max"] = score_max
-        if answer_text:
-            where_conditions.append("LOWER(r.answer_text) LIKE LOWER(:answer_text)")
-            params["answer_text"] = f"%{answer_text}%"
-        
-        # Build the complete query
-        base_query = """
-            SELECT 
-                r.id,
-                r.visit_id,
-                r.question_id,
-                r.score,
-                r.answer_text,
-                r.verbatim,
-                r.actions,
-                r.created_at,
-                r.updated_at,
-                q.question_text,
-                q.category
-            FROM b2b_visit_responses r
-            JOIN questions q ON r.question_id = q.id
-            JOIN visits v ON r.visit_id = v.id
-            {where_clause}
-            ORDER BY r.created_at DESC
-            LIMIT :limit OFFSET :offset
-        """
-        
-        # Execute query
-        result = db.execute(text(base_query), params)
-        
-        # Get total count
-        count_result = db.execute(text(
-            f"SELECT COUNT(*) FROM b2b_visit_responses r {where_clause}"
-        ), params)
-        
-        total_count = count_result.scalar()
-        
-        # Fetch responses
-        responses = []
-        for row in result:
-            actions = json.loads(row[5]) if row[5] else []
-            responses.append({
-                "response_id": str(row[0]),
-                "visit_id": str(row[1]),
-                "question_id": row[2],
-                "score": row[3],
-                "answer_text": row[4],
-                "verbatim": row[5],
-                "actions": actions,
-                "question_text": row[6],
-                "category": row[7],
-                "created_at": row[8].isoformat() if row[8] else None,
-                "updated_at": row[9].isoformat() if row[9] else None
-            })
-        
-        return {
-            "responses": responses,
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total": total_count,
-                "has_more": (page * limit) < total_count
-            },
-            "filters": {
-                "question_id": question_id,
-                "category": category,
-                "score_min": score_min,
-                "score_max": score_max,
-                "answer_text": answer_text
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to fetch responses")
 
 @router.get("/analytics")
-async def get_analytics(db: Session = Depends(get_db)):
+async def get_analytics(db: Session = Depends(get_db),
+                        _access: bool = Depends(require_roles(*DASHBOARD_ROLES))):
     """Get comprehensive analytics for admin dashboard."""
     try:
         # Get visit statistics
         visit_stats = db.execute(text("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_visits,
                 COUNT(CASE WHEN status::text = 'Draft' THEN 1 END) as draft_visits,
                 COUNT(CASE WHEN status::text = 'Pending' THEN 1 END) as pending_visits,
@@ -536,35 +291,35 @@ async def get_analytics(db: Session = Depends(get_db)):
                 COUNT(CASE WHEN status::text = 'Submitted' THEN 1 END) as submitted_visits
             FROM visits
         """)).fetchone()
-        
+
         # Get response statistics
         response_stats = db.execute(text("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_responses,
                 COUNT(score) as scored_responses,
                 AVG(score) as avg_score,
                 COUNT(CASE WHEN answer_text IS NOT NULL AND answer_text != '' THEN 1 END) as text_responses
             FROM b2b_visit_responses
         """)).fetchone()
-        
+
         # Get business statistics
         business_stats = db.execute(text("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_businesses,
                 COUNT(CASE WHEN active = true THEN 1 END) as active_businesses
             FROM businesses
         """)).fetchone()
-        
+
         # Get user statistics
         user_stats = db.execute(text("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_users,
                 COUNT(CASE WHEN role = 'Representative' THEN 1 END) as representatives,
                 COUNT(CASE WHEN role = 'Manager' THEN 1 END) as managers,
                 COUNT(CASE WHEN role = 'Admin' THEN 1 END) as admins
             FROM b2b_users
         """)).fetchone()
-        
+
         return {
             # Intentionally GLOBAL: every module's visits and the mirrored Mystery rows in
             # b2b_visit_responses are counted. These are operational counters, not module KPIs;
@@ -599,220 +354,3 @@ async def get_analytics(db: Session = Depends(get_db)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to load analytics")
-
-@router.get("/search/visits")
-async def search_visits(
-    query: str = Query(...),
-    page: int = 1,
-    limit: int = 20,
-    db: Session = Depends(get_db)
-):
-    """Search visits by business name, representative, or custom query."""
-    try:
-        # Get total count for pagination
-        count_result = db.execute(text(
-            "SELECT COUNT(*) FROM visits v"
-        )).scalar()
-        
-        # Build WHERE clause from query
-        where_conditions = []
-        params = {}
-        
-        if query:
-            search_query = query.strip()
-            if search_query:
-                where_conditions.append("(v.business_id IN (SELECT id FROM businesses WHERE LOWER(name) LIKE LOWER(:query)) OR v.representative_id IN (SELECT id FROM b2b_users WHERE LOWER(name) LIKE LOWER(:query)))")
-                params["query"] = f"%{search_query}%"
-        
-        # Build the complete query
-        base_query = f"""
-            SELECT 
-                v.id,
-                v.business_id,
-                b.name as business_name,
-                v.representative_id,
-                u.name as representative_name,
-                v.visit_date,
-                v.visit_type,
-                v.status,
-                b.priority_level as business_priority,
-                COUNT(r.id) as response_count
-            FROM visits v
-            JOIN businesses b ON v.business_id = b.id
-            LEFT JOIN b2b_users u ON v.representative_id = u.id
-            {where_conditions}
-            ORDER BY v.visit_date DESC
-            LIMIT :limit OFFSET :offset
-        """
-        
-        # Execute query
-        result = db.execute(text(base_query), params)
-        
-        # Fetch visits
-        visits = []
-        for row in result:
-            visits.append({
-                "id": row[0],
-                "business_id": row[1],
-                "business_name": row[2],
-                "representative_id": row[3],
-                "representative_name": row[4],
-                "visit_date": row[5].isoformat() if row[5] else None,
-                "visit_type": row[6],
-                "status": row[7],
-                "business_priority": row[8],
-                "response_count": row[9]
-            })
-        
-        return {
-            "visits": visits,
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total": count_result,
-                "has_more": (page * limit) < count_result,
-                "query": search_query
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to search visits")
-
-@router.get("/export/responses")
-async def export_responses(
-    format: str = "json",
-    business_id: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """Export all responses in specified format."""
-    try:
-        # Build WHERE clause
-        where_conditions = []
-        params = {}
-        
-        if business_id:
-            where_conditions.append("v.business_id = :business_id")
-            params["business_id"] = business_id
-        if date_from:
-            where_conditions.append("v.visit_date >= :date_from")
-            params["date_from"] = date_from
-        if date_to:
-            where_conditions.append("v.visit_date <= :date_to")
-            params["date_to"] = date_to
-        
-        # Get all responses with visit details
-        query = f"""
-            SELECT 
-                v.id as visit_id,
-                v.visit_date,
-                b.name as business_name,
-                u.name as representative_name,
-                r.id as response_id,
-                r.question_id,
-                r.score,
-                r.answer_text,
-                r.verbatim,
-                r.actions,
-                r.created_at,
-                r.updated_at,
-                q.question_text,
-                q.category
-            FROM b2b_visit_responses r
-            JOIN visits v ON r.visit_id = v.id
-            JOIN businesses b ON v.business_id = b.id
-            LEFT JOIN b2b_users u ON v.representative_id = u.id
-            JOIN questions q ON r.question_id = q.id
-            {where_clause}
-            ORDER BY v.visit_date DESC, r.created_at DESC
-        """
-        
-        result = db.execute(text(query), params)
-        
-        if format.lower() == "json":
-            # Format as JSON
-            responses = []
-            for row in result:
-                actions = json.loads(row[5]) if row[5] else []
-                responses.append({
-                    "visit_id": str(row[0]),
-                    "visit_date": row[1].isoformat() if row[1] else None,
-                    "business_name": row[2],
-                    "representative_name": row[3],
-                    "response_id": str(row[4]),
-                    "question_id": row[5],
-                    "question_text": row[6],
-                    "score": row[7],
-                    "answer_text": row[8],
-                    "verbatim": row[9],
-                    "actions": actions,
-                    "question_text": row[10],
-                    "category": row[11],
-                    "created_at": row[12].isoformat() if row[12] else None,
-                    "updated_at": row[13].isoformat() if row[13] else None
-                })
-            
-            return {
-                "format": "json",
-                "responses": responses,
-                "total_count": len(responses)
-            }
-        else:
-            # Format as CSV
-            import csv
-            from io import StringIO
-            
-            output = StringIO()
-            writer = csv.writer(output)
-            
-            # Write header
-            writer.writerow([
-                "Visit ID", "Visit Date", "Business Name", "Representative", 
-                "Response ID", "Question ID", "Score", "Answer Text", "Verbatim", "Actions", "Category", "Created At", "Updated At"
-            ])
-            
-            # Write data rows
-            for row in result:
-                actions = json.loads(row[5]) if row[5] else []
-                writer.writerow([
-                    str(row[0]),  # visit_id
-                    row[1].isoformat() if row[1] else None,  # visit_date
-                    row[2],  # business_name
-                    row[3],  # representative_name
-                    str(row[4]),  # response_id
-                    str(row[5]),  # question_id
-                    str(row[7]),  # score
-                    row[8],  # answer_text
-                    row[9],  # verbatim
-                    json.dumps(actions),  # actions
-                    row[10],  # question_text
-                    row[11],  # category
-                    row[12].isoformat() if row[12] else None,  # created_at
-                    row[13].isoformat() if row[13] else None  # updated_at
-                ])
-            
-            output.seek(0)
-            return {
-                "format": "csv",
-                "data": output.getvalue(),
-                "total_count": len(responses)
-            }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to export responses")
-
-@router.delete("/responses/{response_id}")
-async def delete_response(response_id: str, db: Session = Depends(get_db)):
-    """Delete a specific response (admin only)."""
-    try:
-        # Delete the response
-        result = db.execute(text(
-            "DELETE FROM b2b_visit_responses WHERE id = :response_id"
-        ), {"response_id": response_id})
-        
-        db.commit()
-        
-        return {
-            "message": f"Response {response_id} deleted successfully"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to delete response")

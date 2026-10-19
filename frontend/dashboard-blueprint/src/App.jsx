@@ -4,6 +4,7 @@ import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import DashboardPage from "./pages/DashboardPage";
+import { createRequestScope } from "./lib/requestScope";
 import PlatformSelectionPage from "./pages/PlatformSelectionPage";
 import { ensureMsalInitialized, loginRequest } from "./auth";
 import SigningInScreen from "./components/SigningInScreen";
@@ -62,38 +63,29 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
   }, [navigate, setActivePlatform]);
 
   useEffect(() => {
-    let cancelled = false;
-    let controller = null;
-    let timeoutId = null;
+    const requests = createRequestScope();
     const loadCount = async () => {
-      controller?.abort();
-      controller = new AbortController();
-      if (timeoutId) window.clearTimeout(timeoutId);
-      timeoutId = window.setTimeout(() => controller?.abort(), 30000);
+      const request = requests.begin("count");
+      const timeoutId = window.setTimeout(request.cancel, 30000);
+      setPendingReviewCount(0);
       try {
         const endpoint = isMysteryShopperPlatform
           ? `${API_BASE}/mystery-shopper/admin/visits?status=Pending`
           : `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
-        const res = await fetch(endpoint, { headers, signal: controller.signal });
-        if (!cancelled && res.ok) {
-          const data = await res.json();
-          setPendingReviewCount(Array.isArray(data) ? data.length : 0);
-        }
+        const res = await fetch(endpoint, { headers, signal: request.signal });
+        if (!res.ok || request.isStale()) return;
+        const data = await res.json();
+        if (request.isStale()) return;
+        setPendingReviewCount(Array.isArray(data) ? data.length : 0);
       } catch { /* silent */ }
-      finally {
-        if (timeoutId) {
-          window.clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-      }
+      finally { window.clearTimeout(timeoutId); }
     };
     if (activePlatform) loadCount();
+    else setPendingReviewCount(0);
     const interval = setInterval(() => { if (activePlatform) loadCount(); }, 30000);
     return () => {
-      cancelled = true;
       clearInterval(interval);
-      if (timeoutId) window.clearTimeout(timeoutId);
-      controller?.abort();
+      requests.invalidateAll();
     };
   }, [activePlatform, headers, isMysteryShopperPlatform]);
 

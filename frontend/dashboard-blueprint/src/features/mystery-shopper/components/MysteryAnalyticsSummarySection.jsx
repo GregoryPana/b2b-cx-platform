@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { getTrafficLightMetric } from "../../../lib/utils";
+import { buildMysteryCategoryRollup, presentMysteryMetrics } from "../mysteryPresentation";
 
 // Chart fills for the shared traffic-light tones (same thresholds as the report cards).
 const MYSTERY_TONE_FILL = { good: "#10b981", warning: "#f59e0b", bad: "#ef4444", neutral: "#6b7280" };
@@ -69,7 +70,7 @@ function CategoryTooltip({ active, payload }) {
     <div className="max-w-[200px] rounded border bg-background p-2 text-xs shadow-md">
       <p className="font-medium text-foreground">{item.category}</p>
       <p className="mt-1 text-foreground">
-        Avg {Number(item.avg_score)?.toFixed(2)} / {item.score_max} ({item.pct}%)
+        Avg {Number(item.avg_score)?.toFixed(2)} / {item.score_max} (scale {item.score_min}–{item.score_max})
       </p>
       <p className="text-muted-foreground">{item.response_count} responses</p>
     </div>
@@ -113,8 +114,10 @@ function YesNoTooltip({ active, payload }) {
   );
 }
 
-export default function MysteryAnalyticsSummarySection({ mysteryAnalyticsSummary, analytics, questionAverages = [], yesNoAnalytics = [] }) {
+export default function MysteryAnalyticsSummarySection({ loading = false, error = "", mysteryAnalyticsSummary, analytics, questionAverages = [], yesNoAnalytics = [] }) {
   const ms = analytics?.mystery_shopper || {};
+  const metricSummary = presentMysteryMetrics(analytics);
+  const { approvedVisitCount, csatRatingCount, npsAnswerCount } = metricSummary;
 
   const visitTrend = useMemo(
     () =>
@@ -150,35 +153,14 @@ export default function MysteryAnalyticsSummarySection({ mysteryAnalyticsSummary
     [questionAverages],
   );
 
-  // Category-level rollup (weighted average of scored questions per category)
-  const categoryRollup = useMemo(() => {
-    const map = {};
-    for (const q of questionAverages) {
-      if (q.average_score == null || q.score_max == null) continue;
-      const cat = q.category || "Uncategorized";
-      if (!map[cat]) map[cat] = { scoreSum: 0, countSum: 0, score_max: Number(q.score_max) };
-      const count = Number(q.response_count || 1);
-      map[cat].scoreSum += Number(q.average_score) * count;
-      map[cat].countSum += count;
-      // use max score_max seen in category (categories are consistent)
-      if (Number(q.score_max) > map[cat].score_max) map[cat].score_max = Number(q.score_max);
-    }
-    return CATEGORY_ORDER
-      .filter((cat) => map[cat])
-      .map((cat) => {
-        const { scoreSum, countSum, score_max } = map[cat];
-        const avg_score = countSum ? scoreSum / countSum : 0;
-        return {
-          category: cat,
-          short_label: cat.split(" ")[0] + (cat.includes("&") ? " & …" : ""),
-          avg_score: Math.round(avg_score * 100) / 100,
-          score_max,
-          pct: toPercent(avg_score, score_max),
-          response_count: countSum,
-          color: CATEGORY_COLORS[cat] || DEFAULT_BAR_COLOR,
-        };
-      });
-  }, [questionAverages]);
+  // Exact declared scales stay separate, including scales with the same maximum.
+  const categoryRollup = useMemo(() => buildMysteryCategoryRollup(questionAverages)
+    .sort((a, b) => {
+      const rank = (category) => CATEGORY_ORDER.includes(category) ? CATEGORY_ORDER.indexOf(category) : CATEGORY_ORDER.length;
+      return rank(a.category) - rank(b.category) || a.category.localeCompare(b.category)
+        || a.score_min - b.score_min || a.score_max - b.score_max;
+    })
+    .map((row) => ({ ...row, color: CATEGORY_COLORS[row.category] || DEFAULT_BAR_COLOR })), [questionAverages]);
 
   // Yes/No items for mystery shopper
   const yesNoItems = useMemo(
@@ -206,35 +188,50 @@ export default function MysteryAnalyticsSummarySection({ mysteryAnalyticsSummary
     return result;
   }, [scoredQuestions]);
 
+  if (loading) return <p className="mt-6 rounded-lg border p-6 text-sm text-muted-foreground" role="status">Loading Mystery Shopper score summary...</p>;
+  if (error) return <p className="mt-6 rounded-lg border p-6 text-sm text-destructive" role="alert">Mystery Shopper score summary unavailable: {error}</p>;
+  if (!analytics) return <p className="mt-6 rounded-lg border p-6 text-sm text-muted-foreground">Mystery Shopper analytics are unavailable.</p>;
+
   return (
     <div className="mt-6 space-y-6">
+      {approvedVisitCount === 0 ? (
+        <p className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">No approved Mystery Shopper visits are available for this location selection. Draft and pending visits are not included in scores.</p>
+      ) : null}
       {/* Row 1: Summary stats + visit trend */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Overall Experience</CardTitle>
-            <CardDescription>Weighted averages from scored questions.</CardDescription>
+            <CardTitle>Mystery Shopper score summary</CardTitle>
+            <CardDescription>Only approved Mystery Shopper visits are included. Visits and ratings are counted separately.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="text-4xl font-semibold">
-              {mysteryAnalyticsSummary.overallExperienceAvg?.toFixed?.(2) ?? "--"}
+            <div>
+              <p className="text-sm text-muted-foreground">Overall experience mean (0-10)</p>
+              <div className="text-4xl font-semibold">
+                {mysteryAnalyticsSummary.overallExperienceAvg?.toFixed?.(2) ?? "No ratings"}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{mysteryAnalyticsSummary.overallExperienceRatingCount ?? 0} ratings</p>
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded bg-muted p-3">
-                <p className="text-muted-foreground">Service Quality Avg</p>
-                <p className="font-medium">{mysteryAnalyticsSummary.qualityAvg?.toFixed?.(2) ?? "--"}</p>
+                <p className="text-muted-foreground">Service quality mean (1-5)</p>
+                <p className="font-medium">{mysteryAnalyticsSummary.qualityAvg?.toFixed?.(2) ?? "No ratings"}</p>
+                <p className="text-xs text-muted-foreground">{mysteryAnalyticsSummary.qualityRatingCount ?? 0} ratings</p>
               </div>
               <div className="rounded bg-muted p-3">
-                <p className="text-muted-foreground">NPS</p>
-                <p className="font-medium">{analytics?.nps?.nps ?? "--"}</p>
+                <p className="text-muted-foreground">NPS (-100 to 100)</p>
+                <p className="font-medium">{metricSummary.npsDisplay}</p>
+                <p className="text-xs text-muted-foreground">{npsAnswerCount} recommendation answer{npsAnswerCount === 1 ? "" : "s"}</p>
               </div>
               <div className="rounded bg-muted p-3">
-                <p className="text-muted-foreground">CSAT Average</p>
-                <p className="font-medium">{ms.csat_average?.toFixed?.(2) ?? "--"}</p>
+                <p className="text-muted-foreground">CSAT mean (0-10)</p>
+                <p className="font-medium">{metricSummary.csatDisplay}</p>
+                <p className="text-xs text-muted-foreground">{csatRatingCount} satisfaction ratings</p>
               </div>
               <div className="rounded bg-muted p-3">
-                <p className="text-muted-foreground">CSAT Responses</p>
-                <p className="font-medium">{ms.csat_response_count ?? 0}</p>
+                <p className="text-muted-foreground">Approved visits</p>
+                <p className="font-medium">{approvedVisitCount}</p>
+                <p className="text-xs text-muted-foreground">completed and approved visits</p>
               </div>
             </div>
           </CardContent>
@@ -272,29 +269,30 @@ export default function MysteryAnalyticsSummarySection({ mysteryAnalyticsSummary
       </div>
 
       {/* Row 2: Category rollup */}
-      {categoryRollup.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Score by Category</CardTitle>
-            <CardDescription>Weighted average score per category as a percentage of maximum. Higher is better.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={Math.max(categoryRollup.length * 48, 160)}>
-              <BarChart layout="vertical" data={categoryRollup} margin={{ top: 4, right: 40, bottom: 4, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
-                <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="category" tick={{ fontSize: 11 }} width={210} />
-                <Tooltip content={<CategoryTooltip />} />
-                <Bar dataKey="pct" name="Score %" radius={[0, 4, 4, 0]} label={{ position: "right", fontSize: 11, formatter: (v) => `${v}%` }}>
-                  {categoryRollup.map((c) => (
-                    <Cell key={c.category} fill={c.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
+      <Card className="min-w-0" data-testid="category-scores">
+        <CardHeader>
+          <CardTitle>Score by Category</CardTitle>
+          <CardDescription>Raw weighted means by category and exact declared scale. Different scales are kept separate; no normalization is applied. Counts are scored question responses, not visits.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {categoryRollup.length ? (
+            <ul aria-label="Category means on original scales" className="divide-y">
+              {categoryRollup.map((row) => (
+                <li key={row.category_label} className="flex min-w-0 flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4" data-category-score>
+                  <div className="min-w-0 break-words">
+                    <p className="text-sm font-medium">{row.category}</p>
+                    <p className="text-xs text-muted-foreground">Declared scale: {row.score_min}–{row.score_max}</p>
+                  </div>
+                  <div className="shrink-0 sm:text-right">
+                    <p className="text-lg font-semibold tabular-nums">{row.avg_score.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">mean</span></p>
+                    <p className="text-xs text-muted-foreground">{row.response_count} scored response{row.response_count === 1 ? "" : "s"}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="py-4 text-sm text-muted-foreground">No category scores are available for this selection. There are no valid scored responses to average.</p>}
+        </CardContent>
+      </Card>
 
       {/* Row 3: Yes/No pass rates */}
       {yesNoItems.length > 0 && (
@@ -343,7 +341,7 @@ export default function MysteryAnalyticsSummarySection({ mysteryAnalyticsSummary
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <p className="py-10 text-center text-sm text-muted-foreground">No data.</p>
+              <p className="py-10 text-center text-sm text-muted-foreground">No approved answers recorded a waiting time.</p>
             )}
           </CardContent>
         </Card>
@@ -365,7 +363,7 @@ export default function MysteryAnalyticsSummarySection({ mysteryAnalyticsSummary
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <p className="py-10 text-center text-sm text-muted-foreground">No data.</p>
+              <p className="py-10 text-center text-sm text-muted-foreground">No approved answers recorded a service completion time.</p>
             )}
           </CardContent>
         </Card>

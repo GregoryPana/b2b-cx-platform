@@ -30,14 +30,14 @@ export default function MysterySurveyResultsSection({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-2">
-            <Select value={surveyStatusFilter} onChange={(event) => setSurveyStatusFilter(event.target.value)}>
+            <Select aria-label="Filter Mystery Shopper visits by status" value={surveyStatusFilter} onChange={(event) => setSurveyStatusFilter(event.target.value)}>
               <option value="all">All Statuses</option>
               <option value="Draft">Draft</option>
               <option value="Pending">Pending</option>
               <option value="Approved">Approved</option>
               <option value="Rejected">Rejected</option>
             </Select>
-            <Select value={selectedSurveyLocation} onChange={(event) => setSelectedSurveyLocation(event.target.value)}>
+            <Select aria-label="Filter Mystery Shopper visits by location" value={selectedSurveyLocation} onChange={(event) => setSelectedSurveyLocation(event.target.value)}>
               <option value="">All Locations</option>
               {mysteryLocations.map((locationItem) => (
                 <option key={locationItem.id} value={locationItem.name}>{locationItem.name}</option>
@@ -47,8 +47,12 @@ export default function MysterySurveyResultsSection({
 
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={loadSurveyResults}>Refresh</Button>
-            <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${surveyResults.length} results`}</span>
+            <span className="inline-flex items-center text-sm text-muted-foreground" role="status">{surveyLoading ? "Loading Mystery Shopper visits..." : `${surveyResults.length} visit${surveyResults.length === 1 ? "" : "s"}`}</span>
           </div>
+
+          {!surveyLoading && surveyResults.length === 0 ? (
+            <p className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">No Mystery Shopper visits match the selected status and location.</p>
+          ) : null}
 
           <SurveysDataTable
             data={surveyResults}

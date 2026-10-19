@@ -19,9 +19,9 @@ Covers:
   - Assertion that /mystery-admin/* returns 404 in public mode
 
 Database:
-  - Default: existing PostgreSQL via DATABASE_URL from .env (staging/production DB)
-  - Fallback : SQLite for local dev when PostgreSQL is unavailable
-  - Works with both engines; SQLite-only workarounds are applied conditionally.
+  - Native release gate: explicitly configured attested disposable PostgreSQL.
+  - SQLite is a separate, explicitly selected local compatibility path, never a
+    fallback for a failed native gate. Never run against staging/production.
 
 Run against PostgreSQL (default):
     cd backend && python -m pytest tests/test_mystery_public_auth_lifecycle.py -v
@@ -46,12 +46,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-# Must be set BEFORE importing app modules
+# Must be set BEFORE importing app modules. Native execution must use the
+# guarded disposable-cluster runner; never inherit a staging/production URL.
 os.environ.setdefault("TESTING", "true")
-# Do NOT force a DATABASE_URL default here — let the app's create_app()
-# load it from .env (which has PostgreSQL for staging/production).
-# For local dev without PostgreSQL, set DATABASE_URL=sqlite:///./ci.db
-# explicitly when running tests.
+# Require an explicitly selected test DATABASE_URL. SQLite compatibility uses
+# only an owned disposable file; it is never a fallback for native failures.
 os.environ.setdefault("AUTH_MODE", "mystery_public")
 os.environ["MYSTERY_AUTH_SECRET_KEY"] = base64.urlsafe_b64encode(os.urandom(32)).decode(
     "utf-8"
@@ -359,6 +358,113 @@ def generate_totp_code(secret: str, offset: int = 0) -> str:
     return _totp_at(secret, current_totp_step(secret, offset))
 
 
+def _mfa_state(session, challenge, user_id):
+    """Read persisted authority without exposing synthetic factors/cookies."""
+    row = session.execute(text("""
+        SELECT user_id, expires_at, used_at FROM mystery_mfa_challenges
+        WHERE challenge_id = :cid
+    """), {"cid": challenge}).mappings().one()
+    assert row["user_id"] == user_id
+    sessions = session.execute(text("""
+        SELECT session_id, revoked_at FROM mystery_sessions WHERE user_id = :uid
+    """), {"uid": user_id}).all()
+    last_step = session.execute(text(
+        "SELECT last_totp_step FROM mystery_users WHERE id = :uid"
+    ), {"uid": user_id}).scalar_one()
+    return dict(row), sessions, last_step
+
+
+def _database_identity(session):
+    if session.get_bind().dialect.name != "postgresql":
+        return None
+    return tuple(session.execute(text("""
+        SELECT current_database(), current_schema(), current_setting('data_directory'),
+               current_setting('listen_addresses'), current_setting('TimeZone')
+    """)).one())
+
+
+def _exercise_mfa_boundary(client, db_session, *, expired=False, replayed=False):
+    from app.api import mystery_auth as auth
+    from app.core import database
+
+    user = create_enrolled_user_via_db(db_session)
+    # Freeze only this synthetic user's auth clock at a real current instant;
+    # no sleeps/window races, no policy patch and no global/environment clock.
+    now = datetime.now(UTC)
+    step = int(now.timestamp()) // 30
+    code = _totp_at(user["totp_secret"], step)
+    result = db_session.execute(text("""
+        UPDATE mystery_users SET last_totp_step = :step WHERE id = :uid
+    """), {"step": step if replayed else None, "uid": user["user_id"]})
+    assert result.rowcount == 1
+    db_session.commit()
+    with patch.object(auth, "utcnow", return_value=now):
+        assert auth.verify_totp(user["totp_secret"], code, None) == step
+        if replayed:
+            assert auth.verify_totp(user["totp_secret"], code, step) is None
+        login = client.post("/auth/login", json={
+            "email": user["email"], "password": user["password"],
+        })
+        assert login.status_code == 200
+        challenge = login.json()["challenge"]
+        expected_expiry = now - timedelta(hours=1) if expired else None
+        if expired:
+            update = db_session.execute(text("""
+                UPDATE mystery_mfa_challenges SET expires_at = :exp
+                WHERE challenge_id = :cid AND user_id = :uid AND used_at IS NULL
+            """), {"exp": expected_expiry, "cid": challenge, "uid": user["user_id"]})
+            assert update.rowcount == 1
+            db_session.commit()
+
+        fixture_identity = _database_identity(db_session)
+        before = _mfa_state(db_session, challenge, user["user_id"])
+        # This is the SessionLocal used by get_db, not a second fixture factory.
+        with database.SessionLocal() as http_db:
+            assert _database_identity(http_db) == fixture_identity
+            assert _mfa_state(http_db, challenge, user["user_id"]) == before
+            if http_db.get_bind().dialect.name == "postgresql":
+                _assert_native_auth_timestamp_types(http_db)
+        row, sessions, consumed_step = before
+        assert row["used_at"] is None
+        assert sessions == []
+        assert consumed_step == (step if replayed else None)
+        # Require awareness, never repair native naive values to make it pass.
+        assert row["expires_at"].tzinfo is not None
+        expiry_utc = row["expires_at"].astimezone(UTC)
+        if expired:
+            assert expiry_utc == expected_expiry
+            assert expiry_utc < datetime.now(UTC)
+            assert expiry_utc < auth.utcnow()
+        else:
+            assert expiry_utc > datetime.now(UTC)
+        assert client.cookies.get(auth.SESSION_COOKIE_NAME) is None
+        response = client.post("/auth/mfa", json={"challenge": challenge, "code": code})
+
+    # Read back after the actual HTTP handler's commit/rollback.
+    db_session.rollback()
+    after = _mfa_state(db_session, challenge, user["user_id"])
+    with database.SessionLocal() as http_db:
+        assert _database_identity(http_db) == fixture_identity
+        assert _mfa_state(http_db, challenge, user["user_id"]) == after
+    if expired or replayed:
+        assert response.status_code == 401
+        assert response.cookies.get(auth.SESSION_COOKIE_NAME) is None
+        assert client.cookies.get(auth.SESSION_COOKIE_NAME) is None
+        assert not any(header.startswith(auth.SESSION_COOKIE_NAME + "=")
+                       for header in response.headers.get_list("set-cookie"))
+        assert after == before
+    else:
+        assert response.status_code == 200
+        cookie = response.cookies.get(auth.SESSION_COOKIE_NAME)
+        assert cookie is not None
+        assert len(after[1]) == 1
+        assert after[1][0].session_id == cookie
+        assert after[1][0].revoked_at is None
+        assert after[0]["used_at"] is not None
+        assert after[2] == step
+        assert client.get("/auth/session", cookies={auth.SESSION_COOKIE_NAME: cookie}).status_code == 200
+
+
 # ---------------------------------------------------------------------------
 # Bootstrap helpers (dual SQLite / PostgreSQL support)
 # ---------------------------------------------------------------------------
@@ -469,7 +575,42 @@ def _create_mystery_tables(engine):
     ]
     with engine.begin() as conn:
         for ddl in ddl_statements:
+            # 20260609_000024 uses DateTime(timezone=True) for EVERY auth
+            # timestamp. Keep SQLite's converter-compatible DDL separate.
+            if engine.dialect.name == "postgresql":
+                ddl = ddl.replace(" TIMESTAMP", " TIMESTAMP WITH TIME ZONE")
             conn.execute(text(ddl))
+        if engine.dialect.name == "postgresql":
+            _assert_native_auth_timestamp_types(conn)
+
+
+AUTH_TIMESTAMP_COLUMNS = {
+    "mystery_users": (
+        "password_set_at", "totp_confirmed_at", "locked_until", "last_login_at",
+        "created_at", "updated_at",
+    ),
+    "mystery_sessions": (
+        "created_at", "last_seen_at", "absolute_expires_at", "idle_expires_at", "revoked_at",
+    ),
+    "mystery_recovery_codes": ("used_at", "created_at"),
+    "mystery_enrollment_tokens": ("expires_at", "used_at", "created_at"),
+    "mystery_mfa_challenges": ("created_at", "expires_at", "used_at"),
+    "mystery_auth_audit": ("created_at",),
+}
+
+
+def _assert_native_auth_timestamp_types(connection):
+    """Fail closed on pre-existing incompatible tables; IF NOT EXISTS is not proof."""
+    for table, columns in AUTH_TIMESTAMP_COLUMNS.items():
+        actual = dict(connection.execute(text("""
+            SELECT a.attname, format_type(a.atttypid, a.atttypmod)
+            FROM pg_attribute a
+            WHERE a.attrelid = to_regclass(:table)
+              AND a.attnum > 0 AND NOT a.attisdropped
+        """), {"table": table}).all())
+        assert {column: actual.get(column) for column in columns} == {
+            column: "timestamp with time zone" for column in columns
+        }, f"auth fixture timestamp contract differs from migration: {table}"
 
 
 def _bootstrap_mystery_shopper(engine):
@@ -875,33 +1016,16 @@ class TestMysteryPublicAuthLifecycle:
         assert mfa_resp.status_code == 401, mfa_resp.text
 
     def test_expired_challenge_fails_via_http(self, client, db_session):
-        """Using an expired MFA challenge fails (401)."""
-        user = create_enrolled_user_via_db(db_session)
+        """Genuine persisted UTC expiry rejects a valid, unconsumed factor."""
+        _exercise_mfa_boundary(client, db_session, expired=True)
 
-        # Login
-        login_resp = client.post(
-            "/auth/login",
-            json={"email": user["email"], "password": user["password"]},
-        )
-        assert login_resp.status_code == 200
-        challenge = login_resp.json()["challenge"]
+    def test_replayed_factor_fails_via_http(self, client, db_session):
+        """A fresh unused challenge cannot authorize an already consumed factor."""
+        _exercise_mfa_boundary(client, db_session, replayed=True)
 
-        # Directly expire the challenge in DB
-        db_session.execute(
-            text(
-                "UPDATE mystery_mfa_challenges SET expires_at = :exp WHERE challenge_id = :cid"
-            ),
-            {"exp": datetime.now(UTC) - timedelta(hours=1), "cid": challenge},
-        )
-        db_session.commit()
-
-        # Now try MFA with the expired challenge
-        mfa_code = generate_totp_code(user["totp_secret"])
-        mfa_resp = client.post(
-            "/auth/mfa",
-            json={"challenge": challenge, "code": mfa_code},
-        )
-        assert mfa_resp.status_code == 401, mfa_resp.text
+    def test_fresh_factor_creates_session_via_http(self, client, db_session):
+        """Independent fresh user/challenge/factor establishes HTTP and SQL session."""
+        _exercise_mfa_boundary(client, db_session)
 
     # ── DB-level unit tests (replace admin-only HTTP endpoints) ─────────
 

@@ -1,18 +1,20 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
+import { Input } from "../ui/input";
+import { Select } from "../ui/select";
 import InstallationSurveysDataTable from "./InstallationSurveysDataTable";
 
 function InstallationScoreBadge({ score }) {
   const n = Number(score);
-  if (!Number.isFinite(n)) return <span className="text-sm text-muted-foreground">--</span>;
+  if (score == null || score === "" || !Number.isFinite(n)) return <span className="text-sm text-muted-foreground">No score recorded</span>;
   let className = "inline-flex items-center rounded border px-2 py-0.5 text-xs font-semibold";
   if (n >= 4) className += " border-green-200 bg-green-50 text-green-800";
   else if (n >= 3) className += " border-amber-300 bg-amber-50 text-amber-800";
   else if (n >= 2) className += " border-red-200 bg-red-100 text-red-800";
   else className += " border-red-400 bg-red-200 text-red-900";
   const label = n >= 4 ? "Excellent" : n >= 3 ? "Satisfactory" : n >= 2 ? "Rework" : "Critical";
-  return <span className={className}>{n} / 5 — {label}</span>;
+  return <span className={className}>{n.toFixed(2)} / 5: {label}</span>;
 }
 
 export default function InstallationSurveyExplorer({
@@ -39,22 +41,40 @@ export default function InstallationSurveyExplorer({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl font-semibold tracking-tight">Installation Survey Explorer</CardTitle>
-          <CardDescription>Review submitted installation surveys with built-in table sorting, filtering, and pagination, including work order search.</CardDescription>
+          <CardTitle className="text-xl font-semibold tracking-tight">Find and review submitted installation assessments</CardTitle>
+          <CardDescription>Search assessment records by job, customer, location, date, customer type or worker type. Results contain Installation Assessment records only.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Input aria-label="Customer name" placeholder="Customer name" value={filters.customer_name} onChange={(event) => onFilterChange("customer_name", event.target.value)} />
+            <Input aria-label="Quality Assurance Inspector" placeholder="Quality Assurance Inspector" value={filters.inspector_name} onChange={(event) => onFilterChange("inspector_name", event.target.value)} />
+            <Input aria-label="Work order" placeholder="Work order" value={filters.work_order} onChange={(event) => onFilterChange("work_order", event.target.value)} />
+            <Input aria-label="Installation location" placeholder="Location" value={filters.location} onChange={(event) => onFilterChange("location", event.target.value)} />
+            <Input aria-label="Assessment date from" type="date" value={filters.date_from} onChange={(event) => onFilterChange("date_from", event.target.value)} />
+            <Input aria-label="Assessment date to" type="date" value={filters.date_to} onChange={(event) => onFilterChange("date_to", event.target.value)} />
+            <Select aria-label="Customer type" value={filters.customer_type} onChange={(event) => onFilterChange("customer_type", event.target.value)}>
+              <option value="">All customer types</option>
+              <option value="B2B">B2B</option>
+              <option value="B2C">B2C</option>
+            </Select>
+            <Select aria-label="Worker type" value={filters.worker_type} onChange={(event) => onFilterChange("worker_type", event.target.value)}>
+              <option value="">All worker types</option>
+              <option value="Field Team">Field Team</option>
+              <option value="Contractor">Contractor</option>
+            </Select>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" onClick={onSearch}>{loading ? "Searching..." : "Search"}</Button>
-            <Button type="button" variant="ghost" onClick={onReset}>Clear Filters</Button>
-            <span className="text-sm text-muted-foreground">{loading ? "Loading..." : `${surveys.length} surveys`}</span>
+            <Button type="button" variant="outline" onClick={onSearch} disabled={loading}>{loading ? "Searching assessments..." : "Search assessments"}</Button>
+            <Button type="button" variant="ghost" onClick={onReset} disabled={loading}>Clear filters</Button>
+            <span className="text-sm text-muted-foreground" role="status">{loading ? "Loading installation assessments..." : `${surveys.length} submitted assessment${surveys.length === 1 ? "" : "s"}`}</span>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Survey Table</CardTitle>
-          <CardDescription>Overall assessment = average of all 7 question scores.</CardDescription>
+          <CardTitle>Submitted installation assessments</CardTitle>
+          <CardDescription>The overall score is the mean of the seven scored installation questions, shown out of 5.</CardDescription>
         </CardHeader>
         <CardContent>
           <InstallationSurveysDataTable data={surveys} loading={loading} onView={onView} />
@@ -64,9 +84,9 @@ export default function InstallationSurveyExplorer({
       {selectedSurvey ? (
         <Card>
           <CardHeader>
-            <CardTitle>Survey Detail</CardTitle>
+            <CardTitle>Review one installation assessment</CardTitle>
             <CardDescription>
-              {selectedSurvey.customer_name || "--"} | {selectedSurvey.date_work_done || "--"} | Overall Score: {selectedSurvey.overall_score != null ? Number(selectedSurvey.overall_score).toFixed(2) : "--"}
+              {selectedSurvey.customer_name || "Customer not recorded"} | {selectedSurvey.date_work_done || "Date not recorded"} | Overall score: {selectedSurvey.overall_score != null ? `${Number(selectedSurvey.overall_score).toFixed(2)} / 5` : "No score recorded"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -87,7 +107,7 @@ export default function InstallationSurveyExplorer({
                 <div key={category} className="space-y-3 rounded-lg border p-4">
                   <div className="flex items-center justify-between">
                     <p className="text-base font-semibold tracking-tight">{category}</p>
-                    <Badge variant="secondary">{responses.length} questions</Badge>
+                    <Badge variant="secondary">{responses.length} saved response{responses.length === 1 ? "" : "s"}</Badge>
                   </div>
                   {responses.map((resp) => (
                     <div key={resp.question_number} className="rounded-md border bg-background p-4 space-y-2">
@@ -102,7 +122,7 @@ export default function InstallationSurveyExplorer({
                 </div>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground">No responses found for this survey.</p>
+              <p className="text-sm text-muted-foreground">This assessment has no saved question responses. No zero score is assumed.</p>
             )}
 
             <div className="space-y-2">
