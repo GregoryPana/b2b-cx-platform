@@ -16,7 +16,7 @@ import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
 import { DataTableViewOptions } from "../ui/data-table-view-options";
 
-export default function ReviewQueueDataTable({ data, onView, onApprove, onReject, loadingVisitId, isMysteryShopperPlatform = false }) {
+export default function ReviewQueueDataTable({ data, onView, onApprove, onReject, onNeedsChanges, loadingVisitId, isMysteryShopperPlatform = false }) {
   const [sorting, setSorting] = useState([{ id: "visit_date", desc: true }]);
   const [columnFilters, setColumnFilters] = useState([]);
   const [columnVisibility, setColumnVisibility] = useState({});
@@ -70,6 +70,7 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="outline" onClick={() => onView(visitId)} disabled={isLoading}>View</Button>
             <Button type="button" size="sm" onClick={() => onApprove(visit)} disabled={isLoading}>Approve</Button>
+            {onNeedsChanges ? <Button type="button" size="sm" variant="outline" onClick={() => onNeedsChanges(visit)} disabled={isLoading}>Needs Changes</Button> : null}
             <Button type="button" size="sm" variant="destructive" onClick={() => onReject(visit)} disabled={isLoading}>Reject</Button>
           </div>
         );
@@ -77,7 +78,7 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
       enableSorting: false,
       enableHiding: false,
     },
-  ], [isMysteryShopperPlatform, loadingVisitId, onApprove, onReject, onView]);
+  ], [isMysteryShopperPlatform, loadingVisitId, onApprove, onNeedsChanges, onReject, onView]);
 
   const table = useReactTable({
     data,

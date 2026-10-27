@@ -49,6 +49,7 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const activePlatformAllowed = !activePlatform || availablePlatforms.some((platform) => platform.name === activePlatform);
   const isMysteryShopperPlatform = String(activePlatform || "").toLowerCase().includes("mystery");
+  const isInstallationPlatform = String(activePlatform || "").toLowerCase().includes("installation");
   const navigate = useNavigate();
 
   const handleSelectPlatform = useCallback((platformName) => {
@@ -73,11 +74,11 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
       try {
         const endpoint = isMysteryShopperPlatform
           ? `${API_BASE}/mystery-shopper/admin/visits?status=Pending`
-          : `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
+          : `${API_BASE}/dashboard-visits/pending-count?${new URLSearchParams({ survey_type: activePlatform || "B2B" }).toString()}`;
         const res = await fetch(endpoint, { headers, signal: controller.signal });
         if (!cancelled && res.ok) {
           const data = await res.json();
-          setPendingReviewCount(Array.isArray(data) ? data.length : 0);
+          setPendingReviewCount(Array.isArray(data) ? data.length : Number(data?.count) || 0);
         }
       } catch { /* silent */ }
       finally {
@@ -87,15 +88,18 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
         }
       }
     };
-    if (activePlatform) loadCount();
-    const interval = setInterval(() => { if (activePlatform) loadCount(); }, 30000);
+    // Installation has no review queue, and its roles may not read B2B visits.
+    const shouldPoll = Boolean(activePlatform) && !isInstallationPlatform;
+    if (shouldPoll) loadCount();
+    else setPendingReviewCount(0);
+    const interval = setInterval(() => { if (shouldPoll) loadCount(); }, 30000);
     return () => {
       cancelled = true;
       clearInterval(interval);
       if (timeoutId) window.clearTimeout(timeoutId);
       controller?.abort();
     };
-  }, [activePlatform, headers, isMysteryShopperPlatform]);
+  }, [activePlatform, headers, isInstallationPlatform, isMysteryShopperPlatform]);
 
   if (!activePlatform || !activePlatformAllowed) {
     return (

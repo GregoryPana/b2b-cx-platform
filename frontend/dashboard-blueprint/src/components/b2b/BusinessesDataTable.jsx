@@ -30,6 +30,7 @@ export default function BusinessesDataTable({
   onSave,
   onCancel,
   onRetire,
+  onReactivate,
   onDelete,
 }) {
   const businessTypeLabel = (value) => {
@@ -55,6 +56,7 @@ export default function BusinessesDataTable({
     onSave,
     onCancel,
     onRetire,
+    onReactivate,
     onDelete,
   }), [
     accountExecutiveQuery,
@@ -62,6 +64,7 @@ export default function BusinessesDataTable({
     onCancel,
     onDelete,
     onEdit,
+    onReactivate,
     onRetire,
     onSave,
     representativeMap,
@@ -189,7 +192,9 @@ export default function BusinessesDataTable({
             ) : (
               <>
                 <Button type="button" variant="outline" size="sm" onClick={() => table.options.meta?.onEdit(business)}>Edit</Button>
-                {business.active ? <Button type="button" variant="outline" size="sm" onClick={() => table.options.meta?.onRetire(business)}>Retire</Button> : null}
+                {business.active
+                  ? <Button type="button" variant="outline" size="sm" onClick={() => table.options.meta?.onRetire(business)}>Retire</Button>
+                  : <Button type="button" variant="outline" size="sm" onClick={() => table.options.meta?.onReactivate(business)}>Reactivate</Button>}
                 <Button type="button" variant="destructive" size="sm" onClick={() => table.options.meta?.onDelete(business)}>Delete</Button>
               </>
             )}

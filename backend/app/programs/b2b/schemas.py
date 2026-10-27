@@ -1,10 +1,26 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 BusinessType = Literal["large_corporate", "sme"]
+
+
+def _clean_required_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = " ".join(str(value).split())
+    if not cleaned:
+        raise ValueError("Name is required")
+    return cleaned
+
+
+def _clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = " ".join(str(value).split())
+    return cleaned or None
 
 
 class BusinessCreate(BaseModel):
@@ -15,14 +31,24 @@ class BusinessCreate(BaseModel):
     priority_level: BusinessType = "sme"
     active: bool = True
 
+    _clean_name = field_validator("name")(_clean_required_name)
+    _clean_location = field_validator("location")(_clean_optional_text)
+
 
 class BusinessUpdate(BaseModel):
-    """Schema for updating an existing business."""
+    """Schema for updating an existing business.
+
+    Only fields present in the request body are applied (``exclude_unset``), so
+    sending ``"account_executive_id": null`` or ``"location": null`` clears the value.
+    """
     name: str | None = None
     location: str | None = None
     account_executive_id: int | None = None
     priority_level: BusinessType | None = None
     active: bool | None = None
+
+    _clean_name = field_validator("name")(_clean_required_name)
+    _clean_location = field_validator("location")(_clean_optional_text)
 
 
 class BusinessOut(BaseModel):
