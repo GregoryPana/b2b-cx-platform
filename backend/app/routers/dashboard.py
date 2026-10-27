@@ -1,7 +1,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, case, distinct, func, select
+from sqlalchemy import and_, case, distinct, func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser, require_roles
@@ -10,6 +10,10 @@ from app.core.roles import ROLE_ADMIN, ROLE_MANAGER
 from app.models import Business, Question, Response, Visit, VisitStatus
 from app.schemas.dashboard import CategoryBreakdownItem, CoverageSummary, NpsSummary
 
+# NOTE: this legacy router is intentionally NOT mounted (it also no longer imports cleanly: the
+# `app.core.auth.CurrentUser` / `app.schemas.dashboard` names it uses do not exist). The active
+# endpoints are `app/api/dashboard_compat.py`. `backend/tests/analytics/test_unmounted_dashboard_router.py`
+# enforces that it stays unmounted and uses NULL-safe conditional counters.
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
@@ -21,16 +25,17 @@ def get_nps(
     # Use raw SQL for more reliable NPS calculation
     result = db.execute(text("""
         SELECT 
-            COUNT(CASE WHEN r.score >= 9 THEN 1 ELSE 0 END) as promoters,
-            COUNT(CASE WHEN r.score <= 6 THEN 1 ELSE 0 END) as detractors,
-            COUNT(CASE WHEN r.score >= 7 AND r.score <= 8 THEN 1 ELSE 0 END) as passives,
+            COUNT(CASE WHEN r.score BETWEEN 9 AND 10 THEN 1 END) as promoters,
+            COUNT(CASE WHEN r.score BETWEEN 0 AND 6 THEN 1 END) as detractors,
+            COUNT(CASE WHEN r.score BETWEEN 7 AND 8 THEN 1 END) as passives,
             COUNT(r.score) as total
         FROM b2b_visit_responses r
         JOIN questions q ON r.question_id = q.id
         JOIN visits v ON r.visit_id = v.id
-        WHERE q.is_nps = true 
+        WHERE q.is_nps = true
         AND v.status = 'Approved'
-        AND r.score IS NOT NULL
+        AND r.score BETWEEN 0 AND 10
+        AND v.survey_type_id = (SELECT id FROM survey_types WHERE lower(name) = 'b2b' LIMIT 1)
     """)).fetchone()
     
     promoters, detractors, passives, total = result

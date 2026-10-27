@@ -15,7 +15,7 @@ import { DataTableColumnHeader } from "../ui/data-table-column-header";
 import { DataTablePagination } from "../ui/data-table-pagination";
 import { DataTableViewOptions } from "../ui/data-table-view-options";
 
-export default function InstallationSurveysDataTable({ data, loading, onView }) {
+export default function InstallationSurveysDataTable({ data = [], loading, onView }) {
   const [sorting, setSorting] = useState([{ id: "date_work_done", desc: true }]);
   const [columnFilters, setColumnFilters] = useState([]);
   const [columnVisibility, setColumnVisibility] = useState({});
@@ -31,7 +31,7 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
     { accessorKey: "job_done_by", headerTitle: "Worker Type", header: ({ column }) => <DataTableColumnHeader column={column} title="Worker Type" />, cell: ({ row }) => row.original.job_done_by || "--" },
     { accessorKey: "contractor_name", headerTitle: "Contractor", header: ({ column }) => <DataTableColumnHeader column={column} title="Contractor" />, cell: ({ row }) => row.original.contractor_name || "--" },
     { accessorKey: "field_team_members", headerTitle: "Field Team Members", header: ({ column }) => <DataTableColumnHeader column={column} title="Field Team Members" />, cell: ({ row }) => Array.isArray(row.original.field_team_members) && row.original.field_team_members.length ? row.original.field_team_members.join(", ") : "--" },
-    { accessorKey: "overall_score", headerTitle: "Average", header: ({ column }) => <DataTableColumnHeader column={column} title="Average" />, cell: ({ row }) => row.original.overall_score != null ? Number(row.original.overall_score).toFixed(2) : "--" },
+    { accessorKey: "overall_score", headerTitle: "Mean score (/5)", header: ({ column }) => <DataTableColumnHeader column={column} title="Mean score (/5)" />, cell: ({ row }) => row.original.overall_score != null ? `${Number(row.original.overall_score).toFixed(2)} / 5` : "No score" },
     {
       id: "actions",
       headerTitle: "Action",
@@ -64,7 +64,7 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
       <div className="rounded-md border">
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <Select value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
+            <Select aria-label="Assessment filter column" value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
               <option value="customer_name">Filter by customer</option>
               <option value="inspector_name">Filter by quality assessor</option>
               <option value="work_order">Filter by work order</option>
@@ -76,6 +76,8 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
               <option value="field_team_members">Filter by team member</option>
             </Select>
             <Input
+              aria-label={`Filter assessment table by ${filterColumn.replaceAll("_", " ")}`}
+              placeholder="Enter a table filter"
               type={filterColumn === "date_work_done" ? "date" : "text"}
               value={activeFilterValue}
               onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)}
@@ -111,7 +113,7 @@ export default function InstallationSurveysDataTable({ data, loading, onView }) 
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No installation surveys found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No submitted installation assessments match the current search and table filters.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

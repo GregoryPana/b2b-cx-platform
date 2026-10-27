@@ -1,0 +1,99 @@
+name: mystery-public-release-ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/mystery-shopper/package-lock.json
+      - name: Install graph-check dependencies
+        run: python -m pip install "alembic>=1.13,<2" "sqlalchemy>=2,<3"
+      - name: Validate workflow semantics and pinned actions
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "${RUNNER_TEMP}/actionlint.tar.gz"
+          printf '%s  %s\n' \
+            '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' \
+            "${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum --check --strict
+          tar -xzf "${RUNNER_TEMP}/actionlint.tar.gz" -C "${RUNNER_TEMP}" actionlint
+          # SSH command strings deliberately interpolate validated runner-side
+          # arguments before transmission; SC2029 is informational here.
+          "${RUNNER_TEMP}/actionlint" -ignore 'label "production" is unknown' -ignore 'SC2029:' \
+            .github/workflows/deploy-mystery-public.yml \
+            .github/workflows/mystery-public-release-ci.yml
+          python - <<'PY'
+          import pathlib, re
+          for name in ('deploy-mystery-public.yml', 'mystery-public-release-ci.yml'):
+              text = (pathlib.Path('.github/workflows') / name).read_text(encoding='utf-8')
+              for ref in re.findall(r'^\s*-?\s*uses:\s*([^\s#]+)', text, flags=re.M):
+                  if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}', ref):
+                      raise SystemExit(f'{name}: unpinned action {ref}')
+          PY
+      - name: Validate source revision graph and deployment contracts
+        run: |
+          set -euo pipefail
+          python scripts/linux/mystery_public_release_guard.py source-heads backend/alembic.ini
+          bash scripts/linux/tests/test_mystery_public_release_scripts.sh
+          python -m unittest discover -s scripts/linux/tests -p 'test_mystery_public_migration_heads.py' -v
+          git diff --check
+      - name: Exercise installed root evidence exporter in disposable container
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --cpus 1 --memory 512m \
+            --cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add FOWNER \
+            --security-opt no-new-privileges \
+            --mount "type=bind,src=${GITHUB_WORKSPACE},dst=/source,readonly" \
+            --tmpfs /scratch:rw,nosuid,nodev,mode=1777 \
+            -e TMPDIR=/scratch -e PYTHONDONTWRITEBYTECODE=1 -e CWSCX_EXPORT_DISPOSABLE=1 \
+            python:3.12-slim@sha256:ccc7089399c8bb65dd1fb3ed6d55efa538a3f5e7fca3f5988ac3b5b87e593bf0 \
+            python -O -c 'import sys, unittest; suite = unittest.defaultTestLoader.discover("/source/scripts/linux/tests", pattern="test_mystery_public_evidence_export.py"); result = unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(0 if result.wasSuccessful() and result.testsRun == 10 and not result.skipped else 1)'
+      - name: Build clean APN-only bundle without signing or deployment
+        env:
+          REQUIRE_CLEAN_TREE: "1"
+        run: |
+          set -euo pipefail
+          RELEASE_ID="ci-${GITHUB_SHA}" bash scripts/linux/build_mystery_public_bundle.sh \
+            "${RUNNER_TEMP}/cwscx-mystery-public-ci.zip"
+          python -O scripts/linux/validate_mystery_public_bundle.py \
+            "${RUNNER_TEMP}/cwscx-mystery-public-ci.zip"
+          python - "${RUNNER_TEMP}/cwscx-mystery-public-ci.zip" "${GITHUB_SHA}" <<'PY'
+          import json, subprocess, sys, zipfile
+          source_heads = json.loads(subprocess.check_output([
+              sys.executable, 'scripts/linux/mystery_public_release_guard.py',
+              'source-heads', 'backend/alembic.ini',
+          ], text=True))
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              manifest = json.loads(archive.read('release/release-manifest.json'))
+              required = {
+                  'git_sha': sys.argv[2],
+                  'source_tree_state': 'clean',
+                  'frontend_auth_mode': 'mystery_public',
+                  'expected_migration_heads': source_heads,
+              }
+              mismatches = {
+                  key: {'expected': expected, 'actual': manifest.get(key)}
+                  for key, expected in required.items()
+                  if manifest.get(key) != expected
+              }
+              if mismatches:
+                  raise SystemExit(f'release manifest contract mismatch: {mismatches}')
+              corrupt_member = archive.testzip()
+              if corrupt_member is not None:
+                  raise SystemExit(f'corrupt ZIP member: {corrupt_member}')
+          PY

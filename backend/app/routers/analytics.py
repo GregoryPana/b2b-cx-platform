@@ -5,13 +5,36 @@ Analytics API - Comprehensive metrics for B2B platform
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+import uuid
 from typing import Any
+from ..core.analytics_scope import AnalyticsSchemaError, AnalyticsScopeError, ModuleScope, resolve_module_scope
 from ..core.database import get_db
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 from ..core.db_inspect import has_column, has_table  # noqa: E402  (replaces local helpers)
+
+
+def _scope_or_400(db: Session, survey_type: str | None) -> ModuleScope:
+    """Resolve the analytics module or fail closed with HTTP 400 (never widen the dataset)."""
+    try:
+        return resolve_module_scope(db, survey_type)
+    except AnalyticsScopeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except AnalyticsSchemaError as exc:
+        raise HTTPException(status_code=500, detail=f"Analytics scope unavailable: {exc}")
+
+
+def _single_visit_filter(visit_id: str | None) -> tuple[str, dict[str, Any]]:
+    if not visit_id:
+        return "", {}
+    try:
+        parsed = str(uuid.UUID(str(visit_id)))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="visit_id must be a UUID")
+    return " AND v.id = :scope_visit_id", {"scope_visit_id": parsed}
+
 
 
 def resolve_survey_type_id(db: Session, survey_type: str | None) -> int | None:
@@ -105,8 +128,9 @@ def detect_mystery_tables(db: Session) -> tuple[bool, bool]:
 
 
 def get_response_table(db: Session, is_mystery_survey: bool = False) -> str | None:
-    if is_mystery_survey and has_table(db, "mystery_shopper_answers"):
-        return "mystery_shopper_answers"
+    if is_mystery_survey:
+        # Authoritative Mystery answers only; never fall back to the shared B2B mirror table.
+        return "mystery_shopper_answers" if has_table(db, "mystery_shopper_answers") else None
     if has_table(db, "b2b_visit_responses"):
         return "b2b_visit_responses"
     if has_table(db, "responses"):
@@ -122,28 +146,36 @@ def get_comprehensive_analytics(
     mystery_location_ids: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    visit_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Get comprehensive analytics for dashboard."""
     try:
         print("Starting analytics query...")
 
-        survey_type_id = resolve_survey_type_id(db, survey_type)
-        normalized_survey_type = (survey_type or "").strip().lower()
-        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
-        response_table = get_response_table(db, is_mystery_survey=is_mystery_survey)
+        scope = _scope_or_400(db, survey_type)
+        survey_type_id = scope.survey_type_id
+        is_mystery_survey = scope.is_mystery
+        response_table = scope.response_table
         if not response_table:
-            raise Exception("No response table found")
-        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
+            raise Exception(
+                "Mystery Shopper answers table (mystery_shopper_answers) not found"
+                if scope.is_mystery
+                else "No response table found"
+            )
         where_extra = ""
         where_visits_extra = ""
         where_visit_alias_extra = ""
         params: dict[str, Any] = {}
-        if survey_type_id is not None and has_visit_survey_type:
-            where_extra = " AND v.survey_type_id = :survey_type_id"
-            where_visits_extra = " AND v.survey_type_id = :survey_type_id"
-            where_visit_alias_extra = " AND v.survey_type_id = :survey_type_id"
-            params["survey_type_id"] = survey_type_id
+        where_extra = scope.visit_filter
+        where_visits_extra = scope.visit_filter
+        where_visit_alias_extra = scope.visit_filter
+        params.update(scope.params)
+        single_visit_sql, single_visit_params = _single_visit_filter(visit_id)
+        where_extra += single_visit_sql
+        where_visits_extra += single_visit_sql
+        where_visit_alias_extra += single_visit_sql
+        params.update(single_visit_params)
 
         business_id_values = parse_business_ids(business_ids)
         location_id_values = parse_location_ids(mystery_location_ids)
@@ -210,6 +242,9 @@ def get_comprehensive_analytics(
         q12_filter = "q.question_key = 'q12_overall_satisfaction'"
         q16_filter = "q.question_key = 'q16_other_provider_products'"
         ms_csat_filter = "q.question_key IN ('ms_staff_interaction_satisfaction','ms_store_environment_satisfaction')"
+        # A score is only an observation when it lies inside the question's declared bounds.
+        score_in_bounds = "r.score BETWEEN COALESCE(q.score_min, 0) AND COALESCE(q.score_max, 10)"
+        ms_csat_valid = f"{ms_csat_filter} AND {score_in_bounds}"
         ms_waiting_time_filter = "q.question_key = 'ms_waiting_time'"
         ms_service_completion_filter = "q.question_key = 'ms_service_completion_time'"
         relationship_filter = (
@@ -229,6 +264,7 @@ def get_comprehensive_analytics(
                 COUNT(*) as total_visits,
                 SUM(CASE WHEN v.status = 'Draft' THEN 1 ELSE 0 END) as draft_visits,
                 SUM(CASE WHEN v.status = 'Pending' THEN 1 ELSE 0 END) as pending_visits,
+                SUM(CASE WHEN v.status = 'Needs Changes' THEN 1 ELSE 0 END) as needs_changes_visits,
                 SUM(CASE WHEN v.status = 'Approved' THEN 1 ELSE 0 END) as approved_visits,
                 SUM(CASE WHEN v.status = 'Rejected' THEN 1 ELSE 0 END) as rejected_visits
             FROM visits v
@@ -240,15 +276,17 @@ def get_comprehensive_analytics(
         # Approved-only so analytics counts never include draft/pending visits.
         response_stats = db.execute(text(f"""
             SELECT
-                COUNT(CASE WHEN answer_text IS NOT NULL AND answer_text != '' THEN 1 ELSE 0 END) as text_responses
-            FROM {response_table}
-            JOIN visits v ON {response_table}.visit_id = v.id
+                COUNT(CASE WHEN r.answer_text IS NOT NULL AND r.answer_text <> '' THEN 1 END) AS text_responses
+            FROM {response_table} r
+            JOIN visits v ON r.visit_id = v.id
+            JOIN questions q ON r.question_id = q.id
             WHERE v.status = 'Approved'
+            {scope.question_filter}
             {where_extra}
         """), params).fetchone()
         
         # Overall Relationship Score
-        relationship_stats = db.execute(text(f"""
+        relationship_stats = None if is_mystery_survey else db.execute(text(f"""
             WITH latest_business_visits AS (
                 SELECT ranked.id, ranked.business_id
                 FROM (
@@ -280,30 +318,41 @@ def get_comprehensive_analytics(
             JOIN questions q ON r.question_id = q.id
             WHERE q.input_type = 'score'
             AND {relationship_filter}
+            {scope.question_filter}
             AND r.score IS NOT NULL
         """), params).fetchone()
 
-        relationship_avg = float(relationship_stats.avg_relationship_score) if relationship_stats.avg_relationship_score else 0.0
-        relationship_total = float(relationship_stats.total_relationship_score) if relationship_stats.total_relationship_score else 0.0
-        relationship_possible = (
-            float(relationship_stats.relationship_possible_score)
-            if relationship_stats.relationship_possible_score
-            else 0.0
-        )
-        relationship_score = round((relationship_total / relationship_possible) * 100, 2) if relationship_possible else 0.0
-        relationship_score = max(0.0, min(100.0, relationship_score))
+        # Relationship score and competitive exposure are B2B account metrics (latest visit per business).
+        # Mystery visits have no business, so they are reported as not applicable rather than as one fake account.
+        if relationship_stats is None:
+            relationship_avg = relationship_total = relationship_possible = 0.0
+            relationship_score = None
+            relationship_answered = 0
+        else:
+            relationship_avg = float(relationship_stats.avg_relationship_score) if relationship_stats.avg_relationship_score else 0.0
+            relationship_total = float(relationship_stats.total_relationship_score) if relationship_stats.total_relationship_score else 0.0
+            relationship_possible = (
+                float(relationship_stats.relationship_possible_score)
+                if relationship_stats.relationship_possible_score
+                else 0.0
+            )
+            relationship_score = round((relationship_total / relationship_possible) * 100, 2) if relationship_possible else 0.0
+            relationship_score = max(0.0, min(100.0, relationship_score))
+            relationship_answered = int(relationship_stats.relationship_questions_answered or 0)
         
         # Get NPS statistics
         nps_stats = db.execute(text(f"""
             SELECT 
-                SUM(CASE WHEN r.score >= 9 THEN 1 ELSE 0 END) as promoters,
-                SUM(CASE WHEN r.score <= 6 THEN 1 ELSE 0 END) as detractors,
-                SUM(CASE WHEN r.score >= 7 AND r.score <= 8 THEN 1 ELSE 0 END) as passives,
-                COUNT(r.score) as total_responses
+                SUM(CASE WHEN r.score BETWEEN 9 AND 10 THEN 1 ELSE 0 END) as promoters,
+                SUM(CASE WHEN r.score BETWEEN 0 AND 6 THEN 1 ELSE 0 END) as detractors,
+                SUM(CASE WHEN r.score BETWEEN 7 AND 8 THEN 1 ELSE 0 END) as passives,
+                COUNT(CASE WHEN r.score BETWEEN 0 AND 10 THEN 1 END) as total_responses,
+                COUNT(CASE WHEN r.score NOT BETWEEN 0 AND 10 THEN 1 END) as excluded_invalid
             FROM {response_table} r
             JOIN questions q ON r.question_id = q.id
             JOIN visits v ON r.visit_id = v.id
-            WHERE q.is_nps = true 
+            WHERE q.is_nps = true
+            {scope.question_filter}
             AND v.status = 'Approved'
             AND r.score IS NOT NULL
             {where_extra}
@@ -326,24 +375,26 @@ def get_comprehensive_analytics(
         # 9-10 Very Satisfied, 8 Satisfied, 5-7 Neutral, 3-4 Dissatisfied, 0-2 Very Dissatisfied
         # CSAT threshold: scores of 8, 9, or 10 count as satisfied.
         satisfaction_stats = db.execute(text(f"""
-            SELECT 
-                AVG(CASE WHEN {q12_filter} AND r.score IS NOT NULL THEN r.score ELSE NULL END) as avg_satisfaction,
-                COUNT(CASE WHEN {q12_filter} AND r.score IS NOT NULL THEN 1 ELSE 0 END) as satisfaction_responses,
-                SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 0 AND 2 THEN 1 ELSE 0 END) as very_dissatisfied,
-                SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 3 AND 4 THEN 1 ELSE 0 END) as dissatisfied,
-                SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 5 AND 7 THEN 1 ELSE 0 END) as neutral,
-                SUM(CASE WHEN {q12_filter} AND r.score = 8 THEN 1 ELSE 0 END) as satisfied,
-                SUM(CASE WHEN {q12_filter} AND r.score BETWEEN 9 AND 10 THEN 1 ELSE 0 END) as very_satisfied
+            SELECT
+                AVG(CASE WHEN {score_in_bounds} THEN r.score END) as avg_satisfaction,
+                COUNT(CASE WHEN {score_in_bounds} THEN 1 END) as satisfaction_responses,
+                SUM(CASE WHEN r.score BETWEEN 0 AND 2 AND {score_in_bounds} THEN 1 ELSE 0 END) as very_dissatisfied,
+                SUM(CASE WHEN r.score BETWEEN 3 AND 4 AND {score_in_bounds} THEN 1 ELSE 0 END) as dissatisfied,
+                SUM(CASE WHEN r.score BETWEEN 5 AND 7 AND {score_in_bounds} THEN 1 ELSE 0 END) as neutral,
+                SUM(CASE WHEN r.score = 8 AND {score_in_bounds} THEN 1 ELSE 0 END) as satisfied,
+                SUM(CASE WHEN r.score BETWEEN 9 AND 10 AND {score_in_bounds} THEN 1 ELSE 0 END) as very_satisfied,
+                COUNT(CASE WHEN NOT ({score_in_bounds}) THEN 1 END) as excluded_invalid
             FROM {response_table} r
             JOIN questions q ON r.question_id = q.id
             JOIN visits v ON r.visit_id = v.id
             WHERE v.status = 'Approved'
             AND {q12_filter}
+            {scope.question_filter}
             AND r.score IS NOT NULL
             {where_extra}
         """), params).fetchone()
 
-        competitive_stats = db.execute(text(f"""
+        competitive_stats = None if is_mystery_survey else db.execute(text(f"""
             WITH latest_business_visits AS (
                 SELECT ranked.id, ranked.business_id
                 FROM (
@@ -372,7 +423,7 @@ def get_comprehensive_analytics(
                     ) AS uses_competitor
                 FROM latest_business_visits lbv
                 LEFT JOIN {response_table} r ON r.visit_id = lbv.id
-                LEFT JOIN questions q ON q.id = r.question_id
+                LEFT JOIN questions q ON q.id = r.question_id {scope.question_filter}
                 GROUP BY lbv.business_id
             )
             SELECT
@@ -381,9 +432,13 @@ def get_comprehensive_analytics(
             FROM business_competitor_usage
         """), params).fetchone()
 
-        total_accounts = int(competitive_stats.total_accounts or 0)
-        accounts_using_competitors = int(competitive_stats.accounts_using_competitors or 0)
-        competitive_exposure_rate = round((accounts_using_competitors / total_accounts) * 100, 2) if total_accounts else 0.0
+        if competitive_stats is None:
+            total_accounts = accounts_using_competitors = 0
+            competitive_exposure_rate = None
+        else:
+            total_accounts = int(competitive_stats.total_accounts or 0)
+            accounts_using_competitors = int(competitive_stats.accounts_using_competitors or 0)
+            competitive_exposure_rate = round((accounts_using_competitors / total_accounts) * 100, 2) if total_accounts else 0.0
 
         satisfaction_response_count = int(satisfaction_stats.satisfaction_responses or 0)
         very_dissatisfied_count = int(satisfaction_stats.very_dissatisfied or 0)
@@ -402,12 +457,16 @@ def get_comprehensive_analytics(
         if is_mystery_survey:
             mystery_csat_stats = db.execute(text(f"""
                 SELECT
-                    AVG(CASE WHEN {ms_csat_filter} AND r.score IS NOT NULL THEN r.score ELSE NULL END) as avg_score,
-                    COUNT(CASE WHEN {ms_csat_filter} AND r.score IS NOT NULL THEN 1 ELSE 0 END) as response_count
+                    AVG(CASE WHEN {score_in_bounds} THEN r.score END) as avg_score,
+                    COUNT(CASE WHEN {score_in_bounds} THEN 1 END) as response_count,
+                    COUNT(CASE WHEN NOT ({score_in_bounds}) THEN 1 END) as excluded_invalid
                 FROM {response_table} r
                 JOIN questions q ON r.question_id = q.id
                 JOIN visits v ON r.visit_id = v.id
                 WHERE v.status = 'Approved'
+                AND {ms_csat_filter}
+                {scope.question_filter}
+                AND r.score IS NOT NULL
                 {where_extra}
             """), params).fetchone()
 
@@ -418,6 +477,7 @@ def get_comprehensive_analytics(
                 JOIN visits v ON r.visit_id = v.id
                 WHERE v.status = 'Approved'
                   AND {ms_waiting_time_filter}
+                  {scope.question_filter}
                   AND COALESCE(r.answer_text, '') <> ''
                   {where_extra}
                 GROUP BY COALESCE(r.answer_text, 'Unknown')
@@ -431,6 +491,7 @@ def get_comprehensive_analytics(
                 JOIN visits v ON r.visit_id = v.id
                 WHERE v.status = 'Approved'
                   AND {ms_service_completion_filter}
+                  {scope.question_filter}
                   AND COALESCE(r.answer_text, '') <> ''
                   {where_extra}
                 GROUP BY COALESCE(r.answer_text, 'Unknown')
@@ -444,13 +505,13 @@ def get_comprehensive_analytics(
                     SELECT
                         COALESCE(l.name, b.name, 'Unknown Location') as location_name,
                         COUNT(DISTINCT v.id) as visits,
-                        AVG(CASE WHEN {ms_csat_filter} THEN r.score END)::float as csat_average
+                        AVG(CASE WHEN {ms_csat_valid} THEN r.score END)::float as csat_average
                     FROM visits v
                     LEFT JOIN mystery_shopper_assessments msa ON msa.visit_id = v.id
                     LEFT JOIN mystery_shopper_locations l ON l.id = msa.location_id
                     LEFT JOIN businesses b ON b.id = v.business_id
                     LEFT JOIN {response_table} r ON r.visit_id = v.id
-                    LEFT JOIN questions q ON q.id = r.question_id
+                    LEFT JOIN questions q ON q.id = r.question_id {scope.question_filter}
                     WHERE v.status = 'Approved'
                     {where_extra}
                     GROUP BY COALESCE(l.name, b.name, 'Unknown Location')
@@ -462,11 +523,11 @@ def get_comprehensive_analytics(
                     SELECT
                         COALESCE(b.name, 'Unknown Location') as location_name,
                         COUNT(DISTINCT v.id) as visits,
-                        AVG(CASE WHEN {ms_csat_filter} THEN r.score END)::float as csat_average
+                        AVG(CASE WHEN {ms_csat_valid} THEN r.score END)::float as csat_average
                     FROM visits v
                     LEFT JOIN businesses b ON b.id = v.business_id
                     LEFT JOIN {response_table} r ON r.visit_id = v.id
-                    LEFT JOIN questions q ON q.id = r.question_id
+                    LEFT JOIN questions q ON q.id = r.question_id {scope.question_filter}
                     WHERE v.status = 'Approved'
                     {where_extra}
                     GROUP BY COALESCE(b.name, 'Unknown Location')
@@ -503,11 +564,11 @@ def get_comprehensive_analytics(
                 SELECT
                     COALESCE(msa.staff_on_duty, 'Unknown') AS staff_name,
                     COUNT(DISTINCT v.id) AS visits,
-                    AVG(CASE WHEN {ms_csat_filter} THEN r.score END)::float AS csat_average
+                    AVG(CASE WHEN {ms_csat_valid} THEN r.score END)::float AS csat_average
                 FROM visits v
                 LEFT JOIN mystery_shopper_assessments msa ON msa.visit_id = v.id
                 LEFT JOIN {response_table} r ON r.visit_id = v.id
-                LEFT JOIN questions q ON q.id = r.question_id
+                LEFT JOIN questions q ON q.id = r.question_id {scope.question_filter}
                 WHERE v.status = 'Approved'
                 {where_extra}
                 GROUP BY COALESCE(msa.staff_on_duty, 'Unknown')
@@ -518,6 +579,7 @@ def get_comprehensive_analytics(
             mystery_shopper = {
                 "csat_average": round(float(mystery_csat_stats.avg_score), 2) if mystery_csat_stats.avg_score is not None else None,
                 "csat_response_count": int(mystery_csat_stats.response_count or 0),
+                "csat_excluded_invalid": int(mystery_csat_stats.excluded_invalid or 0),
                 "waiting_time_distribution": [
                     {"label": row.label, "count": int(row.count or 0)} for row in mystery_waiting_rows
                 ],
@@ -569,6 +631,8 @@ def get_comprehensive_analytics(
                 "total": int(visit_stats.total_visits or 0),
                 "draft": int(visit_stats.draft_visits or 0),
                 "pending": int(visit_stats.pending_visits or 0),
+                "needs_changes": int(visit_stats.needs_changes_visits or 0),
+                # `completed` is a legacy alias of `approved`, not a separate status bucket.
                 "completed": int(visit_stats.approved_visits or 0),
                 "approved": int(visit_stats.approved_visits or 0),
                 "rejected": int(visit_stats.rejected_visits or 0)
@@ -584,12 +648,14 @@ def get_comprehensive_analytics(
                 "total_responses": int(nps_stats.total_responses or 0),
                 "promoter_percentage": round(promoters_pct, 1),
                 "detractor_percentage": round(detractors_pct, 1),
-                "passive_percentage": round(passive_pct, 1)
+                "passive_percentage": round(passive_pct, 1),
+                "excluded_invalid": int(nps_stats.excluded_invalid or 0),
             },
             "customer_satisfaction": {
-                "avg_score": float(satisfaction_stats.avg_satisfaction) if satisfaction_stats.avg_satisfaction else 0,
+                "avg_score": float(satisfaction_stats.avg_satisfaction) if satisfaction_stats.avg_satisfaction is not None else None,
                 "response_count": satisfaction_response_count,
                 "csat_score": csat_score,
+                "excluded_invalid": int(satisfaction_stats.excluded_invalid or 0),
                 "csat_formula": "(Satisfied [8] + Very Satisfied [9-10]) / Total responses * 100",
                 "question_text": "Rate your overall C&W Satisfaction (from question 12)",
                 "score_distribution": {
@@ -605,7 +671,8 @@ def get_comprehensive_analytics(
                 "avg_score": relationship_avg,
                 "total_score": relationship_total,
                 "possible_score": relationship_possible,
-                "questions_answered": int(relationship_stats.relationship_questions_answered or 0),
+                "questions_answered": relationship_answered,
+                "applicable": not is_mystery_survey,
                 "formula": "(Sum of Relationship Question Scores) / (Sum of Max Scores for Answered Relationship Questions) * 100",
                 "scale": "0-100"
             },
@@ -613,11 +680,22 @@ def get_comprehensive_analytics(
                 "exposure_rate": competitive_exposure_rate,
                 "total_accounts": total_accounts,
                 "accounts_using_competitors": accounts_using_competitors,
+                "applicable": not is_mystery_survey,
                 "formula": "Accounts Using Competitor Services / Total Accounts Surveyed",
                 "scale": "Percentage"
             },
             "mystery_shopper": mystery_shopper,
+            "scope": {
+                "module": scope.module,
+                "survey_type_id": scope.survey_type_id,
+                "response_table": response_table,
+                "visit_id": visit_id,
+                "population": "approved_only",
+                "visit_counts_population": "all_statuses",
+            },
         }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error getting analytics: {e}")
         print(f"Error type: {type(e).__name__}")
@@ -633,23 +711,25 @@ def get_question_averages(
     mystery_location_ids: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    visit_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Get per-question averages for drill-down analytics."""
     try:
-        survey_type_id = resolve_survey_type_id(db, survey_type)
-        normalized_survey_type = (survey_type or "").strip().lower()
-        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
-        response_table = get_response_table(db, is_mystery_survey=is_mystery_survey)
+        scope = _scope_or_400(db, survey_type)
+        survey_type_id = scope.survey_type_id
+        is_mystery_survey = scope.is_mystery
+        response_table = scope.response_table
         if not response_table or not has_table(db, response_table):
             return {"items": []}
-        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         where_extra = ""
         params: dict[str, Any] = {}
 
-        if survey_type_id is not None and has_visit_survey_type:
-            where_extra += " AND v.survey_type_id = :survey_type_id"
-            params["survey_type_id"] = survey_type_id
+        where_extra += scope.visit_filter
+        params.update(scope.params)
+        single_visit_sql, single_visit_params = _single_visit_filter(visit_id)
+        where_extra += single_visit_sql
+        params.update(single_visit_params)
 
         business_id_values = parse_business_ids(business_ids)
         location_id_values = parse_location_ids(mystery_location_ids)
@@ -714,6 +794,7 @@ def get_question_averages(
             WHERE v.status = 'Approved'
               AND q.input_type = 'score'
               AND r.score IS NOT NULL
+              {scope.question_filter}
               {where_extra}
             GROUP BY q.id, q.category, q.question_text, {order_expr}{', q.question_key' if has_question_key else ''}
             ORDER BY {order_expr}, q.id
@@ -737,6 +818,8 @@ def get_question_averages(
                 for row in rows
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load question averages: {e}")
 
@@ -748,24 +831,26 @@ def get_yes_no_question_analytics(
     mystery_location_ids: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    visit_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Get per-question yes/no distribution for approved visits."""
     try:
-        survey_type_id = resolve_survey_type_id(db, survey_type)
-        normalized_survey_type = (survey_type or "").strip().lower()
-        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
-        response_table = get_response_table(db, is_mystery_survey=is_mystery_survey)
+        scope = _scope_or_400(db, survey_type)
+        survey_type_id = scope.survey_type_id
+        is_mystery_survey = scope.is_mystery
+        response_table = scope.response_table
         if not response_table or not has_table(db, response_table):
             return {"items": []}
 
-        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         where_extra = ""
         params: dict[str, Any] = {}
 
-        if survey_type_id is not None and has_visit_survey_type:
-            where_extra += " AND v.survey_type_id = :survey_type_id"
-            params["survey_type_id"] = survey_type_id
+        where_extra += scope.visit_filter
+        params.update(scope.params)
+        single_visit_sql, single_visit_params = _single_visit_filter(visit_id)
+        where_extra += single_visit_sql
+        params.update(single_visit_params)
 
         business_id_values = parse_business_ids(business_ids)
         if business_id_values:
@@ -823,6 +908,7 @@ def get_yes_no_question_analytics(
             JOIN visits v ON r.visit_id = v.id
             WHERE v.status = 'Approved'
               AND q.input_type = 'yes_no'
+              {scope.question_filter}
               {where_extra}
             GROUP BY q.id, q.category, q.question_text, {order_expr}{', q.question_key' if has_question_key else ''}
             ORDER BY {order_expr}, q.id
@@ -851,6 +937,8 @@ def get_yes_no_question_analytics(
             )
 
         return {"items": items}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load yes/no analytics: {e}")
 
@@ -865,9 +953,11 @@ def get_account_executive_yes_no_trends(
 ):
     """Get Q4/Q6 yes rates grouped by captured account executive name."""
     try:
-        survey_type_id = resolve_survey_type_id(db, survey_type)
-        response_table = "b2b_visit_responses" if has_table(db, "b2b_visit_responses") else "responses"
-        if not response_table or not has_table(db, response_table) or not has_column(db, "visits", "account_executive_name"):
+        scope = _scope_or_400(db, survey_type)
+        if scope.is_mystery:
+            return {"items": []}  # AE yes-rates are a B2B-only metric
+        response_table = scope.response_table
+        if not response_table or not has_column(db, "visits", "account_executive_name"):
             return {"items": []}
 
         has_question_key, has_order_index, has_question_number = detect_question_columns(db)
@@ -883,11 +973,9 @@ def get_account_executive_yes_no_trends(
 
         where_extra = " AND COALESCE(v.account_executive_name, '') <> ''"
         params: dict[str, Any] = {}
-        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
 
-        if survey_type_id is not None and has_visit_survey_type:
-            where_extra += " AND v.survey_type_id = :survey_type_id"
-            params["survey_type_id"] = survey_type_id
+        where_extra += scope.visit_filter
+        params.update(scope.params)
 
         business_id_values = parse_business_ids(business_ids)
         if business_id_values:
@@ -918,6 +1006,7 @@ def get_account_executive_yes_no_trends(
             WHERE v.status = 'Approved'
               AND q.input_type = 'yes_no'
               AND ({order_expr} = 4 OR {order_expr} = 6)
+              {scope.question_filter}
               {where_extra}
             GROUP BY v.account_executive_name, q.question_text, {order_expr}
             ORDER BY lower(v.account_executive_name), {order_expr}
@@ -937,6 +1026,8 @@ def get_account_executive_yes_no_trends(
             })
 
         return {"items": items}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load account executive yes/no trends: {e}")
 
@@ -958,23 +1049,21 @@ def get_question_trend(
         if interval_value not in {"day", "week", "month"}:
             interval_value = "week"
 
-        survey_type_id = resolve_survey_type_id(db, survey_type)
-        normalized_survey_type = (survey_type or "").strip().lower()
-        is_mystery_survey = normalized_survey_type in {"mystery shopper", "mystery_shopper", "mystery", "mysteryshopper"}
-        response_table = get_response_table(db, is_mystery_survey=is_mystery_survey)
+        scope = _scope_or_400(db, survey_type)
+        survey_type_id = scope.survey_type_id
+        is_mystery_survey = scope.is_mystery
+        response_table = scope.response_table
         if not response_table or not has_table(db, response_table):
             return {
                 "question": {"id": question_id, "question_text": "", "category": ""},
                 "interval": interval_value,
                 "points": [],
             }
-        has_visit_survey_type = has_column(db, "visits", "survey_type_id")
         where_extra = " AND q.id = :question_id"
         params: dict[str, Any] = {"question_id": question_id}
 
-        if survey_type_id is not None and has_visit_survey_type:
-            where_extra += " AND v.survey_type_id = :survey_type_id"
-            params["survey_type_id"] = survey_type_id
+        where_extra += scope.visit_filter
+        params.update(scope.params)
 
         business_id_values = parse_business_ids(business_ids)
         location_id_values = parse_location_ids(mystery_location_ids)
@@ -1007,12 +1096,18 @@ def get_question_trend(
             where_extra += " AND v.visit_date <= :date_to"
             params["date_to"] = date_to
 
+        question_type_select = "survey_type_id" if has_column(db, "questions", "survey_type_id") else "NULL AS survey_type_id"
         question_row = db.execute(
-            text("SELECT id, question_text, category FROM questions WHERE id = :question_id"),
+            text(f"SELECT id, question_text, category, {question_type_select} FROM questions WHERE id = :question_id"),
             {"question_id": question_id},
         ).fetchone()
         if not question_row:
             raise HTTPException(status_code=404, detail="Question not found")
+        question_module_id = question_row.survey_type_id
+        if scope.survey_type_id is not None and (
+            question_module_id is None and scope.is_mystery or (question_module_id is not None and question_module_id != scope.survey_type_id)
+        ):
+            raise HTTPException(status_code=404, detail="Question not found in this survey type")
 
         rows = db.execute(text(f"""
             SELECT
@@ -1025,6 +1120,7 @@ def get_question_trend(
             WHERE v.status = 'Approved'
               AND q.input_type = 'score'
               AND r.score IS NOT NULL
+              {scope.question_filter}
               {where_extra}
             GROUP BY date_trunc('{interval_value}', v.visit_date)
             ORDER BY period

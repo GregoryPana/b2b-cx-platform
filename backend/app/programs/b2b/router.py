@@ -6,7 +6,7 @@ from sqlalchemy import text, select
 from typing import List
 
 from ...core.database import get_db
-from ...core.auth.dependencies import get_current_user, require_program_access, require_role
+from ...core.auth.dependencies import get_current_user, require_program_access, require_roles
 from ...core.models import User
 from .services import BusinessService, AccountExecutiveService, B2BVisitService
 from .schemas import (
@@ -71,7 +71,7 @@ def create_business(
     business_data: BusinessCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Surveyor"))  # surveyors can add a business inline while starting a visit
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN", "B2B_SURVEYOR"))  # surveyors can add a business inline while starting a visit
 ):
     """Create a new business."""
     return BusinessService.create_business(db, business_data)
@@ -83,7 +83,7 @@ def update_business(
     business_data: BusinessUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Admin"))
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN"))
 ):
     """Update an existing business."""
     return BusinessService.update_business(db, business_id, business_data)
@@ -113,7 +113,7 @@ def delete_business(
     business_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Admin"))  # Requires Admin role in B2B
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN"))  # Requires Admin role in B2B
 ):
     """Delete a business and all related records (cascade deletion)."""
     result = BusinessService.delete_business(db, business_id)
@@ -129,7 +129,7 @@ def retire_business(
     business_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Admin"))
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN"))
 ):
     """Retire a business (set active to false) - keeps all records."""
     return BusinessService.retire_business(db, business_id)
@@ -161,12 +161,15 @@ def list_businesses_public(
     appear in the selector.
     """
     try:
+        from ...api.visits_dashboard import _b2b_scope
+        scope = _b2b_scope(db) if with_approved_surveys else None
         approved_filter = (
             "WHERE EXISTS ("
             "SELECT 1 FROM visits v "
-            "WHERE v.business_id = businesses.id AND v.status = 'Approved'"
+            "WHERE v.business_id = businesses.id AND v.status = 'Approved' "
+            f"{scope.visit_filter}"
             ")"
-            if with_approved_surveys
+            if scope is not None
             else ""
         )
         # Use raw SQL to avoid service issues
@@ -188,7 +191,8 @@ def list_businesses_public(
                         ELSE 2
                     END,
                     name
-                """)
+                """),
+            scope.params if scope is not None else {},
         ).all()
         
         businesses = []
@@ -295,7 +299,7 @@ def create_account_executive(
     ae_data: AccountExecutiveCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Admin"))
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN"))
 ):
     """Create a new account executive."""
     return AccountExecutiveService.create_account_executive(db, ae_data)
@@ -307,7 +311,7 @@ def update_account_executive(
     ae_data: AccountExecutiveUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Admin"))  # Requires Admin role in B2B
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN"))  # Requires Admin role in B2B
 ):
     """Update an existing account executive."""
     return AccountExecutiveService.update_account_executive(db, ae_id, ae_data)
@@ -318,7 +322,7 @@ def delete_account_executive(
     ae_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Admin"))  # Requires Admin role in B2B
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN"))  # Requires Admin role in B2B
 ):
     """Delete an account executive."""
     AccountExecutiveService.delete_account_executive(db, ae_id)
@@ -337,7 +341,7 @@ def list_visits(
 
 @router.get("/visits/{visit_id}", response_model=B2BVisitOut)
 def get_visit(
-    visit_id: int,
+    visit_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _access: bool = Depends(require_program_access("B2B"))
@@ -357,12 +361,13 @@ def create_visit(
     visit_data: B2BVisitCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Surveyor"))
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN", "B2B_SURVEYOR"))
 ):
     """Create a new B2B visit."""
     # Set the representative_id to current user
     visit_data_dict = visit_data.model_dump()
-    visit_data_dict["representative_id"] = current_user.id
+    from ...api.visits_dashboard import resolve_actor_user_id
+    visit_data_dict["representative_id"] = resolve_actor_user_id(db, current_user)
     
     visit_data_modified = B2BVisitCreate(**visit_data_dict)
     return B2BVisitService.create_visit(db, visit_data_modified)
@@ -370,7 +375,7 @@ def create_visit(
 
 @router.put("/visits/{visit_id}", response_model=B2BVisitOut)
 def update_visit(
-    visit_id: int,
+    visit_id: str,
     visit_data: B2BVisitUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -382,10 +387,10 @@ def update_visit(
 
 @router.delete("/visits/{visit_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_visit(
-    visit_id: int,
+    visit_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_role("Admin"))
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN"))
 ):
     """Delete a B2B visit."""
     B2BVisitService.delete_visit(db, visit_id)

@@ -3,6 +3,7 @@ import json
 import os
 import re
 import smtplib
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,7 +14,8 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..core.auth.dependencies import get_current_user
+from ..core.answer_validity import require_valid_completion, require_visit_state, answer_is_valid
+from ..core.auth.dependencies import require_roles, get_current_user
 from ..core.auth.entra import AuthUser
 from ..core.database import get_db
 from .visits_dashboard import resolve_actor_user_id
@@ -142,6 +144,28 @@ def get_mystery_answer_table(db: Session) -> str | None:
     return "mystery_shopper_answers" if has_table(db, "mystery_shopper_answers") else None
 
 
+def _require_mystery_visit(db: Session, visit_id: str) -> int:
+    survey_type_id = _ensure_mystery_shopper_schema(db)
+    exists = db.execute(
+        text("SELECT 1 FROM visits WHERE id = :visit_id AND survey_type_id = :survey_type_id LIMIT 1"),
+        {"visit_id": visit_id, "survey_type_id": survey_type_id},
+    ).scalar()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    return survey_type_id
+
+
+def _require_mystery_question(db: Session, question_id: int, survey_type_id: int | None = None) -> int:
+    survey_type_id = survey_type_id or _ensure_mystery_shopper_schema(db)
+    exists = db.execute(
+        text("SELECT 1 FROM questions WHERE id = :question_id AND survey_type_id = :survey_type_id LIMIT 1"),
+        {"question_id": question_id, "survey_type_id": survey_type_id},
+    ).scalar()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return survey_type_id
+
+
 def resolve_mystery_actor_user_id(db: Session, current_user: AuthUser) -> int:
     return int(resolve_actor_user_id(db, current_user))
 
@@ -235,28 +259,51 @@ def normalize_actions_value(value: Any) -> list[Any]:
 
 
 def validate_mystery_response(question_row: Any, payload: MysteryResponsePayload) -> None:
-    input_type = question_row.input_type if hasattr(question_row, "input_type") else question_row[2]
-    score_min = question_row.score_min if hasattr(question_row, "score_min") else question_row[3]
-    score_max = question_row.score_max if hasattr(question_row, "score_max") else question_row[4]
-    is_mandatory = bool(question_row.is_mandatory if hasattr(question_row, "is_mandatory") else question_row[5])
-
-    if input_type == "score":
-        if payload.score is None:
-            raise HTTPException(status_code=400, detail="Score is required for this question")
-        min_value = int(score_min if score_min is not None else 0)
-        max_value = int(score_max if score_max is not None else 10)
-        if payload.score < min_value or payload.score > max_value:
-            raise HTTPException(status_code=400, detail=f"Score must be between {min_value} and {max_value}")
+    question = dict(question_row._mapping) if hasattr(question_row, "_mapping") else dict(question_row)
+    if not question["is_mandatory"] and payload.score is None and not (payload.answer_text or "").strip():
         return
+    if not answer_is_valid(question, payload.score, payload.answer_text):
+        raise HTTPException(status_code=400, detail="Answer is missing, invalid, or outside declared bounds")
 
-    answer_text = (payload.answer_text or "").strip()
-    if input_type == "yes_no":
-        if answer_text not in {"Y", "N", "Yes", "No"}:
-            raise HTTPException(status_code=400, detail="Answer must be Yes or No")
-        return
 
-    if is_mandatory and not answer_text:
-        raise HTTPException(status_code=400, detail="Answer is required for this question")
+MYSTERY_METRIC_THRESHOLDS = {
+    # metric key -> (green at or above, amber at or above); anything lower is red.
+    # Shared with the dashboard via backend/tests/analytics/metric_threshold_contract.json.
+    "mystery_nps": (50.0, 0.0),
+    "mystery_csat": (8.0, 6.0),
+    "mystery_overall_experience": (8.0, 6.0),
+    "mystery_quality": (4.0, 3.0),
+}
+MYSTERY_METRIC_SCALES = {
+    "nps": "-100..100",
+    "csat": "0-10",
+    "overall_experience": "0-10",
+    "quality": "1-5",
+}
+
+
+def _mystery_level(metric: str, value: Any) -> str:
+    if value is None:
+        return "neutral"
+    good_at, warn_at = MYSTERY_METRIC_THRESHOLDS[metric]
+    number = float(value)
+    return "high" if number >= good_at else ("mid" if number >= warn_at else "low")
+
+
+def mystery_nps_level(value: Any) -> str:
+    return _mystery_level("mystery_nps", value)
+
+
+def mystery_csat_level(value: Any) -> str:
+    return _mystery_level("mystery_csat", value)
+
+
+def mystery_overall_experience_level(value: Any) -> str:
+    return _mystery_level("mystery_overall_experience", value)
+
+
+def mystery_quality_level(value: Any) -> str:
+    return _mystery_level("mystery_quality", value)
 
 
 def build_mystery_report_payload(
@@ -268,12 +315,35 @@ def build_mystery_report_payload(
     date_from: str | None,
     date_to: str | None,
 ) -> dict[str, Any]:
+    """Build the Mystery Shopper report payload.
+
+    Populations (see docs/testing/ANALYTICS_CALCULATION_ASSURANCE.md):
+    * ``visit_details`` / ``summary.total_visits`` / ``summary.visit_status_counts`` are the
+      selected-scope *inventory* and include every status.
+    * every score metric (NPS, CSAT, Overall Experience, Quality, ``summary.average_score``,
+      ``summary.total_responses``) is the *Approved-only* population, read from the
+      authoritative ``mystery_shopper_answers`` table.
+    * ``overall_*`` metrics are lifetime: all locations, all dates, Approved only.
+    """
     from ..routers.analytics import get_comprehensive_analytics, get_question_averages
 
+    if visit_id:
+        try:
+            visit_id = str(uuid.UUID(str(visit_id)))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="visit_id must be a valid UUID")
+
     survey_type_id = _ensure_mystery_shopper_schema(db)
-    response_table = get_response_table(db)
-    if not response_table:
-        raise HTTPException(status_code=500, detail="No response table found")
+    if visit_id:
+        owning_visit = db.execute(
+            text("SELECT survey_type_id FROM visits WHERE id = :visit_id"),
+            {"visit_id": visit_id},
+        ).first()
+        if owning_visit is None or owning_visit[0] != survey_type_id:
+            raise HTTPException(status_code=400, detail="visit does not belong to Mystery Shopper")
+    answer_table = get_mystery_answer_table(db)
+    if not answer_table:
+        raise HTTPException(status_code=500, detail="Mystery Shopper answers table not found")
 
     normalized_report_type = (report_type or "lifetime").strip().lower()
     if normalized_report_type not in {"lifetime", "survey", "date"}:
@@ -282,21 +352,30 @@ def build_mystery_report_payload(
     effective_date_from = date_from
     effective_date_to = date_to
     if report_date:
-      effective_date_from = report_date
-      effective_date_to = report_date
+        effective_date_from = report_date
+        effective_date_to = report_date
+
+    is_single_visit = normalized_report_type == "survey" and bool(visit_id)
+    scoped_visit_id = visit_id if is_single_visit else None
 
     where_clauses = ["v.survey_type_id = :survey_type_id"]
     params: dict[str, Any] = {"survey_type_id": survey_type_id}
     if location_id is not None:
         where_clauses.append("m.location_id = :location_id")
         params["location_id"] = location_id
+    if scoped_visit_id:
+        where_clauses.append("v.id = :scoped_visit_id")
+        params["scoped_visit_id"] = scoped_visit_id
     if effective_date_from:
         where_clauses.append("v.visit_date >= :date_from")
         params["date_from"] = effective_date_from
     if effective_date_to:
         where_clauses.append("v.visit_date <= :date_to")
         params["date_to"] = effective_date_to
+    where_sql = " AND ".join(where_clauses)
 
+    # Inventory: every status. Per-visit figures come from the authoritative answers table;
+    # avg_score is the mean of the 0-10 scale answers only (never mixed with 1-5 answers).
     visit_rows = db.execute(
         text(
             f"""
@@ -310,13 +389,14 @@ def build_mystery_report_payload(
                 m.purpose_of_visit,
                 m.staff_on_duty,
                 m.shopper_name,
-                COUNT(r.id) AS response_count,
-                AVG(CASE WHEN r.score IS NOT NULL THEN r.score END)::float AS average_score
+                COUNT(CASE WHEN q.id IS NOT NULL AND (r.score IS NOT NULL OR COALESCE(r.answer_text, '') <> '') THEN 1 END) AS response_count,
+                AVG(CASE WHEN q.input_type = 'score' AND q.score_min = 0 AND q.score_max = 10 AND r.score BETWEEN 0 AND 10 THEN r.score END)::float AS average_score
             FROM visits v
             JOIN mystery_shopper_assessments m ON m.visit_id = v.id
             JOIN mystery_shopper_locations l ON l.id = m.location_id
-            LEFT JOIN {response_table} r ON r.visit_id = v.id
-            WHERE {' AND '.join(where_clauses)}
+            LEFT JOIN {answer_table} r ON r.visit_id = v.id
+            LEFT JOIN questions q ON q.id = r.question_id AND q.survey_type_id = :survey_type_id
+            WHERE {where_sql}
             GROUP BY v.id, l.id, l.name, v.visit_date, v.status, m.visit_time, m.purpose_of_visit, m.staff_on_duty, m.shopper_name
             ORDER BY v.visit_date DESC, m.visit_time DESC NULLS LAST, v.id DESC
             """
@@ -324,12 +404,47 @@ def build_mystery_report_payload(
         params,
     ).mappings().all()
 
-    total_responses = sum(int(row["response_count"] or 0) for row in visit_rows)
+    approved_rows = [row for row in visit_rows if str(row["status"]) == "Approved"]
     total_visits = len(visit_rows)
     total_locations = len({row["location_id"] for row in visit_rows if row["location_id"] is not None})
-    weighted_score_sum = sum((float(row["average_score"] or 0.0) * int(row["response_count"] or 0)) for row in visit_rows)
-    weighted_score_count = sum(int(row["response_count"] or 0) for row in visit_rows if row["average_score"] is not None)
-    average_score = round(weighted_score_sum / weighted_score_count, 2) if weighted_score_count else None
+    total_responses = sum(int(row["response_count"] or 0) for row in approved_rows)
+    status_order = ["Approved", "Pending", "Draft", "Needs Changes", "Rejected"]
+    status_counts: dict[str, int] = {}
+    for row in visit_rows:
+        status_counts[str(row["status"])] = status_counts.get(str(row["status"]), 0) + 1
+    visit_status_counts = {k: status_counts[k] for k in status_order if k in status_counts}
+    visit_status_counts.update({k: v for k, v in status_counts.items() if k not in visit_status_counts})
+
+    scale_rows = db.execute(
+        text(
+            f"""
+            SELECT q.score_min, q.score_max, AVG(r.score)::float AS average, COUNT(r.score) AS count
+            FROM visits v
+            JOIN mystery_shopper_assessments m ON m.visit_id = v.id
+            JOIN {answer_table} r ON r.visit_id = v.id
+            JOIN questions q ON q.id = r.question_id AND q.survey_type_id = :survey_type_id
+            WHERE {where_sql}
+              AND v.status = 'Approved'
+              AND q.input_type = 'score'
+              AND r.score IS NOT NULL
+              AND r.score BETWEEN COALESCE(q.score_min, 0) AND COALESCE(q.score_max, 10)
+            GROUP BY q.score_min, q.score_max
+            ORDER BY q.score_max DESC, q.score_min
+            """
+        ),
+        params,
+    ).mappings().all()
+    average_score_by_scale = [
+        {
+            "score_min": row["score_min"],
+            "score_max": row["score_max"],
+            "average": round(float(row["average"]), 2),
+            "count": int(row["count"] or 0),
+        }
+        for row in scale_rows
+    ]
+    zero_to_ten = next((s for s in average_score_by_scale if s["score_min"] == 0 and s["score_max"] == 10), None)
+    average_score = zero_to_ten["average"] if zero_to_ten else None
 
     location_filter = str(location_id) if location_id is not None else None
     analytics_selected = get_comprehensive_analytics(
@@ -337,6 +452,7 @@ def build_mystery_report_payload(
         mystery_location_ids=location_filter,
         date_from=effective_date_from,
         date_to=effective_date_to,
+        visit_id=scoped_visit_id,
         db=db,
     )
     analytics_overall = get_comprehensive_analytics(survey_type="Mystery Shopper", db=db)
@@ -345,6 +461,7 @@ def build_mystery_report_payload(
         mystery_location_ids=location_filter,
         date_from=effective_date_from,
         date_to=effective_date_to,
+        visit_id=scoped_visit_id,
         db=db,
     )
 
@@ -364,10 +481,19 @@ def build_mystery_report_payload(
         return round(score_sum / count_sum, 2) if count_sum else None
 
     question_items = list(question_averages_selected.get("items") or [])
-    overall_experience_avg = weighted_average([item for item in question_items if "overall experience" in str(item.get("category") or "").lower()])
+
+    def is_overall_experience(item: dict[str, Any]) -> bool:
+        return "overall experience" in str(item.get("category") or "").lower()
+
+    # Pool only declared compatible scales, never infer a scale from observed scores.
+    # The recommendation rating is included in Overall Experience, not the NPS index.
+    overall_experience_avg = weighted_average([
+        item for item in question_items
+        if is_overall_experience(item) and item.get("score_min") == 0 and item.get("score_max") == 10
+    ])
     quality_avg = weighted_average([
         item for item in question_items
-        if "overall experience" not in str(item.get("category") or "").lower() and float(item.get("average_score") or 0) <= 5.2
+        if not is_overall_experience(item) and item.get("score_min") == 1 and item.get("score_max") == 5
     ])
 
     selected_visit_info = None
@@ -392,10 +518,11 @@ def build_mystery_report_payload(
                 JOIN mystery_shopper_assessments m ON m.visit_id = v.id
                 JOIN mystery_shopper_locations l ON l.id = m.location_id
                 WHERE v.id = :visit_id
+                  AND v.survey_type_id = :survey_type_id
                 LIMIT 1
                 """
             ),
-            {"visit_id": visit_id},
+            {"visit_id": visit_id, "survey_type_id": survey_type_id},
         ).mappings().first()
         if detail:
             selected_visit_info = {
@@ -427,13 +554,14 @@ def build_mystery_report_payload(
                     r.score,
                     r.answer_text,
                     r.verbatim
-                FROM {response_table} r
-                JOIN questions q ON q.id = r.question_id
+                FROM {answer_table} r
+                JOIN questions q ON q.id = r.question_id AND q.survey_type_id = :survey_type_id
+                JOIN visits v ON v.id = r.visit_id AND v.survey_type_id = :survey_type_id
                 WHERE r.visit_id = :visit_id
                 ORDER BY {question_number_select}, q.id
                 """
             ),
-            {"visit_id": visit_id},
+            {"visit_id": visit_id, "survey_type_id": survey_type_id},
         ).mappings().all()
         survey_question_details = [dict(row) for row in qrows]
 
@@ -451,7 +579,13 @@ def build_mystery_report_payload(
             "total_locations": total_locations,
             "total_responses": total_responses,
             "average_score": average_score,
-            "is_single_visit": normalized_report_type == "survey" and bool(visit_id),
+            "average_score_scale": "0-10",
+            "average_score_by_scale": average_score_by_scale,
+            "approved_visits": len(approved_rows),
+            "visit_status_counts": visit_status_counts,
+            "inventory_population": "all_statuses",
+            "kpi_population": "approved_only",
+            "is_single_visit": is_single_visit,
         },
         "mystery_metrics": {
             "selected_nps": (analytics_selected.get("nps") or {}).get("nps"),
@@ -460,6 +594,9 @@ def build_mystery_report_payload(
             "overall_csat": (analytics_overall.get("mystery_shopper") or {}).get("csat_average"),
             "selected_overall_experience": overall_experience_avg,
             "selected_quality": quality_avg,
+            "scales": dict(MYSTERY_METRIC_SCALES),
+            "selected_population": "approved_only",
+            "overall_scope": "all_locations_all_dates_approved",
         },
         "analytics_selected": analytics_selected,
         "analytics_overall": analytics_overall,
@@ -470,6 +607,7 @@ def build_mystery_report_payload(
                 "visit_id": str(row["id"]),
                 "visit_date": row["visit_date"].isoformat() if row["visit_date"] else None,
                 "status": row["status"],
+                "counts_in_kpis": str(row["status"]) == "Approved",
                 "location_id": row["location_id"],
                 "location_name": row["location_name"],
                 "visit_time": row["visit_time"],
@@ -564,28 +702,21 @@ def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> st
         return _badge(s or "—", level_map.get(s, "neutral"))
 
     def _nps_level(nps: Any) -> str:
-        if nps is None:
-            return "neutral"
-        n = float(nps)
-        return "high" if n >= 50 else ("mid" if n >= 0 else "low")
+        return mystery_nps_level(nps)
 
     def _csat_level(csat: Any) -> str:
-        if csat is None:
-            return "neutral"
-        c = float(csat)
-        return "high" if c >= 8 else ("mid" if c >= 6 else "low")
+        return mystery_csat_level(csat)
 
     def _avg_score_level(avg: Any) -> str:
-        if avg is None:
-            return "neutral"
-        a = float(avg)
-        return "high" if a >= 8 else ("mid" if a >= 6 else "low")
+        return mystery_overall_experience_level(avg)
 
     def _fmt(value: Any, decimals: int = 1) -> str:
         if value is None or value == "":
             return "—"
         try:
-            return f"{float(value):.{decimals}f}"
+            formatted = f"{float(value):.{decimals}f}"
+            # Rounding can leave a negative zero (e.g. -0.4 at 0 dp); never render "-0".
+            return formatted[1:] if formatted.startswith("-") and float(formatted) == 0 else formatted
         except Exception:
             return str(value)
 
@@ -617,19 +748,20 @@ def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> st
     kpi_html = (
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px">'
         + _kpi_card("Total Mystery Visits", str(summary.get("total_visits", 0)), "neutral",
-                    "Number of mystery shopper visits included in this report.")
+                    f"Visits listed in this report across all statuses ({summary.get('approved_visits', 0)} Approved). "
+                    "NPS, CSAT and the score KPIs below use Approved visits only.")
         + _kpi_card("Locations Covered", str(summary.get("total_locations", 0)), "neutral",
                     "How many different Cable & Wireless Seychelles locations were visited.")
-        + _kpi_card("NPS — Would Recommend?", _fmt(nps_val, 0), _nps_level(nps_val),
+        + _kpi_card("NPS — Would Recommend?", _fmt(nps_val, 2), _nps_level(nps_val),
                     "Net Promoter Score. Ranges from −100 to +100. "
                     "Above 50 is excellent; 0–49 is good; below 0 needs immediate attention.")
         + _kpi_card("CSAT — Satisfaction Score", _fmt(csat_val, 2), _csat_level(csat_val),
                     "Customer Satisfaction score (0–10 scale). "
                     "8 or above is excellent; 6–7.9 needs improvement; below 6 is a concern.")
         + _kpi_card("Overall Experience Score", _fmt(oe_val, 2), _avg_score_level(oe_val),
-                    "Weighted average of NPS and CSAT questions. Reflects how customers felt overall.")
-        + _kpi_card("Service Quality Score", _fmt(sq_val, 2), _avg_score_level(sq_val),
-                    "Average score across service delivery and staff-behaviour questions (scored 0–5 each).")
+                    "Answer-weighted mean of Overall Experience ratings declared on the 0–10 scale, including recommendation ratings (not the NPS index). Incompatible scales are excluded.")
+        + _kpi_card("Service Quality Score", _fmt(sq_val, 2), mystery_quality_level(sq_val),
+                    "Answer-weighted mean of service delivery and staff-behaviour ratings declared on the 1–5 scale. Incompatible scales are excluded.")
         + '</div>'
     )
 
@@ -802,7 +934,7 @@ th { background: #f8fafc; padding: 10px 12px; text-align: left; font-size: 11px;
         "<div class='intro-box' style='margin-top:14px'>"
         "This report was created from anonymous mystery shopping visits to Cable &amp; Wireless Seychelles locations. "
         "During each visit, a trained mystery shopper evaluates the store, staff, and service using a standard checklist. "
-        "Questions scored 0&ndash;5 measure specific behaviours; questions scored 0&ndash;10 measure overall satisfaction. "
+        "Service Quality uses ratings declared 1&ndash;5; Overall Experience uses ratings declared 0&ndash;10. Each question retains its own declared scale. "
         "Yes/No questions check whether a specific standard was met."
         "</div>\n"
         "</div>\n"
@@ -1437,7 +1569,7 @@ def _bootstrap_mystery_shopper_schema(db: Session) -> int:
 
         order_index_column = "order_index," if has_order_index else ""
         order_index_value = ":order_index," if has_order_index else ""
-        order_index_update = "order_index = EXCLUDED.order_index," if has_order_index else ""
+        order_index_update = "order_index = :order_index," if has_order_index else ""
 
         existing_id = db.execute(
             text("SELECT id FROM questions WHERE question_key = :question_key LIMIT 1"),
@@ -1892,6 +2024,12 @@ async def create_mystery_visit(
 ):
     survey_type_id = _ensure_mystery_shopper_schema(db)
     actor_user_id = resolve_mystery_actor_user_id(db, current_user)
+    is_public_session = current_user.claims.get("auth_mode") == "mystery_public"
+    representative_id = (
+        actor_user_id
+        if is_public_session
+        else (payload.representative_id or actor_user_id)
+    )
     valid_purpose = db.execute(
         text(
             """
@@ -1953,7 +2091,7 @@ async def create_mystery_visit(
             """
         ),
         {
-            "representative_id": payload.representative_id or actor_user_id,
+            "representative_id": representative_id,
             "created_by": actor_user_id,
             "visit_date": payload.visit_date,
             "visit_type": payload.visit_type,
@@ -2088,14 +2226,19 @@ async def list_mystery_drafts(
                 m.purpose_of_visit,
                 m.staff_on_duty,
                 m.shopper_name,
-                COUNT(r.id) as response_count,
-                COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
+                COUNT(CASE WHEN q.id IS NOT NULL THEN r.id END) as response_count,
+                COUNT(CASE WHEN q.is_mandatory = true AND (CASE WHEN COALESCE(q.input_type, 'score') = 'score' THEN
+                    r.score IS NOT NULL AND (q.score_min IS NULL OR r.score >= q.score_min)
+                    AND (q.score_max IS NULL OR r.score <= q.score_max)
+                WHEN q.input_type = 'yes_no' THEN lower(trim(COALESCE(r.answer_text, ''))) IN ('y','n','yes','no')
+                WHEN q.input_type = 'always_sometimes_never' THEN lower(trim(COALESCE(r.answer_text, ''))) IN ('always','sometimes','monthly','never')
+                ELSE length(trim(COALESCE(r.answer_text, ''))) > 0 END) THEN 1 END) as mandatory_answered_count,
                 (SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = :survey_type_id) as mandatory_total_count
             FROM visits v
             JOIN mystery_shopper_assessments m ON m.visit_id = v.id
             JOIN mystery_shopper_locations l ON l.id = m.location_id
             LEFT JOIN {response_table} r ON r.visit_id = v.id
-            LEFT JOIN questions q ON q.id = r.question_id
+            LEFT JOIN questions q ON q.id = r.question_id AND q.survey_type_id = :survey_type_id
             WHERE v.status = 'Draft' AND v.survey_type_id = :survey_type_id {where_rep}
             GROUP BY v.id, m.location_id, l.name, m.visit_time, m.purpose_of_visit, m.staff_on_duty, m.shopper_name
             ORDER BY v.visit_date ASC, m.visit_time ASC
@@ -2175,8 +2318,13 @@ async def list_mystery_admin_visits(
                 v.submitted_by_name,
                 v.submitted_by_email,
                 v.submitted_at,
-                COUNT(r.id) as response_count,
-                COUNT(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 END) as mandatory_answered_count,
+                COUNT(CASE WHEN q.id IS NOT NULL THEN r.id END) as response_count,
+                COUNT(CASE WHEN q.is_mandatory = true AND (CASE WHEN COALESCE(q.input_type, 'score') = 'score' THEN
+                    r.score IS NOT NULL AND (q.score_min IS NULL OR r.score >= q.score_min)
+                    AND (q.score_max IS NULL OR r.score <= q.score_max)
+                WHEN q.input_type = 'yes_no' THEN lower(trim(COALESCE(r.answer_text, ''))) IN ('y','n','yes','no')
+                WHEN q.input_type = 'always_sometimes_never' THEN lower(trim(COALESCE(r.answer_text, ''))) IN ('always','sometimes','monthly','never')
+                ELSE length(trim(COALESCE(r.answer_text, ''))) > 0 END) THEN 1 END) as mandatory_answered_count,
                 (SELECT COUNT(*) FROM questions q2 WHERE q2.is_mandatory = true AND q2.survey_type_id = :survey_type_id) as mandatory_total_count,
                 m.location_id,
                 l.name as location_name,
@@ -2190,7 +2338,7 @@ async def list_mystery_admin_visits(
             JOIN mystery_shopper_locations l ON l.id = m.location_id
             LEFT JOIN users u ON v.representative_id = u.id
             LEFT JOIN {response_table} r ON r.visit_id = v.id
-            LEFT JOIN questions q ON q.id = r.question_id
+            LEFT JOIN questions q ON q.id = r.question_id AND q.survey_type_id = :survey_type_id
             WHERE {' AND '.join(where_clauses)}
             GROUP BY
                 v.id,
@@ -2255,7 +2403,7 @@ async def get_mystery_visit_detail(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
-    _ensure_mystery_shopper_schema(db)
+    survey_type_id = _ensure_mystery_shopper_schema(db)
     ensure_mystery_visit_access(db, visit_id, current_user)
     response_table = get_mystery_answer_table(db)
     if not response_table:
@@ -2308,12 +2456,12 @@ async def get_mystery_visit_detail(
                 q.input_type,
                 q.category
             FROM {response_table} r
-            LEFT JOIN questions q ON q.id = r.question_id
+            JOIN questions q ON q.id = r.question_id AND q.survey_type_id = :survey_type_id
             WHERE r.visit_id = :visit_id
             ORDER BY {question_order_col}
             """
         ),
-        {"visit_id": visit_id},
+        {"visit_id": visit_id, "survey_type_id": survey_type_id},
     ).mappings().all()
 
     responses = [
@@ -2338,7 +2486,12 @@ async def get_mystery_visit_detail(
         text(
             f"""
             SELECT
-                COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
+                COALESCE(SUM(CASE WHEN q.is_mandatory = true AND (CASE WHEN COALESCE(q.input_type, 'score') = 'score' THEN
+                    r.score IS NOT NULL AND (q.score_min IS NULL OR r.score >= q.score_min)
+                    AND (q.score_max IS NULL OR r.score <= q.score_max)
+                WHEN q.input_type = 'yes_no' THEN lower(trim(COALESCE(r.answer_text, ''))) IN ('y','n','yes','no')
+                WHEN q.input_type = 'always_sometimes_never' THEN lower(trim(COALESCE(r.answer_text, ''))) IN ('always','sometimes','monthly','never')
+                ELSE length(trim(COALESCE(r.answer_text, ''))) > 0 END) THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
                 COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
             FROM questions q
             JOIN visits v ON v.survey_type_id = q.survey_type_id
@@ -2391,8 +2544,9 @@ async def create_mystery_response(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
-    _ensure_mystery_shopper_schema(db)
+    survey_type_id = _ensure_mystery_shopper_schema(db)
     ensure_mystery_visit_access(db, visit_id, current_user)
+    _require_mystery_question(db, payload.question_id, survey_type_id)
     response_table = get_response_table(db)
     if not response_table:
         raise HTTPException(status_code=500, detail="No response table found")
@@ -2402,10 +2556,10 @@ async def create_mystery_response(
             """
             SELECT id, question_text, input_type, score_min, score_max, is_mandatory
             FROM questions
-            WHERE id = :question_id
+            WHERE id = :question_id AND survey_type_id = :survey_type_id
             """
         ),
-        {"question_id": payload.question_id},
+        {"question_id": payload.question_id, "survey_type_id": survey_type_id},
     ).mappings().first()
     if not question_row:
         raise HTTPException(status_code=404, detail="Question not found")
@@ -2484,18 +2638,19 @@ async def update_mystery_response(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
-    _ensure_mystery_shopper_schema(db)
+    survey_type_id = _ensure_mystery_shopper_schema(db)
     ensure_mystery_visit_access(db, visit_id, current_user)
+    _require_mystery_question(db, payload.question_id, survey_type_id)
 
     question_row = db.execute(
         text(
             """
             SELECT id, question_text, input_type, score_min, score_max, is_mandatory
             FROM questions
-            WHERE id = :question_id
+            WHERE id = :question_id AND survey_type_id = :survey_type_id
             """
         ),
-        {"question_id": payload.question_id},
+        {"question_id": payload.question_id, "survey_type_id": survey_type_id},
     ).mappings().first()
     if not question_row:
         raise HTTPException(status_code=404, detail="Question not found")
@@ -2518,13 +2673,14 @@ async def update_mystery_response(
                 verbatim = :verbatim,
                 actions = CAST(:actions AS jsonb),
                 updated_at = NOW()
-            WHERE id = :response_id AND visit_id = :visit_id
+            WHERE id = :response_id AND visit_id = :visit_id AND question_id = :question_id
             RETURNING id, question_id, score, answer_text, verbatim, actions, updated_at
             """
         ),
         {
             "response_id": answer_id,
             "visit_id": visit_id,
+            "question_id": payload.question_id,
             "score": payload.score,
             "answer_text": payload.answer_text,
             "verbatim": payload.verbatim,
@@ -2579,12 +2735,10 @@ async def update_mystery_response(
     return response_payload
 
 
-@router.put("/visits/{visit_id}/approve")
+@router.put("/visits/{visit_id}/approve", dependencies=[Depends(require_roles("CX_SUPER_ADMIN", "MYSTERY_ADMIN"))])
 async def approve_mystery_visit(visit_id: str, payload: dict[str, Any], db: Session = Depends(get_db)):
-    _ensure_mystery_shopper_schema(db)
-    visit_exists = db.execute(text("SELECT 1 FROM visits WHERE id = :visit_id"), {"visit_id": visit_id}).scalar()
-    if not visit_exists:
-        raise HTTPException(status_code=404, detail="Visit not found")
+    _require_mystery_visit(db, visit_id)
+    require_visit_state(db, visit_id, {"Pending"})
 
     approval_notes = (payload.get("approval_notes") if isinstance(payload, dict) else None) or None
     db.execute(
@@ -2603,12 +2757,10 @@ async def approve_mystery_visit(visit_id: str, payload: dict[str, Any], db: Sess
     return {"visit_id": visit_id, "status": "Approved", "message": "Visit approved successfully"}
 
 
-@router.put("/visits/{visit_id}/reject")
+@router.put("/visits/{visit_id}/reject", dependencies=[Depends(require_roles("CX_SUPER_ADMIN", "MYSTERY_ADMIN"))])
 async def reject_mystery_visit(visit_id: str, payload: dict[str, Any], db: Session = Depends(get_db)):
-    _ensure_mystery_shopper_schema(db)
-    visit_exists = db.execute(text("SELECT 1 FROM visits WHERE id = :visit_id"), {"visit_id": visit_id}).scalar()
-    if not visit_exists:
-        raise HTTPException(status_code=404, detail="Visit not found")
+    _require_mystery_visit(db, visit_id)
+    require_visit_state(db, visit_id, {"Pending"})
 
     rejection_notes = (payload.get("rejection_notes") if isinstance(payload, dict) else None) or None
     db.execute(
@@ -2627,12 +2779,10 @@ async def reject_mystery_visit(visit_id: str, payload: dict[str, Any], db: Sessi
     return {"visit_id": visit_id, "status": "Rejected", "message": "Visit rejected successfully"}
 
 
-@router.put("/visits/{visit_id}/needs-changes")
+@router.put("/visits/{visit_id}/needs-changes", dependencies=[Depends(require_roles("CX_SUPER_ADMIN", "MYSTERY_ADMIN"))])
 async def request_mystery_changes(visit_id: str, payload: dict[str, Any], db: Session = Depends(get_db)):
-    _ensure_mystery_shopper_schema(db)
-    visit_exists = db.execute(text("SELECT 1 FROM visits WHERE id = :visit_id"), {"visit_id": visit_id}).scalar()
-    if not visit_exists:
-        raise HTTPException(status_code=404, detail="Visit not found")
+    _require_mystery_visit(db, visit_id)
+    require_visit_state(db, visit_id, {"Pending"})
 
     change_notes = (payload.get("change_notes") if isinstance(payload, dict) else None) or None
     db.execute(
@@ -2653,7 +2803,7 @@ async def request_mystery_changes(visit_id: str, payload: dict[str, Any], db: Se
 
 @router.get("/reports/surveys")
 async def list_mystery_report_surveys(location_id: int, db: Session = Depends(get_db)):
-    _ensure_mystery_shopper_schema(db)
+    survey_type_id = _ensure_mystery_shopper_schema(db)
     rows = db.execute(
         text(
             """
@@ -2667,10 +2817,11 @@ async def list_mystery_report_surveys(location_id: int, db: Session = Depends(ge
             JOIN mystery_shopper_assessments m ON m.visit_id = v.id
             JOIN mystery_shopper_locations l ON l.id = m.location_id
             WHERE m.location_id = :location_id
+              AND v.survey_type_id = :survey_type_id
             ORDER BY v.visit_date DESC, v.id DESC
             """
         ),
-        {"location_id": location_id},
+        {"location_id": location_id, "survey_type_id": survey_type_id},
     ).mappings().all()
     eligible_statuses = {"Approved", "Completed"}
     eligible = []
@@ -2803,6 +2954,7 @@ async def submit_mystery_visit(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
+    # Schema validation rejects an uninitialized/empty module questionnaire (500).
     _ensure_mystery_shopper_schema(db)
     ensure_mystery_visit_access(db, visit_id, current_user)
     report_date = _utc_plus_4_today()
@@ -2811,55 +2963,8 @@ async def submit_mystery_visit(
     if not response_table:
         raise HTTPException(status_code=500, detail="No mystery shopper answer table found")
 
-    mandatory_counts_row = db.execute(
-        text(
-            f"""
-            SELECT
-                COALESCE(SUM(CASE WHEN q.is_mandatory = true AND r.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS mandatory_answered_count,
-                COALESCE(SUM(CASE WHEN q.is_mandatory = true THEN 1 ELSE 0 END), 0) AS mandatory_total_count
-            FROM questions q
-            JOIN visits v ON v.survey_type_id = q.survey_type_id
-            LEFT JOIN {response_table} r
-                ON r.visit_id = v.id
-                AND r.question_id = q.id
-            WHERE v.id = :visit_id
-            """
-        ),
-        {"visit_id": visit_id},
-    ).fetchone()
-
-    mandatory_answered_count = int(mandatory_counts_row[0] or 0) if mandatory_counts_row else 0
-    mandatory_total_count = int(mandatory_counts_row[1] or 0) if mandatory_counts_row else 0
-
-    if mandatory_answered_count < mandatory_total_count:
-        question_order_col = "q.question_number" if has_column(db, "questions", "question_number") else "q.id"
-        missing_rows = db.execute(
-            text(
-                f"""
-                SELECT {question_order_col}, q.question_text
-                FROM questions q
-                JOIN visits v ON v.survey_type_id = q.survey_type_id
-                LEFT JOIN {response_table} r
-                    ON r.visit_id = v.id
-                    AND r.question_id = q.id
-                WHERE v.id = :visit_id AND q.is_mandatory = true AND r.id IS NULL
-                ORDER BY {question_order_col}
-                """
-            ),
-            {"visit_id": visit_id},
-        ).fetchall()
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "message": (
-                    f"{mandatory_total_count - mandatory_answered_count} mandatory response(s) "
-                    "were not saved. Please answer them and try submitting again."
-                ),
-                "missing_questions": [
-                    {"question_number": row[0], "question_text": row[1]} for row in missing_rows
-                ],
-            },
-        )
+    require_visit_state(db, visit_id, {"Draft"})
+    require_valid_completion(db, visit_id, response_table)
 
     db.execute(
         text("UPDATE visits SET status = 'Pending' WHERE id = :visit_id"),

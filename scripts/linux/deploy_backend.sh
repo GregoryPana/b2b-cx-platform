@@ -9,7 +9,7 @@ fi
 VENV_DIR="${BACKEND_DIR}/venv"
 ENV_FILE="${REPO_DIR}/.env"
 SERVICE_FILE="/etc/systemd/system/cwscx-backend.service"
-ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260712_000030}"
+ALEMBIC_TARGET_REVISION="${ALEMBIC_TARGET_REVISION:-20260714_000032}"
 
 upsert_env_value() {
   local key="$1"
@@ -145,17 +145,19 @@ if ! "${VENV_DIR}/bin/alembic" upgrade "${ALEMBIC_TARGET_REVISION}" 2>&1 | tee "
     echo "Alembic migration was blocked by a database lock."
     echo "Run the lock inspection query below on the VM, clear the blocker, then rerun deploy:"
     echo "SELECT pid, usename, state, wait_event_type, wait_event, query FROM pg_stat_activity WHERE datname = current_database() ORDER BY state, query_start;"
-    exit 1
-  fi
-  if grep -qiE '(already exists|DuplicateTable)' "${ALEMBIC_LOG}"; then
-    echo "Detected pre-existing schema without matching Alembic revision; stamping known active lineage point and retrying migrations."
-    "${VENV_DIR}/bin/alembic" stamp 20260326_000012
-    "${VENV_DIR}/bin/alembic" upgrade "${ALEMBIC_TARGET_REVISION}"
   else
-    exit 1
+    echo "Alembic migration failed. Refusing to infer or stamp database lineage."
   fi
+  exit 1
 fi
 rm -f "${ALEMBIC_LOG}"
+
+CURRENT_REVISION_OUTPUT="$("${VENV_DIR}/bin/alembic" current)"
+echo "${CURRENT_REVISION_OUTPUT}"
+if ! grep -Eq "^${ALEMBIC_TARGET_REVISION}( \((head|mergepoint)\))*$" <<<"${CURRENT_REVISION_OUTPUT}"; then
+  echo "Alembic revision verification failed: expected ${ALEMBIC_TARGET_REVISION}."
+  exit 1
+fi
 
 TMP_SERVICE_FILE="$(mktemp /tmp/cwscx-backend-service.XXXXXX)"
 cat >"${TMP_SERVICE_FILE}" <<EOF

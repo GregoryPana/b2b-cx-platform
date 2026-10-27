@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { summarizeMysteryQuestions } from "./utils/mysterySummary";
+import { measuredValue, mandatoryProgress } from "./utils/metricPresentation";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import {
@@ -301,6 +303,58 @@ export default function App() {
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
   const isOperationalPlatform = isB2BPlatform || isMysteryShopperPlatform;
+  // A response from the previous module must not populate the current view.
+  const moduleScope = useRef({ platform: activePlatform, generation: 0 });
+  const requests = useRef(new Map());
+  const resourceContexts = useRef({});
+  resourceContexts.current = {
+    metrics: JSON.stringify([analyticsDateFrom, analyticsDateTo]),
+    targeted: JSON.stringify([analyticsDateFrom, analyticsDateTo, selectedAnalyticsBusinessIds]),
+    questions: JSON.stringify([analyticsDateFrom, analyticsDateTo, selectedAnalyticsBusinessIds]),
+    trend: JSON.stringify([analyticsDateFrom, analyticsDateTo, selectedAnalyticsBusinessIds, questionTrendInterval]),
+    surveys: JSON.stringify([surveyFilter, selectedSurveyBusiness, surveyDateFilter]),
+    surveyDetail: JSON.stringify([surveyFilter, selectedSurveyBusiness, surveyDateFilter]),
+    visitDetail: JSON.stringify([surveyFilter, selectedSurveyBusiness, surveyDateFilter]),
+    review: JSON.stringify([surveyFilter, selectedSurveyBusiness, surveyDateFilter]),
+  };
+  for (const [resource, request] of requests.current) {
+    if (request.key !== resourceContexts.current[resource]) {
+      request.controller.abort();
+      requests.current.delete(resource);
+    }
+  }
+  const contextKey = JSON.stringify([activePlatform, activeView]);
+  if (moduleScope.current.key !== contextKey) {
+    for (const request of requests.current.values()) request.controller.abort();
+    requests.current.clear();
+    moduleScope.current = { platform: activePlatform, key: contextKey, generation: moduleScope.current.generation + 1 };
+  }
+  const invalidateRequest = (resource) => {
+    requests.current.get(resource)?.controller.abort();
+    requests.current.delete(resource);
+  };
+  const beginRequest = (resource, id = null) => {
+    invalidateRequest(resource);
+    const request = { scope: moduleScope.current, key: resourceContexts.current[resource], controller: new AbortController(), id, ready: false };
+    requests.current.set(resource, request);
+    return request;
+  };
+  const ownsRequest = (resource, request) => request.scope === moduleScope.current && requests.current.get(resource) === request && request.key === resourceContexts.current[resource];
+  const closeVisitDetail = () => {
+    invalidateRequest("visitDetail");
+    invalidateRequest("review");
+    setSelectedVisit(null);
+    setReviewActionState({ loading: false, type: "info", text: "" });
+  };
+  const closeSurveyVisitDetails = () => {
+    invalidateRequest("surveyDetail");
+    setSelectedSurveyVisit(null);
+  };
+
+  useEffect(() => () => {
+    for (const request of requests.current.values()) request.controller.abort();
+    requests.current.clear();
+  }, []);
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -332,42 +386,12 @@ export default function App() {
   );
 
   const mysteryAnalyticsSummary = useMemo(() => {
+    const emptySummary = { average: null, responseCount: 0, scoreMax: null };
     if (!isMysteryShopperPlatform) {
-      return {
-        qualityAvg: null,
-        overallExperienceAvg: null,
-      };
+      return { quality: emptySummary, overallExperience: emptySummary };
     }
 
-    const weightedAverage = (items) => {
-      const weighted = items.reduce(
-        (acc, item) => {
-          const score = Number(item.average_score || 0);
-          const count = Number(item.response_count || 0);
-          if (!count || Number.isNaN(score)) return acc;
-          return {
-            scoreSum: acc.scoreSum + score * count,
-            countSum: acc.countSum + count,
-          };
-        },
-        { scoreSum: 0, countSum: 0 }
-      );
-      return weighted.countSum > 0 ? weighted.scoreSum / weighted.countSum : null;
-    };
-
-    const overallExperience = questionAverages.filter((item) =>
-      (item.category || "").toLowerCase().includes("overall experience")
-    );
-    const qualityQuestions = questionAverages.filter((item) => {
-      const category = (item.category || "").toLowerCase();
-      if (category.includes("overall experience")) return false;
-      return Number(item.average_score || 0) <= 5.2;
-    });
-
-    return {
-      qualityAvg: weightedAverage(qualityQuestions),
-      overallExperienceAvg: weightedAverage(overallExperience),
-    };
+    return summarizeMysteryQuestions(questionAverages);
   }, [isMysteryShopperPlatform, questionAverages]);
 
   const filteredQuestionAverages = useMemo(() => {
@@ -398,8 +422,8 @@ export default function App() {
       },
       "Mystery Shopper": {
         status: "Live",
-        summary: "Retail/service-centre visit audits with location-level quality scoring, CSAT, and NPS.",
-        sections: ["Survey Results", "Quality Analytics", "NPS and CSAT", "Location Trends"]
+        summary: "Retail and service-centre visit audits with location-level quality scores, satisfaction means, and NPS.",
+        sections: ["Survey Results", "Quality Analytics", "NPS and Satisfaction", "Location Trends"]
       }
     }),
     []
@@ -477,24 +501,24 @@ export default function App() {
   };
 
   const loadMysteryLocations = async () => {
+    const request = beginRequest("locations");
     if (!isMysteryShopperPlatform) return;
     setMysteryLocationsLoading(true);
     try {
-      await fetch(`${API_BASE}/mystery-shopper/bootstrap`, {
-        method: "POST",
-        headers,
-      });
-      const res = await fetch(`${API_BASE}/mystery-shopper/locations`, { headers });
+      const res = await fetch(`${API_BASE}/mystery-shopper/locations`, { headers, signal: request.controller.signal });
       const data = await res.json();
+      if (!ownsRequest("locations", request)) return;
       if (!res.ok) {
-        setError(data.detail || "Failed to load mystery shopper locations");
+        setMysteryLocations([]);
+        setError(`${data.detail || "Mystery shopper locations are unavailable."} Ask an administrator to verify the existing schema; no automatic setup was attempted.`);
         return;
       }
       setMysteryLocations(Array.isArray(data) ? data : []);
     } catch {
+      if (!ownsRequest("locations", request)) return;
       setError("Failed to load mystery shopper locations");
     } finally {
-      setMysteryLocationsLoading(false);
+      if (ownsRequest("locations", request)) setMysteryLocationsLoading(false);
     }
   };
 
@@ -710,6 +734,7 @@ export default function App() {
   };
 
   const loadMetrics = async () => {
+    const request = beginRequest("metrics");
     setError("");
     if (!canViewMetrics) {
       setNps(null);
@@ -732,16 +757,17 @@ export default function App() {
 
     try {
       const [npsRes, coverageRes, catRes, analyticsRes] = await Promise.all([
-        fetch(`${API_BASE}/dashboard/nps${queryString}`, { headers }),
-        fetch(`${API_BASE}/dashboard/coverage${queryString}`, { headers }),
-        fetch(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers }),
-        fetch(`${API_BASE}/analytics${queryString}`, { headers })
+        fetch(`${API_BASE}/dashboard/nps${queryString}`, { headers, signal: request.controller.signal }),
+        fetch(`${API_BASE}/dashboard/coverage${queryString}`, { headers, signal: request.controller.signal }),
+        fetch(`${API_BASE}/dashboard/category-breakdown${queryString}`, { headers, signal: request.controller.signal }),
+        fetch(`${API_BASE}/analytics${queryString}`, { headers, signal: request.controller.signal })
       ]);
 
       const npsData = await npsRes.json();
       const coverageData = await coverageRes.json();
       const catData = await catRes.json();
       const analyticsData = await analyticsRes.json();
+      if (!ownsRequest("metrics", request)) return;
 
       if (!npsRes.ok || !coverageRes.ok || !catRes.ok || !analyticsRes.ok) {
         setError(npsData.detail || coverageData.detail || catData.detail || analyticsData.detail || "Failed to load");
@@ -753,6 +779,7 @@ export default function App() {
       setCategories(catData);
       setAnalytics(analyticsData);
     } catch {
+      if (!ownsRequest("metrics", request)) return;
       setError("Failed to load dashboard data");
     }
   };
@@ -773,6 +800,7 @@ export default function App() {
   };
 
   const loadTargetedAnalytics = async () => {
+    const request = beginRequest("targeted");
     if (!canViewMetrics || !isB2BPlatform || selectedAnalyticsBusinessIds.length === 0) {
       setTargetedAnalytics(null);
       return;
@@ -791,19 +819,22 @@ export default function App() {
     params.set("_cb", Date.now().toString());
 
     try {
-      const res = await fetch(`${API_BASE}/analytics?${params.toString()}`, { headers });
+      const res = await fetch(`${API_BASE}/analytics?${params.toString()}`, { headers, signal: request.controller.signal });
       const data = await res.json();
+      if (!ownsRequest("targeted", request)) return;
       if (!res.ok) {
         setError(data.detail || "Failed to load targeted analytics");
         return;
       }
       setTargetedAnalytics(data);
     } catch {
+      if (!ownsRequest("targeted", request)) return;
       setError("Failed to load targeted analytics");
     }
   };
 
   const loadQuestionAverages = async () => {
+    const request = beginRequest("questions");
     if (!canViewMetrics || !activePlatform) {
       setQuestionAverages([]);
       return;
@@ -820,8 +851,9 @@ export default function App() {
     params.set("_cb", Date.now().toString());
 
     try {
-      const res = await fetch(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
+      const res = await fetch(`${API_BASE}/analytics/questions?${params.toString()}`, { headers, signal: request.controller.signal });
       const data = await res.json();
+      if (!ownsRequest("questions", request)) return;
       if (!res.ok) {
         setError(data.detail || "Failed to load per-question analytics");
         setQuestionAverages([]);
@@ -829,14 +861,17 @@ export default function App() {
       }
       setQuestionAverages(Array.isArray(data.items) ? data.items : []);
     } catch {
+      if (!ownsRequest("questions", request)) return;
       setError("Failed to load per-question analytics");
       setQuestionAverages([]);
     } finally {
+      if (!ownsRequest("questions", request)) return;
       setQuestionAnalyticsLoading(false);
     }
   };
 
   const loadQuestionTrend = async (questionId) => {
+    const request = beginRequest("trend");
     if (!questionId || !canViewMetrics || !activePlatform) return;
 
     setQuestionTrendLoading(true);
@@ -851,16 +886,19 @@ export default function App() {
     params.set("_cb", Date.now().toString());
 
     try {
-      const res = await fetch(`${API_BASE}/analytics/questions/${questionId}/trend?${params.toString()}`, { headers });
+      const res = await fetch(`${API_BASE}/analytics/questions/${questionId}/trend?${params.toString()}`, { headers, signal: request.controller.signal });
       const data = await res.json();
+      if (!ownsRequest("trend", request)) return;
       if (!res.ok) {
         setError(data.detail || "Failed to load question trend");
         return;
       }
       setSelectedQuestionTrend(data);
     } catch {
+      if (!ownsRequest("trend", request)) return;
       setError("Failed to load question trend");
     } finally {
+      if (!ownsRequest("trend", request)) return;
       setQuestionTrendLoading(false);
     }
   };
@@ -872,17 +910,26 @@ export default function App() {
     return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   };
 
+  const selectedTrendQuestionMetadata = useMemo(
+    () => questionAverages.find((item) => item.question_id === selectedQuestionTrend?.question?.id) || null,
+    [questionAverages, selectedQuestionTrend]
+  );
+  const selectedTrendScoreMax = selectedTrendQuestionMetadata?.score_max != null
+    ? Number(selectedTrendQuestionMetadata.score_max)
+    : null;
+
   const trendChartData = useMemo(() => {
     if (!selectedQuestionTrend?.points?.length) return [];
     return selectedQuestionTrend.points.map((point) => ({
       ...point,
       periodLabel: formatTrendPeriodLabel(point.period),
-      averageScore: Number(point.average_score || 0),
+      averageScore: point.average_score != null ? Number(point.average_score) : null,
       responses: Number(point.response_count || 0),
     }));
   }, [selectedQuestionTrend]);
 
   const loadPending = async () => {
+    const request = beginRequest("pending");
     if (!canReview || !isOperationalPlatform) {
       setPendingVisits([]);
       setSelectedVisit(null);
@@ -894,8 +941,10 @@ export default function App() {
     if (activePlatform) {
       params.set("survey_type", activePlatform);
     }
-    const res = await fetch(`${API_BASE}/dashboard-visits/all?${params.toString()}`, { headers });
+    try {
+    const res = await fetch(`${API_BASE}/${isMysteryShopperPlatform ? "mystery-shopper/admin/visits" : "dashboard-visits/all"}?${params.toString()}`, { headers, signal: request.controller.signal });
     const data = await res.json();
+    if (!ownsRequest("pending", request)) return;
     if (!res.ok) {
       setError(data.detail || "Failed to load pending visits");
       return;
@@ -904,20 +953,40 @@ export default function App() {
       ...visit,
       visit_id: visit.visit_id ?? visit.id,
     })));
+    } catch {
+      if (ownsRequest("pending", request)) setError("Failed to load pending visits");
+    }
   };
 
   const loadVisitDetail = async (visitId) => {
-    const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}`, { headers });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.detail || "Failed to load visit");
-      return;
+    const request = beginRequest("visitDetail", visitId);
+    invalidateRequest("review");
+    setSelectedVisit(null);
+    setReviewActionState({ loading: false, type: "info", text: "" });
+    try {
+      const res = await fetch(`${API_BASE}/${isMysteryShopperPlatform ? "mystery-shopper/visits" : "dashboard-visits"}/${visitId}`, { headers, signal: request.controller.signal });
+      const data = await res.json();
+      if (!ownsRequest("visitDetail", request)) return;
+      if (!res.ok) {
+        setError(data.detail || "Failed to load visit");
+        return;
+      }
+      if (String(data.id) !== String(visitId)) {
+        setError("Visit identity could not be verified.");
+        return;
+      }
+      request.ready = true;
+      setSelectedVisit(data);
+    } catch {
+      if (ownsRequest("visitDetail", request)) setError("Failed to load visit");
     }
-    setSelectedVisit(data);
   };
 
   const submitReviewAction = async (action) => {
-    if (!selectedVisit) return;
+    const detailRequest = requests.current.get("visitDetail");
+    if (!selectedVisit || !detailRequest?.ready || !ownsRequest("visitDetail", detailRequest)
+        || String(detailRequest.id) !== String(selectedVisit.id)) return;
+    const request = beginRequest("review", selectedVisit.id);
 
     if ((action === "needs-changes" || action === "reject") && !reviewNote.trim()) {
       setError("Review notes are required for Needs Changes or Reject.");
@@ -931,7 +1000,7 @@ export default function App() {
 
     setMessage("");
     setReviewActionState({ loading: true, type: "info", text: "Saving review action..." });
-    const endpoint = `${API_BASE}/dashboard-visits/${selectedVisit.id}/${action}`;
+    const endpoint = `${API_BASE}/${isMysteryShopperPlatform ? "mystery-shopper/visits" : "dashboard-visits"}/${selectedVisit.id}/${action}`;
     const payload =
       action === "needs-changes"
         ? { change_notes: reviewNote }
@@ -939,12 +1008,14 @@ export default function App() {
         ? { approval_notes: reviewNote || null }
         : { rejection_notes: reviewNote };
 
+    try {
     const res = await fetch(endpoint, {
       method: "PUT",
       headers,
       body: JSON.stringify(payload)
     });
     const data = await res.json();
+    if (!ownsRequest("review", request) || !ownsRequest("visitDetail", detailRequest)) return;
     if (!res.ok) {
       setError(data.detail || "Failed to update visit");
       setReviewActionState({
@@ -963,7 +1034,13 @@ export default function App() {
     });
     setReviewNote("");
     await loadPending();
-    setSelectedVisit(null);
+    if (!ownsRequest("review", request) || !ownsRequest("visitDetail", detailRequest)) return;
+    closeVisitDetail();
+    } catch {
+      if (!ownsRequest("review", request) || !ownsRequest("visitDetail", detailRequest)) return;
+      setError("Could not confirm review action. Check the visit status before retrying.");
+      setReviewActionState({ loading: false, type: "error", text: "Review could not be confirmed." });
+    }
   };
 
   const loadBusinesses = async () => {
@@ -1318,10 +1395,11 @@ export default function App() {
   };
 
   const loadSurveyResults = async () => {
+    const request = beginRequest("surveys");
     setError("");
     setMessage("");
 
-    let url = `${API_BASE}/dashboard-visits/all`;
+    let url = `${API_BASE}/${isMysteryShopperPlatform ? "mystery-shopper/admin/visits" : "dashboard-visits/all"}`;
     const params = new URLSearchParams();
     
     // Apply filters
@@ -1345,31 +1423,37 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(url, { headers });
+      const res = await fetch(url, { headers, signal: request.controller.signal });
       const data = await res.json();
+      if (!ownsRequest("surveys", request)) return;
       if (!res.ok) {
         setError(data.detail || "Failed to load survey results");
         return;
       }
       setSurveyResults(data);
     } catch (e) {
+      if (!ownsRequest("surveys", request)) return;
       setError("Failed to load survey results");
     }
   };
 
   const loadSurveyVisitDetails = async (visitId) => {
+    const request = beginRequest("surveyDetail", visitId);
+    setSelectedSurveyVisit(null);
     setError("");
     setMessage("");
 
     try {
-      const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}`, { headers });
+      const res = await fetch(`${API_BASE}/${isMysteryShopperPlatform ? "mystery-shopper/visits" : "dashboard-visits"}/${visitId}`, { headers, signal: request.controller.signal });
       const data = await res.json();
+      if (!ownsRequest("surveyDetail", request)) return;
       if (!res.ok) {
         setError(data.detail || "Failed to load visit details");
         return;
       }
       setSelectedSurveyVisit(data);
     } catch (e) {
+      if (!ownsRequest("surveyDetail", request)) return;
       setError("Failed to load visit details");
     }
   };
@@ -1524,8 +1608,25 @@ export default function App() {
   }, [questionTrendInterval]);
 
   const handleSelectPlatform = (platformName) => {
+    for (const request of requests.current.values()) request.controller.abort();
+    requests.current.clear();
     setActivePlatform(platformName);
     setActiveView("analytics");
+    setAnalytics(null);
+    setNps(null);
+    setCoverage(null);
+    setCategories([]);
+    setTargetedAnalytics(null);
+    setQuestionAverages([]);
+    setQuestionAnalyticsLoading(false);
+    setQuestionTrendLoading(false);
+    setSelectedQuestionTrend(null);
+    setPendingVisits([]);
+    setSelectedVisit(null);
+    setSurveyResults([]);
+    setSelectedSurveyVisit(null);
+    setReviewNote("");
+    setReviewActionState({ loading: false, type: "", text: "" });
     setSelectedAnalyticsBusinessIds([]);
     setSelectedSurveyBusiness("");
     setBusinessSearchQuery("");
@@ -2277,9 +2378,9 @@ export default function App() {
             </div>
             {targetedAnalytics ? (
               <div className="targeted-kpis">
-                <div className={getToneClass("csat", targetedAnalytics.customer_satisfaction?.csat_score)}>
-                  <strong>CSAT</strong>
-                  <span>{targetedAnalytics.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "0.0"}%</span>
+                <div className={getToneClass("csat", measuredValue(targetedAnalytics.customer_satisfaction?.csat_score, targetedAnalytics.customer_satisfaction?.response_count))}>
+                  <strong>B2B satisfied responses</strong>
+                  <span>{measuredValue(targetedAnalytics.customer_satisfaction?.csat_score, targetedAnalytics.customer_satisfaction?.response_count) != null ? `${Number(targetedAnalytics.customer_satisfaction.csat_score).toFixed(1)}%` : "No answers"}</span>
                 </div>
                 <div className={getToneClass("nps", targetedAnalytics.nps?.nps)}>
                   <strong>NPS</strong>
@@ -2287,11 +2388,11 @@ export default function App() {
                 </div>
                 <div className={getToneClass("relationship", targetedAnalytics.relationship_score?.score)}>
                   <strong>Relationship</strong>
-                  <span>{targetedAnalytics.relationship_score?.score?.toFixed?.(1) ?? "0.0"}</span>
+                  <span>{targetedAnalytics.relationship_score?.score != null ? `${Number(targetedAnalytics.relationship_score.score).toFixed(1)} / 100` : "No answers"}</span>
                 </div>
-                <div className={getToneClass("exposure", targetedAnalytics.competitive_exposure?.exposure_rate)}>
+                <div className={getToneClass("exposure", measuredValue(targetedAnalytics.competitive_exposure?.exposure_rate, targetedAnalytics.competitive_exposure?.total_accounts))}>
                   <strong>Competitor Exposure</strong>
-                  <span>{targetedAnalytics.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</span>
+                  <span>{measuredValue(targetedAnalytics.competitive_exposure?.exposure_rate, targetedAnalytics.competitive_exposure?.total_accounts) != null ? `${Number(targetedAnalytics.competitive_exposure.exposure_rate).toFixed(1)}%` : "No accounts"}</span>
                 </div>
               </div>
             ) : (
@@ -2307,7 +2408,7 @@ export default function App() {
               </Button>
             </div>
             <p className="caption">
-              Average score per question based on current filters
+              Mean score and scored-answer count for each {isMysteryShopperPlatform ? "Mystery Shopper" : "B2B"} question. Each row shows the question's configured scale
               {isB2BPlatform ? " (date range and selected businesses)." : " (date range and survey scope)."}
             </p>
             <div className="question-drilldown-controls">
@@ -2348,8 +2449,8 @@ export default function App() {
                     <th>Q#</th>
                     <th>Category</th>
                     <th>Question</th>
-                    <th>Avg Score</th>
-                    <th>Responses</th>
+                    <th>Mean score</th>
+                    <th>Scored answers</th>
                     <th>Trend</th>
                   </tr>
                 </thead>
@@ -2368,7 +2469,11 @@ export default function App() {
                         <td>{item.question_number}</td>
                         <td>{item.category}</td>
                         <td>{item.question_text}</td>
-                        <td>{item.average_score?.toFixed?.(2) ?? "0.00"}</td>
+                        <td>
+                          {item.average_score != null
+                            ? `${Number(item.average_score).toFixed(2)}${item.score_max != null ? ` / ${item.score_max}` : " (scale unavailable)"}`
+                            : "No score"}
+                        </td>
                         <td>{item.response_count}</td>
                         <td>
                           <Button type="button" variant="outline" size="sm" onClick={() => loadQuestionTrend(item.question_id)}>
@@ -2420,7 +2525,7 @@ export default function App() {
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 183, 232, 0.24)" />
                         <XAxis dataKey="periodLabel" tick={{ fill: "#bfd0ea", fontSize: 12 }} />
                         <YAxis
-                          domain={[0, 10]}
+                          domain={[0, Number.isFinite(selectedTrendScoreMax) ? selectedTrendScoreMax : "auto"]}
                           tick={{ fill: "#bfd0ea", fontSize: 12 }}
                           tickCount={6}
                         />
@@ -2435,7 +2540,10 @@ export default function App() {
                           labelStyle={{ color: "#eaf2ff" }}
                           formatter={(value, name, payload) => {
                             if (name === "averageScore") {
-                              return [`${Number(value).toFixed(2)} / 10`, "Average Score"];
+                              return [
+                                `${Number(value).toFixed(2)}${Number.isFinite(selectedTrendScoreMax) ? ` / ${selectedTrendScoreMax}` : ""}`,
+                                "Mean score",
+                              ];
                             }
                             return [value, name];
                           }}
@@ -2522,31 +2630,42 @@ export default function App() {
                   <button
                     type="button"
                     className="info-tip"
-                    aria-label="CSAT info"
+                    aria-label={isMysteryShopperPlatform ? "Overall experience score information" : "B2B customer satisfaction information"}
                     aria-describedby="tip-csat"
                   >
                     i
                   </button>
                   <span id="tip-csat" role="tooltip" className="info-tip-popover">
-                    CSAT is the percentage of satisfied responses. The progress bar shows CSAT from 0% to 100% with high-contrast fill.
+                    {isMysteryShopperPlatform
+                      ? "This is the response-weighted mean for Mystery Shopper questions in the Overall Experience category. It is a score, not a percentage."
+                      : "B2B customer satisfaction reports the mean answer to the overall-satisfaction question out of 10, plus the percentage of valid answers scored 8 to 10."}
                   </span>
                 </span>
               </h2>
               <p className="metric">
                 {isMysteryShopperPlatform
-                  ? mysteryAnalyticsSummary.overallExperienceAvg?.toFixed?.(2) ?? "--"
-                  : analytics?.customer_satisfaction?.avg_score?.toFixed(1) ?? "--"}
+                  ? mysteryAnalyticsSummary.overallExperience.average != null
+                    ? `${mysteryAnalyticsSummary.overallExperience.average.toFixed(2)}${mysteryAnalyticsSummary.overallExperience.scoreMax != null ? ` / ${mysteryAnalyticsSummary.overallExperience.scoreMax}` : ""}`
+                    : "No scored answers"
+                  : analytics?.customer_satisfaction?.avg_score != null
+                    ? `${Number(analytics.customer_satisfaction.avg_score).toFixed(1)} / 10`
+                    : "No scored answers"}
               </p>
+              {isMysteryShopperPlatform && mysteryAnalyticsSummary.overallExperience.mixedScales ? <p className="caption">These questions use different scales and are not averaged together. Review the individual question scores.</p> : null}
               <p className="caption">
                 {isMysteryShopperPlatform
-                  ? "Weighted average from Mystery Shopper overall experience scoring questions."
-                  : `${analytics?.customer_satisfaction?.response_count ?? 0} responses to question 12`}
+                  ? `${mysteryAnalyticsSummary.overallExperience.responseCount} scored answer${mysteryAnalyticsSummary.overallExperience.responseCount === 1 ? "" : "s"} across Overall Experience questions.`
+                  : `${analytics?.customer_satisfaction?.response_count ?? 0} valid scored answer${analytics?.customer_satisfaction?.response_count === 1 ? "" : "s"} to the B2B overall-satisfaction question.`}
               </p>
               {isMysteryShopperPlatform ? (
                 <div className="satisfaction-breakdown">
                   <div className="satisfaction-category">
-                    <span className="label">Service Quality (1-5)</span>
-                    <span className="value">{mysteryAnalyticsSummary.qualityAvg?.toFixed?.(2) ?? "--"}</span>
+                    <span className="label">Service quality mean</span>
+                    <span className="value">
+                      {mysteryAnalyticsSummary.quality.average != null
+                        ? `${mysteryAnalyticsSummary.quality.average.toFixed(2)}${mysteryAnalyticsSummary.quality.scoreMax != null ? ` / ${mysteryAnalyticsSummary.quality.scoreMax}` : ""}`
+                        : "No scored answers"}
+                    </span>
                   </div>
                   <div className="satisfaction-category">
                     <span className="label">NPS Score</span>
@@ -2557,8 +2676,8 @@ export default function App() {
               <>
               <div className="csat-score-wrap">
                 <div className="csat-score-row">
-                  <span className="csat-label">CSAT Score</span>
-                  <span className="csat-value">{analytics?.customer_satisfaction?.csat_score?.toFixed(1) ?? "0.0"}%</span>
+                  <span className="csat-label">Satisfied answers (8-10)</span>
+                  <span className="csat-value">{Number(analytics?.customer_satisfaction?.response_count) > 0 && analytics?.customer_satisfaction?.csat_score != null ? `${Number(analytics.customer_satisfaction.csat_score).toFixed(1)}%` : "No answers"}</span>
                 </div>
                 <div className="csat-meter" aria-label="CSAT score meter">
                 <div
@@ -2613,15 +2732,15 @@ export default function App() {
               </article>
             {isMysteryShopperPlatform ? (
             <article>
-              <h2>Operational Efficiency</h2>
-              <p className="caption">Distribution from waiting-time and service-completion Mystery Shopper questions.</p>
+              <h2>Mystery Shopper service measures</h2>
+              <p className="caption">Satisfaction is a pooled mean of valid scores from the configured Mystery Shopper satisfaction questions. Waiting-time and completion values are answer counts.</p>
               <div className="satisfaction-breakdown">
                 <div className="satisfaction-category">
-                  <span className="label">CSAT Average (Q24+Q25)</span>
-                  <span className="value">{analytics?.mystery_shopper?.csat_average?.toFixed?.(2) ?? "--"}</span>
+                  <span className="label">Satisfaction mean (/10)</span>
+                  <span className="value">{analytics?.mystery_shopper?.csat_average != null ? `${Number(analytics.mystery_shopper.csat_average).toFixed(2)} / 10` : "No scored answers"}</span>
                 </div>
                 <div className="satisfaction-category">
-                  <span className="label">CSAT Responses</span>
+                  <span className="label">Satisfaction scored answers</span>
                   <span className="value">{analytics?.mystery_shopper?.csat_response_count ?? 0}</span>
                 </div>
               </div>
@@ -2669,12 +2788,12 @@ export default function App() {
             <>
             <article>
               <h2>Overall Relationship Score</h2>
-              <p className="metric">{analytics?.relationship_score?.score?.toFixed?.(1) ?? "--"}</p>
+              <p className="metric">{analytics?.relationship_score?.score != null ? `${Number(analytics.relationship_score.score).toFixed(1)} / 100` : "No scored answers"}</p>
               <p className="caption">Normalized 0-100 from six relationship questions.</p>
               <div className="satisfaction-breakdown">
                 <div className="satisfaction-category">
-                  <span className="label">Average Score</span>
-                  <span className="value">{analytics?.relationship_score?.avg_score?.toFixed?.(2) ?? "0.00"}</span>
+                  <span className="label">Mean question score</span>
+                  <span className="value">{analytics?.relationship_score?.avg_score != null ? Number(analytics.relationship_score.avg_score).toFixed(2) : "No scored answers"}</span>
                 </div>
                 <div className="satisfaction-category">
                   <span className="label">Questions Answered</span>
@@ -2684,7 +2803,7 @@ export default function App() {
             </article>
             <article>
               <h2>Competitive Exposure Rate</h2>
-              <p className="metric">{analytics?.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</p>
+              <p className="metric">{analytics?.competitive_exposure?.exposure_rate != null ? `${Number(analytics.competitive_exposure.exposure_rate).toFixed(1)}%` : "No surveyed accounts"}</p>
               <p className="caption">Accounts using competitor services / total accounts surveyed.</p>
               <div className="satisfaction-breakdown">
                 <div className="satisfaction-category">
@@ -3206,7 +3325,7 @@ export default function App() {
                         </TableCell>
                         <TableCell>
                           <div className="cell-stack">
-                            <span>{visit.mandatory_answered_count || 0}/{visit.mandatory_total_count || 24}</span>
+                            <span>{mandatoryProgress(visit)}</span>
                             {visit.response_count > 0 && visit.mandatory_answered_count === 0 ? (
                               <span className="progress-hint">Responses exist but progress not calculated</span>
                             ) : null}
@@ -3242,7 +3361,7 @@ export default function App() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setSelectedSurveyVisit(null)}
+                  onClick={closeSurveyVisitDetails}
                 >
                   Close
                 </Button>

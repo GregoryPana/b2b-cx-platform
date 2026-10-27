@@ -72,6 +72,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                   <Button
                     variant={isActive ? "secondary" : "ghost"}
                     className={cn("w-full justify-start", collapsed && "justify-center px-0")}
+                    title={collapsed ? item.label : undefined}
+                    aria-label={collapsed ? item.label : undefined}
                   >
                     <Icon className="h-4 w-4" />
                     {!collapsed ? <span>{item.label}</span> : null}

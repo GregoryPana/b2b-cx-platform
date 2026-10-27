@@ -1,9 +1,10 @@
 from typing import Optional, List
-from sqlalchemy import case, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
-from .models import Business, AccountExecutive, B2BVisit
+from .models import Business, AccountExecutive
+from ...core.visit_cleanup import delete_legacy_visit_responses
 from .schemas import BusinessCreate, BusinessUpdate, AccountExecutiveCreate, AccountExecutiveUpdate, B2BVisitCreate, B2BVisitUpdate
 
 
@@ -86,8 +87,8 @@ class BusinessService:
                 """
                 SELECT id FROM businesses
                 WHERE LOWER(name) = LOWER(:name)
-                  AND LOWER(COALESCE(location, '')) = LOWER(COALESCE(:location, ''))
-                  AND (:exclude_id IS NULL OR id <> :exclude_id)
+                  AND LOWER(COALESCE(location, '')) = LOWER(COALESCE(CAST(:location AS TEXT), ''))
+                  AND (CAST(:exclude_id AS INTEGER) IS NULL OR id <> CAST(:exclude_id AS INTEGER))
                 LIMIT 1
                 """
             ),
@@ -193,21 +194,23 @@ class BusinessService:
                 detail="Business not found"
             )
         
-        # Count related visits
+        scope = B2BVisitService._scope(db)
+        params = {"business_id": business_id, **scope.params}
+        # Count only B2B visits; foreign associations block deletion, not widen the preview.
         visit_count = db.execute(
-            text("SELECT COUNT(*) FROM visits WHERE business_id = :business_id"),
-            {"business_id": business_id}
+            text(f"SELECT COUNT(*) FROM visits v WHERE business_id = :business_id {scope.visit_filter}"),
+            params
         ).scalar()
         
         # Get visit details for warning
         visits = db.execute(
-            text("""
+            text(f"""
                 SELECT id, visit_date, status, representative_id
-                FROM visits 
-                WHERE business_id = :business_id
+                FROM visits v
+                WHERE business_id = :business_id {scope.visit_filter}
                 ORDER BY visit_date DESC
             """),
-            {"business_id": business_id}
+            params
         ).fetchall()
 
         mystery_assessment_count = db.execute(
@@ -235,13 +238,18 @@ class BusinessService:
                     text(
                         f"""
                         SELECT COUNT(*) FROM {table_name}
-                        WHERE visit_id IN (SELECT id FROM visits WHERE business_id = :business_id)
+                        WHERE visit_id IN (SELECT id FROM visits v WHERE business_id = :business_id {scope.visit_filter})
                         """
                     ),
-                    {"business_id": business_id},
+                    params,
                 ).scalar()
                 or 0
             )
+
+        deletion_blocked = bool(
+            mystery_assessment_count
+            or BusinessService._has_foreign_visits(db, business_id, scope.survey_type_id)
+        )
 
         status_counts: dict[str, int] = {}
         for visit in visits:
@@ -255,15 +263,16 @@ class BusinessService:
                 "priority_level": business_row[3],
                 "active": business_row[4]
             },
-            "can_delete": int(mystery_assessment_count or 0) == 0,
+            "can_delete": not deletion_blocked,
             "related_records": {
                 "total_visits": visit_count,
                 "total_responses": total_responses,
                 "visits_by_status": status_counts,
                 "total_mystery_shopper_assessments": int(mystery_assessment_count or 0),
+                "deletion_blocked": deletion_blocked,
                 "visits": [
                     {
-                        "id": visit[0],
+                        "id": str(visit[0]),
                         "visit_date": visit[1],
                         "status": visit[2],
                         "representative_id": visit[3]
@@ -274,10 +283,21 @@ class BusinessService:
         }
     
     @staticmethod
+    def _has_foreign_visits(db, business_id, survey_type_id):
+        return bool(db.execute(text("""
+            SELECT 1 WHERE EXISTS (
+                SELECT 1 FROM visits WHERE business_id = :business_id
+                AND survey_type_id IS DISTINCT FROM :survey_type_id
+            ) OR EXISTS (
+                SELECT 1 FROM mystery_shopper_locations WHERE business_id = :business_id
+            )
+        """), {"business_id": business_id, "survey_type_id": survey_type_id}).scalar())
+
+    @staticmethod
     def delete_business(db: Session, business_id: int) -> dict:
         """Delete a business and all related records safely."""
         business_exists = db.execute(
-            text("SELECT 1 FROM businesses WHERE id = :business_id"),
+            text("SELECT 1 FROM businesses WHERE id = :business_id FOR UPDATE"),
             {"business_id": business_id},
         ).scalar()
 
@@ -288,6 +308,9 @@ class BusinessService:
             )
         
         try:
+            scope = B2BVisitService._scope(db)
+            if BusinessService._has_foreign_visits(db, business_id, scope.survey_type_id):
+                raise HTTPException(status_code=409, detail="Business has non-B2B visits or Mystery locations; retire it instead")
             mystery_assessment_count = db.execute(
                 text(
                     """
@@ -309,8 +332,11 @@ class BusinessService:
                     ),
                 )
 
-            deleted_response_count = 0
-            for table_name in ("b2b_visit_responses", "responses"):
+            deleted_response_count = delete_legacy_visit_responses(
+                db, "v.business_id = :business_id" + scope.visit_filter,
+                {"business_id": business_id, **scope.params},
+            )
+            for table_name in ("b2b_visit_responses",):
                 table_exists = db.execute(
                     text("SELECT 1 FROM information_schema.tables WHERE table_name = :table_name LIMIT 1"),
                     {"table_name": table_name},
@@ -322,11 +348,11 @@ class BusinessService:
                         f"""
                         DELETE FROM {table_name}
                         WHERE visit_id IN (
-                            SELECT id FROM visits WHERE business_id = :business_id
+                            SELECT id FROM visits WHERE business_id = :business_id AND survey_type_id = :survey_type_id
                         )
                         """
                     ),
-                    {"business_id": business_id},
+                    {"business_id": business_id, **scope.params},
                 )
                 deleted_response_count += int(deleted.rowcount or 0)
 
@@ -348,8 +374,8 @@ class BusinessService:
                 )
 
             db.execute(
-                text("DELETE FROM visits WHERE business_id = :business_id"),
-                {"business_id": business_id}
+                text("DELETE FROM visits WHERE business_id = :business_id AND survey_type_id = :survey_type_id"),
+                {"business_id": business_id, **scope.params}
             )
 
             # Delete the business
@@ -458,63 +484,101 @@ class AccountExecutiveService:
 
 
 class B2BVisitService:
-    """Service for B2B visit operations."""
+    """Compatibility CRUD pinned to B2B on the shared UUID visit store.
+
+    Do not use the legacy ORM mapping: its inherited integer ID and absent
+    survey_type_id do not describe the deployed shared visits table.
+    """
+
+    @staticmethod
+    def _scope(db):
+        from ...core.analytics_scope import resolve_module_scope
+        scope = resolve_module_scope(db, "B2B")
+        if scope.survey_type_id is None:
+            raise HTTPException(status_code=503, detail="B2B module is not configured")
+        return scope
+
+    @staticmethod
+    def _rows(db, predicate="", params=None):
+        scope = B2BVisitService._scope(db)
+        from ...core.db_inspect import has_column
+        assessment_id = "v.assessment_instance_id" if has_column(db, "visits", "assessment_instance_id") else "NULL"
+        rows = db.execute(text(f"""
+            SELECT v.id, v.business_id, v.representative_id, v.visit_date,
+                   v.visit_type, v.status, v.created_at, {assessment_id} AS assessment_instance_id
+            FROM visits v WHERE true {scope.visit_filter} {predicate}
+            ORDER BY v.created_at DESC
+        """), {**scope.params, **(params or {})}).mappings().all()
+        return [{**row, "id": str(row["id"]),
+                 "visit_date": row["visit_date"].isoformat() if row["visit_date"] else None} for row in rows]
     
     @staticmethod
-    def get_all_visits(db: Session) -> List[B2BVisit]:
+    def get_all_visits(db: Session) -> List[dict]:
         """Get all B2B visits."""
-        return db.scalars(select(B2BVisit).order_by(B2BVisit.created_at.desc())).all()
+        return B2BVisitService._rows(db)
     
     @staticmethod
-    def get_visit_by_id(db: Session, visit_id: int) -> Optional[B2BVisit]:
+    def get_visit_by_id(db: Session, visit_id: str) -> Optional[dict]:
         """Get a specific visit by ID."""
-        return db.get(B2BVisit, visit_id)
+        rows = B2BVisitService._rows(db, "AND v.id = :visit_id", {"visit_id": visit_id})
+        return rows[0] if rows else None
     
     @staticmethod
-    def get_visits_by_business(db: Session, business_id: int) -> List[B2BVisit]:
+    def get_visits_by_business(db: Session, business_id: int) -> List[dict]:
         """Get all visits for a specific business."""
-        return db.scalars(
-            select(B2BVisit)
-            .where(B2BVisit.business_id == business_id)
-            .order_by(B2BVisit.created_at.desc())
-        ).all()
+        return B2BVisitService._rows(db, "AND v.business_id = :business_id", {"business_id": business_id})
     
     @staticmethod
-    def create_visit(db: Session, visit_data: B2BVisitCreate) -> B2BVisit:
+    def create_visit(db: Session, visit_data: B2BVisitCreate) -> dict:
         """Create a new B2B visit."""
-        visit = B2BVisit(**visit_data.model_dump())
-        db.add(visit)
+        scope = B2BVisitService._scope(db)
+        payload = visit_data.model_dump()
+        payload["status"] = "Draft"  # Server-owned: CRUD cannot enter the review lifecycle.
+        visit_id = db.execute(text("""
+            INSERT INTO visits (business_id, representative_id, visit_date, visit_type, status, survey_type_id)
+            VALUES (:business_id, :representative_id, :visit_date, :visit_type, :status, :survey_type_id)
+            RETURNING id
+        """), {**payload, **scope.params}).scalar_one()
         db.commit()
-        db.refresh(visit)
-        return visit
+        return B2BVisitService.get_visit_by_id(db, str(visit_id))
     
     @staticmethod
-    def update_visit(db: Session, visit_id: int, visit_data: B2BVisitUpdate) -> B2BVisit:
+    def update_visit(db: Session, visit_id: str, visit_data: B2BVisitUpdate) -> dict:
         """Update an existing B2B visit."""
-        visit = db.get(B2BVisit, visit_id)
+        visit = B2BVisitService.get_visit_by_id(db, visit_id)
         if not visit:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, 
                 detail="Visit not found"
             )
         
-        for field, value in visit_data.model_dump(exclude_unset=True).items():
-            setattr(visit, field, value)
-        
-        db.commit()
-        db.refresh(visit)
-        return visit
+        payload = visit_data.model_dump(exclude_unset=True)
+        if "status" in payload:
+            raise HTTPException(status_code=403, detail="Use dedicated submit/review endpoints to change status")
+        from ...core.answer_validity import require_visit_state
+        require_visit_state(db, visit_id, {"Draft"})
+        if payload:
+            scope = B2BVisitService._scope(db)
+            assignments = ", ".join(f"{field} = :{field}" for field in payload)
+            db.execute(text(f"UPDATE visits v SET {assignments} WHERE v.id = :visit_id {scope.visit_filter}"),
+                       {**payload, **scope.params, "visit_id": visit_id})
+            db.commit()
+        return B2BVisitService.get_visit_by_id(db, visit_id)
     
     @staticmethod
-    def delete_visit(db: Session, visit_id: int) -> bool:
+    def delete_visit(db: Session, visit_id: str) -> bool:
         """Delete a B2B visit."""
-        visit = db.get(B2BVisit, visit_id)
+        visit = B2BVisitService.get_visit_by_id(db, visit_id)
         if not visit:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, 
                 detail="Visit not found"
             )
         
-        db.delete(visit)
+        scope = B2BVisitService._scope(db)
+        delete_legacy_visit_responses(db, "v.id = :visit_id" + scope.visit_filter,
+                                      {**scope.params, "visit_id": visit_id})
+        db.execute(text(f"DELETE FROM visits v WHERE v.id = :visit_id {scope.visit_filter}"),
+                   {**scope.params, "visit_id": visit_id})
         db.commit()
         return True

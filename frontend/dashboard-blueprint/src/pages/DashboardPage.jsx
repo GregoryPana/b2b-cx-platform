@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { ChevronDown, ChevronUp, CircleHelp } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import html2pdf from "html2pdf.js";
 import { useLocation } from "react-router-dom";
 import { Toaster, toast } from "sonner";
@@ -27,6 +27,7 @@ import SimpleStatusDataTable from "../components/shared/SimpleStatusDataTable";
 import EmailRecipientsInput from "../components/shared/EmailRecipientsInput";
 import EntityCombobox from "../components/shared/EntityCombobox";
 import ActionDialog from "../components/shared/ActionDialog";
+import InfoHint from "../components/shared/InfoHint";
 import MysteryReviewQueueSection from "../features/mystery-shopper/components/MysteryReviewQueueSection";
 import MysteryVisitDetailCard from "../features/mystery-shopper/components/MysteryVisitDetailCard";
 import MysterySurveyResultsSection from "../features/mystery-shopper/components/MysterySurveyResultsSection";
@@ -35,6 +36,15 @@ import MysteryAnalyticsSummarySection from "../features/mystery-shopper/componen
 import MysteryLocationsSection from "../features/mystery-shopper/components/MysteryLocationsSection";
 import MysteryPurposesSection from "../features/mystery-shopper/components/MysteryPurposesSection";
 import MysteryUsersSection from "../features/mystery-shopper/components/MysteryUsersSection";
+import {
+  buildAnalyticsCards,
+  presentB2BMetrics,
+  getDeclaredQuestionScale,
+  getRouteContext,
+  summarizeMysteryQuestions,
+} from "../features/mystery-shopper/mysteryPresentation";
+
+import { createRequestScope } from "../lib/requestScope";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
@@ -282,21 +292,6 @@ function formatApiError(detail, fallback = "Unexpected error") {
   return String(detail);
 }
 
-// Declared at module level so it keeps its open/closed state when the page re-renders.
-const InfoHint = ({ text }) => (
-  <details className="group relative inline-flex">
-    <summary
-      title={text}
-      className="list-none cursor-pointer rounded-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <CircleHelp className="h-4 w-4" />
-    </summary>
-    <div className="pointer-events-none absolute left-0 top-6 z-30 w-72 rounded-md border bg-popover p-2 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-100 group-hover:opacity-100 group-open:opacity-100">
-      {text}
-    </div>
-  </details>
-);
-
 export default function DashboardPage({ headers, activePlatform, onSessionExpired }) {
   const location = useLocation();
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
@@ -304,12 +299,18 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
   const isInstallationPlatform = normalizedPlatform.includes("installation");
   const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState("");
+  const [questionsLoading, setQuestionsLoading] = useState(true);
   const [questionAverages, setQuestionAverages] = useState([]);
   const [yesNoQuestionAnalytics, setYesNoQuestionAnalytics] = useState([]);
   const [selectedQuestionId, setSelectedQuestionId] = useState("");
   const [trendData, setTrendData] = useState([]);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendError, setTrendError] = useState("");
   const [accountExecutiveYesNoTrendData, setAccountExecutiveYesNoTrendData] = useState([]);
   const [pendingVisits, setPendingVisits] = useState([]);
+  const [pendingVisitsLoading, setPendingVisitsLoading] = useState(false);
   const [businesses, setBusinesses] = useState([]);
   // Businesses that have at least one Approved (completed + approved) survey.
   // Used ONLY by the analytics page filter so draft-only businesses are hidden.
@@ -467,6 +468,18 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
    const [installationContractorsLoading, setInstallationContractorsLoading] = useState(false);
    const [newInstallationContractorName, setNewInstallationContractorName] = useState("");
   const [installationContractorSaving, setInstallationContractorSaving] = useState(false);
+  const requests = useRef(createRequestScope()).current;
+  useEffect(() => () => requests.invalidateAll(), [activePlatform, location.pathname, requests]);
+  const closeSurveyDetails = () => {
+    requests.invalidate("detail");
+    requests.invalidate("reviewSave");
+    setSelectedSurveyVisit(null);
+    setReviewResponseDrafts({});
+  };
+  const closeInstallationDetails = () => {
+    requests.invalidate("loadInstallationSurveyDetail");
+    setSelectedInstallationSurvey(null);
+  };
   const platformRequestVersion = useRef(0);
 const platformAbortRef = useRef(null);
   const getPlatformSignal = () => {
@@ -481,10 +494,12 @@ const platformAbortRef = useRef(null);
   }, []);
 
   const loadInstallationAnalytics = useCallback(async () => {
+    const request = requests.begin("loadInstallationAnalytics");
     setInstallationAnalyticsLoading(true);
     setError("");
     try {
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/analytics`, { headers });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/analytics`, { headers, signal: request.signal });
+      if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to load installation analytics");
         setInstallationAnalytics(null);
@@ -492,14 +507,17 @@ const platformAbortRef = useRef(null);
       }
       setInstallationAnalytics(data || null);
     } catch (err) {
+      if (request.isStale()) return;
       setError("Failed to load installation analytics");
       setInstallationAnalytics(null);
     } finally {
+      if (request.isStale()) return;
       setInstallationAnalyticsLoading(false);
     }
   }, [headers, fetchJsonSafe]);
 
   const loadInstallationTrends = useCallback(async () => {
+    const request = requests.begin("loadInstallationTrends");
     setInstallationTrendsLoading(true);
     setError("");
     try {
@@ -517,7 +535,8 @@ const platformAbortRef = useRef(null);
       if (installationTrendCustomerType) params.set("customer_type", installationTrendCustomerType);
       if (installationTrendWorkerType) params.set("worker_type", installationTrendWorkerType);
       const query = params.toString();
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/trends${query ? `?${query}` : ""}`, { headers });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/trends${query ? `?${query}` : ""}`, { headers, signal: request.signal });
+      if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to load installation trends");
         setInstallationTrends(null);
@@ -525,14 +544,17 @@ const platformAbortRef = useRef(null);
       }
       setInstallationTrends(data || null);
     } catch (err) {
+      if (request.isStale()) return;
       setError("Failed to load installation trends");
       setInstallationTrends(null);
     } finally {
+      if (request.isStale()) return;
       setInstallationTrendsLoading(false);
     }
   }, [headers, fetchJsonSafe, installationTrendMonth, installationTrendCustomerType, installationTrendWorkerType]);
 
   const loadInstallationSurveys = useCallback(async () => {
+    const request = requests.begin("loadInstallationSurveys");
     if (!isInstallationPlatform) return;
     setInstallationSurveysLoading(true);
     setError("");
@@ -541,7 +563,8 @@ const platformAbortRef = useRef(null);
       Object.entries(installationSurveyFilters).forEach(([key, value]) => {
         if (value) params.set(key, value);
       });
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys?${params.toString()}`, { headers });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys?${params.toString()}`, { headers, signal: request.signal });
+      if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to load installation surveys");
         setInstallationSurveys([]);
@@ -549,21 +572,25 @@ const platformAbortRef = useRef(null);
       }
       setInstallationSurveys(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (request.isStale()) return;
       setError("Failed to load installation surveys");
       setInstallationSurveys([]);
     } finally {
+      if (request.isStale()) return;
       setInstallationSurveysLoading(false);
     }
   }, [isInstallationPlatform, installationSurveyFilters, headers, fetchJsonSafe]);
 
   const loadInstallationContractors = useCallback(async (query = installationContractorQuery) => {
+    const request = requests.begin("loadInstallationContractors");
     if (!isInstallationPlatform) return;
     setInstallationContractorsLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
       if ((query || "").trim()) params.set("q", query.trim());
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/contractors${params.toString() ? `?${params.toString()}` : ""}`, { headers });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/contractors${params.toString() ? `?${params.toString()}` : ""}`, { headers, signal: request.signal });
+      if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to load contractors");
         setInstallationContractors([]);
@@ -571,9 +598,11 @@ const platformAbortRef = useRef(null);
       }
       setInstallationContractors(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (request.isStale()) return;
       setError("Failed to load contractors");
       setInstallationContractors([]);
     } finally {
+      if (request.isStale()) return;
       setInstallationContractorsLoading(false);
     }
   }, [isInstallationPlatform, installationContractorQuery, headers, fetchJsonSafe]);
@@ -625,26 +654,31 @@ const platformAbortRef = useRef(null);
   }, []);
 
   const loadInstallationSurveyDetail = useCallback(async (surveyId) => {
+    const request = requests.begin("loadInstallationSurveyDetail");
     setError("");
     try {
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys/${surveyId}`, { headers });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys/${surveyId}`, { headers, signal: request.signal });
+      if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to load survey detail");
         return;
       }
       setSelectedInstallationSurvey(data || null);
     } catch (err) {
+      if (request.isStale()) return;
       setError("Failed to load survey detail");
     }
   }, [headers, fetchJsonSafe]);
 
   // Load surveys for report selection dropdown
   const loadInstallationReportSurveyList = useCallback(async () => {
+    const request = requests.begin("loadInstallationReportSurveyList");
     setInstallReportSurveyListLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys?${params.toString()}`, { headers });
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/surveys?${params.toString()}`, { headers, signal: request.signal });
+      if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to load surveys for report");
         setInstallReportSurveyList([]);
@@ -653,14 +687,42 @@ const platformAbortRef = useRef(null);
       // Expect data as array of surveys
       setInstallReportSurveyList(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (request.isStale()) return;
       setError("Failed to load surveys for report");
       setInstallReportSurveyList([]);
     } finally {
+      if (request.isStale()) return;
       setInstallReportSurveyListLoading(false);
     }
   }, [headers, fetchJsonSafe]);
 
+  useEffect(() => {
+    for (const key of ["handleInstallationPreviewReport", "handleInstallationDownloadReport", "handleInstallationDownloadPdfReport", "handleInstallationEmailReport", "loadInstallationReportSurveyList"]) requests.invalidate(key);
+    setInstallReportPreview(null);
+    setInstallReportPreviewHtml("");
+    setInstallReportLoading(false);
+    setInstallReportSending(false);
+  }, [installReportType, installReportDateFrom, installReportDateTo, installReportSurveyId, installReportMonth]);
+
+  // Every delivery mode uses the same scope. Explicit date bounds override month bounds.
+  const buildInstallationReportScope = useCallback(() => {
+    const params = new URLSearchParams({ report_type: installReportType });
+    if (installReportMonth) {
+      const [year, month] = installReportMonth.split("-");
+      if (year && month) {
+        params.set("date_from", `${installReportMonth}-01`);
+        const endDate = new Date(Number(year), Number(month), 0);
+        params.set("date_to", `${installReportMonth}-${String(endDate.getDate()).padStart(2, "0")}`);
+      }
+    }
+    if (installReportDateFrom) params.set("date_from", installReportDateFrom);
+    if (installReportDateTo) params.set("date_to", installReportDateTo);
+    if (installReportSurveyId) params.set("survey_id", installReportSurveyId);
+    return params;
+  }, [installReportType, installReportMonth, installReportDateFrom, installReportDateTo, installReportSurveyId]);
+
   const handleInstallationPreviewReport = useCallback(async () => {
+    const request = requests.begin("handleInstallationPreviewReport");
     // Validation
     if (installReportType === "survey" && !installReportSurveyId) {
       setError("Please select a survey for the single survey report.");
@@ -669,23 +731,10 @@ const platformAbortRef = useRef(null);
     setInstallReportLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams();
-      params.set("report_type", installReportType);
-      if (installReportMonth) {
-        const [year, month] = installReportMonth.split("-");
-        if (year && month) {
-          const start = `${installReportMonth}-01`;
-          const endDate = new Date(Number(year), Number(month), 0);
-          const end = `${installReportMonth}-${String(endDate.getDate()).padStart(2, "0")}`;
-          params.set("date_from", start);
-          params.set("date_to", end);
-        }
-      }
-      if (installReportDateFrom) params.set("date_from", installReportDateFrom);
-      if (installReportDateTo) params.set("date_to", installReportDateTo);
-      if (installReportSurveyId) params.set("survey_id", installReportSurveyId);
+      const params = buildInstallationReportScope();
 
-      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/reports/export?${params.toString()}`, { headers }, 30000);
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/reports/export?${params.toString()}`, { headers, signal: request.signal }, 30000);
+      if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to generate report preview");
         setInstallReportPreview(null);
@@ -696,56 +745,61 @@ const platformAbortRef = useRef(null);
       setInstallReportPreviewHtml(data?.report_html || "");
       pushToast("success", "Report preview generated");
     } catch (err) {
+      if (request.isStale()) return;
       setError("Failed to generate report preview");
       setInstallReportPreview(null);
       setInstallReportPreviewHtml("");
     } finally {
+      if (request.isStale()) return;
       setInstallReportLoading(false);
     }
-  }, [installReportType, installReportDateFrom, installReportDateTo, installReportSurveyId, headers, fetchJsonSafe, pushToast]);
+  }, [buildInstallationReportScope, installReportType, installReportSurveyId, headers, fetchJsonSafe, pushToast]);
 
   const handleInstallationDownloadReport = useCallback(async () => {
-    const params = new URLSearchParams({ report_type: installReportType });
-    if (installReportDateFrom) params.set("date_from", installReportDateFrom);
-    if (installReportDateTo) params.set("date_to", installReportDateTo);
-    if (installReportSurveyId) params.set("survey_id", installReportSurveyId);
+    const request = requests.begin("handleInstallationDownloadReport");
+    const params = buildInstallationReportScope();
     params.set("download", "true");
     try {
-      const res = await fetch(`${API_BASE}/installation/reports/export?${params.toString()}`, { headers });
+      const res = await fetch(`${API_BASE}/installation/reports/export?${params.toString()}`, { headers, signal: request.signal });
       if (!res.ok) {
         const text = await res.text();
+        if (request.isStale()) return;
         setError(text || "Failed to download report");
         return;
       }
       const blob = await res.blob();
+      if (request.isStale()) return;
       triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), `cwscx-installation-report-${new Date().toISOString().slice(0, 10)}.html`));
       pushToast("success", "Report downloaded");
     } catch {
+      if (request.isStale()) return;
       setError("Failed to download report");
     }
-  }, [headers, installReportDateFrom, installReportDateTo, installReportSurveyId, installReportType, pushToast]);
+  }, [headers, buildInstallationReportScope, pushToast]);
 
   const handleInstallationDownloadPdfReport = useCallback(async () => {
-    const params = new URLSearchParams({ report_type: installReportType });
-    if (installReportDateFrom) params.set("date_from", installReportDateFrom);
-    if (installReportDateTo) params.set("date_to", installReportDateTo);
-    if (installReportSurveyId) params.set("survey_id", installReportSurveyId);
+    const request = requests.begin("handleInstallationDownloadPdfReport");
+    const params = buildInstallationReportScope();
     try {
-      const res = await fetch(`${API_BASE}/installation/reports/pdf?${params.toString()}`, { headers });
+      const res = await fetch(`${API_BASE}/installation/reports/pdf?${params.toString()}`, { headers, signal: request.signal });
       if (!res.ok) {
         const text = await res.text();
+        if (request.isStale()) return;
         setError(text || "Failed to download PDF report");
         return;
       }
       const blob = await res.blob();
+      if (request.isStale()) return;
       triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), `cwscx-installation-report-${new Date().toISOString().slice(0, 10)}.pdf`));
       pushToast("success", "PDF report downloaded");
     } catch {
+      if (request.isStale()) return;
       setError("Failed to download PDF report");
     }
-  }, [headers, installReportDateFrom, installReportDateTo, installReportSurveyId, installReportType, pushToast]);
+  }, [headers, buildInstallationReportScope, pushToast]);
 
   const handleInstallationEmailReport = useCallback(async () => {
+    const request = requests.begin("handleInstallationEmailReport");
     const { recipients, invalid } = collectRecipients(installReportEmailRecipients, installReportEmailDraft);
     if (invalid.length) {
       setError(`Fix invalid email address${invalid.length === 1 ? "" : "es"}: ${invalid.join(", ")}`);
@@ -758,18 +812,21 @@ const platformAbortRef = useRef(null);
     setInstallReportSending(true);
     setError("");
     try {
+      const scope = buildInstallationReportScope();
       const payload = {
-        report_type: installReportType,
-        date_from: installReportDateFrom || null,
-        date_to: installReportDateTo || null,
-        survey_id: installReportSurveyId || null,
+        report_type: scope.get("report_type"),
+        date_from: scope.get("date_from"),
+        date_to: scope.get("date_to"),
+        survey_id: scope.get("survey_id"),
         to: recipients,
       };
       const { res, data } = await fetchJsonSafe(`${API_BASE}/installation/reports/email`, {
         method: "POST",
+        signal: request.signal,
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       }, 30000);
+      if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to send report email");
       } else {
@@ -778,11 +835,13 @@ const platformAbortRef = useRef(null);
         pushToast("success", `Report emailed to ${recipients.join(", ")}`);
       }
     } catch (err) {
+      if (request.isStale()) return;
       setError("Failed to send report email");
     } finally {
+      if (request.isStale()) return;
       setInstallReportSending(false);
     }
-  }, [installReportType, installReportDateFrom, installReportDateTo, installReportSurveyId, installReportEmailRecipients, installReportEmailDraft, headers, fetchJsonSafe, pushToast]);
+  }, [buildInstallationReportScope, installReportEmailRecipients, installReportEmailDraft, headers, fetchJsonSafe, pushToast]);
 
   useEffect(() => {
     if (!isInstallationPlatform) {
@@ -851,6 +910,23 @@ const platformAbortRef = useRef(null);
     setSurveyResults([]);
     setSelectedSurveyVisit(null);
     setReviewResponseDrafts({});
+    setSelectedAnalyticsBusinessIds([]);
+    setSelectedAnalyticsLocationIds([]);
+    setAnalyticsBusinessSearch("");
+    setAnalyticsLocationSearch("");
+    setSelectedSurveyBusiness("");
+    setSelectedSurveyLocation("");
+    setSurveyStatusFilter("all");
+    setReportType("lifetime");
+    setReportBusinessId("");
+    setReportVisitId("");
+    setReportSelectedDate("");
+    setReportDateFrom("");
+    setReportDateTo("");
+    setReportEligibleSurveys([]);
+    setReportIneligibleSurveys([]);
+    setReportPreview(null);
+    setReportPreviewHtml("");
     return () => {
       platformAbortRef.current?.abort();
     };
@@ -866,10 +942,13 @@ const platformAbortRef = useRef(null);
     useEffect(() => {
      if (location.pathname !== "/") return;
      if (!activePlatform || isInstallationPlatform) return;
+     const request = requests.begin("analytics");
      const load = async () => {
-       const requestVersion = platformRequestVersion.current;
-       const isStale = () => requestVersion !== platformRequestVersion.current;
+       const isStale = request.isStale;
        setError("");
+       setAnalyticsError("");
+       setAnalyticsLoading(true);
+       setAnalytics(null);
         const params = new URLSearchParams();
         params.set("survey_type", activePlatform);
         if (selectedAnalyticsEntityIds.length > 0) {
@@ -882,24 +961,25 @@ const platformAbortRef = useRef(null);
         const queryString = `?${params.toString()}`;
 
         try {
-         const platformSignal = getPlatformSignal();
+         const platformSignal = request.signal;
          const analyticsRes = await fetchJsonSafe(`${API_BASE}/analytics${queryString}`, { headers, signal: platformSignal }, 45000);
          const analyticsData = analyticsRes.data || {};
           if (!analyticsRes.res.ok) {
             if (isStale()) return;
-            setError(analyticsData.detail || "Failed to load metrics");
+            setAnalyticsError(formatApiError(analyticsData.detail, "Failed to load metrics"));
             return;
           }
 
-         const npsData = analyticsData.nps || {};
+         const b2bMetrics = presentB2BMetrics(analyticsData);
+         const npsData = isMysteryShopperPlatform ? (analyticsData.nps || {}) : { ...analyticsData.nps, nps: b2bMetrics.nps };
          const catData = Array.isArray(analyticsData.category_breakdown) ? analyticsData.category_breakdown : [];
 
-          if (requestVersion !== platformRequestVersion.current) return;
+          if (isStale()) return;
           setAnalytics({
             ...analyticsData,
             nps: npsData,
            category_breakdown: Array.isArray(catData) ? catData : [],
-           customer_satisfaction: analyticsData.customer_satisfaction || analyticsData,
+           customer_satisfaction: isMysteryShopperPlatform ? (analyticsData.customer_satisfaction || analyticsData) : { ...analyticsData.customer_satisfaction, csat_score: b2bMetrics.csat },
            relationship_score: analyticsData.relationship_score || null,
            competitive_exposure: analyticsData.competitive_exposure || null,
            mystery_shopper: analyticsData.mystery_shopper || null,
@@ -907,10 +987,13 @@ const platformAbortRef = useRef(null);
          });
         } catch (err) {
           if (isStale()) return;
-          setError("Failed to load metrics");
+          setAnalyticsError("Failed to load metrics");
+        } finally {
+          if (!isStale()) setAnalyticsLoading(false);
         }
       };
      load();
+     return () => requests.invalidate("analytics");
      }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
    // Load yes/no question analytics (B2B and Mystery Shopper)
@@ -921,26 +1004,27 @@ const platformAbortRef = useRef(null);
         return;
      }
 
+     const request = requests.begin("yesNo");
      const load = async () => {
-        const requestVersion = platformRequestVersion.current;
-        const isStale = () => requestVersion !== platformRequestVersion.current;
+        const isStale = request.isStale;
         const params = new URLSearchParams({ survey_type: activePlatform });
         if (isMysteryShopperPlatform && selectedAnalyticsEntityIds.length > 0) {
           params.set("mystery_location_ids", selectedAnalyticsEntityIds.join(","));
         } else if (selectedAnalyticsEntityIds.length > 0) {
           params.set("business_ids", selectedAnalyticsEntityIds.join(","));
         }
-        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/yes-no?${params.toString()}`, { headers });
+        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/yes-no?${params.toString()}`, { headers, signal: request.signal });
         if (!res.ok) {
           if (isStale()) return;
           setYesNoQuestionAnalytics([]);
           return;
         }
-        if (requestVersion !== platformRequestVersion.current) return;
+        if (isStale()) return;
         setYesNoQuestionAnalytics(Array.isArray(data?.items) ? data.items : []);
       };
 
       load();
+     return () => requests.invalidate("yesNo");
     }, [location.pathname, activePlatform, isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
     useEffect(() => {
@@ -950,33 +1034,36 @@ const platformAbortRef = useRef(null);
         return;
       }
 
-      const load = async () => {
-        const requestVersion = platformRequestVersion.current;
-        const isStale = () => requestVersion !== platformRequestVersion.current;
+      const request = requests.begin("executiveTrends");
+     const load = async () => {
+        const isStale = request.isStale;
         const params = new URLSearchParams({ survey_type: activePlatform });
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set("business_ids", selectedAnalyticsEntityIds.join(","));
         }
-        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/account-executives/yes-no-trends?${params.toString()}`, { headers });
+        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/account-executives/yes-no-trends?${params.toString()}`, { headers, signal: request.signal });
         if (!res.ok) {
           if (isStale()) return;
           setAccountExecutiveYesNoTrendData([]);
           return;
         }
-        if (requestVersion !== platformRequestVersion.current) return;
+        if (isStale()) return;
         setAccountExecutiveYesNoTrendData(Array.isArray(data?.items) ? data.items : []);
       };
 
       load();
+     return () => requests.invalidate("executiveTrends");
     }, [location.pathname, activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, headers, fetchJsonSafe]);
 
    // Load question averages for drilldown table
    useEffect(() => {
      if (!["/", "/trends"].includes(location.pathname)) return;
      if (!activePlatform || isInstallationPlatform) return;
-      const load = async () => {
-        const requestVersion = platformRequestVersion.current;
-        const isStale = () => requestVersion !== platformRequestVersion.current;
+      setQuestionsLoading(true);
+     setQuestionAverages([]);
+     const request = requests.begin("questions");
+     const load = async () => {
+        const isStale = request.isStale;
         const params = new URLSearchParams({ survey_type: activePlatform });
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
@@ -984,14 +1071,17 @@ const platformAbortRef = useRef(null);
             selectedAnalyticsEntityIds.join(",")
           );
         }
-        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions?${params.toString()}`, { headers });
+        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions?${params.toString()}`, { headers, signal: request.signal });
         if (!res.ok) {
           if (isStale()) return;
+          setQuestionsLoading(false);
+          setAnalyticsError(formatApiError(data?.detail, "Failed to load question metrics"));
           return;
         }
         const values = Array.isArray(data?.items) ? data.items : [];
-        if (requestVersion !== platformRequestVersion.current) return;
+        if (isStale()) return;
         setQuestionAverages(values);
+       setQuestionsLoading(false);
        if (values.length === 0) {
          setSelectedQuestionId("");
          return;
@@ -1002,15 +1092,23 @@ const platformAbortRef = useRef(null);
        }
      };
      load();
+     return () => requests.invalidate("questions");
     }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
    // Load question trend data
    useEffect(() => {
      if (!["/", "/trends"].includes(location.pathname)) return;
-     if (!selectedQuestionId || !activePlatform) return;
-      const load = async () => {
-        const requestVersion = platformRequestVersion.current;
-        const isStale = () => requestVersion !== platformRequestVersion.current;
+     if (!selectedQuestionId || !activePlatform) {
+       setTrendData([]);
+       setTrendLoading(false);
+       return;
+     }
+      const request = requests.begin("trend");
+     const load = async () => {
+        const isStale = request.isStale;
+        setTrendLoading(true);
+        setTrendError("");
+        setTrendData([]);
         const params = new URLSearchParams({ survey_type: activePlatform, interval: "week" });
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
@@ -1018,39 +1116,46 @@ const platformAbortRef = useRef(null);
             selectedAnalyticsEntityIds.join(",")
           );
         }
-        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/${selectedQuestionId}/trend?${params.toString()}`, { headers });
+        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/questions/${selectedQuestionId}/trend?${params.toString()}`, { headers, signal: request.signal });
         if (!res.ok) {
           if (isStale()) return;
+          setTrendLoading(false);
+          setTrendError(formatApiError(data?.detail, "Failed to load trend data"));
           return;
         }
         const rows = Array.isArray(data?.points) ? data.points : [];
-        if (requestVersion !== platformRequestVersion.current) return;
-        setTrendData(rows.map((row) => ({ period: row.period_label || row.period, average: Number(row.average_score || 0) })));
+        if (isStale()) return;
+        setTrendData(rows.map((row) => ({ period: row.period_label || row.period, average: row.average_score == null || row.average_score === "" || !Number.isFinite(Number(row.average_score)) ? null : Number(row.average_score) })));
+        setTrendLoading(false);
       };
      load();
+     return () => requests.invalidate("trend");
     }, [location.pathname, activePlatform, isMysteryShopperPlatform, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
   const loadPendingVisits = useCallback(async () => {
-    const requestVersion = platformRequestVersion.current;
-    const isStale = () => requestVersion !== platformRequestVersion.current;
+    const request = requests.begin("pending");
+    const isStale = request.isStale;
     const params = new URLSearchParams();
     params.set("status", "Pending");
     if (!isMysteryShopperPlatform && activePlatform) params.set("survey_type", activePlatform);
     const endpoint = isMysteryShopperPlatform
       ? `${API_BASE}/mystery-shopper/admin/visits?${params.toString()}`
       : `${API_BASE}/dashboard-visits/all?${params.toString()}`;
-    const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: getPlatformSignal() });
+    setPendingVisitsLoading(true);
+    const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: request.signal });
     if (!res.ok) {
       if (isStale()) return;
       setError(data?.detail || "Failed to load pending visits");
+      setPendingVisitsLoading(false);
       return;
     }
     const normalized = (Array.isArray(data) ? data : []).map((visit) => ({
       ...visit,
       visit_id: visit.visit_id ?? visit.id,
     }));
-    if (requestVersion !== platformRequestVersion.current) return;
+    if (isStale()) return;
     setPendingVisits(normalized);
+    setPendingVisitsLoading(false);
   }, [activePlatform, headers, fetchJsonSafe, isMysteryShopperPlatform]);
 
 
@@ -1174,8 +1279,8 @@ const platformAbortRef = useRef(null);
 
   const loadSurveyResults = async () => {
     if (!activePlatform || isInstallationPlatform) return;
-    const requestVersion = platformRequestVersion.current;
-    const isStale = () => requestVersion !== platformRequestVersion.current;
+    const request = requests.begin("surveys");
+    const isStale = request.isStale;
 
     const params = new URLSearchParams();
     if (surveyStatusFilter !== "all") params.set("status", surveyStatusFilter);
@@ -1184,12 +1289,13 @@ const platformAbortRef = useRef(null);
     if (!isMysteryShopperPlatform && activePlatform) params.set("survey_type", activePlatform);
 
     setSurveyLoading(true);
+    setSurveyResults([]);
     setError("");
     try {
       const endpoint = isMysteryShopperPlatform
         ? `${API_BASE}/mystery-shopper/admin/visits?${params.toString()}`
         : `${API_BASE}/dashboard-visits/all?${params.toString()}`;
-      const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: getPlatformSignal() });
+      const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: request.signal });
       if (!res.ok) {
         if (isStale()) return;
         setError(data?.detail || "Failed to load survey results");
@@ -1240,6 +1346,7 @@ const platformAbortRef = useRef(null);
   }, [activePlatform, isMysteryShopperPlatform, reportBusinessId, reportDateFrom, reportDateTo, reportSelectedDate, reportType, reportVisitId]);
 
   const handlePreviewReport = useCallback(async () => {
+    const request = requests.begin("preview");
     if (!validateReportSelection()) return;
     setReportLoading(true);
     setError("");
@@ -1248,7 +1355,8 @@ const platformAbortRef = useRef(null);
       const endpoint = isMysteryShopperPlatform
         ? `${API_BASE}/mystery-shopper/reports/export?${params.toString()}`
         : `${API_BASE}/dashboard-visits/reports/export?${params.toString()}`;
-      const { res, data } = await fetchJsonSafe(endpoint, { headers }, 25000);
+      const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: request.signal }, 25000);
+    if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to generate report preview");
         return;
@@ -1257,11 +1365,13 @@ const platformAbortRef = useRef(null);
       setReportPreviewHtml(data?.report_html || "");
       setMessage("Report preview generated.");
     } finally {
+      if (request.isStale()) return;
       setReportLoading(false);
     }
   }, [buildReportParams, fetchJsonSafe, headers, isMysteryShopperPlatform, validateReportSelection]);
 
   const handleDownloadReport = useCallback(async () => {
+    const request = requests.begin("download");
     if (!validateReportSelection()) return;
     pushToast("info", "Preparing report download...", 1500);
     setError("");
@@ -1271,21 +1381,25 @@ const platformAbortRef = useRef(null);
       const endpoint = isMysteryShopperPlatform
         ? `${API_BASE}/mystery-shopper/reports/export?${params.toString()}`
         : `${API_BASE}/dashboard-visits/reports/export?${params.toString()}`;
-      const res = await fetch(endpoint, { headers });
+      const res = await fetch(endpoint, { headers, signal: request.signal });
       if (!res.ok) {
         const text = await res.text();
+        if (request.isStale()) return;
         setError(text || "Failed to download report");
         return;
       }
       const blob = await res.blob();
+      if (request.isStale()) return;
       triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), "cwscx-survey-report.html"));
       setMessage("Report downloaded.");
     } catch {
+      if (request.isStale()) return;
       setError("Failed to download report");
     }
   }, [buildReportParams, headers, isMysteryShopperPlatform, pushToast, validateReportSelection]);
 
   const handleDownloadPdfReport = useCallback(async () => {
+    const request = requests.begin("pdf");
     if (!validateReportSelection()) return;
     pushToast("info", "Preparing PDF download...", 1500);
     setError("");
@@ -1294,21 +1408,25 @@ const platformAbortRef = useRef(null);
       const endpoint = isMysteryShopperPlatform
         ? `${API_BASE}/mystery-shopper/reports/pdf?${params.toString()}`
         : `${API_BASE}/dashboard-visits/reports/pdf?${params.toString()}`;
-      const res = await fetch(endpoint, { headers });
+      const res = await fetch(endpoint, { headers, signal: request.signal });
       if (!res.ok) {
         const text = await res.text();
+        if (request.isStale()) return;
         setError(text || "Failed to download PDF report");
         return;
       }
       const blob = await res.blob();
+      if (request.isStale()) return;
       triggerBlobDownload(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), isMysteryShopperPlatform ? "cwscx-mystery-shopper-report.pdf" : "cwscx-survey-report.pdf"));
       setMessage("PDF report downloaded.");
     } catch {
+      if (request.isStale()) return;
       setError("Failed to download PDF report");
     }
   }, [buildReportParams, headers, isMysteryShopperPlatform, pushToast, validateReportSelection]);
 
   const handleEmailReport = useCallback(async () => {
+    const request = requests.begin("email");
     if (!validateReportSelection()) return;
     const { recipients, invalid } = collectRecipients(reportEmailRecipients, reportEmailDraft);
     if (invalid.length) {
@@ -1340,8 +1458,10 @@ const platformAbortRef = useRef(null);
       const { res, data } = await fetchJsonSafe(endpoint, {
         method: "POST",
         headers,
+        signal: request.signal,
         body: JSON.stringify(payload),
       }, 25000);
+    if (request.isStale()) return;
       if (!res.ok) {
         setError(data?.detail || "Failed to send report email");
         return;
@@ -1350,11 +1470,16 @@ const platformAbortRef = useRef(null);
       setReportEmailDraft("");
       setMessage(`Report emailed to ${recipients.join(", ")}.`);
     } finally {
+      if (request.isStale()) return;
       setReportSending(false);
     }
   }, [activePlatform, fetchJsonSafe, headers, isMysteryShopperPlatform, reportBusinessId, reportDateFrom, reportDateTo, reportEmailRecipients, reportEmailDraft, reportSelectedDate, reportType, reportVisitId, validateReportSelection]);
 
   useEffect(() => {
+    const request = requests.begin("eligible");
+    setReportSurveyLoading(false);
+    setReportEligibleSurveys([]);
+    setReportIneligibleSurveys([]);
     if (location.pathname !== "/reports") return;
     if (reportType !== "survey") {
       setReportEligibleSurveys([]);
@@ -1378,7 +1503,8 @@ const platformAbortRef = useRef(null);
         const endpoint = isMysteryShopperPlatform
           ? `${API_BASE}/mystery-shopper/reports/surveys?${params.toString()}`
           : `${API_BASE}/dashboard-visits/reports/surveys?${params.toString()}`;
-        const { res, data } = await fetchJsonSafe(endpoint, { headers }, 20000);
+        const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: request.signal }, 20000);
+        if (request.isStale()) return;
         if (!res.ok) {
           setError(data?.detail || "Failed to load report-eligible surveys");
           return;
@@ -1390,11 +1516,13 @@ const platformAbortRef = useRef(null);
           setReportVisitId("");
         }
       } finally {
+        if (request.isStale()) return;
         setReportSurveyLoading(false);
       }
     };
 
     loadEligibleSurveys();
+    return () => requests.invalidate("eligible");
   }, [activePlatform, fetchJsonSafe, headers, isMysteryShopperPlatform, location.pathname, reportBusinessId, reportType, reportVisitId, setError, setReportVisitId]);
 
   const loadActionsBoard = useCallback(async () => {
@@ -1662,12 +1790,15 @@ const platformAbortRef = useRef(null);
   };
 
   const loadSurveyVisitDetails = async (visitId) => {
+    const request = requests.begin("detail");
+    requests.invalidate("reviewSave");
+    setSelectedSurveyVisit(null);
     pushToast("info", "Loading full survey details...", 1400);
     const endpoint = isMysteryShopperPlatform
       ? `${API_BASE}/mystery-shopper/visits/${visitId}?_cb=${Date.now()}`
       : `${API_BASE}/dashboard-visits/${visitId}?_cb=${Date.now()}`;
-    const res = await fetch(endpoint, { headers, cache: "no-store" });
-    const data = await readJsonSafe(res);
+    const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: request.signal, cache: "no-store" });
+    if (request.isStale()) return;
     if (!res.ok) {
       setError(formatApiError(data.detail, "Failed to load survey details"));
       return;
@@ -1702,6 +1833,7 @@ const platformAbortRef = useRef(null);
     const dialog = reviewDialog;
     if (!dialog) return;
     const { visitId, decision } = dialog;
+    const request = requests.begin("review");
 
     setReviewDialog({ ...dialog, busy: true, error: "" });
     setReviewActionLoadingVisitId(visitId);
@@ -1717,8 +1849,10 @@ const platformAbortRef = useRef(null);
     const { res, data } = await fetchJsonSafe(endpoint, {
       method: "PUT",
       headers,
+      signal: request.signal,
       body: JSON.stringify(payload),
     });
+    if (request.isStale()) return;
 
     setReviewActionLoadingVisitId("");
 
@@ -1731,9 +1865,9 @@ const platformAbortRef = useRef(null);
 
     setReviewDialog(null);
     setMessage(`Visit ${REVIEW_DECISION_COPY[decision].past}.`);
-    if (String(selectedSurveyVisit?.id || selectedSurveyVisit?.visit_id || "") === visitId) {
-      setSelectedSurveyVisit(null);
-    }
+    setSelectedSurveyVisit((current) =>
+      String(current?.id || current?.visit_id || "") === visitId ? null : current
+    );
 
     await Promise.all([loadPendingVisits(), loadSurveyResults()]);
   };
@@ -1809,6 +1943,7 @@ const platformAbortRef = useRef(null);
   };
 
   const saveReviewResponseEdits = async (response) => {
+    const request = requests.begin("reviewSave");
     const responseId = String(response?.response_id || "");
     const visitId = String(selectedSurveyVisit?.id || selectedSurveyVisit?.visit_id || "");
     if (!responseId || !visitId) return;
@@ -1827,8 +1962,10 @@ const platformAbortRef = useRef(null);
     const { res, data } = await fetchJsonSafe(endpoint, {
       method: "PUT",
       headers,
+      signal: request.signal,
       body: JSON.stringify(payload),
     });
+    if (request.isStale()) return;
     setReviewSavingResponseId("");
     if (!res.ok) {
       setError(data?.detail || "Failed to update response");
@@ -1881,6 +2018,9 @@ const platformAbortRef = useRef(null);
   }, [location.pathname, loadActionsBoard]);
 
   useEffect(() => {
+    for (const key of ["preview", "download", "pdf", "email"]) requests.invalidate(key);
+    setReportLoading(false);
+    setReportSending(false);
     setReportPreview(null);
     setReportPreviewHtml("");
   }, [reportType, reportBusinessId, reportVisitId, reportSelectedDate, reportDateFrom, reportDateTo]);
@@ -1903,17 +2043,7 @@ const platformAbortRef = useRef(null);
   }, [isMysteryShopperPlatform, reportType]);
 
    const analyticsCards = [
-     ...(isMysteryShopperPlatform
-        ? [
-            { title: "Total Responses", value: analytics?.nps?.total_responses ?? 0 },
-            { title: "Draft Visits", value: analytics?.visits?.draft ?? 0 },
-            { title: "Pending Visits", value: analytics?.visits?.pending ?? 0 },
-            { title: "Review Queue", value: pendingVisits.length },
-          ]
-        : [
-            { title: "NPS", value: analytics?.nps?.nps ?? "--", numericValue: analytics?.nps?.nps, metric: "b2b_nps" },
-            { title: "CSAT", value: `${analytics?.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "--"}%`, numericValue: analytics?.customer_satisfaction?.csat_score, metric: "b2b_csat" },
-          ]),
+     ...buildAnalyticsCards({ isMysteryShopper: isMysteryShopperPlatform, analytics, pendingReviewCount: pendingVisits.length }),
      ...(isB2BPlatform && !isMysteryShopperPlatform
         ? [
             { title: "Relationship Score", value: analytics?.relationship_score?.score?.toFixed?.(1) ?? "--", numericValue: analytics?.relationship_score?.score, metric: "b2b_relationship" },
@@ -1963,12 +2093,12 @@ const platformAbortRef = useRef(null);
    ];
 
    const mysteryReportMetricCards = [
-     { title: "NPS — Would Recommend?", value: reportPreview?.mystery_metrics?.selected_nps ?? "--", metric: "b2b_nps" },
-     ...(reportType === "lifetime" ? [{ title: "Overall NPS (All Time)", value: reportPreview?.mystery_metrics?.overall_nps ?? "--", metric: "b2b_nps" }] : []),
-     { title: "CSAT — Satisfaction (0–10)", value: reportPreview?.mystery_metrics?.selected_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" },
-     ...(reportType === "lifetime" ? [{ title: "Overall CSAT (All Time)", value: reportPreview?.mystery_metrics?.overall_csat?.toFixed?.(2) ?? "--", metric: "b2b_csat" }] : []),
-     { title: "Overall Experience Score", value: reportPreview?.mystery_metrics?.selected_overall_experience?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
-     { title: "Service Quality Score", value: reportPreview?.mystery_metrics?.selected_quality?.toFixed?.(2) ?? "--", metric: "b2b_relationship" },
+     { title: "NPS — Would Recommend?", value: reportPreview?.mystery_metrics?.selected_nps ?? "--", metric: "mystery_nps" },
+     ...(reportType === "lifetime" ? [{ title: "Overall NPS (All Time)", value: reportPreview?.mystery_metrics?.overall_nps ?? "--", metric: "mystery_nps" }] : []),
+     { title: "CSAT — Satisfaction (0–10)", value: reportPreview?.mystery_metrics?.selected_csat?.toFixed?.(2) ?? "--", metric: "mystery_csat" },
+     ...(reportType === "lifetime" ? [{ title: "Overall CSAT (All Time)", value: reportPreview?.mystery_metrics?.overall_csat?.toFixed?.(2) ?? "--", metric: "mystery_csat" }] : []),
+     { title: "Overall Experience Score", value: reportPreview?.mystery_metrics?.selected_overall_experience?.toFixed?.(2) ?? "--", metric: "mystery_overall_experience" },
+     { title: "Service Quality Score", value: reportPreview?.mystery_metrics?.selected_quality?.toFixed?.(2) ?? "--", metric: "mystery_quality" },
    ];
 
    const installPreviewAverage = (items, key, target) => {
@@ -2033,40 +2163,18 @@ const platformAbortRef = useRef(null);
     return mysteryLocations.filter((item) => (item.name || "").toLowerCase().includes(query));
   }, [mysteryLocations, analyticsLocationSearch]);
 
-  const mysteryAnalyticsSummary = useMemo(() => {
-    if (!isMysteryShopperPlatform) {
-      return { qualityAvg: null, overallExperienceAvg: null };
-    }
-    const weightedAverage = (items) => {
-      const weighted = items.reduce(
-        (acc, item) => {
-          const score = Number(item.average_score || 0);
-          const count = Number(item.response_count || 0);
-          if (!count || Number.isNaN(score)) return acc;
-          return {
-            scoreSum: acc.scoreSum + score * count,
-            countSum: acc.countSum + count,
-          };
-        },
-        { scoreSum: 0, countSum: 0 }
-      );
-      return weighted.countSum > 0 ? weighted.scoreSum / weighted.countSum : null;
-    };
-
-    const overallExperience = questionAverages.filter((item) =>
-      (item.category || "").toLowerCase().includes("overall experience")
-    );
-    const qualityQuestions = questionAverages.filter((item) => {
-      const category = (item.category || "").toLowerCase();
-      if (category.includes("overall experience")) return false;
-      return Number(item.average_score || 0) <= 5.2;
-    });
-
-    return {
-      qualityAvg: weightedAverage(qualityQuestions),
-      overallExperienceAvg: weightedAverage(overallExperience),
-    };
-  }, [isMysteryShopperPlatform, questionAverages]);
+  const mysteryAnalyticsSummary = useMemo(
+    () => (isMysteryShopperPlatform ? summarizeMysteryQuestions(questionAverages) : summarizeMysteryQuestions([])),
+    [isMysteryShopperPlatform, questionAverages],
+  );
+  const selectedQuestionScale = useMemo(
+    () => getDeclaredQuestionScale(questionAverages, selectedQuestionId),
+    [questionAverages, selectedQuestionId],
+  );
+  const routeContext = useMemo(
+    () => getRouteContext(location.pathname, activePlatform),
+    [activePlatform, location.pathname],
+  );
 
   const groupedActionsBoard = useMemo(() => {
     const grouped = {};
@@ -2786,8 +2894,8 @@ const platformAbortRef = useRef(null);
 
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">CX Governance Dashboard</h2>
-          <p className="text-muted-foreground">Platform: {activePlatform}</p>
+          <h2 className="text-3xl font-bold tracking-tight">{routeContext.title}</h2>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{routeContext.help}</p>
         </div>
       </div>
 
@@ -2887,6 +2995,13 @@ const platformAbortRef = useRef(null);
             </Card>
           ) : null}
 
+          {analyticsLoading ? (
+            <div className="mb-8 rounded-lg border bg-card p-6 text-sm text-muted-foreground" role="status">Loading {activePlatform} analytics...</div>
+          ) : analyticsError ? (
+            <div className="mb-8 rounded-lg border p-6 text-sm text-destructive" role="alert">Analytics unavailable: {analyticsError}</div>
+          ) : !analytics ? (
+            <div className="mb-8 rounded-lg border p-6 text-sm text-muted-foreground">Analytics are unavailable.</div>
+          ) : (
           <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
             {analyticsCards.map((card) => {
               const grade = getTrafficLightMetric(card.metric, card.numericValue ?? card.value);
@@ -2898,10 +3013,12 @@ const platformAbortRef = useRef(null);
                     {card.metric ? <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", grade.badge)}>{grade.label}</span> : null}
                   </div>
                   <CardTitle className={cn("text-3xl", card.metric ? grade.value : "")}>{card.value}</CardTitle>
+                  {card.unit ? <p className="text-xs text-muted-foreground">{card.unit}</p> : null}
                 </CardHeader>
               </Card>
             );})}
           </div>
+          )}
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
             <Card className="min-w-0 lg:col-span-8">
@@ -2917,18 +3034,24 @@ const platformAbortRef = useRef(null);
                 </Select>
               </CardHeader>
               <CardContent className="min-w-0 h-[360px]">
-                {trendData.length > 0 ? (
+                {trendLoading ? (
+                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">Loading trend data...</div>
+                ) : trendError ? (
+                  <div className="flex h-full items-center justify-center text-sm text-destructive" role="alert">Trend unavailable: {trendError}</div>
+                ) : !selectedQuestionScale ? (
+                  <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">This question has no declared score scale, so a score trend cannot be drawn.</div>
+                ) : trendData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                   <LineChart data={trendData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" />
-                    <YAxis domain={[0, 10]} />
-                    <Tooltip />
+                    <YAxis domain={[selectedQuestionScale.min, selectedQuestionScale.max]} />
+                    <Tooltip formatter={(value) => [`${Number(value).toFixed(2)} / ${selectedQuestionScale.max}`, "Average rating"]} />
                     <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
                 ) : (
-                  <div className="flex items-center justify-center h-full text-sm text-muted-foreground">{questionAverages.length === 0 ? "No approved survey data yet." : "No trend data for this question."}</div>
+                  <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">No approved ratings are available for this question and filter selection.</div>
                 )}
               </CardContent>
             </Card>
@@ -2976,7 +3099,8 @@ const platformAbortRef = useRef(null);
             </Card>
           </div>
 
-          {/* Detailed NPS and CSAT Section */}
+          {/* B2B NPS and percentage CSAT use a separate metric contract. */}
+          {isB2BPlatform ? (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 mt-6">
             {/* NPS Card */}
             <Card className="min-w-0 lg:col-span-6">
@@ -3102,6 +3226,7 @@ const platformAbortRef = useRef(null);
               </CardContent>
             </Card>
           </div>
+          ) : null}
 
           {isB2BPlatform ? (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 mt-6">
@@ -3221,7 +3346,7 @@ const platformAbortRef = useRef(null);
           ) : null}
 
           {isMysteryShopperPlatform ? (
-            <MysteryAnalyticsSummarySection mysteryAnalyticsSummary={mysteryAnalyticsSummary} analytics={analytics} questionAverages={questionAverages} yesNoAnalytics={yesNoQuestionAnalytics} />
+            <MysteryAnalyticsSummarySection loading={analyticsLoading || questionsLoading} error={analyticsError} mysteryAnalyticsSummary={mysteryAnalyticsSummary} analytics={analytics} questionAverages={questionAverages} yesNoAnalytics={yesNoQuestionAnalytics} />
           ) : null}
         </>
         )
@@ -3278,15 +3403,25 @@ const platformAbortRef = useRef(null);
                   ))}
                 </Select>
                 <div className="min-w-0 h-[420px]">
+                  {trendLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">Loading trend data...</div>
+                  ) : trendError ? (
+                  <div className="flex h-full items-center justify-center text-sm text-destructive" role="alert">Trend unavailable: {trendError}</div>
+                ) : !selectedQuestionScale ? (
+                    <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">This question has no declared score scale, so a score trend cannot be drawn.</div>
+                  ) : trendData.length === 0 ? (
+                    <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">No approved ratings are available for this question and filter selection.</div>
+                  ) : (
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                     <LineChart data={trendData}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="period" />
-                      <YAxis domain={[0, 10]} />
-                      <Tooltip />
+                      <YAxis domain={[selectedQuestionScale.min, selectedQuestionScale.max]} />
+                      <Tooltip formatter={(value) => [`${Number(value).toFixed(2)} / ${selectedQuestionScale.max}`, "Average rating"]} />
                       <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} />
                     </LineChart>
                   </ResponsiveContainer>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -3325,6 +3460,7 @@ const platformAbortRef = useRef(null);
         isMysteryShopperPlatform ? (
           <MysteryReviewQueueSection
             pendingVisits={pendingVisits}
+            loading={pendingVisitsLoading}
             loadingVisitId={reviewActionLoadingVisitId}
             onView={loadSurveyVisitDetails}
             onApprove={(visit) => handleReviewDecision(visit, "approve")}
@@ -3337,6 +3473,9 @@ const platformAbortRef = useRef(null);
               <CardDescription className="text-sm">These submitted visits are waiting for manager review. You can approve or reject each one.</CardDescription>
             </CardHeader>
             <CardContent>
+              {pendingVisitsLoading ? (
+                <p className="py-8 text-center text-sm text-muted-foreground" role="status">Loading B2B visits awaiting review...</p>
+              ) : (
               <ReviewQueueDataTable
                 data={pendingVisits}
                 isMysteryShopperPlatform={isMysteryShopperPlatform}
@@ -3346,6 +3485,7 @@ const platformAbortRef = useRef(null);
                 onReject={(visit) => handleReviewDecision(visit, "reject")}
                 onNeedsChanges={(visit) => handleReviewDecision(visit, "needs-changes")}
               />
+              )}
             </CardContent>
           </Card>
         )
@@ -3358,7 +3498,7 @@ const platformAbortRef = useRef(null);
                 responseGroups={surveyResponseCategoryGroups}
                 formatSurveyResponseValue={formatSurveyResponseValue}
                 formatReadableDateTime={formatReadableDateTime}
-                onClose={() => setSelectedSurveyVisit(null)}
+                onClose={closeSurveyDetails}
                 editable
                 canEditResponseAnswer={canEditResponseAnswer}
                 canEditResponseActions={canEditResponseActions}
@@ -3461,7 +3601,7 @@ const platformAbortRef = useRef(null);
                 <p className="text-sm text-muted-foreground">No responses found for this visit.</p>
               )}
               <div>
-                <Button type="button" variant="outline" onClick={() => setSelectedSurveyVisit(null)}>Close Details</Button>
+                <Button type="button" variant="outline" onClick={closeSurveyDetails}>Close Details</Button>
               </div>
             </CardContent>
           </Card>
@@ -3602,7 +3742,7 @@ const platformAbortRef = useRef(null);
           onReset={resetInstallationSurveyFilters}
           onView={loadInstallationSurveyDetail}
           selectedSurvey={selectedInstallationSurvey}
-          onCloseDetails={() => setSelectedInstallationSurvey(null)}
+          onCloseDetails={closeInstallationDetails}
         />
       ) : null}
 
@@ -3913,7 +4053,7 @@ const platformAbortRef = useRef(null);
               surveyResponseCategoryGroups={surveyResponseCategoryGroups}
               formatSurveyResponseValue={formatSurveyResponseValue}
               formatReadableDateTime={formatReadableDateTime}
-              onCloseDetails={() => setSelectedSurveyVisit(null)}
+              onCloseDetails={closeSurveyDetails}
             />
           ) : (
             <MysteryReportsSection
@@ -4256,7 +4396,7 @@ const platformAbortRef = useRef(null);
                 responseGroups={surveyResponseCategoryGroups}
                 formatSurveyResponseValue={formatSurveyResponseValue}
                 formatReadableDateTime={formatReadableDateTime}
-                onClose={() => setSelectedSurveyVisit(null)}
+                onClose={closeSurveyDetails}
               />
             ) : (
               <Card id="survey-visit-detail">
@@ -4305,7 +4445,7 @@ const platformAbortRef = useRef(null);
                     <p className="text-sm text-muted-foreground">No responses found for this visit.</p>
                   )}
                   <div>
-                    <Button type="button" variant="outline" onClick={() => setSelectedSurveyVisit(null)}>Close Details</Button>
+                    <Button type="button" variant="outline" onClick={closeSurveyDetails}>Close Details</Button>
                   </div>
                 </CardContent>
               </Card>

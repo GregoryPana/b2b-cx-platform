@@ -29,14 +29,15 @@ def get_db():
 
 
 def init_db():
-    """Initialize database with tables."""
-    try:
-        Base.metadata.create_all(bind=engine)
-        with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_name VARCHAR(255)"))
-            connection.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_email VARCHAR(255)"))
-            connection.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP"))
-        print("Database initialized successfully")
-    except Exception as e:
-        print(f"Database initialization failed: {e}")
-        # Don't raise exception - continue with app startup
+    """Initialize a disposable local-development database.
+
+    Production schema changes are migration-owner work. ``create_app`` calls
+    this helper only behind the explicit local-development-only opt-in, and a
+    failed local bootstrap must remain visible rather than being suppressed.
+    """
+    Base.metadata.create_all(bind=engine)
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_name VARCHAR(255)"))
+        connection.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_by_email VARCHAR(255)"))
+        connection.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP"))
+    print("Local development database initialized successfully")

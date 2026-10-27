@@ -58,15 +58,22 @@ def ms_survey_type_id(client, db_available):
 
 @pytest.fixture(scope="module")
 def ms_location_id(db_available):
-    """Return the first active mystery shopper location id, or None."""
+    """Create an owned active location; never depend on pre-existing customer data."""
     from app.core.database import SessionLocal
     db = SessionLocal()
+    location_id = None
     try:
-        row = db.execute(
-            text("SELECT id FROM mystery_shopper_locations WHERE active = true LIMIT 1")
-        ).fetchone()
-        return row[0] if row else None
+        location_id = db.execute(
+            text("INSERT INTO mystery_shopper_locations (name) VALUES (:name) RETURNING id"),
+            {"name": f"Review fixture {uuid.uuid4().hex}"},
+        ).scalar_one()
+        db.commit()
+        yield location_id
     finally:
+        db.rollback()
+        if location_id is not None:
+            db.execute(text("DELETE FROM mystery_shopper_locations WHERE id = :id"), {"id": location_id})
+            db.commit()
         db.close()
 
 
@@ -144,7 +151,7 @@ def pending_visit(ms_survey_type_id, ms_location_id):
         db.rollback()
         for rid in response_ids:
             try:
-                db.execute(text("DELETE FROM mystery_shopper_answers WHERE id = :id::integer"), {"id": str(rid)})
+                db.execute(text("DELETE FROM mystery_shopper_answers WHERE id = :id"), {"id": rid})
             except Exception:
                 db.rollback()
         for stmt, params in [

@@ -30,6 +30,7 @@ def db():
             session.execute(text(f"SELECT 1 FROM {table} LIMIT 1"))
     except Exception:
         pytest.skip("B2B tables not available in the configured database")
+    _ensure_b2b_scope(session)
     yield session
     session.rollback()
     session.execute(text("DELETE FROM meeting_attendees WHERE visit_id IN (SELECT v.id FROM visits v JOIN businesses b ON b.id = v.business_id WHERE b.name ILIKE :t)"), {"t": f"{TAG}%"})
@@ -40,6 +41,32 @@ def db():
     session.close()
 
 
+def _ensure_b2b_scope(session):
+    """Make sure the module-scoping pieces visits depend on exist (no-ops on a seeded database)."""
+    session.rollback()
+    session.execute(text("CREATE TABLE IF NOT EXISTS survey_types (id SERIAL PRIMARY KEY, name TEXT, code TEXT)"))
+    session.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS survey_type_id INTEGER"))
+    session.execute(text("ALTER TABLE questions ADD COLUMN IF NOT EXISTS survey_type_id INTEGER"))
+    if not session.execute(text("SELECT 1 FROM survey_types WHERE lower(name) = 'b2b'")).scalar():
+        session.execute(text("INSERT INTO survey_types (name, code) VALUES ('B2B', 'B2B')"))
+    session.commit()
+
+
+def _b2b_survey_type_id(db):
+    return db.execute(text("SELECT id FROM survey_types WHERE lower(name) = 'b2b' LIMIT 1")).scalar()
+
+
+def _any_user_id(db):
+    user_id = db.execute(text("SELECT id FROM users ORDER BY id LIMIT 1")).scalar()
+    if user_id is None:
+        user_id = db.execute(
+            text("INSERT INTO users (email, name, role, active) VALUES (:e, 'Fix Test', 'Surveyor', true) RETURNING id"),
+            {"e": f"{TAG}-user@example.com"},
+        ).scalar()
+        db.commit()
+    return user_id
+
+
 def _make_business(client, suffix="", **extra):
     res = client.post("/b2b/businesses", json={"name": f"{TAG} {suffix}".strip(), **extra})
     assert res.status_code == 201, res.text
@@ -48,9 +75,13 @@ def _make_business(client, suffix="", **extra):
 
 def _make_visit(db, business_id, status="Draft", with_attendee=False):
     visit_id = str(uuid.uuid4())
+    user_id = _any_user_id(db)
     db.execute(
-        text("INSERT INTO visits (id, business_id, visit_date, status) VALUES (:id, :b, CURRENT_DATE, :s)"),
-        {"id": visit_id, "b": business_id, "s": status},
+        text(
+            "INSERT INTO visits (id, business_id, visit_date, visit_type, status, representative_id, created_by, survey_type_id) "
+            "VALUES (:id, :b, CURRENT_DATE, 'Planned', :s, :u, :u, :t)"
+        ),
+        {"id": visit_id, "b": business_id, "s": status, "u": user_id, "t": _b2b_survey_type_id(db)},
     )
     if with_attendee:
         db.execute(

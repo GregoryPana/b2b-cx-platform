@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from pydantic import BaseModel
 from ..core.database import get_db
+from ..core.analytics_scope import AnalyticsSchemaError, resolve_module_scope, visit_belongs_to_scope
 from ..core.auth.dependencies import (
     ALL_PLATFORM_ROLES,
     B2B_ROLES,
@@ -58,6 +59,37 @@ from ..core.db_inspect import has_column, has_table  # noqa: E402  (replaces loc
 def is_b2b_survey_type(value: str | None) -> bool:
     normalized = (value or "B2B").strip().lower().replace(" ", "")
     return normalized in {"b2b", "businesstobusiness"}
+
+
+def _b2b_scope_or_500(db: Session):
+    try:
+        return resolve_module_scope(db, "B2B")
+    except AnalyticsSchemaError as exc:
+        raise HTTPException(status_code=500, detail=f"B2B scope unavailable: {exc}")
+
+
+def _require_b2b_visit(db: Session, visit_id: object) -> None:
+    scope = _b2b_scope_or_500(db)
+    if not visit_belongs_to_scope(db, str(visit_id), scope):
+        raise HTTPException(status_code=404, detail="Visit not found")
+
+
+def _require_known_question_module(db: Session, survey_type: str) -> None:
+    if not has_table(db, "survey_types") or not has_column(db, "questions", "survey_type_id"):
+        raise HTTPException(status_code=500, detail="Question module scope is unavailable")
+    has_code = has_column(db, "survey_types", "code")
+    code_clause = "OR lower(code) = lower(:survey_type)" if has_code else ""
+    exists = db.execute(
+        text(
+            f"""SELECT 1 FROM survey_types
+                WHERE lower(name) = lower(:survey_type) {code_clause}
+                   OR replace(lower(name), ' ', '') = replace(lower(:survey_type), ' ', '')
+                LIMIT 1"""
+        ),
+        {"survey_type": survey_type},
+    ).scalar()
+    if not exists:
+        raise HTTPException(status_code=400, detail="Unsupported or unknown survey_type")
 
 
 @router.get("/survey-types")
@@ -383,7 +415,7 @@ class QuestionResponse(BaseModel):
 
 
 class VisitResponse(BaseModel):
-    id: int
+    id: str
     business_id: int
     business_name: str
     representative_id: int
@@ -448,10 +480,10 @@ async def update_business(
         # Update business
         result = db.execute(
             text("""
-            UPDATE businesses 
-            SET name = COALESCE(:name, name), 
-                location = COALESCE(:location, location), 
-                priority_level = COALESCE(:priority_level, priority_level), 
+            UPDATE businesses
+            SET name = COALESCE(:name, name),
+                location = COALESCE(:location, location),
+                priority_level = COALESCE(:priority_level, priority_level),
                 active = COALESCE(:active, active),
                 account_executive_id = COALESCE(:account_executive_id, account_executive_id)
             WHERE id = :business_id
@@ -479,7 +511,7 @@ async def update_business(
         updated_business = db.execute(
             text("""
             SELECT id, name, location, priority_level, active, account_executive_id
-            FROM businesses 
+            FROM businesses
             WHERE id = :business_id
             """),
             {"business_id": business_id},
@@ -620,6 +652,7 @@ async def get_questions(
     # Use the new database structure
     try:
         normalized_survey_type = (survey_type or "B2B").strip()
+        _require_known_question_module(db, normalized_survey_type)
         has_question_number = has_column(db, "questions", "question_number")
         has_order_index = has_column(db, "questions", "order_index")
         has_survey_types = has_table(db, "survey_types")
@@ -732,45 +765,11 @@ async def get_questions(
 
         return questions
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("Error fetching questions from new database: %s", e)
-        normalized = (survey_type or "B2B").strip().lower().replace(" ", "")
-        if normalized in {"mysteryshopper", "mystery_shopper", "mystery"}:
-            fallback = []
-            for question in MYSTERY_SHOPPER_QUESTIONS:
-                choices = question.get("choices")
-                if isinstance(choices, str):
-                    try:
-                        choices = json.loads(choices)
-                    except Exception:
-                        choices = None
-                fallback.append(
-                    {
-                        "id": question.get("question_number"),
-                        "survey_type_id": None,
-                        "order_index": question.get("question_number"),
-                        "question_text": question.get("question_text"),
-                        "category": question.get("category"),
-                        "is_mandatory": bool(question.get("is_mandatory", True)),
-                        "is_nps": bool(question.get("is_nps", False)),
-                        "input_type": question.get("input_type", "text"),
-                        "score_min": question.get("score_min"),
-                        "score_max": question.get("score_max"),
-                        "choices": choices,
-                        "helper_text": None,
-                        "requires_issue": False,
-                        "requires_escalation": False,
-                        "question_key": question.get("question_key"),
-                        "order": question.get("question_number"),
-                        "question_type": question.get("input_type", "text"),
-                    }
-                )
-            return fallback
-
-        if normalized in {"installation", "installationassessment", "install"}:
-            return []
-
-        return MOCK_QUESTIONS
+        logger.exception("Error fetching scoped questions: %s", e)
+        raise HTTPException(status_code=500, detail="Question module scope is unavailable")
 
 
 @router.get("/visits/drafts", response_model=List[VisitResponse])
@@ -780,9 +779,12 @@ async def get_draft_visits(
 ):
     """Get all draft visits for the survey."""
     try:
+        scope = _b2b_scope_or_500(db)
+        if scope.survey_type_id is None:
+            return []
         # Query B2B visits with business information
         query = """
-        SELECT 
+        SELECT
             v.id,
             v.business_id,
             b.name as business_name,
@@ -793,21 +795,22 @@ async def get_draft_visits(
             b.priority_level as business_priority
         FROM visits v
         LEFT JOIN businesses b ON v.business_id = b.id
-        WHERE v.status = 'draft' OR v.status IS NULL
+        WHERE (v.status = 'Draft' OR v.status IS NULL)
+          AND v.survey_type_id = :survey_type_id
         ORDER BY b.priority_level, v.visit_date
         """
 
-        result = db.execute(query)
+        result = db.execute(text(query), scope.params)
         visits = []
 
         for row in result:
             visits.append(
                 {
-                    "id": row[0],
+                    "id": str(row[0]),
                     "business_id": row[1],
                     "business_name": row[2] or "Unknown Business",
                     "representative_id": row[3] or 0,
-                    "visit_date": row[4] or "",
+                    "visit_date": str(row[4]) if row[4] else "",
                     "visit_type": row[5] or "Assessment",
                     "status": row[6] or "draft",
                     "business_priority": row[7] or "medium",
@@ -817,6 +820,8 @@ async def get_draft_visits(
 
         return visits
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error fetching draft visits: %s", e)
         # Return empty list if there's an error
@@ -825,14 +830,15 @@ async def get_draft_visits(
 
 @router.get("/visits/{visit_id}")
 async def get_visit_details(
-    visit_id: int,
+    visit_id: str,
     db: Session = Depends(get_db),
     _access: bool = Depends(require_roles(*B2B_ROLES)),
 ):
     """Get detailed information about a specific visit."""
     try:
+        _require_b2b_visit(db, visit_id)
         query = """
-        SELECT 
+        SELECT
             v.id,
             v.business_id,
             b.name as business_name,
@@ -846,18 +852,18 @@ async def get_visit_details(
         WHERE v.id = :visit_id
         """
 
-        result = db.execute(query, {"visit_id": visit_id})
+        result = db.execute(text(query), {"visit_id": visit_id})
         row = result.fetchone()
 
         if not row:
             raise HTTPException(status_code=404, detail="Visit not found")
 
         visit_data = {
-            "id": row[0],
+            "id": str(row[0]),
             "business_id": row[1],
             "business_name": row[2] or "Unknown Business",
             "representative_id": row[3] or 0,
-            "visit_date": row[4] or "",
+            "visit_date": str(row[4]) if row[4] else "",
             "visit_type": row[5] or "Assessment",
             "status": row[6] or "draft",
             "business_priority": row[7] or "medium",
@@ -873,192 +879,116 @@ async def get_visit_details(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+def _scoped_survey_responses(db: Session, visit_id: str) -> list[dict]:
+    """Read the authoritative shared store, never an unrelated local SQLite file."""
+    from .visits_dashboard import get_response_table, normalize_actions_value
+
+    _require_b2b_visit(db, visit_id)
+    scope = _b2b_scope_or_500(db)
+    table = get_response_table(db)
+    if table is None:
+        raise HTTPException(status_code=500, detail="No response table found")
+    rows = db.execute(
+        text(f"""SELECT r.*, q.category, q.question_text, q.input_type AS question_type,
+                        q.choices
+                 FROM {table} r JOIN questions q ON q.id = r.question_id
+                 WHERE r.visit_id = :visit_id
+                   AND (q.survey_type_id IS NULL OR q.survey_type_id = :survey_type_id)
+                 ORDER BY q.id"""),
+        {"visit_id": visit_id, **scope.params},
+    ).mappings().all()
+    result = []
+    for row in rows:
+        response = dict(row)
+        response["actions"] = normalize_actions_value(response.get("actions"))
+        result.append(response)
+    return result
+
+
 @router.get("/survey-responses/{visit_id}")
 async def get_survey_responses(
-    visit_id: int,
+    visit_id: str,
+    db: Session = Depends(get_db),
     _access: bool = Depends(require_roles(*B2B_ROLES)),
 ):
-    """Get all survey responses for a specific visit."""
-    try:
-        conn = sqlite3.connect("../dev_cx_platform.db")
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT 
-                sr.id,
-                sr.question_id,
-                sr.score,
-                sr.answer_text,
-                sr.choice_value,
-                sr.verbatim,
-                q.category,
-                q.question_text,
-                q.question_type,
-                q.choices
-            FROM survey_responses sr
-            LEFT JOIN (
-                SELECT 
-                    1 as dummy_id,
-                    1 as question_id,
-                    "Category 1: Relationship Strength" as category,
-                    "Rate your relationship with C&W." as question_text,
-                    "score" as question_type,
-                    "[]" as choices
-                UNION ALL SELECT 2, 2, "Category 1: Relationship Strength", "Do you get enough information from your Account Executive on New Products and Services?", "score", "[]"
-                -- This is a simplified approach - in production, questions should be in a proper table
-            ) q ON sr.question_id = q.question_id
-            WHERE sr.visit_id = ?
-            ORDER BY sr.question_id
-        """,
-            (visit_id,),
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        responses = []
-        for row in rows:
-            # Map question_id to question details from our MOCK_QUESTIONS
-            question = next((q for q in MOCK_QUESTIONS if q["id"] == row[1]), None)
-            if question:
-                responses.append(
-                    {
-                        "id": row[0],
-                        "question_id": row[1],
-                        "score": row[2],
-                        "answer_text": row[3],
-                        "choice_value": row[4],
-                        "verbatim": row[5],
-                        "category": question["category"],
-                        "question_text": question["question_text"],
-                        "question_type": question["question_type"],
-                        "choices": question.get("choices", []),
-                    }
-                )
-
-        return responses
-
-    except Exception as e:
-        logger.exception("Error fetching survey responses: %s", e)
-        return []
+    """Get module-consistent B2B responses from the configured database."""
+    return _scoped_survey_responses(db, visit_id)
 
 
 @router.get("/survey-actions/{visit_id}")
 async def get_survey_actions(
-    visit_id: int,
+    visit_id: str,
+    db: Session = Depends(get_db),
     _access: bool = Depends(require_roles(*B2B_ROLES)),
 ):
-    """Get all action items for a specific visit."""
-    try:
-        conn = sqlite3.connect("../dev_cx_platform.db")
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT 
-                sa.id,
-                sa.response_id,
-                sa.action_required,
-                sa.action_owner,
-                sa.action_timeframe,
-                sa.action_support_needed,
-                sa.status,
-                sa.created_at
-            FROM survey_actions sa
-            INNER JOIN survey_responses sr ON sa.response_id = sr.id
-            WHERE sr.visit_id = ?
-            ORDER BY sa.created_at
-        """,
-            (visit_id,),
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        actions = []
-        for row in rows:
-            actions.append(
-                {
-                    "id": row[0],
-                    "response_id": row[1],
-                    "action_required": row[2],
-                    "action_owner": row[3],
-                    "action_timeframe": row[4],
-                    "action_support_needed": row[5],
-                    "status": row[6],
-                    "created_at": row[7],
-                }
-            )
-
-        return actions
-
-    except Exception as e:
-        logger.exception("Error fetching survey actions: %s", e)
-        return []
+    """Get actions only from responses belonging to this B2B visit/module."""
+    actions = []
+    for response in _scoped_survey_responses(db, visit_id):
+        for index, action in enumerate(response["actions"]):
+            if isinstance(action, dict):
+                actions.append({**action, "response_id": str(response["id"]),
+                                "action_index": index,
+                                "status": action.get("action_status", "Outstanding")})
+    return actions
 
 
 @router.get("/historical-surveys")
 async def get_historical_surveys(
+    db: Session = Depends(get_db),
     _access: bool = Depends(require_roles(*B2B_ROLES)),
 ):
-    """Get all completed surveys with their responses."""
+    """Get approved B2B surveys with module-consistent response counts."""
     try:
-        conn = sqlite3.connect("../dev_cx_platform.db")
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT 
-                v.id,
-                v.business_id,
-                b.name as business_name,
-                v.representative_id,
-                v.visit_date,
-                v.visit_type,
-                v.status,
-                COUNT(sr.id) as response_count
-            FROM visits v
-            LEFT JOIN businesses b ON v.business_id = b.id
-            LEFT JOIN survey_responses sr ON v.id = sr.visit_id
-            WHERE v.status = 'completed'
-            GROUP BY v.id
-            ORDER BY v.visit_date DESC
-        """)
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        surveys = []
-        for row in rows:
-            surveys.append(
-                {
-                    "id": row[0],
-                    "business_id": row[1],
-                    "business_name": row[2],
-                    "representative_id": row[3],
-                    "visit_date": row[4],
-                    "visit_type": row[5],
-                    "status": row[6],
-                    "response_count": row[7] or 0,
-                }
-            )
-
-        return surveys
-
+        scope = _b2b_scope_or_500(db)
+        if scope.survey_type_id is None:
+            return []
+        response_table = "b2b_visit_responses" if has_table(db, "b2b_visit_responses") else "responses"
+        rows = db.execute(
+            text(
+                f"""
+                SELECT
+                    v.id, v.business_id, b.name AS business_name,
+                    v.representative_id, v.visit_date, v.visit_type, v.status,
+                    COUNT(CASE WHEN q.id IS NOT NULL THEN r.id END) AS response_count
+                FROM visits v
+                LEFT JOIN businesses b ON v.business_id = b.id
+                LEFT JOIN {response_table} r ON v.id = r.visit_id
+                LEFT JOIN questions q ON q.id = r.question_id
+                    AND (q.survey_type_id IS NULL OR q.survey_type_id = :survey_type_id)
+                WHERE v.status = 'Approved' AND v.survey_type_id = :survey_type_id
+                GROUP BY v.id, b.name
+                ORDER BY v.visit_date DESC
+                """
+            ),
+            scope.params,
+        ).all()
+        return [
+            {
+                "id": row[0], "business_id": row[1], "business_name": row[2],
+                "representative_id": row[3], "visit_date": row[4], "visit_type": row[5],
+                "status": row[6], "response_count": int(row[7] or 0),
+            }
+            for row in rows
+        ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error fetching historical surveys: %s", e)
         return []
 
 
 async def save_visit_responses(
-    visit_id: int, responses: Dict[str, Any], db: Session = Depends(get_db)
+    visit_id: str, responses: Dict[str, Any], db: Session = Depends(get_db)
 ):
     """Save responses for a visit."""
     try:
+        _require_b2b_visit(db, visit_id)
         # For now, just return success
         # In a real implementation, you would save to a responses table
         return {"message": "Responses saved successfully", "visit_id": visit_id}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error saving responses: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save responses")
@@ -1066,17 +996,20 @@ async def save_visit_responses(
 
 @router.put("/visits/{visit_id}")
 async def update_visit(
-    visit_id: int,
+    visit_id: str,
     visit_data: Dict[str, Any],
     db: Session = Depends(get_db),
     _access: bool = Depends(require_roles(*B2B_ROLES)),
 ):
     """Update visit information."""
     try:
+        _require_b2b_visit(db, visit_id)
         # For now, just return success
         # In a real implementation, you would update the visit
         return {"message": "Visit updated successfully", "visit_id": visit_id}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error updating visit: %s", e)
         raise HTTPException(status_code=500, detail="Failed to update visit")
