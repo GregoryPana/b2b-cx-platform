@@ -1817,25 +1817,27 @@ const platformAbortRef = useRef(null);
 
   // Approve / Reject / Needs Changes open a dialog (replaces window.prompt). For B2B, rejecting
   // or sending back for changes requires a note so the surveyor knows what to fix.
-  const handleReviewDecision = (visit, decision) => {
-    const visitId = String(visit?.id || visit?.visit_id || "");
-    if (!visitId) return;
-    setReviewDialog({ visit, visitId, decision, busy: false, error: "" });
-  };
-
   const REVIEW_DECISION_COPY = {
     approve: { title: "Approve this visit?", verb: "Approve", past: "approved", noteLabel: "Approval notes (optional)", variant: "default" },
     reject: { title: "Reject this visit?", verb: "Reject", past: "rejected", noteLabel: "Reason for rejection", variant: "destructive" },
     "needs-changes": { title: "Send back for changes?", verb: "Send back", past: "sent back for changes", noteLabel: "What needs to change?", variant: "default" },
   };
 
-  const submitReviewDialog = async (_actionKey, note) => {
-    const dialog = reviewDialog;
-    if (!dialog) return;
-    const { visitId, decision } = dialog;
-    const request = requests.begin("review");
+  // Approve / Reject / Needs Changes open a dialog (replaces window.prompt). For B2B, rejecting
+  // or sending back for changes requires a note so the surveyor knows what to fix.
+  const openReviewDialog = (visit, decision) => {
+    const visitId = String(visit?.id || visit?.visit_id || "");
+    if (!visitId) return;
+    setReviewDialog({ visit, visitId, decision, busy: false, error: "" });
+  };
 
-    setReviewDialog({ ...dialog, busy: true, error: "" });
+  // Performs the decision. Returns { ok, error, status } for the dialog, or undefined when a newer
+  // request / navigation made this one stale.
+  const handleReviewDecision = async (visit, decision, note = "") => {
+    const request = requests.begin("review");
+    const visitId = String(visit?.id || visit?.visit_id || "");
+    if (!visitId) return undefined;
+
     setReviewActionLoadingVisitId(visitId);
 
     const payload = decision === "approve"
@@ -1852,24 +1854,36 @@ const platformAbortRef = useRef(null);
       signal: request.signal,
       body: JSON.stringify(payload),
     });
-    if (request.isStale()) return;
+    if (request.isStale()) return undefined;
 
     setReviewActionLoadingVisitId("");
 
     if (!res.ok) {
-      setReviewDialog({ ...dialog, busy: false, error: formatApiError(data?.detail, `Failed to ${REVIEW_DECISION_COPY[decision].verb.toLowerCase()} visit`) });
       // A 409 means it was already reviewed elsewhere; refresh so the queue is accurate.
       if (res.status === 409) await Promise.all([loadPendingVisits(), loadSurveyResults()]);
-      return;
+      return { ok: false, status: res.status, error: formatApiError(data?.detail, `Failed to ${decision === "needs-changes" ? "send back" : decision} visit`) };
     }
 
-    setReviewDialog(null);
-    setMessage(`Visit ${REVIEW_DECISION_COPY[decision].past}.`);
+    const past = { approve: "approved", reject: "rejected", "needs-changes": "sent back for changes" }[decision];
+    setMessage(`Visit ${visitId} ${past}.`);
     setSelectedSurveyVisit((current) =>
       String(current?.id || current?.visit_id || "") === visitId ? null : current
     );
 
     await Promise.all([loadPendingVisits(), loadSurveyResults()]);
+    return { ok: true };
+  };
+
+  const submitReviewDialog = async (_actionKey, note) => {
+    const dialog = reviewDialog;
+    if (!dialog) return;
+    setReviewDialog({ ...dialog, busy: true, error: "" });
+    const result = await handleReviewDecision(dialog.visit, dialog.decision, note);
+    if (!result) {
+      setReviewDialog(null);
+      return;
+    }
+    setReviewDialog(result.ok ? null : { ...dialog, busy: false, error: result.error });
   };
 
   const formatSurveyResponseValue = (response) => {
@@ -3463,8 +3477,8 @@ const platformAbortRef = useRef(null);
             loading={pendingVisitsLoading}
             loadingVisitId={reviewActionLoadingVisitId}
             onView={loadSurveyVisitDetails}
-            onApprove={(visit) => handleReviewDecision(visit, "approve")}
-            onReject={(visit) => handleReviewDecision(visit, "reject")}
+            onApprove={(visit) => openReviewDialog(visit, "approve")}
+            onReject={(visit) => openReviewDialog(visit, "reject")}
           />
         ) : (
           <Card>
@@ -3481,9 +3495,9 @@ const platformAbortRef = useRef(null);
                 isMysteryShopperPlatform={isMysteryShopperPlatform}
                 loadingVisitId={reviewActionLoadingVisitId}
                 onView={loadSurveyVisitDetails}
-                onApprove={(visit) => handleReviewDecision(visit, "approve")}
-                onReject={(visit) => handleReviewDecision(visit, "reject")}
-                onNeedsChanges={(visit) => handleReviewDecision(visit, "needs-changes")}
+                onApprove={(visit) => openReviewDialog(visit, "approve")}
+                onReject={(visit) => openReviewDialog(visit, "reject")}
+                onNeedsChanges={(visit) => openReviewDialog(visit, "needs-changes")}
               />
               )}
             </CardContent>
