@@ -66,9 +66,46 @@ class BusinessService:
         return BusinessService._business_row_to_dict(row) if row else None
     
     @staticmethod
+    def _assert_account_executive_exists(db: Session, account_executive_id: int | None) -> None:
+        if account_executive_id is None:
+            return
+        exists = db.execute(
+            text("SELECT 1 FROM account_executives WHERE id = :ae_id"),
+            {"ae_id": account_executive_id},
+        ).scalar()
+        if not exists:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Selected account executive does not exist",
+            )
+
+    @staticmethod
+    def _assert_no_duplicate(db: Session, name: str, location: str | None, exclude_id: int | None = None) -> None:
+        """Reject a second business with the same name and location (case-insensitive)."""
+        duplicate = db.execute(
+            text(
+                """
+                SELECT id FROM businesses
+                WHERE LOWER(name) = LOWER(:name)
+                  AND LOWER(COALESCE(location, '')) = LOWER(COALESCE(CAST(:location AS TEXT), ''))
+                  AND (CAST(:exclude_id AS INTEGER) IS NULL OR id <> CAST(:exclude_id AS INTEGER))
+                LIMIT 1
+                """
+            ),
+            {"name": name, "location": location, "exclude_id": exclude_id},
+        ).scalar()
+        if duplicate:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A business with this name and location already exists",
+            )
+
+    @staticmethod
     def create_business(db: Session, business_data: BusinessCreate) -> Business:
         """Create a new business."""
         payload = business_data.model_dump()
+        BusinessService._assert_account_executive_exists(db, payload.get("account_executive_id"))
+        BusinessService._assert_no_duplicate(db, payload["name"], payload.get("location"))
         row = db.execute(
             text(
                 """
@@ -99,10 +136,23 @@ class BusinessService:
             )
 
         update_data = business_data.model_dump(exclude_unset=True)
+        # name / priority_level / active are NOT NULL; only location and the
+        # account executive may be explicitly cleared with null.
+        for required_field in ("name", "priority_level", "active"):
+            if required_field in update_data and update_data[required_field] is None:
+                del update_data[required_field]
         if "priority_level" in update_data:
             update_data["priority_level"] = BusinessService.normalize_business_type(update_data.get("priority_level"))
         if not update_data:
             return existing
+
+        if "account_executive_id" in update_data:
+            BusinessService._assert_account_executive_exists(db, update_data["account_executive_id"])
+        new_name = update_data.get("name", existing["name"])
+        new_location = update_data["location"] if "location" in update_data else existing["location"]
+        # Only re-check when identity actually changes, so legacy duplicate rows stay editable.
+        if (new_name, new_location) != (existing["name"], existing["location"]):
+            BusinessService._assert_no_duplicate(db, new_name, new_location, exclude_id=business_id)
 
         set_clauses = []
         params = {"business_id": business_id}
@@ -175,6 +225,36 @@ class BusinessService:
             {"business_id": business_id},
         ).scalar()
         
+        total_responses = 0
+        for table_name in ("b2b_visit_responses", "responses"):
+            table_exists = db.execute(
+                text("SELECT 1 FROM information_schema.tables WHERE table_name = :table_name LIMIT 1"),
+                {"table_name": table_name},
+            ).scalar()
+            if not table_exists:
+                continue
+            total_responses += int(
+                db.execute(
+                    text(
+                        f"""
+                        SELECT COUNT(*) FROM {table_name}
+                        WHERE visit_id IN (SELECT id FROM visits v WHERE business_id = :business_id {scope.visit_filter})
+                        """
+                    ),
+                    params,
+                ).scalar()
+                or 0
+            )
+
+        deletion_blocked = bool(
+            mystery_assessment_count
+            or BusinessService._has_foreign_visits(db, business_id, scope.survey_type_id)
+        )
+
+        status_counts: dict[str, int] = {}
+        for visit in visits:
+            status_counts[visit[2] or "Unknown"] = status_counts.get(visit[2] or "Unknown", 0) + 1
+
         return {
             "business": {
                 "id": business_row[0],
@@ -183,9 +263,13 @@ class BusinessService:
                 "priority_level": business_row[3],
                 "active": business_row[4]
             },
+            "can_delete": not deletion_blocked,
             "related_records": {
                 "total_visits": visit_count,
-                "deletion_blocked": bool(mystery_assessment_count or BusinessService._has_foreign_visits(db, business_id, scope.survey_type_id)),
+                "total_responses": total_responses,
+                "visits_by_status": status_counts,
+                "total_mystery_shopper_assessments": int(mystery_assessment_count or 0),
+                "deletion_blocked": deletion_blocked,
                 "visits": [
                     {
                         "id": str(visit[0]),
@@ -272,11 +356,28 @@ class BusinessService:
                 )
                 deleted_response_count += int(deleted.rowcount or 0)
 
+            # meeting_attendees references visits.id without ON DELETE CASCADE.
+            attendees_exist = db.execute(
+                text("SELECT 1 FROM information_schema.tables WHERE table_name = 'meeting_attendees' LIMIT 1")
+            ).scalar()
+            if attendees_exist:
+                db.execute(
+                    text(
+                        """
+                        DELETE FROM meeting_attendees
+                        WHERE visit_id IN (
+                            SELECT id FROM visits WHERE business_id = :business_id
+                        )
+                        """
+                    ),
+                    {"business_id": business_id},
+                )
+
             db.execute(
                 text("DELETE FROM visits WHERE business_id = :business_id AND survey_type_id = :survey_type_id"),
                 {"business_id": business_id, **scope.params}
             )
-            
+
             # Delete the business
             db.execute(
                 text("DELETE FROM businesses WHERE id = :business_id"),
@@ -367,6 +468,16 @@ class AccountExecutiveService:
                 detail="Account executive not found"
             )
         
+        assigned = db.execute(
+            text("SELECT COUNT(*) FROM businesses WHERE account_executive_id = :ae_id"),
+            {"ae_id": ae_id},
+        ).scalar() or 0
+        if assigned:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Account executive is assigned to {assigned} business(es); reassign them first",
+            )
+
         db.delete(account_executive)
         db.commit()
         return True

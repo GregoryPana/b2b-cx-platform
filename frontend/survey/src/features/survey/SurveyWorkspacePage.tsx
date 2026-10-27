@@ -75,6 +75,7 @@ type DraftVisit = {
   is_completed?: boolean;
   account_executive_name?: string;
   team_member_names?: string[];
+  change_notes?: string | null;
 };
 
 type ActionItem = {
@@ -201,6 +202,20 @@ function normalizeResponseRecordForCompare(record?: ResponseRecord | null) {
     verbatim: String(record?.verbatim ?? "").trim(),
     actions: JSON.stringify(record?.actions || []),
   };
+}
+
+// Status badge that also surfaces the reviewer's note when a visit was sent back for changes.
+function DraftStatusBadge({ draft }: { draft: DraftVisit }) {
+  return (
+    <div className="space-y-1">
+      <Badge variant="secondary">{draft.status || "Draft"}</Badge>
+      {draft.change_notes ? (
+        <p className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+          <span className="font-semibold">Changes requested:</span> {draft.change_notes}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWorkspacePageProps) {
@@ -591,7 +606,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
       return;
     }
     if (owner !== visitScope.current || !records) return;
-    setMessage(`Loaded planned visit for ${resolveBusinessName(draft)}.`);
+    setMessage(draft.change_notes ? `Loaded ${resolveBusinessName(draft)}. Reviewer asked for changes: ${draft.change_notes}` : `Loaded planned visit for ${resolveBusinessName(draft)}.`);
     navigate("/survey");
     return true;
   };
@@ -1424,7 +1439,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                   <div>
                                     <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
                                   </div>
-                                  <Badge variant="secondary">{draft.status || "Draft"}</Badge>
+                                  <DraftStatusBadge draft={draft} />
                                 </div>
                                 <div className="grid grid-cols-2 gap-3 text-sm">
                                   <div>
@@ -1469,7 +1484,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                   <TableCell>{resolveBusinessName(draft)}</TableCell>
                                   <TableCell>{draft.visit_date || "--"}</TableCell>
                                   <TableCell>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</TableCell>
-                                  <TableCell><Badge variant="secondary">{draft.status || "Draft"}</Badge></TableCell>
+                                  <TableCell><DraftStatusBadge draft={draft} /></TableCell>
                                   <TableCell>
                                     <Button size="sm" onClick={() => handleSelectPlannedVisit(draft)}>
                                       Continue <ArrowRight className="h-4 w-4" />

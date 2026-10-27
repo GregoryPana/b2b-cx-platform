@@ -142,7 +142,9 @@ def test_dedicated_lifecycle_transitions(db, ns, module, state):
     for action in ("approve", "reject", "needs-changes"):
         db.execute(text("UPDATE visits SET status=:s WHERE id=:v"), {"s": state, "v": visit}); db.commit()
         before = snapshot(db, visit)
-        response = c.put(f"{prefix}/{visit}/{action}", json={})
+        # B2B requires a reason for reject / needs-changes; extra keys are ignored elsewhere.
+        notes = {"approval_notes": "ok", "rejection_notes": "reason", "change_notes": "please fix"}
+        response = c.put(f"{prefix}/{visit}/{action}", json=notes)
         assert response.status_code == (200 if state == "Pending" else 409), response.text
         if state != "Pending":
             assert snapshot(db, visit) == before

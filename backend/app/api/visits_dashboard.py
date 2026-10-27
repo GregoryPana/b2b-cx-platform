@@ -839,6 +839,10 @@ def get_all_visits(
             response_join = f"LEFT JOIN {response_table} r ON v.id = r.visit_id"
 
         team_members_join = ""
+        # change_notes is written by the review flow; tolerate schemas that predate it.
+        has_change_notes = has_column(db, "visits", "change_notes")
+        change_notes_select = "v.change_notes" if has_change_notes else "NULL"
+        change_notes_group = ", v.change_notes" if has_change_notes else ""
         team_members_select = "ARRAY[]::varchar[]"
         if has_table(db, "meeting_attendees"):
             team_members_join = (
@@ -875,7 +879,8 @@ def get_all_visits(
                 {mandatory_total_expr} as mandatory_total_count,
                 false as is_started,
                 false as is_completed,
-                {team_members_select} as team_member_names
+                {team_members_select} as team_member_names,
+                {change_notes_select} as change_notes
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             LEFT JOIN users u ON v.representative_id = u.id
@@ -884,7 +889,7 @@ def get_all_visits(
                 AND (q.survey_type_id IS NULL OR q.survey_type_id = :survey_type_id)
             {team_members_join}
             {where_clause}
-            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.account_executive_name, v.submitted_by_name, v.submitted_by_email, v.submitted_at, {team_members_select}
+            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.account_executive_name, v.submitted_by_name, v.submitted_by_email, v.submitted_at{change_notes_group}, {team_members_select}
             ORDER BY v.visit_date DESC
         """
         
@@ -915,6 +920,7 @@ def get_all_visits(
                 "mandatory_total_count": row[15] if len(row) > 15 else 0,
                 "is_started": (row[13] or 0) > 0,
                 "is_completed": (row[15] or 0) > 0 and (row[14] or 0) >= (row[15] or 0),
+                "change_notes": row[19] if len(row) > 19 else None,
             })
         
         return visits
@@ -924,6 +930,31 @@ def get_all_visits(
     except Exception as e:
         logger.exception("Error getting all visits: %s", e)
         raise HTTPException(status_code=500, detail="Failed to get visits")
+
+
+@router.get("/pending-count")
+def get_pending_visit_count(
+    survey_type: Optional[str] = None,
+    survey_type_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Cheap count of visits awaiting review (drives the sidebar badge)."""
+    try:
+        where = ["v.status = 'Pending'"]
+        params: dict[str, Any] = {}
+        resolved_survey_type_id = _b2b_scope(db, survey_type, survey_type_id).survey_type_id
+        if resolved_survey_type_id and has_column(db, "visits", "survey_type_id"):
+            where.append("v.survey_type_id = :survey_type_id")
+            params["survey_type_id"] = resolved_survey_type_id
+        count = db.execute(
+            text(f"SELECT COUNT(*) FROM visits v WHERE {' AND '.join(where)}"), params
+        ).scalar()
+        return {"count": int(count or 0)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error counting pending visits: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to count pending visits")
 
 
 @router.get("/actions")
@@ -3001,19 +3032,29 @@ def get_pending_visits(
 
 
 @router.put("/{visit_id}/draft")
-def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(get_db)):
-    """Update a draft visit."""
+def update_visit_draft(
+    visit_id: str,
+    visit_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update a draft visit. Only Draft visits can be edited here."""
     try:
         scope = _require_b2b_visit(db, visit_id)
         ensure_visit_metadata_columns(db)
         ensure_visit_edit_audit_columns(db)
         # Get current visit details to check business_id
         current_visit = db.execute(text(
-            "SELECT business_id FROM visits WHERE id = :visit_id"
+            "SELECT business_id, status FROM visits WHERE id = :visit_id"
         ), {"visit_id": visit_id}).fetchone()
         
         if not current_visit:
             raise HTTPException(status_code=404, detail="Visit not found")
+        if current_visit[1] != "Draft":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Only Draft visits can be edited (this visit is {current_visit[1]}).",
+            )
         
         business_id = current_visit[0]
         new_visit_date = visit_data.get("visit_date")
@@ -3036,8 +3077,16 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
         params = {"visit_id": visit_id}
         
         if visit_data.get("representative_id") is not None:
+            try:
+                rep_id = int(visit_data.get("representative_id"))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="representative_id must be a valid integer")
+            if has_table(db, "users") and not db.execute(
+                text("SELECT 1 FROM users WHERE id = :user_id LIMIT 1"), {"user_id": rep_id}
+            ).scalar():
+                raise HTTPException(status_code=400, detail="Selected representative does not exist")
             update_fields.append("representative_id = :rep_id")
-            params["rep_id"] = visit_data.get("representative_id")
+            params["rep_id"] = rep_id
         
         if new_visit_date:
             update_fields.append("visit_date = :visit_date")
@@ -3064,6 +3113,8 @@ def update_visit_draft(visit_id: str, visit_data: dict, db: Session = Depends(ge
                 visit_id,
                 visit_data.get("team_member_names") or [],
             )
+
+        mark_visit_edited(db, visit_id, current_user)
         
         # Commit the transaction to ensure changes persist
         db.commit()
@@ -3445,6 +3496,13 @@ def submit_visit(
         raise HTTPException(status_code=500, detail="Failed to submit visit")
 
 
+def _require_review_note(value: object, label: str) -> str:
+    note = str(value or "").strip()
+    if not note:
+        raise HTTPException(status_code=400, detail=f"{label} is required.")
+    return note
+
+
 @router.put("/{visit_id}/approve")
 def approve_visit(
     visit_id: str,
@@ -3478,6 +3536,9 @@ def approve_visit(
             "status": "Approved",
             "message": "Visit approved successfully"
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         logger.exception("Error approving visit: %s", e)
         db.rollback()
@@ -3491,10 +3552,11 @@ def reject_visit(
     db: Session = Depends(get_db),
     _manager_access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN")),
 ):
-    """Reject a visit."""
+    """Reject a visit (a reason is required)."""
     _require_b2b_visit(db, visit_id)
     require_visit_state(db, visit_id, {"Pending"})
     try:
+        rejection_notes = _require_review_note(rejection_data.get("rejection_notes"), "A rejection reason")
         # Update visit status to Rejected
         db.execute(text(
             """
@@ -3506,7 +3568,7 @@ def reject_visit(
             """
         ), {
             "visit_id": visit_id,
-            "rejection_notes": rejection_data.get("rejection_notes")
+            "rejection_notes": rejection_notes
         })
         
         # Commit the transaction
@@ -3517,6 +3579,9 @@ def reject_visit(
             "status": "Rejected", 
             "message": "Visit rejected successfully"
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         logger.exception("Error rejecting visit: %s", e)
         db.rollback()
@@ -3530,10 +3595,11 @@ def request_changes(
     db: Session = Depends(get_db),
     _manager_access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN")),
 ):
-    """Request changes for a visit."""
+    """Send a visit back to the surveyor as a Draft (change notes are required)."""
     _require_b2b_visit(db, visit_id)
     require_visit_state(db, visit_id, {"Pending"})
     try:
+        change_notes = _require_review_note(changes_data.get("change_notes"), "Change notes")
         # Update visit status back to Draft with change notes
         db.execute(text(
             """
@@ -3545,7 +3611,7 @@ def request_changes(
             """
         ), {
             "visit_id": visit_id,
-            "change_notes": changes_data.get("change_notes")
+            "change_notes": change_notes
         })
         
         # Commit the transaction
@@ -3556,6 +3622,9 @@ def request_changes(
             "status": "Draft",
             "message": "Changes requested successfully"
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         logger.exception("Error requesting changes: %s", e)
         db.rollback()

@@ -193,8 +193,8 @@ def create_app() -> FastAPI:
         # Users Compatibility Routes (for dashboard users)
         app.include_router(users_compat_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])
 
-        # Visits Compatibility Routes (for dashboard visits)
-        app.include_router(visits_compat_router, dependencies=[Depends(require_roles(*ALL_PLATFORM_ROLES))])
+        # Visits Compatibility Routes (B2B visits only; Mystery/Installation use their own routers)
+        app.include_router(visits_compat_router, dependencies=[Depends(require_roles(*B2B_ROLES))])
 
         # Admin Dashboard Routes (for admin management)
         app.include_router(admin_dashboard_router, dependencies=[Depends(require_roles(*DASHBOARD_ROLES))])

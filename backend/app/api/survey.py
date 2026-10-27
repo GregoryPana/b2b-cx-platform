@@ -525,6 +525,9 @@ async def update_business(
             "active": bool(updated_business[4]),
             "account_executive_id": updated_business[5],
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         logger.exception("Error updating business: %s", e)
         raise HTTPException(status_code=500, detail="Failed to update business")

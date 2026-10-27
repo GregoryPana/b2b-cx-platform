@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -27,13 +27,27 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
   const [filterColumn, setFilterColumn] = useState("action_required");
   const [drafts, setDrafts] = useState({});
 
+  // Last values received from the server per row, so a refresh (e.g. after saving one row)
+  // keeps unsaved edits in the other rows instead of resetting every draft.
+  const serverValuesRef = useRef({});
+
   useEffect(() => {
-    const next = {};
-    data.forEach((item) => {
-      const key = draftKey(item);
-      next[key] = { action_status: item.action_status || "Outstanding", action_comments: item.action_comments || "" };
+    setDrafts((prev) => {
+      const next = {};
+      const nextServer = {};
+      data.forEach((item) => {
+        const key = draftKey(item);
+        const server = { action_status: item.action_status || "Outstanding", action_comments: item.action_comments || "" };
+        nextServer[key] = server;
+        const prior = prev[key];
+        const priorServer = serverValuesRef.current[key];
+        const isDirty = Boolean(prior && priorServer)
+          && (prior.action_status !== priorServer.action_status || prior.action_comments !== priorServer.action_comments);
+        next[key] = isDirty ? prior : server;
+      });
+      serverValuesRef.current = nextServer;
+      return next;
     });
-    setDrafts(next);
   }, [data]);
 
   const updateDraft = useCallback((item, changes) => {
@@ -80,7 +94,12 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
         />
       ),
     },
-    { id: "save", headerTitle: "Save", header: "", cell: ({ row, table }) => <Button type="button" size="sm" variant="outline" onClick={() => table.options.meta?.onSaveActionPoint(row.original, table.options.meta?.drafts[draftKey(row.original)] || {})}>Save</Button>, enableSorting: false, enableHiding: false },
+    { id: "save", headerTitle: "Save", header: "", cell: ({ row, table }) => {
+        const draft = table.options.meta?.drafts[draftKey(row.original)] || {};
+        const isDirty = (draft.action_status ?? row.original.action_status ?? "Outstanding") !== (row.original.action_status || "Outstanding")
+          || (draft.action_comments ?? row.original.action_comments ?? "") !== (row.original.action_comments || "");
+        return <Button type="button" size="sm" variant={isDirty ? "default" : "outline"} onClick={() => table.options.meta?.onSaveActionPoint(row.original, draft)}>{isDirty ? "Save changes" : "Save"}</Button>;
+      }, enableSorting: false, enableHiding: false },
   ], []);
 
   const table = useReactTable({

@@ -50,6 +50,7 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const activePlatformAllowed = !activePlatform || availablePlatforms.some((platform) => platform.name === activePlatform);
   const isMysteryShopperPlatform = String(activePlatform || "").toLowerCase().includes("mystery");
+  const isInstallationPlatform = String(activePlatform || "").toLowerCase().includes("installation");
   const navigate = useNavigate();
 
   const handleSelectPlatform = useCallback((platformName) => {
@@ -71,23 +72,25 @@ function DashboardShell({ headers, availablePlatforms, userName, userEmail, acti
       try {
         const endpoint = isMysteryShopperPlatform
           ? `${API_BASE}/mystery-shopper/admin/visits?status=Pending`
-          : `${API_BASE}/dashboard-visits/all?${new URLSearchParams({ status: "Pending", survey_type: activePlatform || "B2B" }).toString()}`;
+          : `${API_BASE}/dashboard-visits/pending-count?${new URLSearchParams({ survey_type: activePlatform || "B2B" }).toString()}`;
         const res = await fetch(endpoint, { headers, signal: request.signal });
         if (!res.ok || request.isStale()) return;
         const data = await res.json();
         if (request.isStale()) return;
-        setPendingReviewCount(Array.isArray(data) ? data.length : 0);
+        setPendingReviewCount(Array.isArray(data) ? data.length : Number(data?.count) || 0);
       } catch { /* silent */ }
       finally { window.clearTimeout(timeoutId); }
     };
-    if (activePlatform) loadCount();
+    // Installation has no review queue, and its roles may not read B2B visits.
+    const shouldPoll = Boolean(activePlatform) && !isInstallationPlatform;
+    if (shouldPoll) loadCount();
     else setPendingReviewCount(0);
-    const interval = setInterval(() => { if (activePlatform) loadCount(); }, 30000);
+    const interval = setInterval(() => { if (shouldPoll) loadCount(); }, 30000);
     return () => {
       clearInterval(interval);
       requests.invalidateAll();
     };
-  }, [activePlatform, headers, isMysteryShopperPlatform]);
+  }, [activePlatform, headers, isInstallationPlatform, isMysteryShopperPlatform]);
 
   if (!activePlatform || !activePlatformAllowed) {
     return (

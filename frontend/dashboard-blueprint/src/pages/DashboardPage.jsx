@@ -25,6 +25,8 @@ import ExecutivesDataTable from "../components/b2b/ExecutivesDataTable";
 import ActionPointsDataTable from "../components/b2b/ActionPointsDataTable";
 import SimpleStatusDataTable from "../components/shared/SimpleStatusDataTable";
 import EmailRecipientsInput from "../components/shared/EmailRecipientsInput";
+import EntityCombobox from "../components/shared/EntityCombobox";
+import ActionDialog from "../components/shared/ActionDialog";
 import InfoHint from "../components/shared/InfoHint";
 import MysteryReviewQueueSection from "../features/mystery-shopper/components/MysteryReviewQueueSection";
 import MysteryVisitDetailCard from "../features/mystery-shopper/components/MysteryVisitDetailCard";
@@ -46,6 +48,7 @@ import { createRequestScope } from "../lib/requestScope";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
+const ANALYTICS_BUSINESS_FILTER_KEY = "cx.b2b.analyticsBusinessIds";
 const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
 const REPORT_TYPE_OPTIONS = [
   { key: "survey", label: "Selected Business", description: "View survey details for a specific business. Pick a business then select an approved survey." },
@@ -246,6 +249,15 @@ async function fetchJsonSafe(url, options = {}, timeout = 30000) {
   }
 }
 
+// Parse a JSON body without throwing when the server returns plain text (e.g. a proxy 502/500 page).
+async function readJsonSafe(res) {
+  try {
+    return await res.json();
+  } catch {
+    return { detail: res.ok ? null : `Request failed (${res.status})` };
+  }
+}
+
 function formatApiError(detail, fallback = "Unexpected error") {
   if (detail == null || detail === "") return fallback;
   if (typeof detail === "string") return detail;
@@ -315,11 +327,21 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     account_executive_id: ""
   });
   const [accountExecutiveQuery, setAccountExecutiveQuery] = useState("");
+  const [businessDialog, setBusinessDialog] = useState(null);
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const errorText = useMemo(() => formatApiError(error, ""), [error]);
-  const [selectedAnalyticsBusinessIds, setSelectedAnalyticsBusinessIds] = useState([]);
+  // Kept in sessionStorage because every sidebar tab remounts this page; the Analytics business
+  // filter should still apply when the user moves to Trends and back.
+  const [selectedAnalyticsBusinessIds, setSelectedAnalyticsBusinessIds] = useState(() => {
+    try {
+      const parsed = JSON.parse(sessionStorage.getItem(ANALYTICS_BUSINESS_FILTER_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed.filter((id) => Number.isInteger(id)) : [];
+    } catch {
+      return [];
+    }
+  });
   const [analyticsBusinessSearch, setAnalyticsBusinessSearch] = useState("");
   const [surveyResults, setSurveyResults] = useState([]);
   const [selectedSurveyVisit, setSelectedSurveyVisit] = useState(null);
@@ -365,6 +387,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [reportLoading, setReportLoading] = useState(false);
   const [reportSending, setReportSending] = useState(false);
   const [reviewActionLoadingVisitId, setReviewActionLoadingVisitId] = useState("");
+  const [reviewDialog, setReviewDialog] = useState(null);
 
 
   const [mysteryLocations, setMysteryLocations] = useState([]);
@@ -863,8 +886,6 @@ const platformAbortRef = useRef(null);
    }, [isInstallationPlatform, location.pathname, installReportType, loadInstallationReportSurveyList]);
 
 
-
-
   const selectedAnalyticsEntityIds = useMemo(() => {
     if (isB2BPlatform) {
       return selectedAnalyticsBusinessIds;
@@ -1142,8 +1163,9 @@ const platformAbortRef = useRef(null);
   // Load pending visits for review queue
   useEffect(() => {
     if (!["/", "/review"].includes(location.pathname)) return;
+    if (isInstallationPlatform) return;
     loadPendingVisits();
-  }, [location.pathname, loadPendingVisits]);
+  }, [location.pathname, loadPendingVisits, isInstallationPlatform]);
 
   const loadMysteryLocations = async () => {
     if (!isMysteryShopperPlatform) {
@@ -1237,6 +1259,13 @@ const platformAbortRef = useRef(null);
       loadMysteryUsers();
     }
   }, [isMysteryShopperPlatform, headers, location.pathname]);
+
+  useEffect(() => {
+    if (!selectedSurveyVisit) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById("survey-visit-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [selectedSurveyVisit]);
 
   useEffect(() => {
     if (!message) return;
@@ -1629,6 +1658,19 @@ const platformAbortRef = useRef(null);
     });
   };
 
+  // Picking a business pre-fills its assigned account executive (if the field is still empty).
+  const handlePlannedBusinessChange = (businessId) => {
+    const business = businesses.find((item) => String(item.id) === String(businessId));
+    const assigned = business?.account_executive_id
+      ? representatives.find((executive) => executive.id === business.account_executive_id)
+      : null;
+    setPlannedForm((prev) => ({
+      ...prev,
+      business_id: businessId,
+      account_executive_name: prev.account_executive_name.trim() ? prev.account_executive_name : (assigned?.name || ""),
+    }));
+  };
+
   const createPlannedAccountExecutive = async () => {
     const name = newPlannedExecutiveName.trim();
     const email = newPlannedExecutiveEmail.trim();
@@ -1639,14 +1681,13 @@ const platformAbortRef = useRef(null);
     setPlannedExecutiveSaving(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/account-executives`, {
+      const { res, data } = await fetchJsonSafe(`${API_BASE}/account-executives`, {
         method: "POST",
         headers,
         body: JSON.stringify({ name, email }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        setError(data?.detail || "Failed to create account executive");
+        setError(formatApiError(data?.detail, "Failed to create account executive"));
         return;
       }
       await loadRepresentatives();
@@ -1683,9 +1724,9 @@ const platformAbortRef = useRef(null);
       headers,
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+    const data = await readJsonSafe(res);
     if (!res.ok) {
-      setError(data.detail || "Failed to create planned visit");
+      setError(formatApiError(data.detail, "Failed to create planned visit"));
       return;
     }
     setPlannedForm({ business_id: plannedForm.business_id, visit_date: "", visit_type: "Planned", account_executive_name: "", team_member_names: [""] });
@@ -1697,9 +1738,9 @@ const platformAbortRef = useRef(null);
     if (!window.confirm("Delete this draft planned visit?")) return;
     pushToast("info", "Deleting planned visit...", 1500);
     const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}?_cb=${Date.now()}`, { method: "DELETE", headers });
-    const data = await res.json();
+    const data = await readJsonSafe(res);
     if (!res.ok) {
-      setError(data.detail || "Failed to delete planned visit");
+      setError(formatApiError(data.detail, "Failed to delete planned visit"));
       return;
     }
     setMessage("Planned visit deleted.");
@@ -1738,9 +1779,9 @@ const platformAbortRef = useRef(null);
         team_member_names: normalizeTeamMembers(plannedEditForm.team_member_names),
       }),
     });
-    const data = await res.json();
+    const data = await readJsonSafe(res);
     if (!res.ok) {
-      setError(data.detail || "Failed to update planned visit");
+      setError(formatApiError(data.detail, "Failed to update planned visit"));
       return;
     }
     setMessage("Planned visit updated.");
@@ -1759,7 +1800,7 @@ const platformAbortRef = useRef(null);
     const { res, data } = await fetchJsonSafe(endpoint, { headers, signal: request.signal, cache: "no-store" });
     if (request.isStale()) return;
     if (!res.ok) {
-      setError(data.detail || "Failed to load survey details");
+      setError(formatApiError(data.detail, "Failed to load survey details"));
       return;
     }
     setSelectedSurveyVisit(data);
@@ -1774,20 +1815,36 @@ const platformAbortRef = useRef(null);
     setReviewResponseDrafts(drafts);
   };
 
-  const handleReviewDecision = async (visit, decision) => {
-    const request = requests.begin("review");
+  // Approve / Reject / Needs Changes open a dialog (replaces window.prompt). For B2B, rejecting
+  // or sending back for changes requires a note so the surveyor knows what to fix.
+  const REVIEW_DECISION_COPY = {
+    approve: { title: "Approve this visit?", verb: "Approve", past: "approved", noteLabel: "Approval notes (optional)", variant: "default" },
+    reject: { title: "Reject this visit?", verb: "Reject", past: "rejected", noteLabel: "Reason for rejection", variant: "destructive" },
+    "needs-changes": { title: "Send back for changes?", verb: "Send back", past: "sent back for changes", noteLabel: "What needs to change?", variant: "default" },
+  };
+
+  // Approve / Reject / Needs Changes open a dialog (replaces window.prompt). For B2B, rejecting
+  // or sending back for changes requires a note so the surveyor knows what to fix.
+  const openReviewDialog = (visit, decision) => {
     const visitId = String(visit?.id || visit?.visit_id || "");
     if (!visitId) return;
+    setReviewDialog({ visit, visitId, decision, busy: false, error: "" });
+  };
 
-    const isApprove = decision === "approve";
-    const decisionLabel = isApprove ? "approve" : "reject";
-    const reasonLabel = isApprove ? "approval notes" : "rejection reason";
-    const notes = window.prompt(`Add ${reasonLabel} (optional):`, "") || "";
+  // Performs the decision. Returns { ok, error, status } for the dialog, or undefined when a newer
+  // request / navigation made this one stale.
+  const handleReviewDecision = async (visit, decision, note = "") => {
+    const request = requests.begin("review");
+    const visitId = String(visit?.id || visit?.visit_id || "");
+    if (!visitId) return undefined;
 
     setReviewActionLoadingVisitId(visitId);
-    pushToast("info", `${isApprove ? "Approving" : "Rejecting"} visit...`, 1400);
 
-    const payload = isApprove ? { approval_notes: notes } : { rejection_notes: notes };
+    const payload = decision === "approve"
+      ? { approval_notes: note }
+      : decision === "reject"
+        ? { rejection_notes: note }
+        : { change_notes: note };
     const endpoint = isMysteryShopperPlatform
       ? `${API_BASE}/mystery-shopper/visits/${visitId}/${decision}`
       : `${API_BASE}/dashboard-visits/${visitId}/${decision}`;
@@ -1797,21 +1854,36 @@ const platformAbortRef = useRef(null);
       signal: request.signal,
       body: JSON.stringify(payload),
     });
-    if (request.isStale()) return;
+    if (request.isStale()) return undefined;
 
     setReviewActionLoadingVisitId("");
 
     if (!res.ok) {
-      setError(data?.detail || `Failed to ${decisionLabel} visit`);
-      return;
+      // A 409 means it was already reviewed elsewhere; refresh so the queue is accurate.
+      if (res.status === 409) await Promise.all([loadPendingVisits(), loadSurveyResults()]);
+      return { ok: false, status: res.status, error: formatApiError(data?.detail, `Failed to ${decision === "needs-changes" ? "send back" : decision} visit`) };
     }
 
-    setMessage(`Visit ${visitId} ${isApprove ? "approved" : "rejected"}.`);
+    const past = { approve: "approved", reject: "rejected", "needs-changes": "sent back for changes" }[decision];
+    setMessage(`Visit ${visitId} ${past}.`);
     setSelectedSurveyVisit((current) =>
       String(current?.id || current?.visit_id || "") === visitId ? null : current
     );
 
     await Promise.all([loadPendingVisits(), loadSurveyResults()]);
+    return { ok: true };
+  };
+
+  const submitReviewDialog = async (_actionKey, note) => {
+    const dialog = reviewDialog;
+    if (!dialog) return;
+    setReviewDialog({ ...dialog, busy: true, error: "" });
+    const result = await handleReviewDecision(dialog.visit, dialog.decision, note);
+    if (!result) {
+      setReviewDialog(null);
+      return;
+    }
+    setReviewDialog(result.ok ? null : { ...dialog, busy: false, error: result.error });
   };
 
   const formatSurveyResponseValue = (response) => {
@@ -1952,9 +2024,11 @@ const platformAbortRef = useRef(null);
      loadPlannedVisits();
    }, [location.pathname, activePlatform]);
 
+  // Debounced so typing in the owner/support filters does not fire a request per keystroke.
   useEffect(() => {
-    if (location.pathname !== "/actions") return;
-    loadActionsBoard();
+    if (location.pathname !== "/actions") return undefined;
+    const timeoutId = window.setTimeout(loadActionsBoard, 300);
+    return () => window.clearTimeout(timeoutId);
   }, [location.pathname, loadActionsBoard]);
 
   useEffect(() => {
@@ -2357,103 +2431,123 @@ const platformAbortRef = useRef(null);
     );
   };
 
-  const handleCreateBusiness = async () => {
-    setError("");
-    setMessage("");
-    pushToast("info", "Creating business...", 1500);
-    if (!businessForm.name.trim()) {
+  const resetBusinessForm = () => {
+    setSelectedBusiness(null);
+    setBusinessForm({ name: "", location: "", priority_level: "sme", active: true, account_executive_id: "" });
+    setAccountExecutiveQuery("");
+  };
+
+  const buildBusinessPayload = () => {
+    const name = businessForm.name.trim();
+    if (!name) {
       setError("Business name is required.");
-      return;
+      return null;
     }
-    const payload = {
-      name: businessForm.name.trim(),
+    if (accountExecutiveQuery.trim() && !businessForm.account_executive_id) {
+      setError("Pick an account executive from the list, or clear the field to leave the business unassigned.");
+      return null;
+    }
+    // Explicit nulls tell the API to clear the value.
+    return {
+      name,
       location: businessForm.location.trim() || null,
       priority_level: normalizeBusinessPriorityLevel(businessForm.priority_level),
       active: businessForm.active,
-      account_executive_id: businessForm.account_executive_id ? Number(businessForm.account_executive_id) : null
+      account_executive_id: businessForm.account_executive_id ? Number(businessForm.account_executive_id) : null,
     };
-    const res = await fetch(`${API_BASE}/businesses`, {
+  };
+
+  const handleCreateBusiness = async () => {
+    setError("");
+    setMessage("");
+    const payload = buildBusinessPayload();
+    if (!payload) return;
+    const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/businesses`, {
       method: "POST",
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
-    const data = await res.json();
     if (!res.ok) {
-      setError(data.detail || "Failed to create business");
+      setError(formatApiError(data?.detail, "Failed to create business"));
       return;
     }
-    setBusinessForm({ name: "", location: "", priority_level: "sme", active: true, account_executive_id: "" });
-    setAccountExecutiveQuery("");
+    resetBusinessForm();
     setMessage(`Business created: ${data.name}`);
-    await loadBusinesses();
+    await Promise.all([loadBusinesses(), loadAnalyticsBusinesses()]);
   };
 
   const handleUpdateBusiness = async () => {
     if (!selectedBusiness) return;
     setError("");
     setMessage("");
-    pushToast("info", "Updating business...", 1500);
-    const payload = {
-      name: businessForm.name.trim(),
-      location: businessForm.location.trim() || null,
-      priority_level: normalizeBusinessPriorityLevel(businessForm.priority_level),
-      active: businessForm.active,
-      account_executive_id: businessForm.account_executive_id ? Number(businessForm.account_executive_id) : null
-    };
-    const res = await fetch(`${API_BASE}/businesses/${selectedBusiness.id}`, {
+    const payload = buildBusinessPayload();
+    if (!payload) return;
+    const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/businesses/${selectedBusiness.id}`, {
       method: "PUT",
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
-    const data = await res.json();
     if (!res.ok) {
-      setError(data.detail || "Failed to update business");
+      setError(formatApiError(data?.detail, "Failed to update business"));
       return;
     }
     setMessage(`Business updated: ${data.name}`);
-    setSelectedBusiness(null);
-    setBusinessForm({ name: "", location: "", priority_level: "sme", active: true, account_executive_id: "" });
-    setAccountExecutiveQuery("");
+    resetBusinessForm();
+    await Promise.all([loadBusinesses(), loadAnalyticsBusinesses()]);
+  };
+
+  const handleReactivateBusiness = async (business) => {
+    setError("");
+    setMessage("");
+    const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/businesses/${business.id}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ active: true }),
+    });
+    if (!res.ok) {
+      setError(formatApiError(data?.detail, "Failed to reactivate business"));
+      return;
+    }
+    setMessage(`Business reactivated: ${data.name}`);
     await loadBusinesses();
   };
 
-  const handleRetireBusiness = async (business) => {
-    setError("");
-    setMessage("");
-    pushToast("info", "Archiving business...", 1500);
-    const res = await fetch(`${B2B_API_BASE}/businesses/${business.id}`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ active: false })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.detail || "Failed to retire business");
-      return;
-    }
-    setMessage(`Business retired: ${data.name}`);
-    await loadBusinesses();
+  // Retire / delete go through a confirmation dialog (see <ActionDialog> at the bottom of the page).
+  const handleRetireBusiness = (business) => {
+    setBusinessDialog({ mode: "retire", business, summary: null, busy: false, error: "" });
   };
 
   const handleDeleteBusiness = async (business) => {
-    setError("");
-    setMessage("");
-    pushToast("info", "Deleting business...", 1500);
-    const confirmMessage = business.active
-      ? `Are you sure you want to delete "${business.name}"? This action cannot be undone.`
-      : `Are you sure you want to permanently delete "${business.name}"? This action cannot be undone.`;
-    if (!window.confirm(confirmMessage)) return;
-    const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/businesses/${business.id}`, {
-      method: "DELETE",
-      headers,
+    setBusinessDialog({ mode: "delete", business, summary: null, busy: true, error: "" });
+    const { res, data } = await fetchJsonSafe(`${B2B_API_BASE}/businesses/${business.id}/deletion-summary`, { headers });
+    setBusinessDialog((current) => {
+      if (!current || current.business.id !== business.id) return current;
+      if (!res.ok) return { ...current, busy: false, error: formatApiError(data?.detail, "Could not load what would be deleted.") };
+      return { ...current, summary: data, busy: false };
     });
+  };
+
+  const submitBusinessDialog = async () => {
+    const dialog = businessDialog;
+    if (!dialog) return;
+    const { business, mode } = dialog;
+    setBusinessDialog({ ...dialog, busy: true, error: "" });
+    const { res, data } = mode === "retire"
+      ? await fetchJsonSafe(`${B2B_API_BASE}/businesses/${business.id}/retire`, { method: "PUT", headers })
+      : await fetchJsonSafe(`${B2B_API_BASE}/businesses/${business.id}`, { method: "DELETE", headers });
     if (!res.ok) {
-      setError(data?.detail || "Failed to delete business");
+      setBusinessDialog({ ...dialog, busy: false, error: formatApiError(data?.detail, `Failed to ${mode} business`) });
       return;
     }
-    setBusinesses((prev) => prev.filter((item) => item.id !== business.id));
-    setMessage(`Business deleted: ${business.name}`);
-    pushToast("success", `Business removed: ${business.name}`);
+    setBusinessDialog(null);
+    if (mode === "retire") {
+      setMessage(`Business retired: ${business.name}`);
+      await loadBusinesses();
+    } else {
+      setBusinesses((prev) => prev.filter((item) => item.id !== business.id));
+      setMessage(`Business deleted: ${business.name}`);
+    }
+    await loadAnalyticsBusinesses();
   };
 
   const loadBusinesses = async () => {
@@ -2499,6 +2593,24 @@ const platformAbortRef = useRef(null);
     loadAnalyticsBusinesses();
   }, [isB2BPlatform, fetchJsonSafe]);
 
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(ANALYTICS_BUSINESS_FILTER_KEY, JSON.stringify(selectedAnalyticsBusinessIds));
+    } catch {
+      // storage unavailable: the filter simply will not persist
+    }
+  }, [selectedAnalyticsBusinessIds]);
+
+  // Drop saved selections for businesses that no longer qualify (deleted/retired/no approved surveys).
+  useEffect(() => {
+    if (!isB2BPlatform || analyticsBusinesses.length === 0) return;
+    setSelectedAnalyticsBusinessIds((current) => {
+      const valid = new Set(analyticsBusinesses.map((business) => business.id));
+      const next = current.filter((id) => valid.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [analyticsBusinesses, isB2BPlatform]);
+
   const resetExecutiveForm = () => {
     setSelectedExecutive(null);
     setExecutiveForm({ name: "", email: "" });
@@ -2543,12 +2655,6 @@ const platformAbortRef = useRef(null);
     setRepresentatives((prev) => prev.filter((item) => item.id !== executive.id));
     if (selectedExecutive?.id === executive.id) resetExecutiveForm();
   };
-
-  useEffect(() => {
-    if (!isB2BPlatform) return;
-    if (!businesses.length) return;
-    setPlannedForm((prev) => ({ ...prev, business_id: prev.business_id || String(businesses[0].id) }));
-  }, [businesses, isB2BPlatform]);
 
   const createMysteryLocation = async () => {
     const name = newMysteryLocation.trim();
@@ -2755,7 +2861,7 @@ const platformAbortRef = useRef(null);
     setMysteryLegacySeeding(true);
     pushToast("info", "Seeding legacy location data...", 1700);
     const res = await fetch(`${API_BASE}/mystery-shopper/seed-legacy`, { method: "POST", headers });
-    const data = await res.json();
+    const data = await readJsonSafe(res);
     if (!res.ok) {
       setError(data.detail || "Failed to seed old data");
       setMysteryLegacySeeding(false);
@@ -3292,6 +3398,12 @@ const platformAbortRef = useRef(null);
           </div>
         ) : (
           <div className="space-y-6">
+            {isB2BPlatform && selectedAnalyticsBusinessIds.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-4 py-2 text-sm">
+                <span>Filtered to {selectedAnalyticsBusinessIds.length} business{selectedAnalyticsBusinessIds.length === 1 ? "" : "es"} chosen on the Analytics page.</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => setSelectedAnalyticsBusinessIds([])}>Show all businesses</Button>
+              </div>
+            ) : null}
             <Card>
               <CardHeader>
                 <CardTitle>Trend Explorer</CardTitle>
@@ -3365,8 +3477,8 @@ const platformAbortRef = useRef(null);
             loading={pendingVisitsLoading}
             loadingVisitId={reviewActionLoadingVisitId}
             onView={loadSurveyVisitDetails}
-            onApprove={(visit) => handleReviewDecision(visit, "approve")}
-            onReject={(visit) => handleReviewDecision(visit, "reject")}
+            onApprove={(visit) => openReviewDialog(visit, "approve")}
+            onReject={(visit) => openReviewDialog(visit, "reject")}
           />
         ) : (
           <Card>
@@ -3383,8 +3495,9 @@ const platformAbortRef = useRef(null);
                 isMysteryShopperPlatform={isMysteryShopperPlatform}
                 loadingVisitId={reviewActionLoadingVisitId}
                 onView={loadSurveyVisitDetails}
-                onApprove={(visit) => handleReviewDecision(visit, "approve")}
-                onReject={(visit) => handleReviewDecision(visit, "reject")}
+                onApprove={(visit) => openReviewDialog(visit, "approve")}
+                onReject={(visit) => openReviewDialog(visit, "reject")}
+                onNeedsChanges={(visit) => openReviewDialog(visit, "needs-changes")}
               />
               )}
             </CardContent>
@@ -3413,7 +3526,7 @@ const platformAbortRef = useRef(null);
                 actionTimeframeOptions={ACTION_TIMEFRAME_OPTIONS}
               />
             ) : (
-              <Card>
+              <Card id="survey-visit-detail">
                 <CardHeader>
               <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
               <CardDescription>
@@ -3519,7 +3632,7 @@ const platformAbortRef = useRef(null);
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-                  <Select value={plannedForm.business_id} onChange={(event) => setPlannedForm((prev) => ({ ...prev, business_id: event.target.value }))}>
+                  <Select value={plannedForm.business_id} onChange={(event) => handlePlannedBusinessChange(event.target.value)}>
                     <option value="">Select business</option>
                     {businesses.map((business) => (
                       <option key={business.id} value={String(business.id)}>{business.name}</option>
@@ -3555,6 +3668,9 @@ const platformAbortRef = useRef(null);
                         <option key={`planned-exec-${executive.id}`} value={executive.name || executive.full_name || executive.display_name || executive.email || ""} />
                       ))}
                     </datalist>
+                    {plannedForm.account_executive_name.trim() && !representatives.some((executive) => (executive.name || "").toLowerCase() === plannedForm.account_executive_name.trim().toLowerCase()) ? (
+                      <p className="mt-1 text-xs text-amber-700">Not in the account executive directory. Pick an existing name, or add them below.</p>
+                    ) : null}
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">Team Members</label>
@@ -4107,23 +4223,12 @@ const platformAbortRef = useRef(null);
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div>
                       <label className="text-xs font-medium text-muted-foreground mb-1 block">{isMysteryShopperPlatform ? "Select Location" : "Select Business"}</label>
-                      <Input
-                        type="text"
-                        list="report-business-list"
+                      <EntityCombobox
+                        options={isMysteryShopperPlatform ? mysteryLocations : businesses}
+                        value={reportBusinessId}
+                        onChange={setReportBusinessId}
                         placeholder={isMysteryShopperPlatform ? "Type to search location..." : "Type to search business..."}
-                        value={isMysteryShopperPlatform ? (mysteryLocations.find((item) => String(item.id) === reportBusinessId)?.name || "") : (businesses.find((b) => String(b.id) === reportBusinessId)?.name || "")}
-                        onChange={(event) => {
-                          const match = isMysteryShopperPlatform
-                            ? mysteryLocations.find((item) => item.name === event.target.value)
-                            : businesses.find((b) => b.name === event.target.value);
-                          setReportBusinessId(match ? String(match.id) : "");
-                        }}
                       />
-                      <datalist id="report-business-list">
-                        {(isMysteryShopperPlatform ? mysteryLocations : businesses).map((item) => (
-                          <option key={item.id} value={item.name} />
-                        ))}
-                      </datalist>
                     </div>
                     <div>
                       <label className="text-xs font-medium text-muted-foreground mb-1 block">Survey</label>
@@ -4159,21 +4264,12 @@ const platformAbortRef = useRef(null);
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                     <div>
                       <label className="text-xs font-medium text-muted-foreground mb-1 block">Business (optional)</label>
-                      <Input
-                        type="text"
-                        list="report-business-list-ap"
+                      <EntityCombobox
+                        options={businesses}
+                        value={reportBusinessId}
+                        onChange={setReportBusinessId}
                         placeholder="All businesses"
-                        value={businesses.find((b) => String(b.id) === reportBusinessId)?.name || ""}
-                        onChange={(event) => {
-                          const match = businesses.find((b) => b.name === event.target.value);
-                          setReportBusinessId(match ? String(match.id) : "");
-                        }}
                       />
-                      <datalist id="report-business-list-ap">
-                        {businesses.map((business) => (
-                          <option key={business.id} value={business.name} />
-                        ))}
-                      </datalist>
                     </div>
                     <div>
                       <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date (optional)</label>
@@ -4317,7 +4413,7 @@ const platformAbortRef = useRef(null);
                 onClose={closeSurveyDetails}
               />
             ) : (
-              <Card>
+              <Card id="survey-visit-detail">
                 <CardHeader>
                 <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
                 <CardDescription>
@@ -4412,21 +4508,12 @@ const platformAbortRef = useRef(null);
                     ))}
                   </Select>
                   <div>
-                    <Input
-                      type="text"
-                      list="actions-business-list"
+                    <EntityCombobox
+                      options={businesses}
+                      value={actionsFilters.business_id}
+                      onChange={(businessId) => setActionsFilters((prev) => ({ ...prev, business_id: businessId }))}
                       placeholder="Type to search business..."
-                      value={businesses.find((b) => String(b.id) === actionsFilters.business_id)?.name || ""}
-                      onChange={(event) => {
-                        const match = businesses.find((b) => b.name === event.target.value);
-                        setActionsFilters((prev) => ({ ...prev, business_id: match ? String(match.id) : "" }));
-                      }}
                     />
-                    <datalist id="actions-business-list">
-                      {businesses.map((business) => (
-                        <option key={business.id} value={business.name} />
-                      ))}
-                    </datalist>
                   </div>
                 </div>
 
@@ -4628,10 +4715,50 @@ const platformAbortRef = useRef(null);
                   onSave={selectedBusiness?.id === "new" ? handleCreateBusiness : handleUpdateBusiness}
                   onCancel={() => { setSelectedBusiness(null); setBusinessForm({ name: "", location: "", priority_level: "sme", active: true, account_executive_id: "" }); setAccountExecutiveQuery(""); }}
                   onRetire={handleRetireBusiness}
+                  onReactivate={handleReactivateBusiness}
                   onDelete={handleDeleteBusiness}
                 />
               </CardContent>
             </Card>
+            <ActionDialog
+              open={Boolean(businessDialog)}
+              title={businessDialog?.mode === "delete" ? `Delete "${businessDialog?.business?.name}"?` : `Retire "${businessDialog?.business?.name}"?`}
+              description={businessDialog?.mode === "delete" ? (
+                <>
+                  {businessDialog?.summary ? (
+                    <>
+                      <p>
+                        This permanently deletes the business together with{" "}
+                        <strong>{businessDialog.summary.related_records?.total_visits ?? 0} visit(s)</strong> and{" "}
+                        <strong>{businessDialog.summary.related_records?.total_responses ?? 0} survey response(s)</strong>
+                        {Object.keys(businessDialog.summary.related_records?.visits_by_status || {}).length > 0
+                          ? ` (${Object.entries(businessDialog.summary.related_records.visits_by_status).map(([name, count]) => `${count} ${name}`).join(", ")})`
+                          : ""}
+                        . It cannot be undone.
+                      </p>
+                      {businessDialog.summary.can_delete === false ? (
+                        <p className="text-destructive">This business is linked to Mystery Shopper assessments and cannot be deleted. Retire it instead.</p>
+                      ) : (
+                        <p>If you only want to hide it from normal use and keep the history, use Retire instead.</p>
+                      )}
+                    </>
+                  ) : (
+                    <p>{businessDialog?.busy ? "Checking what would be deleted..." : "Could not check what would be deleted."}</p>
+                  )}
+                </>
+              ) : (
+                <p>The business is hidden from normal use but all of its visits and survey results are kept. You can reactivate it later.</p>
+              )}
+              confirmText={businessDialog?.mode === "delete" ? businessDialog?.business?.name : ""}
+              confirmTextLabel="Type the business name to confirm"
+              actions={businessDialog?.mode === "delete"
+                ? [{ key: "delete", label: "Delete permanently", variant: "destructive", disabled: !businessDialog?.summary || businessDialog.summary.can_delete === false }]
+                : [{ key: "retire", label: "Retire business" }]}
+              busy={Boolean(businessDialog?.busy)}
+              error={businessDialog?.error || ""}
+              onSubmit={submitBusinessDialog}
+              onCancel={() => setBusinessDialog(null)}
+            />
          </>
          ) : (
           <Card>
@@ -4678,6 +4805,29 @@ const platformAbortRef = useRef(null);
           </Card>
          )
        ) : null}
+      <ActionDialog
+        open={Boolean(reviewDialog)}
+        title={reviewDialog ? REVIEW_DECISION_COPY[reviewDialog.decision].title : ""}
+        description={reviewDialog ? (
+          <p>
+            {reviewDialog.visit?.business_name || "This visit"}
+            {reviewDialog.visit?.visit_date ? ` · ${reviewDialog.visit.visit_date}` : ""}
+            {reviewDialog.decision === "needs-changes" ? " — it returns to the surveyor as a Draft with your note." : ""}
+          </p>
+        ) : null}
+        showNote
+        noteLabel={reviewDialog ? REVIEW_DECISION_COPY[reviewDialog.decision].noteLabel : "Notes"}
+        actions={reviewDialog ? [{
+          key: reviewDialog.decision,
+          label: REVIEW_DECISION_COPY[reviewDialog.decision].verb,
+          variant: REVIEW_DECISION_COPY[reviewDialog.decision].variant,
+          requireNote: !isMysteryShopperPlatform && reviewDialog.decision !== "approve",
+        }] : []}
+        busy={Boolean(reviewDialog?.busy)}
+        error={reviewDialog?.error || ""}
+        onSubmit={submitReviewDialog}
+        onCancel={() => setReviewDialog(null)}
+      />
     </PageContainer>
   );
 }

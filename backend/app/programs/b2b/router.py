@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text, select
@@ -12,6 +14,8 @@ from .schemas import (
     AccountExecutiveCreate, AccountExecutiveUpdate, AccountExecutiveOut, AccountExecutiveWithBusinesses,
     B2BVisitCreate, B2BVisitUpdate, B2BVisitOut
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["b2b"])
 
@@ -67,7 +71,7 @@ def create_business(
     business_data: BusinessCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN"))
+    _access: bool = Depends(require_roles("CX_SUPER_ADMIN", "B2B_ADMIN", "B2B_SURVEYOR"))  # surveyors can add a business inline while starting a visit
 ):
     """Create a new business."""
     return BusinessService.create_business(db, business_data)
@@ -156,7 +160,6 @@ def list_businesses_public(
     page filter uses this so businesses whose surveys are still in Draft do not
     appear in the selector.
     """
-    print("DEBUG: Public businesses endpoint called")
     try:
         from ...api.visits_dashboard import _b2b_scope
         scope = _b2b_scope(db) if with_approved_surveys else None
@@ -183,17 +186,14 @@ def list_businesses_public(
                 {approved_filter}
                 ORDER BY
                     CASE
-                        WHEN priority_level = 'high' THEN 0
-                        WHEN priority_level = 'medium' THEN 1
-                        WHEN priority_level = 'low' THEN 2
-                        ELSE 3
+                        WHEN priority_level IN ('large_corporate', 'high') THEN 0
+                        WHEN priority_level IN ('sme', 'medium', 'low') THEN 1
+                        ELSE 2
                     END,
                     name
                 """),
             scope.params if scope is not None else {},
         ).all()
-        
-        print(f"DEBUG: Raw SQL result: {len(result)} businesses")
         
         businesses = []
         for row in result:
@@ -206,12 +206,14 @@ def list_businesses_public(
                 "account_executive_id": row[5]
             })
         
-        print(f"DEBUG: Processed {len(businesses)} businesses for response")
         return businesses
         
     except Exception as e:
-        print(f"ERROR: Error fetching businesses: {e}")
-        return []
+        logger.exception("Error fetching businesses: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load businesses",
+        )
 
 
 @router.get("/public/account-executives", response_model=List[dict])
@@ -221,7 +223,6 @@ def list_account_executives_public(
     _access: bool = Depends(require_program_access("B2B")),
 ):
     """Get all account executives for B2B-authorized users."""
-    print("DEBUG: Public account executives endpoint called")
     try:
         # Use raw SQL to avoid service issues
         result = db.execute(
@@ -235,8 +236,6 @@ def list_account_executives_public(
                 """)
         ).all()
         
-        print(f"DEBUG: Raw SQL result: {len(result)} account executives")
-        
         account_executives = []
         for row in result:
             account_executives.append({
@@ -245,12 +244,14 @@ def list_account_executives_public(
                 "email": row[2]
             })
         
-        print(f"DEBUG: Processed {len(account_executives)} account executives for response")
         return account_executives
         
     except Exception as e:
-        print(f"ERROR: Error fetching account executives: {e}")
-        return []
+        logger.exception("Error fetching account executives: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load account executives",
+        )
 
 
 @router.get("/account-executives/{ae_id}", response_model=AccountExecutiveOut)
