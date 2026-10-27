@@ -839,6 +839,10 @@ def get_all_visits(
             response_join = f"LEFT JOIN {response_table} r ON v.id = r.visit_id"
 
         team_members_join = ""
+        # change_notes is written by the review flow; tolerate schemas that predate it.
+        has_change_notes = has_column(db, "visits", "change_notes")
+        change_notes_select = "v.change_notes" if has_change_notes else "NULL"
+        change_notes_group = ", v.change_notes" if has_change_notes else ""
         team_members_select = "ARRAY[]::varchar[]"
         if has_table(db, "meeting_attendees"):
             team_members_join = (
@@ -876,7 +880,7 @@ def get_all_visits(
                 false as is_started,
                 false as is_completed,
                 {team_members_select} as team_member_names,
-                v.change_notes
+                {change_notes_select} as change_notes
             FROM visits v
             JOIN businesses b ON v.business_id = b.id
             LEFT JOIN users u ON v.representative_id = u.id
@@ -885,7 +889,7 @@ def get_all_visits(
                 AND (q.survey_type_id IS NULL OR q.survey_type_id = :survey_type_id)
             {team_members_join}
             {where_clause}
-            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.account_executive_name, v.submitted_by_name, v.submitted_by_email, v.submitted_at, v.change_notes, {team_members_select}
+            GROUP BY v.id, v.business_id, b.name, v.representative_id, u.name, v.visit_date, v.visit_type, v.status, b.priority_level, v.account_executive_name, v.submitted_by_name, v.submitted_by_email, v.submitted_at{change_notes_group}, {team_members_select}
             ORDER BY v.visit_date DESC
         """
         
