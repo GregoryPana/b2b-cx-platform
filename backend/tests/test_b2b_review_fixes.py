@@ -10,6 +10,7 @@ skip themselves otherwise. Every row they create is tagged and removed afterward
 """
 
 import uuid
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,7 +27,7 @@ def db():
         pytest.skip("requires PostgreSQL")
     try:
         session = SessionLocal()
-        for table in ("businesses", "account_executives", "visits", "meeting_attendees"):
+        for table in ("businesses", "visits", "meeting_attendees", "users"):
             session.execute(text(f"SELECT 1 FROM {table} LIMIT 1"))
     except Exception:
         pytest.skip("B2B tables not available in the configured database")
@@ -42,10 +43,17 @@ def db():
 
 
 def _ensure_b2b_scope(session):
-    """Make sure the module-scoping pieces visits depend on exist (no-ops on a seeded database)."""
+    """Add whatever these tests need that a trimmed-down schema lacks (all no-ops on a full database)."""
     session.rollback()
     session.execute(text("CREATE TABLE IF NOT EXISTS survey_types (id SERIAL PRIMARY KEY, name TEXT, code TEXT)"))
-    session.execute(text("ALTER TABLE visits ADD COLUMN IF NOT EXISTS survey_type_id INTEGER"))
+    session.execute(text(
+        "CREATE TABLE IF NOT EXISTS account_executives "
+        "(id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE)"
+    ))
+    for column in ("location VARCHAR(255)", "account_executive_id INTEGER", "created_at TIMESTAMPTZ DEFAULT now()"):
+        session.execute(text(f"ALTER TABLE businesses ADD COLUMN IF NOT EXISTS {column}"))
+    for column in ("survey_type_id INTEGER", "review_timestamp TIMESTAMPTZ", "change_notes VARCHAR(2000)"):
+        session.execute(text(f"ALTER TABLE visits ADD COLUMN IF NOT EXISTS {column}"))
     session.execute(text("ALTER TABLE questions ADD COLUMN IF NOT EXISTS survey_type_id INTEGER"))
     if not session.execute(text("SELECT 1 FROM survey_types WHERE lower(name) = 'b2b'")).scalar():
         session.execute(text("INSERT INTO survey_types (name, code) VALUES ('B2B', 'B2B')"))
@@ -59,9 +67,12 @@ def _b2b_survey_type_id(db):
 def _any_user_id(db):
     user_id = db.execute(text("SELECT id FROM users ORDER BY id LIMIT 1")).scalar()
     if user_id is None:
+        columns = {row[0] for row in db.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'users'"))}
+        values = {"name": "Fix Test", "email": f"{TAG}-user@example.com", "role": "Surveyor", "active": True}
+        used = [column for column in values if column in columns]
         user_id = db.execute(
-            text("INSERT INTO users (email, name, role, active) VALUES (:e, 'Fix Test', 'Surveyor', true) RETURNING id"),
-            {"e": f"{TAG}-user@example.com"},
+            text(f"INSERT INTO users ({', '.join(used)}) VALUES ({', '.join(':' + column for column in used)}) RETURNING id"),
+            {column: values[column] for column in used},
         ).scalar()
         db.commit()
     return user_id
@@ -76,12 +87,16 @@ def _make_business(client, suffix="", **extra):
 def _make_visit(db, business_id, status="Draft", with_attendee=False):
     visit_id = str(uuid.uuid4())
     user_id = _any_user_id(db)
+    values = {
+        "id": visit_id, "business_id": business_id, "visit_date": date.today(), "visit_type": "Planned",
+        "status": status, "representative_id": user_id, "created_by": user_id,
+        "survey_type_id": _b2b_survey_type_id(db),
+    }
+    columns = {row[0] for row in db.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'visits'"))}
+    used = [column for column in values if column in columns]
     db.execute(
-        text(
-            "INSERT INTO visits (id, business_id, visit_date, visit_type, status, representative_id, created_by, survey_type_id) "
-            "VALUES (:id, :b, CURRENT_DATE, 'Planned', :s, :u, :u, :t)"
-        ),
-        {"id": visit_id, "b": business_id, "s": status, "u": user_id, "t": _b2b_survey_type_id(db)},
+        text(f"INSERT INTO visits ({', '.join(used)}) VALUES ({', '.join(':' + column for column in used)})"),
+        {column: values[column] for column in used},
     )
     if with_attendee:
         db.execute(
