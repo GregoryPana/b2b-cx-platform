@@ -232,8 +232,15 @@ def audit_auth_event(db: Session, *, event_type: str, request: Request | None = 
     )
 
 
-def _apply_lockout(now: datetime, failed_count: int) -> datetime:
-    return now + timedelta(minutes=min(60, 2 ** max(0, failed_count - 1)))
+LOCKOUT_THRESHOLD = 5  # wrong attempts allowed before the account is temporarily locked
+
+
+def _apply_lockout(now: datetime, failed_count: int) -> datetime | None:
+    # A couple of typos must not lock a shopper out (a single wrong password used to lock the account
+    # for a minute, so even the correct password was then rejected). Lock only from the 5th failure.
+    if failed_count < LOCKOUT_THRESHOLD:
+        return None
+    return now + timedelta(minutes=min(60, 2 ** (failed_count - LOCKOUT_THRESHOLD)))
 
 
 def _fetch_user_by_email(db: Session, email: str):
@@ -510,7 +517,11 @@ async def login_public_user(payload: MysteryLoginRequest, request: Request, db: 
     if _is_locked(user_row, now):
         audit_auth_event(db, event_type="lockout", request=request, user_id=user_row["id"], email=email)
         db.commit()
-        raise generic_error
+        # Say so explicitly: the generic 401 made a locked account look like a rejected password.
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many unsuccessful attempts. Your account is temporarily locked. Please wait a few minutes and try again.",
+        )
     if (user_row.get("status") or "").lower() not in ACTIVE_USER_STATUSES:
         audit_auth_event(db, event_type="login_fail", request=request, user_id=user_row["id"], email=email)
         db.commit()
