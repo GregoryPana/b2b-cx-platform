@@ -288,7 +288,7 @@ export default function MysteryUsersSection({
           const expiresAt = new Date(now + dialogMinutes * 60 * 1000);
           return (
             <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm"
               onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}
             >
               <div

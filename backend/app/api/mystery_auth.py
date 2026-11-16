@@ -836,8 +836,15 @@ def _build_enrollment_email(full_name: str, enroll_url: str, expires_at: datetim
         "If you don&rsquo;t already have one, install either of these first:</p>"
         f"<ul>{app_items_html}</ul>"
         "<p><strong>Step 2 &mdash; Open your enrollment link</strong></p>"
-        f"<p><a href=\"{safe_url}\" style=\"display:inline-block;padding:10px 18px;background:#0f766e;color:#ffffff;"
-        "border-radius:6px;text-decoration:none;font-weight:bold;\">Open my enrollment page</a></p>"
+        # "Bulletproof" button: the padding and colour live on the table cell and the anchor fills it, so the whole
+        # button is clickable in Outlook (its Word renderer ignores padding on inline-block anchors).
+        "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:8px 0 12px 0;\"><tr>"
+        "<td align=\"center\" bgcolor=\"#0f766e\" style=\"border-radius:6px;background:#0f766e;\">"
+        f"<a href=\"{safe_url}\" target=\"_blank\" rel=\"noopener noreferrer\" "
+        "style=\"display:block;padding:12px 24px;font-family:Arial,Helvetica,sans-serif;font-size:15px;"
+        "font-weight:bold;color:#ffffff;text-decoration:none;border-radius:6px;\">"
+        "<span style=\"color:#ffffff;\">Open my enrollment page</span></a>"
+        "</td></tr></table>"
         f"<p>This link is valid for <strong>{validity_text}</strong>: it expires <strong>{expiry_text}</strong> "
         "and can only be used once.</p>"
         "<p>On that page you will:</p>"
