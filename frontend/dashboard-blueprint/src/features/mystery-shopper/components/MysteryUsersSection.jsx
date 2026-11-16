@@ -12,6 +12,25 @@ const STATUS_STYLES = {
   suspended: "bg-red-100 text-red-800",
 };
 
+const DIALOG_COPY = {
+  add: {
+    title: "Add user and create enrollment link",
+    confirm: "Add user & create link",
+    body: (email) => `This adds ${email || "the user"} to the platform and creates a one-time enrollment link. You can copy the link or email it afterwards.`,
+  },
+  create: {
+    title: "Create a new enrollment link",
+    confirm: "Create link",
+    body: () => "A new one-time link will be shown here for you to copy. Any earlier unused link for this user will stop working.",
+  },
+  email: {
+    title: "Email a new enrollment link",
+    confirm: "Email link",
+    body: (email) => `A new one-time link will be created and emailed to ${email || "the user"}. Any earlier unused link for this user will stop working.`,
+  },
+};
+
+const DEFAULT_LINK_MINUTES = 30;
 const LINK_VALIDITY_OPTIONS = [
   { minutes: 30, label: "30 minutes" },
   { minutes: 60, label: "1 hour" },
@@ -62,8 +81,6 @@ export default function MysteryUsersSection({
   setNewMysteryUserEmail,
   newMysteryUserName,
   setNewMysteryUserName,
-  mysteryLinkMinutes,
-  setMysteryLinkMinutes,
   inviteMysteryUser,
   reissueMysteryUserLink,
   emailMysteryUserLink,
@@ -74,6 +91,48 @@ export default function MysteryUsersSection({
 }) {
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  // dialog = { mode: "add" | "create" | "email", user?: {id, email, full_name} } while the validity prompt is open.
+  const [dialog, setDialog] = useState(null);
+  const [dialogMinutes, setDialogMinutes] = useState(DEFAULT_LINK_MINUTES);
+  const [dialogBusy, setDialogBusy] = useState(false);
+
+  const openDialog = (mode, user = null) => {
+    setDialogMinutes(DEFAULT_LINK_MINUTES); // always start from the safe default so the choice is deliberate
+    setDialog({ mode, user });
+  };
+  const closeDialog = () => {
+    if (!dialogBusy) setDialog(null);
+  };
+  const confirmDialog = async () => {
+    if (!dialog) return;
+    setDialogBusy(true);
+    try {
+      if (dialog.mode === "add") await inviteMysteryUser(dialogMinutes);
+      else if (dialog.mode === "create") await reissueMysteryUserLink(dialog.user, dialogMinutes);
+      else await emailMysteryUserLink(dialog.user, dialogMinutes);
+    } finally {
+      setDialogBusy(false);
+      setDialog(null);
+    }
+  };
+
+  // Add user: if the form is incomplete, let the handler show its normal validation error instead of opening the prompt.
+  const requestAddUser = () => {
+    if (!newMysteryUserEmail.trim() || !newMysteryUserName.trim()) {
+      inviteMysteryUser(DEFAULT_LINK_MINUTES);
+      return;
+    }
+    openDialog("add");
+  };
+
+  useEffect(() => {
+    if (!dialog) return undefined;
+    const onKey = (event) => {
+      if (event.key === "Escape" && !dialogBusy) setDialog(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dialog, dialogBusy]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -114,27 +173,11 @@ export default function MysteryUsersSection({
             onChange={(event) => setNewMysteryUserName(event.target.value)}
             placeholder="Full name"
           />
-          <Button type="button" onClick={inviteMysteryUser}>Add user &amp; create link</Button>
+          <Button type="button" onClick={requestAddUser}>Add user &amp; create link</Button>
           <Button type="button" variant="outline" onClick={loadMysteryUsers}>
             {mysteryUsersLoading ? "Refreshing..." : "Refresh"}
           </Button>
         </div>
-
-        <label className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium">New links stay valid for</span>
-          <select
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-            value={mysteryLinkMinutes}
-            onChange={(event) => setMysteryLinkMinutes(Number(event.target.value))}
-          >
-            {LINK_VALIDITY_OPTIONS.map((option) => (
-              <option key={option.minutes} value={option.minutes}>{option.label}</option>
-            ))}
-          </select>
-          <span className="text-xs text-muted-foreground">
-            Used the next time you add a user, create a link, or email a link. Change it before each action to give different users different time limits.
-          </span>
-        </label>
 
         {mysteryEnrollmentLink ? (
           <div className="space-y-2 rounded-md border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
@@ -160,7 +203,7 @@ export default function MysteryUsersSection({
                 type="button"
                 size="sm"
                 variant="outline"
-                onClick={() => emailMysteryUserLink({ id: mysteryEnrollmentLink.user_id, email: mysteryEnrollmentLink.email })}
+                onClick={() => openDialog("email", { id: mysteryEnrollmentLink.user_id, email: mysteryEnrollmentLink.email, full_name: mysteryEnrollmentLink.full_name })}
               >
                 Email this link to user
               </Button>
@@ -211,10 +254,10 @@ export default function MysteryUsersSection({
                     <TableCell>{formatDateTime(user.created_at)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button type="button" size="sm" variant="outline" onClick={() => reissueMysteryUserLink(user)}>
+                        <Button type="button" size="sm" variant="outline" onClick={() => openDialog("create", user)}>
                           {status === "invited" ? "Create new link" : "Create reset link"}
                         </Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => emailMysteryUserLink(user)}>
+                        <Button type="button" size="sm" variant="outline" onClick={() => openDialog("email", user)}>
                           Email new link
                         </Button>
                         {status === "suspended" ? (
@@ -236,6 +279,60 @@ export default function MysteryUsersSection({
           "Create new link" makes a fresh link (an earlier unused link stops working). "Create reset link" does the same for enrolled users who lost their
           password, authenticator, and recovery codes. "Email new link" creates a new link and emails it directly to the user.
         </p>
+
+        {dialog ? (() => {
+          const copy = DIALOG_COPY[dialog.mode];
+          const person = dialog.mode === "add"
+            ? { name: newMysteryUserName.trim(), email: newMysteryUserEmail.trim() }
+            : { name: dialog.user?.full_name, email: dialog.user?.email };
+          const expiresAt = new Date(now + dialogMinutes * 60 * 1000);
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+              onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="link-dialog-title"
+                className="w-full max-w-md space-y-4 rounded-lg border bg-background p-5 text-foreground shadow-xl"
+              >
+                <div className="space-y-1">
+                  <h2 id="link-dialog-title" className="text-lg font-semibold">{copy.title}</h2>
+                  <p className="text-sm text-muted-foreground">
+                    <strong className="text-foreground">{person.name || person.email}</strong>
+                    {person.name && person.email ? ` (${person.email})` : ""}
+                  </p>
+                </div>
+                <p className="text-sm">{copy.body(person.email)}</p>
+                <label className="block space-y-1 text-sm">
+                  <span className="font-medium">How long should the link stay valid?</span>
+                  <select
+                    autoFocus
+                    className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+                    value={dialogMinutes}
+                    onChange={(event) => setDialogMinutes(Number(event.target.value))}
+                    disabled={dialogBusy}
+                  >
+                    {LINK_VALIDITY_OPTIONS.map((option) => (
+                      <option key={option.minutes} value={option.minutes}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <p className="rounded-md bg-muted px-3 py-2 text-xs">
+                  The link will expire on <strong>{expiresAt.toLocaleString()}</strong> and can be used once.
+                  Shorter is safer; choose longer only if the user may not open the email straight away.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={closeDialog} disabled={dialogBusy}>Cancel</Button>
+                  <Button type="button" onClick={confirmDialog} disabled={dialogBusy}>
+                    {dialogBusy ? "Working..." : copy.confirm}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        })() : null}
       </CardContent>
     </Card>
   );
