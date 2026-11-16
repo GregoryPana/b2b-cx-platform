@@ -163,6 +163,8 @@ jobs:
           SMTP_PORT: ${{ vars.SMTP_PORT != '' && vars.SMTP_PORT || secrets.SMTP_PORT }}
           SMTP_USE_TLS: "false"
           SMTP_USE_SSL: "false"
+          # DMZ public origin used to build mystery shopper enrollment links (emailed + shown in dashboard).
+          MYSTERY_PUBLIC_BASE_URL: ${{ vars.MYSTERY_PUBLIC_BASE_URL != '' && vars.MYSTERY_PUBLIC_BASE_URL || secrets.MYSTERY_PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
 

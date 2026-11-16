@@ -63,9 +63,19 @@ class RecoveryRequest(BaseModel):
     recovery_code: str = Field(min_length=6, max_length=128)
 
 
+MIN_ENROLL_LINK_MINUTES = 5
+MAX_ENROLL_LINK_MINUTES = 7 * 24 * 60  # 7 days
+
+
 class AdminCreateUserRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     full_name: str = Field(min_length=2, max_length=255)
+    # Optional per-link validity override (minutes). None -> MYSTERY_ENROLL_TOKEN_MINUTES.
+    expires_in_minutes: int | None = Field(default=None, ge=MIN_ENROLL_LINK_MINUTES, le=MAX_ENROLL_LINK_MINUTES)
+
+
+class AdminEnrollmentLinkRequest(BaseModel):
+    expires_in_minutes: int | None = Field(default=None, ge=MIN_ENROLL_LINK_MINUTES, le=MAX_ENROLL_LINK_MINUTES)
 
 
 def utcnow() -> datetime:
@@ -263,9 +273,22 @@ def _record_failed_mfa(db: Session, user_row, now: datetime) -> None:
     )
 
 
-def _issue_enrollment_token(db: Session, user_id: str, *, purpose: str = "enroll") -> tuple[str, datetime]:
+def _issue_enrollment_token(
+    db: Session, user_id: str, *, purpose: str = "enroll", expires_in_minutes: int | None = None
+) -> tuple[str, datetime]:
     raw = secrets.token_urlsafe(32)
-    expires_at = utcnow() + timedelta(minutes=get_settings().mystery_enroll_token_minutes)
+    minutes = expires_in_minutes or get_settings().mystery_enroll_token_minutes
+    minutes = max(MIN_ENROLL_LINK_MINUTES, min(MAX_ENROLL_LINK_MINUTES, int(minutes)))
+    now = utcnow()
+    expires_at = now + timedelta(minutes=minutes)
+    # A new link replaces any earlier unused link for this user (expire them now).
+    db.execute(
+        text(
+            "UPDATE mystery_enrollment_tokens SET expires_at = :now "
+            "WHERE user_id = :user_id AND used_at IS NULL AND expires_at > :now"
+        ),
+        {"user_id": user_id, "now": now},
+    )
     db.execute(
         text(
             """
@@ -619,13 +642,23 @@ async def list_public_mystery_users(db: Session = Depends(get_db)):
     rows = db.execute(
         text(
             """
-            SELECT id, email, full_name, status, last_login_at, locked_until, created_at, updated_at
+            SELECT id, email, full_name, status, last_login_at, locked_until, created_at, updated_at,
+                   (
+                       SELECT MAX(t.expires_at) FROM mystery_enrollment_tokens t
+                       WHERE t.user_id = mystery_users.id AND t.used_at IS NULL
+                   ) AS active_link_expires_at
             FROM mystery_users
             ORDER BY created_at DESC, email ASC
             """
         )
     ).mappings().all()
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        item = dict(row)
+        link_expiry = as_aware_utc(item.get("active_link_expires_at"))
+        item["active_link_expires_at"] = link_expiry.isoformat() if link_expiry else None
+        result.append(item)
+    return result
 
 
 @admin_router.post("")
@@ -651,17 +684,23 @@ async def create_public_mystery_user(payload: AdminCreateUserRequest, db: Sessio
         {"id": user_id, "email": normalize_email(payload.email), "full_name": payload.full_name.strip()},
     )
     user_row = _fetch_user_by_id(db, user_id)
-    raw_token, expires_at = _issue_enrollment_token(db, user_id, purpose="enroll")
+    raw_token, expires_at = _issue_enrollment_token(
+        db, user_id, purpose="enroll", expires_in_minutes=payload.expires_in_minutes
+    )
     db.commit()
     return _build_enrollment_payload(user_row, raw_token, expires_at)
 
 
 @admin_router.post("/{user_id}/reissue-enrollment")
-async def reissue_enrollment(user_id: str, db: Session = Depends(get_db)):
+async def reissue_enrollment(
+    user_id: str, payload: AdminEnrollmentLinkRequest | None = None, db: Session = Depends(get_db)
+):
     user_row = _fetch_user_by_id(db, user_id)
     if not user_row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mystery public user not found")
-    raw_token, expires_at = _issue_enrollment_token(db, user_id, purpose="enroll")
+    raw_token, expires_at = _issue_enrollment_token(
+        db, user_id, purpose="enroll", expires_in_minutes=payload.expires_in_minutes if payload else None
+    )
     db.commit()
     return _build_enrollment_payload(user_row, raw_token, expires_at)
 
@@ -741,7 +780,9 @@ def _build_enrollment_email(full_name: str, enroll_url: str, expires_at: datetim
 
 
 @admin_router.post("/{user_id}/email-enrollment")
-async def email_enrollment_link(user_id: str, request: Request, db: Session = Depends(get_db)):
+async def email_enrollment_link(
+    user_id: str, request: Request, payload: AdminEnrollmentLinkRequest | None = None, db: Session = Depends(get_db)
+):
     # Late import: app.core.auth.dependencies imports from this module, so a
     # top-level import here would be circular.
     from ..core.auth.dependencies import get_current_user, security
@@ -761,7 +802,9 @@ async def email_enrollment_link(user_id: str, request: Request, db: Session = De
             detail="MYSTERY_PUBLIC_BASE_URL is not configured on this backend, so a full enrollment link cannot be emailed.",
         )
 
-    raw_token, expires_at = _issue_enrollment_token(db, user_id, purpose="enroll")
+    raw_token, expires_at = _issue_enrollment_token(
+        db, user_id, purpose="enroll", expires_in_minutes=payload.expires_in_minutes if payload else None
+    )
     enroll_url = f"{base_url}/?enroll={raw_token}"
 
     admin_email = current_user.preferred_username or ""

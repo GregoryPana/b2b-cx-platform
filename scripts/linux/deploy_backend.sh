@@ -45,7 +45,7 @@ PY
 sync_runtime_env_from_ci() {
   local synced_any="false"
   local key
-  for key in SMTP_EMAIL SMTP_FROM SMTP_HOST SMTP_PORT SMTP_USE_TLS SMTP_USE_SSL; do
+  for key in SMTP_EMAIL SMTP_FROM SMTP_HOST SMTP_PORT SMTP_USE_TLS SMTP_USE_SSL MYSTERY_PUBLIC_BASE_URL; do
     if [[ -n "${!key:-}" ]]; then
       upsert_env_value "$key" "${!key}"
       synced_any="true"
