@@ -401,6 +401,7 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [mysteryUsersLoading, setMysteryUsersLoading] = useState(false);
   const [newMysteryUserEmail, setNewMysteryUserEmail] = useState("");
   const [newMysteryUserName, setNewMysteryUserName] = useState("");
+  const [mysteryLinkMinutes, setMysteryLinkMinutes] = useState(30);
   const [mysteryEnrollmentLink, setMysteryEnrollmentLink] = useState(null);
   const [selectedAnalyticsLocationIds, setSelectedAnalyticsLocationIds] = useState([]);
   const [analyticsLocationSearch, setAnalyticsLocationSearch] = useState("");
@@ -2719,53 +2720,55 @@ const platformAbortRef = useRef(null);
     const email = newMysteryUserEmail.trim();
     const fullName = newMysteryUserName.trim();
     if (!email || !fullName) {
-      setError("Email and full name are required to invite a user");
+      setError("Email and full name are required to add a user");
       return;
     }
-    pushToast("info", "Inviting user...", 1500);
+    pushToast("info", "Adding user...", 1500);
     const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ email, full_name: fullName }),
+      body: JSON.stringify({ email, full_name: fullName, expires_in_minutes: mysteryLinkMinutes }),
     }, 30000);
     if (!res.ok) {
-      setError(data?.detail || "Failed to invite user");
+      setError(data?.detail || "Failed to add user");
       return;
     }
     setNewMysteryUserEmail("");
     setNewMysteryUserName("");
     setMysteryEnrollmentLink(data);
-    setMessage(`Invitation created for ${data?.email}`);
+    setMessage(`User added: ${data?.email}. An enrollment link was created below — copy it or email it to them.`);
     await loadMysteryUsers();
   };
 
   const reissueMysteryUserLink = async (userItem) => {
-    pushToast("info", "Generating enrollment link...", 1500);
+    pushToast("info", "Creating enrollment link...", 1500);
     const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/reissue-enrollment`, {
       method: "POST",
       headers,
+      body: JSON.stringify({ expires_in_minutes: mysteryLinkMinutes }),
     }, 30000);
     if (!res.ok) {
       setError(data?.detail || "Failed to generate enrollment link");
       return;
     }
     setMysteryEnrollmentLink(data);
-    setMessage(`New enrollment link generated for ${data?.email}`);
+    setMessage(`New enrollment link created for ${data?.email}. Any earlier unused link no longer works.`);
     await loadMysteryUsers();
   };
 
   const emailMysteryUserLink = async (userItem) => {
-    if (!window.confirm(`Generate a new enrollment link and email it to "${userItem.email}"?`)) return;
+    if (!window.confirm(`Create a new enrollment link and email it to "${userItem.email}"? Any earlier unused link for this user will stop working.`)) return;
     pushToast("info", "Sending enrollment email...", 2000);
     const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/email-enrollment`, {
       method: "POST",
       headers,
+      body: JSON.stringify({ expires_in_minutes: mysteryLinkMinutes }),
     }, 45000);
     if (!res.ok) {
       setError(data?.detail || "Failed to send enrollment email");
       return;
     }
-    setMessage(`Enrollment link emailed to ${data?.email}`);
+    setMessage(`New enrollment link emailed to ${data?.email}. It is valid until ${data?.expires_at ? new Date(data.expires_at).toLocaleString() : "its expiry time"}.`);
     await loadMysteryUsers();
   };
 
@@ -4670,6 +4673,8 @@ const platformAbortRef = useRef(null);
             setNewMysteryUserEmail={setNewMysteryUserEmail}
             newMysteryUserName={newMysteryUserName}
             setNewMysteryUserName={setNewMysteryUserName}
+            mysteryLinkMinutes={mysteryLinkMinutes}
+            setMysteryLinkMinutes={setMysteryLinkMinutes}
             inviteMysteryUser={inviteMysteryUser}
             reissueMysteryUserLink={reissueMysteryUserLink}
             emailMysteryUserLink={emailMysteryUserLink}
