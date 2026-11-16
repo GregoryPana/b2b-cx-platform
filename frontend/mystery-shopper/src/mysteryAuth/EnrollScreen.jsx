@@ -13,6 +13,54 @@ function parseOtpauthParam(uri, name, fallback) {
   }
 }
 
+// Microsoft's short link opens the right store (App Store / Google Play) for the phone that scans it.
+const AUTHENTICATOR_QR_URL = "https://aka.ms/authenticator";
+const AUTHENTICATOR_APPS = [
+  {
+    name: "Microsoft Authenticator",
+    ios: "https://apps.apple.com/app/microsoft-authenticator/id983156458",
+    android: "https://play.google.com/store/apps/details?id=com.azure.authenticator",
+  },
+  {
+    name: "Google Authenticator",
+    ios: "https://apps.apple.com/app/google-authenticator/id388497605",
+    android: "https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2",
+  },
+];
+
+function AuthenticatorAppGuide() {
+  return (
+    <div className="rounded-md border p-4">
+      <p className="text-sm font-semibold">Step 1 — Get an authenticator app on your phone</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        An authenticator app is a free app that shows a new 6-digit code every 30 seconds. You will enter that code, along with your
+        password, each time you sign in — it keeps your account secure. Already have one (Microsoft, Google, Authy or similar)? Skip to Step 2.
+      </p>
+      <div className="mt-3 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+        <div className="shrink-0 text-center">
+          <div className="rounded-md bg-white p-2">
+            <QRCodeSVG value={AUTHENTICATOR_QR_URL} size={112} marginSize={1} />
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">Scan with your phone camera</p>
+        </div>
+        <ul className="w-full space-y-2 text-sm">
+          {AUTHENTICATOR_APPS.map((app) => (
+            <li key={app.name} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-medium">{app.name}</span>
+              <a className="text-xs text-primary underline" href={app.ios} target="_blank" rel="noopener noreferrer">iPhone / iPad</a>
+              <a className="text-xs text-primary underline" href={app.android} target="_blank" rel="noopener noreferrer">Android</a>
+            </li>
+          ))}
+          <li className="text-xs text-muted-foreground">
+            The QR code above installs Microsoft Authenticator for your phone type. Any authenticator app that supports
+            time-based codes (TOTP) will work.
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 export default function EnrollScreen({ enrollmentToken, startEnrollment, confirmEnrollment, error, onBackToLogin }) {
   const [loading, setLoading] = useState(true);
   const [enrollment, setEnrollment] = useState(null);
@@ -106,15 +154,16 @@ export default function EnrollScreen({ enrollmentToken, startEnrollment, confirm
                 <p><strong>Email:</strong> {enrollment.email}</p>
                 <p><strong>Name:</strong> {enrollment.full_name}</p>
               </div>
+              <AuthenticatorAppGuide />
               <div className="rounded-md border p-4">
-                <p className="text-sm font-semibold">Step 1 — Add this account to your authenticator app</p>
+                <p className="text-sm font-semibold">Step 2 — Add this account to your authenticator app</p>
                 <div className="mt-3 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
                   <div className="shrink-0 rounded-md bg-white p-3">
                     <QRCodeSVG value={enrollment.otpauth_uri} size={176} marginSize={1} />
                   </div>
                   <div className="w-full text-sm">
                     <p className="text-xs text-muted-foreground">
-                      Scan the QR code with Google Authenticator, Microsoft Authenticator, Authy or any TOTP app.
+                      In your authenticator app tap &quot;+&quot; / &quot;Add account&quot;, choose &quot;Scan a QR code&quot; and scan the code on the left.
                       If you can&apos;t scan, choose &quot;Enter a setup key&quot; / &quot;Manual entry&quot; and use:
                     </p>
                     <dl className="mt-2 space-y-1">
@@ -135,12 +184,17 @@ export default function EnrollScreen({ enrollmentToken, startEnrollment, confirm
                         <dd className="text-xs leading-5">Time-based (TOTP), SHA1, 6 digits, 30-second interval</dd>
                       </div>
                     </dl>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Opened this page on the same phone as your authenticator app? You can&apos;t scan your own screen —{" "}
+                      <a className="text-primary underline" href={enrollment.otpauth_uri}>tap here to add the account to your app</a>{" "}
+                      or type the setup key above.
+                    </p>
                   </div>
                 </div>
               </div>
               {recoveryCodes.length === 0 ? (
                 <>
-                  <p className="text-sm font-semibold">Step 2 — Set your password and confirm a code from the app</p>
+                  <p className="text-sm font-semibold">Step 3 — Set your password and enter the 6-digit code from the app</p>
                   <Input type="password" placeholder="Set password" value={password} onChange={(event) => setPassword(event.target.value)} />
                   <Input type="password" placeholder="Confirm password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
                   <Input type="text" placeholder="6-digit authenticator code" value={code} onChange={(event) => setCode(event.target.value)} />
