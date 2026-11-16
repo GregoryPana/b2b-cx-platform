@@ -312,13 +312,37 @@ def _fetch_enrollment_token_row(db: Session, raw_token: str):
     ).mappings().first()
 
 
+MSG_LINK_INVALID = (
+    "This enrollment link is not valid. Please make sure you copied the whole link from the email, "
+    "or ask your administrator to send you a new one."
+)
+MSG_LINK_EXPIRED = (
+    "This enrollment link has expired or has been replaced by a newer link. "
+    "Please ask your administrator to send you a new link."
+)
+MSG_LINK_USED = (
+    "This enrollment link has already been used. If you have already enrolled, go to the sign-in page. "
+    "If you can't sign in, ask your administrator for help."
+)
+MSG_NOT_ELIGIBLE = (
+    "Your account can't be enrolled right now (it may be suspended). Please contact your administrator."
+)
+MSG_SETUP_EXPIRED = "Your authenticator setup was not found. Please reload this page to start again."
+MSG_CODE_REJECTED = (
+    "That authenticator code wasn't accepted. Codes change every 30 seconds, so wait for the next code and try again. "
+    "If it keeps failing, check that your phone's date and time are set to automatic, and that you added the "
+    "account you just scanned."
+)
+MSG_MFA_SESSION_TIMED_OUT = "Your sign-in session timed out. Please enter your email and password again."
+
+
 def _assert_valid_enrollment_token(token_row, *, allow_used: bool = False):
     if not token_row:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired enrollment token")
-    if as_aware_utc(token_row.get("expires_at")) <= utcnow():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired enrollment token")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_LINK_INVALID)
     if not allow_used and token_row.get("used_at"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enrollment token has already been used")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_LINK_USED)
+    if as_aware_utc(token_row.get("expires_at")) <= utcnow():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_LINK_EXPIRED)
 
 
 def _store_pending_secret(db: Session, raw_token: str, secret: str) -> None:
@@ -505,11 +529,17 @@ async def login_public_user(payload: MysteryLoginRequest, request: Request, db: 
 
 @router.post("/mfa")
 async def verify_public_mfa(payload: MysteryMfaRequest, request: Request, response: Response, db: Session = Depends(get_db)):
-    generic_error = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired MFA challenge/code")
+    generic_error = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=(
+            "That code wasn't accepted. Wait for the next 6-digit code in your authenticator app and try again. "
+            "After several wrong attempts your account is locked for a few minutes."
+        ),
+    )
     challenge_row = db.execute(text("SELECT * FROM mystery_mfa_challenges WHERE challenge_id = :challenge_id LIMIT 1"), {"challenge_id": payload.challenge}).mappings().first()
     now = utcnow()
     if not challenge_row or challenge_row.get("used_at") or as_aware_utc(challenge_row.get("expires_at")) <= now:
-        raise generic_error
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=MSG_MFA_SESSION_TIMED_OUT)
     user_row = _fetch_user_by_id(db, challenge_row["user_id"])
     if not user_row or (user_row.get("status") or "").lower() not in ACTIVE_USER_STATUSES or _is_locked(user_row, now):
         audit_auth_event(db, event_type="mfa_fail", request=request, user_id=challenge_row.get("user_id"), email=user_row.get("email") if user_row else None)
@@ -541,7 +571,7 @@ async def enroll_start(payload: EnrollmentStartRequest, db: Session = Depends(ge
     _assert_valid_enrollment_token(token_row)
     user_row = _fetch_user_by_id(db, token_row["user_id"])
     if not user_row or (user_row.get("status") or "").lower() not in ENROLLABLE_USER_STATUSES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not eligible for enrollment")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_NOT_ELIGIBLE)
     secret = decrypt_totp_secret(token_row.get("pending_totp_secret_enc"))
     if not secret:
         secret = new_totp_secret()
@@ -562,13 +592,13 @@ async def enroll_confirm(payload: EnrollmentConfirmRequest, request: Request, db
     _assert_valid_enrollment_token(token_row)
     user_row = _fetch_user_by_id(db, token_row["user_id"])
     if not user_row or (user_row.get("status") or "").lower() not in ENROLLABLE_USER_STATUSES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not eligible for enrollment")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_NOT_ELIGIBLE)
     secret = decrypt_totp_secret(token_row.get("pending_totp_secret_enc"))
     if not secret:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enrollment secret is missing; restart enrollment")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_SETUP_EXPIRED)
     next_step = verify_totp(secret, payload.code, None)
     if next_step is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid authenticator code")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_CODE_REJECTED)
     recovery_codes = _replace_recovery_codes(db, user_row["id"])
     db.execute(
         text(

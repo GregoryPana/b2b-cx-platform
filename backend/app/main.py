@@ -132,6 +132,29 @@ def create_app() -> FastAPI:
         openapi_url=None if public_mode else "/openapi.json",
     )
 
+    if public_mode:
+        import logging
+
+        from sqlalchemy.exc import SQLAlchemyError
+
+        @app.exception_handler(SQLAlchemyError)
+        async def _public_db_error_handler(request, exc):
+            # Log the real cause (e.g. "permission denied for table ...") for operators;
+            # give the shopper a clear, non-technical message instead of a bare 500.
+            logging.getLogger("uvicorn.error").exception(
+                "Database error on %s %s: %s", request.method, request.url.path, exc
+            )
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": (
+                        "We couldn't complete that because of a problem on our side. "
+                        "Nothing you entered was lost - please try again in a few minutes. "
+                        "If it keeps happening, contact your administrator."
+                    )
+                },
+            )
+
     # Add CORS middleware to allow cross-origin requests
     app.add_middleware(
         CORSMiddleware,

@@ -7,8 +7,19 @@ export default function RecoveryScreen({ useRecoveryCode, error, onRecovered, on
   const [email, setEmail] = useState("");
   const [recoveryCode, setRecoveryCode] = useState("");
 
+  const [localError, setLocalError] = useState("");
+
   const submit = async () => {
-    const result = await useRecoveryCode(email, recoveryCode);
+    setLocalError("");
+    if (!email.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())) {
+      setLocalError("Enter the email address your account was created with.");
+      return;
+    }
+    if (!recoveryCode.trim()) {
+      setLocalError("Enter one of the recovery codes you saved when you enrolled.");
+      return;
+    }
+    const result = await useRecoveryCode(email.trim(), recoveryCode.trim());
     if (result.ok) {
       onRecovered(result.data);
     }
@@ -25,7 +36,13 @@ export default function RecoveryScreen({ useRecoveryCode, error, onRecovered, on
           <Input type="text" placeholder="Recovery code" value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} />
           <Button type="button" className="w-full" onClick={submit}>Use recovery code</Button>
           <Button type="button" variant="outline" className="w-full" onClick={onBackToLogin}>Back to login</Button>
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          <p className="text-xs text-muted-foreground">
+            Use this if you forgot your password or lost your authenticator app. Each recovery code works once, and you will then
+            set a new password and link your authenticator app again.
+          </p>
+          {(localError || error) ? (
+            <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{localError || error}</p>
+          ) : null}
         </CardContent>
       </Card>
     </div>

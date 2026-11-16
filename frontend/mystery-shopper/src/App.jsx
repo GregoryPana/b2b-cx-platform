@@ -222,7 +222,7 @@ function EntraMysteryApp() {
 // Public Mystery (Password + TOTP) app — used when AUTH_MODE === "mystery_public"
 // ---------------------------------------------------------------------------
 function MysteryPublicApp() {
-  const { isAuthenticated, loading, error, login, submitMfa, logout, mfaPending, startEnrollment, confirmEnrollment, useRecoveryCode, user } = useMysteryAuth();
+  const { isAuthenticated, loading, error, login, submitMfa, cancelMfa, setError, logout, mfaPending, startEnrollment, confirmEnrollment, useRecoveryCode, user } = useMysteryAuth();
   const [screen, setScreen] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("enroll") ? "enroll" : "login";
@@ -268,7 +268,7 @@ function MysteryPublicApp() {
         startEnrollment={startEnrollment}
         confirmEnrollment={confirmEnrollment}
         error={error}
-        onBackToLogin={() => { window.history.replaceState({}, "", window.location.pathname); setScreen("login"); }}
+        onBackToLogin={() => { setError(""); window.history.replaceState({}, "", window.location.pathname); setScreen("login"); }}
       />
     );
   }
@@ -284,7 +284,7 @@ function MysteryPublicApp() {
             window.location.reload();
           }
         }}
-        onBackToLogin={() => setScreen("login")}
+        onBackToLogin={() => { setError(""); setScreen("login"); }}
       />
     );
   }
@@ -294,10 +294,11 @@ function MysteryPublicApp() {
       <LoginScreen
         login={login}
         submitMfa={submitMfa}
+        cancelMfa={cancelMfa}
         loading={loading}
         error={error}
         mfaPending={mfaPending}
-        onShowRecovery={() => setScreen("recovery")}
+        onShowRecovery={() => { setError(""); setScreen("recovery"); }}
       />
     );
   }

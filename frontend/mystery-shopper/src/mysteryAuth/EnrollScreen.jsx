@@ -69,6 +69,7 @@ export default function EnrollScreen({ enrollmentToken, startEnrollment, confirm
   const [code, setCode] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState([]);
   const [localError, setLocalError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -126,19 +127,42 @@ export default function EnrollScreen({ enrollmentToken, startEnrollment, confirm
 
   const submit = async () => {
     setLocalError("");
+    if (!password) {
+      setLocalError("Please choose a password.");
+      return;
+    }
     if (password.length < 8) {
-      setLocalError("Password must be at least 8 characters.");
+      setLocalError(`Your password is too short (${password.length} characters). It must be at least 8 characters long.`);
       return;
     }
     if (password !== confirmPassword) {
-      setLocalError("Passwords do not match.");
+      setLocalError("The two passwords don't match. Please retype them so they are identical.");
       return;
     }
-    const result = await confirmEnrollment(enrollmentToken, password, code);
-    if (result.ok) {
-      setRecoveryCodes(Array.isArray(result.data?.recovery_codes) ? result.data.recovery_codes : []);
+    const cleanCode = code.replace(/\s+/g, "");
+    if (!cleanCode) {
+      setLocalError("Enter the 6-digit code currently shown in your authenticator app. Add the account in Step 2 first if you haven't yet.");
+      return;
+    }
+    if (!/^\d{6}$/.test(cleanCode)) {
+      setLocalError("The code must be exactly 6 digits (numbers only). Copy it from your authenticator app, without spaces or letters.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await confirmEnrollment(enrollmentToken, password, cleanCode);
+      if (result.ok) {
+        setRecoveryCodes(Array.isArray(result.data?.recovery_codes) ? result.data.recovery_codes : []);
+      } else {
+        setCode(""); // codes are single-use and short-lived: make the user type a fresh one
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  const passwordTooShort = password.length > 0 && password.length < 8;
+  const passwordsMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
@@ -195,10 +219,17 @@ export default function EnrollScreen({ enrollmentToken, startEnrollment, confirm
               {recoveryCodes.length === 0 ? (
                 <>
                   <p className="text-sm font-semibold">Step 3 — Set your password and enter the 6-digit code from the app</p>
-                  <Input type="password" placeholder="Set password" value={password} onChange={(event) => setPassword(event.target.value)} />
-                  <Input type="password" placeholder="Confirm password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
-                  <Input type="text" placeholder="6-digit authenticator code" value={code} onChange={(event) => setCode(event.target.value)} />
-                  <Button type="button" className="w-full" onClick={submit}>Finish enrollment</Button>
+                  <Input type="password" autoComplete="new-password" placeholder="Set password (at least 8 characters)" value={password} onChange={(event) => setPassword(event.target.value)} />
+                  {passwordTooShort ? <p className="text-xs text-amber-700">Too short — {8 - password.length} more character{8 - password.length === 1 ? "" : "s"} needed.</p> : null}
+                  <Input type="password" autoComplete="new-password" placeholder="Confirm password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+                  {passwordsMismatch ? <p className="text-xs text-amber-700">The two passwords don&apos;t match yet.</p> : null}
+                  <Input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={7} placeholder="6-digit authenticator code" value={code} onChange={(event) => setCode(event.target.value)} />
+                  <p className="text-xs text-muted-foreground">
+                    The code changes every 30 seconds. If it is about to change, wait for the next one before entering it.
+                  </p>
+                  <Button type="button" className="w-full" onClick={submit} disabled={submitting}>
+                    {submitting ? "Finishing enrollment..." : "Finish enrollment"}
+                  </Button>
                 </>
               ) : (
                 <div className="space-y-3 rounded-md border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
@@ -215,7 +246,22 @@ export default function EnrollScreen({ enrollmentToken, startEnrollment, confirm
               )}
             </>
           ) : null}
-          {(localError || error) ? <p className="text-sm text-red-600">{localError || error}</p> : null}
+          {!loading && !enrollment ? (
+            <div className="space-y-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+              <p className="font-semibold">We couldn&apos;t open your enrollment page</p>
+              <p>{error || "The enrollment link could not be checked. Please try again."}</p>
+              <p className="text-xs">
+                Enrollment links are single-use and expire after a set time. If yours has expired or was replaced, ask your administrator
+                to send a new one. Remember to be connected to the company VPN.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button type="button" variant="outline" onClick={() => window.location.reload()}>Try again</Button>
+                <Button type="button" onClick={onBackToLogin}>Go to sign in</Button>
+              </div>
+            </div>
+          ) : (localError || error) ? (
+            <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{localError || error}</p>
+          ) : null}
         </CardContent>
       </Card>
     </div>
