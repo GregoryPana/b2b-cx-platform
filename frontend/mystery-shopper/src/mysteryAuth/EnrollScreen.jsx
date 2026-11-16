@@ -13,8 +13,7 @@ function parseOtpauthParam(uri, name, fallback) {
   }
 }
 
-// Microsoft's short link opens the right store (App Store / Google Play) for the phone that scans it.
-const AUTHENTICATOR_QR_URL = "https://aka.ms/authenticator";
+// Direct store links (verified to resolve). Each store gets its own QR code so a phone always opens the right store.
 const AUTHENTICATOR_APPS = [
   {
     name: "Microsoft Authenticator",
@@ -28,7 +27,18 @@ const AUTHENTICATOR_APPS = [
   },
 ];
 
+function detectDevice() {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+  if (/android/i.test(ua)) return "android";
+  // iPadOS 13+ reports as Mac, so also check for touch support.
+  if (/iphone|ipad|ipod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) return "ios";
+  return "desktop";
+}
+
 function AuthenticatorAppGuide() {
+  const device = detectDevice();
+  const primary = AUTHENTICATOR_APPS[0];
+  const storeName = device === "ios" ? "App Store" : "Google Play";
   return (
     <div className="rounded-md border p-4">
       <p className="text-sm font-semibold">Step 1 — Get an authenticator app on your phone</p>
@@ -36,26 +46,53 @@ function AuthenticatorAppGuide() {
         An authenticator app is a free app that shows a new 6-digit code every 30 seconds. You will enter that code, along with your
         password, each time you sign in — it keeps your account secure. Already have one (Microsoft, Google, Authy or similar)? Skip to Step 2.
       </p>
-      <div className="mt-3 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
-        <div className="shrink-0 text-center">
-          <div className="rounded-md bg-white p-2">
-            <QRCodeSVG value={AUTHENTICATOR_QR_URL} size={112} marginSize={1} />
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">Scan with your phone camera</p>
+
+      {device !== "desktop" ? (
+        <div className="mt-3">
+          <a
+            className="inline-flex w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground sm:w-auto"
+            href={device === "ios" ? primary.ios : primary.android}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Get {primary.name} on {storeName}
+          </a>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Install it, then come back to this page to continue. (Opening this page on the same phone? See the tip in Step 2.)
+          </p>
         </div>
-        <ul className="w-full space-y-2 text-sm">
+      ) : (
+        <div className="mt-3">
+          <p className="text-xs text-muted-foreground">Scan the code for your phone type with your phone&apos;s camera:</p>
+          <div className="mt-2 flex flex-wrap justify-center gap-6 sm:justify-start">
+            {[
+              { label: "iPhone / iPad", sub: "App Store", url: primary.ios },
+              { label: "Android", sub: "Google Play", url: primary.android },
+            ].map((item) => (
+              <div key={item.label} className="text-center">
+                <div className="rounded-md bg-white p-2">
+                  <QRCodeSVG value={item.url} size={112} marginSize={1} />
+                </div>
+                <p className="mt-1 text-xs font-medium">{item.label}</p>
+                <p className="text-[11px] text-muted-foreground">{item.sub} · {primary.name}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 space-y-1 text-sm">
+        <p className="text-xs font-medium text-muted-foreground">Or open a store page directly:</p>
+        <ul className="space-y-1">
           {AUTHENTICATOR_APPS.map((app) => (
             <li key={app.name} className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-medium">{app.name}</span>
-              <a className="text-xs text-primary underline" href={app.ios} target="_blank" rel="noopener noreferrer">iPhone / iPad</a>
-              <a className="text-xs text-primary underline" href={app.android} target="_blank" rel="noopener noreferrer">Android</a>
+              <a className="text-xs text-primary underline" href={app.android} target="_blank" rel="noopener noreferrer">Android (Google Play)</a>
+              <a className="text-xs text-primary underline" href={app.ios} target="_blank" rel="noopener noreferrer">iPhone / iPad (App Store)</a>
             </li>
           ))}
-          <li className="text-xs text-muted-foreground">
-            The QR code above installs Microsoft Authenticator for your phone type. Any authenticator app that supports
-            time-based codes (TOTP) will work.
-          </li>
         </ul>
+        <p className="text-xs text-muted-foreground">Any authenticator app that supports time-based codes (TOTP) will work.</p>
       </div>
     </div>
   );
