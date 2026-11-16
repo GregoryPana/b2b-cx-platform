@@ -401,7 +401,6 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [mysteryUsersLoading, setMysteryUsersLoading] = useState(false);
   const [newMysteryUserEmail, setNewMysteryUserEmail] = useState("");
   const [newMysteryUserName, setNewMysteryUserName] = useState("");
-  const [mysteryLinkMinutes, setMysteryLinkMinutes] = useState(30);
   const [mysteryEnrollmentLink, setMysteryEnrollmentLink] = useState(null);
   const [selectedAnalyticsLocationIds, setSelectedAnalyticsLocationIds] = useState([]);
   const [analyticsLocationSearch, setAnalyticsLocationSearch] = useState("");
@@ -2716,7 +2715,7 @@ const platformAbortRef = useRef(null);
     await loadMysteryLocations();
   };
 
-  const inviteMysteryUser = async () => {
+  const inviteMysteryUser = async (expiresInMinutes = 30) => {
     const email = newMysteryUserEmail.trim();
     const fullName = newMysteryUserName.trim();
     if (!email || !fullName) {
@@ -2727,7 +2726,7 @@ const platformAbortRef = useRef(null);
     const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ email, full_name: fullName, expires_in_minutes: mysteryLinkMinutes }),
+      body: JSON.stringify({ email, full_name: fullName, expires_in_minutes: expiresInMinutes }),
     }, 30000);
     if (!res.ok) {
       setError(data?.detail || "Failed to add user");
@@ -2740,12 +2739,12 @@ const platformAbortRef = useRef(null);
     await loadMysteryUsers();
   };
 
-  const reissueMysteryUserLink = async (userItem) => {
+  const reissueMysteryUserLink = async (userItem, expiresInMinutes = 30) => {
     pushToast("info", "Creating enrollment link...", 1500);
     const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/reissue-enrollment`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ expires_in_minutes: mysteryLinkMinutes }),
+      body: JSON.stringify({ expires_in_minutes: expiresInMinutes }),
     }, 30000);
     if (!res.ok) {
       setError(data?.detail || "Failed to generate enrollment link");
@@ -2756,13 +2755,12 @@ const platformAbortRef = useRef(null);
     await loadMysteryUsers();
   };
 
-  const emailMysteryUserLink = async (userItem) => {
-    if (!window.confirm(`Create a new enrollment link and email it to "${userItem.email}"? Any earlier unused link for this user will stop working.`)) return;
+  const emailMysteryUserLink = async (userItem, expiresInMinutes = 30) => {
     pushToast("info", "Sending enrollment email...", 2000);
     const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/email-enrollment`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ expires_in_minutes: mysteryLinkMinutes }),
+      body: JSON.stringify({ expires_in_minutes: expiresInMinutes }),
     }, 45000);
     if (!res.ok) {
       setError(data?.detail || "Failed to send enrollment email");
@@ -4673,8 +4671,6 @@ const platformAbortRef = useRef(null);
             setNewMysteryUserEmail={setNewMysteryUserEmail}
             newMysteryUserName={newMysteryUserName}
             setNewMysteryUserName={setNewMysteryUserName}
-            mysteryLinkMinutes={mysteryLinkMinutes}
-            setMysteryLinkMinutes={setMysteryLinkMinutes}
             inviteMysteryUser={inviteMysteryUser}
             reissueMysteryUserLink={reissueMysteryUserLink}
             emailMysteryUserLink={emailMysteryUserLink}
