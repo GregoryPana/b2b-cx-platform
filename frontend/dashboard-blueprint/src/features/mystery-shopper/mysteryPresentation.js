@@ -125,7 +125,8 @@ const ROUTE_LABELS = {
   "/executives": ["Account executives", "Manage account executives available to the B2B module."],
   "/locations": ["Locations", "Manage locations available to Mystery Shopper visits."],
   "/purposes": ["Visit purposes", "Manage purposes available to Mystery Shopper visits."],
-  "/mystery-users": ["Mystery Shopper users", "Manage shopper access and enrolment."],
+  // The page title is "<platform> <section>", so the section must not repeat the platform name.
+  "/mystery-users": ["Users", "Manage shopper access and enrolment."],
 };
 
 export function getRouteContext(pathname, activePlatform) {
