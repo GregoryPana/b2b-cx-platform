@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import html
 import os
 import secrets
 import struct
@@ -311,13 +312,37 @@ def _fetch_enrollment_token_row(db: Session, raw_token: str):
     ).mappings().first()
 
 
+MSG_LINK_INVALID = (
+    "This enrollment link is not valid. Please make sure you copied the whole link from the email, "
+    "or ask your administrator to send you a new one."
+)
+MSG_LINK_EXPIRED = (
+    "This enrollment link has expired or has been replaced by a newer link. "
+    "Please ask your administrator to send you a new link."
+)
+MSG_LINK_USED = (
+    "This enrollment link has already been used. If you have already enrolled, go to the sign-in page. "
+    "If you can't sign in, ask your administrator for help."
+)
+MSG_NOT_ELIGIBLE = (
+    "Your account can't be enrolled right now (it may be suspended). Please contact your administrator."
+)
+MSG_SETUP_EXPIRED = "Your authenticator setup was not found. Please reload this page to start again."
+MSG_CODE_REJECTED = (
+    "That authenticator code wasn't accepted. Codes change every 30 seconds, so wait for the next code and try again. "
+    "If it keeps failing, check that your phone's date and time are set to automatic, and that you added the "
+    "account you just scanned."
+)
+MSG_MFA_SESSION_TIMED_OUT = "Your sign-in session timed out. Please enter your email and password again."
+
+
 def _assert_valid_enrollment_token(token_row, *, allow_used: bool = False):
     if not token_row:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired enrollment token")
-    if as_aware_utc(token_row.get("expires_at")) <= utcnow():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired enrollment token")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_LINK_INVALID)
     if not allow_used and token_row.get("used_at"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enrollment token has already been used")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_LINK_USED)
+    if as_aware_utc(token_row.get("expires_at")) <= utcnow():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_LINK_EXPIRED)
 
 
 def _store_pending_secret(db: Session, raw_token: str, secret: str) -> None:
@@ -504,11 +529,17 @@ async def login_public_user(payload: MysteryLoginRequest, request: Request, db: 
 
 @router.post("/mfa")
 async def verify_public_mfa(payload: MysteryMfaRequest, request: Request, response: Response, db: Session = Depends(get_db)):
-    generic_error = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired MFA challenge/code")
+    generic_error = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=(
+            "That code wasn't accepted. Wait for the next 6-digit code in your authenticator app and try again. "
+            "After several wrong attempts your account is locked for a few minutes."
+        ),
+    )
     challenge_row = db.execute(text("SELECT * FROM mystery_mfa_challenges WHERE challenge_id = :challenge_id LIMIT 1"), {"challenge_id": payload.challenge}).mappings().first()
     now = utcnow()
     if not challenge_row or challenge_row.get("used_at") or as_aware_utc(challenge_row.get("expires_at")) <= now:
-        raise generic_error
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=MSG_MFA_SESSION_TIMED_OUT)
     user_row = _fetch_user_by_id(db, challenge_row["user_id"])
     if not user_row or (user_row.get("status") or "").lower() not in ACTIVE_USER_STATUSES or _is_locked(user_row, now):
         audit_auth_event(db, event_type="mfa_fail", request=request, user_id=challenge_row.get("user_id"), email=user_row.get("email") if user_row else None)
@@ -540,7 +571,7 @@ async def enroll_start(payload: EnrollmentStartRequest, db: Session = Depends(ge
     _assert_valid_enrollment_token(token_row)
     user_row = _fetch_user_by_id(db, token_row["user_id"])
     if not user_row or (user_row.get("status") or "").lower() not in ENROLLABLE_USER_STATUSES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not eligible for enrollment")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_NOT_ELIGIBLE)
     secret = decrypt_totp_secret(token_row.get("pending_totp_secret_enc"))
     if not secret:
         secret = new_totp_secret()
@@ -561,13 +592,13 @@ async def enroll_confirm(payload: EnrollmentConfirmRequest, request: Request, db
     _assert_valid_enrollment_token(token_row)
     user_row = _fetch_user_by_id(db, token_row["user_id"])
     if not user_row or (user_row.get("status") or "").lower() not in ENROLLABLE_USER_STATUSES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not eligible for enrollment")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_NOT_ELIGIBLE)
     secret = decrypt_totp_secret(token_row.get("pending_totp_secret_enc"))
     if not secret:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enrollment secret is missing; restart enrollment")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_SETUP_EXPIRED)
     next_step = verify_totp(secret, payload.code, None)
     if next_step is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid authenticator code")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_CODE_REJECTED)
     recovery_codes = _replace_recovery_codes(db, user_row["id"])
     db.execute(
         text(
@@ -726,24 +757,60 @@ async def reactivate_public_mystery_user(user_id: str, db: Session = Depends(get
     return {"status": "active", "user_id": user_id}
 
 
+SEYCHELLES_TZ = timezone(timedelta(hours=4), "SCT")  # Seychelles: UTC+4, no daylight saving
+
+AUTHENTICATOR_APPS = (
+    ("Microsoft Authenticator", "https://apps.apple.com/app/microsoft-authenticator/id983156458",
+     "https://play.google.com/store/apps/details?id=com.azure.authenticator"),
+    ("Google Authenticator", "https://apps.apple.com/app/google-authenticator/id388497605",
+     "https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2"),
+)
+
+
+def _format_validity(expires_at: datetime) -> str:
+    """Human wording for how long a freshly issued link lasts, e.g. '30 minutes', '24 hours', '3 days'."""
+    minutes = max(1, round((expires_at - utcnow()).total_seconds() / 60))
+    if minutes >= 2 * 24 * 60 - 30:
+        return f"{round(minutes / (24 * 60))} days"
+    if minutes >= 120 - 5:
+        return f"{round(minutes / 60)} hours"
+    if minutes >= 60 - 2:
+        return "1 hour"
+    return f"{minutes} minutes"
+
+
 def _build_enrollment_email(full_name: str, enroll_url: str, expires_at: datetime, admin_name: str, admin_email: str) -> tuple[str, str, str]:
-    subject = "Your CWSCX Mystery Shopper enrollment link"
-    expiry_text = expires_at.strftime("%d %B %Y at %H:%M UTC")
+    subject = "Your CWS Mystery Shopper enrollment link"
+    local_expiry = expires_at.astimezone(SEYCHELLES_TZ)
+    expiry_text = local_expiry.strftime("%A %d %B %Y at %H:%M") + " (Seychelles time)"
+    validity_text = _format_validity(expires_at)
+    safe_name = html.escape(full_name)
+    safe_url = html.escape(enroll_url, quote=True)
+    safe_admin_name = html.escape(admin_name)
+    safe_admin_email = html.escape(admin_email)
+
+    app_lines_text = "".join(
+        f"  - {name}\n      iPhone/iPad: {ios}\n      Android:     {android}\n"
+        for name, ios, android in AUTHENTICATOR_APPS
+    )
     text_body = (
         f"Hello {full_name},\n"
         "\n"
-        "You have been invited to the Cable & Wireless Seychelles CX Mystery Shopper platform.\n"
+        "You have been invited to the Cable & Wireless Seychelles Mystery Shopper platform.\n"
         "\n"
-        "WHAT THIS EMAIL IS FOR\n"
-        "The link below opens your personal one-time enrollment page. There you will:\n"
-        "  1. Set the password you will use to sign in.\n"
-        "  2. Link an authenticator app (Microsoft Authenticator, Google Authenticator, or\n"
-        "     similar) by scanning a QR code. The app generates the 6-digit codes required\n"
-        "     at every sign-in (two-factor authentication).\n"
-        "  3. Receive one-time recovery codes - save them somewhere safe.\n"
+        "STEP 1 - GET AN AUTHENTICATOR APP (free, on your phone)\n"
+        "To keep your account secure you sign in with your password AND a 6-digit code from an\n"
+        "authenticator app. If you do not already have one, install either of these first:\n"
+        f"{app_lines_text}"
         "\n"
-        f"ENROLLMENT LINK (expires {expiry_text}, single use):\n"
+        "STEP 2 - OPEN YOUR ENROLLMENT LINK\n"
+        f"This link is valid for {validity_text}: it expires {expiry_text} and can only be used once.\n"
         f"{enroll_url}\n"
+        "\n"
+        "On that page you will:\n"
+        "  1. Scan a QR code with your authenticator app (this adds your account to the app).\n"
+        "  2. Choose the password you will use to sign in.\n"
+        "  3. Enter the 6-digit code shown in the app, then save your one-time recovery codes.\n"
         "\n"
         "IMPORTANT: You must be connected to the company VPN to access the platform.\n"
         "Connect to the VPN before opening the link and before every future sign-in.\n"
@@ -751,29 +818,41 @@ def _build_enrollment_email(full_name: str, enroll_url: str, expires_at: datetim
         f"If the link has expired or you run into any issues, contact {admin_name} at {admin_email}.\n"
         "\n"
         "Kind regards,\n"
-        "CWS CX Team\n"
+        "CWS Team\n"
         "(This is an automated message sent on behalf of the administrator named above.)\n"
     )
+
+    app_items_html = "".join(
+        f"<li><strong>{html.escape(name)}</strong> &mdash; "
+        f"<a href=\"{html.escape(ios, quote=True)}\">iPhone / iPad</a> &middot; "
+        f"<a href=\"{html.escape(android, quote=True)}\">Android</a></li>"
+        for name, ios, android in AUTHENTICATOR_APPS
+    )
     html_body = (
-        f"<p>Hello {full_name},</p>"
-        "<p>You have been invited to the <strong>Cable &amp; Wireless Seychelles CX Mystery Shopper platform</strong>.</p>"
-        "<p><strong>What this email is for</strong><br>"
-        "The button below opens your personal one-time enrollment page. There you will:</p>"
-        "<ol>"
-        "<li>Set the password you will use to sign in.</li>"
-        "<li>Link an authenticator app (Microsoft Authenticator, Google Authenticator, or similar) by scanning a QR code. "
-        "The app generates the 6-digit codes required at every sign-in (two-factor authentication).</li>"
-        "<li>Receive one-time recovery codes &mdash; save them somewhere safe.</li>"
-        "</ol>"
-        f"<p><a href=\"{enroll_url}\" style=\"display:inline-block;padding:10px 18px;background:#0f766e;color:#ffffff;"
+        f"<p>Hello {safe_name},</p>"
+        "<p>You have been invited to the <strong>Cable &amp; Wireless Seychelles Mystery Shopper platform</strong>.</p>"
+        "<p><strong>Step 1 &mdash; Get an authenticator app (free, on your phone)</strong><br>"
+        "To keep your account secure you sign in with your password <em>and</em> a 6-digit code from an authenticator app. "
+        "If you don&rsquo;t already have one, install either of these first:</p>"
+        f"<ul>{app_items_html}</ul>"
+        "<p><strong>Step 2 &mdash; Open your enrollment link</strong></p>"
+        f"<p><a href=\"{safe_url}\" style=\"display:inline-block;padding:10px 18px;background:#0f766e;color:#ffffff;"
         "border-radius:6px;text-decoration:none;font-weight:bold;\">Open my enrollment page</a></p>"
-        f"<p style=\"font-size:12px;color:#555\">Or copy this link into your browser:<br>{enroll_url}</p>"
-        f"<p>This link expires <strong>{expiry_text}</strong> and can only be used once.</p>"
+        f"<p>This link is valid for <strong>{validity_text}</strong>: it expires <strong>{expiry_text}</strong> "
+        "and can only be used once.</p>"
+        "<p>On that page you will:</p>"
+        "<ol>"
+        "<li>Scan a QR code with your authenticator app (this adds your account to the app).</li>"
+        "<li>Choose the password you will use to sign in.</li>"
+        "<li>Enter the 6-digit code shown in the app, then save your one-time recovery codes.</li>"
+        "</ol>"
+        "<p style=\"font-size:12px;color:#555\">If the button doesn&rsquo;t work, copy this full link into your browser:<br>"
+        f"<a href=\"{safe_url}\" style=\"word-break:break-all\">{safe_url}</a></p>"
         "<p style=\"color:#b91c1c\"><strong>Important:</strong> you must be connected to the company VPN to access the "
         "platform &mdash; connect before opening the link and before every future sign-in.</p>"
-        f"<p>If the link has expired or you run into any issues, contact {admin_name} at "
-        f"<a href=\"mailto:{admin_email}\">{admin_email}</a>.</p>"
-        "<p>Kind regards,<br>CWS CX Team<br>"
+        f"<p>If the link has expired or you run into any issues, contact {safe_admin_name} at "
+        f"<a href=\"mailto:{safe_admin_email}\">{safe_admin_email}</a>.</p>"
+        "<p>Kind regards,<br>CWS Team<br>"
         "<span style=\"font-size:12px;color:#555\">This is an automated message sent on behalf of the administrator named above.</span></p>"
     )
     return subject, text_body, html_body

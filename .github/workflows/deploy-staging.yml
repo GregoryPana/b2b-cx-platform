@@ -271,6 +271,10 @@ jobs:
           SMTP_PORT: ${{ vars.SMTP_PORT != '' && vars.SMTP_PORT || secrets.SMTP_PORT }}
           SMTP_USE_TLS: "false"
           SMTP_USE_SSL: "false"
+          # Staging's own origin for mystery shopper enrollment links. Deliberately NOT the production
+          # DMZ secret: staging tokens live in the staging DB and must never point at production.
+          # Override with the repo variable MYSTERY_PUBLIC_BASE_URL_STAGING if a staging public site exists.
+          MYSTERY_PUBLIC_BASE_URL: ${{ vars.MYSTERY_PUBLIC_BASE_URL_STAGING != '' && vars.MYSTERY_PUBLIC_BASE_URL_STAGING || format('{0}/surveys/mystery-shopper', secrets.STAGING_BASE_URL != '' && secrets.STAGING_BASE_URL || 'https://cwscx-tst01.cwsey.com') }}
         run: |
           set -euo pipefail
 
