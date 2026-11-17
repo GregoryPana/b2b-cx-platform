@@ -790,7 +790,9 @@ def _format_validity(expires_at: datetime) -> str:
     return f"{minutes} minutes"
 
 
-def _build_enrollment_email(full_name: str, enroll_url: str, expires_at: datetime, admin_name: str, admin_email: str) -> tuple[str, str, str]:
+def _build_enrollment_email(
+    full_name: str, enroll_url: str, expires_at: datetime, admin_name: str, admin_email: str, has_video: bool = False
+) -> tuple[str, str, str]:
     subject = "Your CWS Mystery Shopper enrollment link"
     local_expiry = expires_at.astimezone(SEYCHELLES_TZ)
     expiry_text = local_expiry.strftime("%A %d %B %Y at %H:%M") + " (Seychelles time)"
@@ -799,6 +801,24 @@ def _build_enrollment_email(full_name: str, enroll_url: str, expires_at: datetim
     safe_url = html.escape(enroll_url, quote=True)
     safe_admin_name = html.escape(admin_name)
     safe_admin_email = html.escape(admin_email)
+
+    # Only when a walkthrough video is actually attached to this message (see core/enrollment_video.py).
+    video_text = (
+        "WATCH FIRST (optional, about 2 minutes)\n"
+        "A short video walkthrough of these steps is attached to this email. You can watch it any time,\n"
+        "including before you connect to the VPN. (You still need the VPN to open your enrollment link.)\n"
+        "\n"
+        if has_video
+        else ""
+    )
+    video_html = (
+        '<p style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:6px;padding:10px 12px">'
+        "<strong>Watch first (optional, about 2 minutes)</strong><br>"
+        "A short video walkthrough of these steps is attached to this email. You can watch it any time, "
+        "including before you connect to the VPN. (You still need the VPN to open your enrollment link.)</p>"
+        if has_video
+        else ""
+    )
 
     app_lines_text = "".join(
         f"  - {name}\n      iPhone/iPad: {ios}\n      Android:     {android}\n"
@@ -809,6 +829,7 @@ def _build_enrollment_email(full_name: str, enroll_url: str, expires_at: datetim
         "\n"
         "You have been invited to the Cable & Wireless Seychelles Mystery Shopper platform.\n"
         "\n"
+        f"{video_text}"
         "STEP 1 - GET AN AUTHENTICATOR APP (free, on your phone)\n"
         "To keep your account secure you sign in with your password AND a 6-digit code from an\n"
         "authenticator app. If you do not already have one, install either of these first:\n"
@@ -842,6 +863,7 @@ def _build_enrollment_email(full_name: str, enroll_url: str, expires_at: datetim
     html_body = (
         f"<p>Hello {safe_name},</p>"
         "<p>You have been invited to the <strong>Cable &amp; Wireless Seychelles Mystery Shopper platform</strong>.</p>"
+        f"{video_html}"
         "<p><strong>Step 1 &mdash; Get an authenticator app (free, on your phone)</strong><br>"
         "To keep your account secure you sign in with your password <em>and</em> a 6-digit code from an authenticator app. "
         "If you don&rsquo;t already have one, install either of these first:</p>"
@@ -906,10 +928,15 @@ async def email_enrollment_link(
 
     admin_email = current_user.preferred_username or ""
     admin_name = current_user.name or admin_email or "the CX administrator"
+    from ..core.enrollment_video import load_enrollment_video_attachments
+
+    video_attachments = load_enrollment_video_attachments()  # [] unless explicitly enabled (default off)
     subject, text_body, html_body = _build_enrollment_email(
-        user_row.get("full_name") or "there", enroll_url, expires_at, admin_name, admin_email
+        user_row.get("full_name") or "there", enroll_url, expires_at, admin_name, admin_email, has_video=bool(video_attachments)
     )
-    send_email([user_row["email"]], subject, text_body, html_body, reply_to=admin_email or None)
+    send_email(
+        [user_row["email"]], subject, text_body, html_body, reply_to=admin_email or None, attachments=video_attachments or None
+    )
     db.commit()
     return {
         "status": "sent",
