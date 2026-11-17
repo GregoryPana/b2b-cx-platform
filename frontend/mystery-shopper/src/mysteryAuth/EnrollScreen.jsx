@@ -205,7 +205,7 @@ export default function EnrollScreen({ enrollmentToken, startEnrollment, confirm
     <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
       <Card className="w-full max-w-2xl">
         <CardHeader>
-          <CardTitle className="text-2xl">Mystery Shopper Enrollment</CardTitle>
+          <CardTitle data-proof="x" className="text-2xl">Mystery Shopper Enrollment</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? <p className="text-sm text-muted-foreground">Preparing your enrollment...</p> : null}
