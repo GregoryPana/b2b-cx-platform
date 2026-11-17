@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "video_set": "mystery-enrollment",
+  "video_version": "v03",
+  "videos": [
+    "enrollment-desktop (16:9)",
+    "enrollment-mobile (9:16)"
+  ],
+  "recorded_at": "2026-11-17",
+  "recorded_against_commit": "5810ed5",
+  "notes": "Screens recorded from the real app (shopper app in mystery_public mode) with a fictional shopper. Hashes are of the files the video depends on; a change means a video step may no longer match. See docs/tutorials/README.md.",
+  "screens": [
+    {
+      "id": "email",
+      "title": "Enrollment email",
+      "videos": [
+        "desktop",
+        "mobile"
+      ],
+      "beats": [
+        "email-subject",
+        "email-step1",
+        "email-button",
+        "email-validity",
+        "email-vpn",
+        "email-contact",
+        "email-click"
+      ],
+      "watch": [
+        "backend/app/api/mystery_auth.py::_build_enrollment_email"
+      ],
+      "baseline": {
+        "backend/app/api/mystery_auth.py::_build_enrollment_email": "6cf4ebfd339e1803629211c50e05f1c8d93c5a7d6f2e66416d74f3dc5e62f58c"
+      }
+    },
+    {
+      "id": "enroll-page",
+      "title": "Enrollment page (identity, QR, key, code, recovery codes)",
+      "videos": [
+        "desktop",
+        "mobile"
+      ],
+      "beats": [
+        "page-identity",
+        "page-step1",
+        "page-step2",
+        "page-key",
+        "page-addlink (mobile)",
+        "page-step3",
+        "field-code",
+        "btn-finish",
+        "recovery",
+        "recovery-download",
+        "btn-continue"
+      ],
+      "watch": [
+        "frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx",
+        "backend/app/api/mystery_auth.py::_build_enrollment_payload",
+        "backend/app/api/mystery_auth.py::enroll_start",
+        "backend/app/api/mystery_auth.py::enroll_confirm",
+        "frontend/mystery-shopper/src/components/ui/*.jsx",
+        "frontend/mystery-shopper/src/index.css",
+        "frontend/mystery-shopper/tailwind.config.js",
+        "frontend/mystery-shopper/index.html",
+        "frontend/mystery-shopper/src/lib/utils.js",
+        "frontend/mystery-shopper/public/logo.png",
+        "frontend/mystery-shopper/public/branding/*"
+      ],
+      "baseline": {
+        "frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx": "cc1ac8244591723d9095a0d66a016baf3298a7e4f6c7600baef059df23604a56",
+        "backend/app/api/mystery_auth.py::_build_enrollment_payload": "5f75e4786af1cc49c1199f2780b514c3669c78a79c83050efd48a80a85cadbe2",
+        "backend/app/api/mystery_auth.py::enroll_start": "6b4eec18adb4ea6b829d717612482ff3c1a1562563d9bd6c5e21258a673ee779",
+        "backend/app/api/mystery_auth.py::enroll_confirm": "2f9c73da7a5b890cf241e6955d1834b960d751f5aace240a1d54923120ae7a34",
+        "frontend/mystery-shopper/src/components/ui/badge.jsx": "b1e0ef671562ac9f61fd422d6819796ba06a5a9e38b9f81aa058ba7065b202ba",
+        "frontend/mystery-shopper/src/components/ui/button.jsx": "59f8cf29f702007d2e255151fa86f0d1818d86832f8c58420c901d69aa9e3d2d",
+        "frontend/mystery-shopper/src/components/ui/card.jsx": "33112f362464366d6253aa3d3c2e8dcad89f1821c3a9967b37375cb32b678692",
+        "frontend/mystery-shopper/src/components/ui/input.jsx": "23081d3467e0cffbbe878c052dc4aa71b6269ab70d70fdbfc860e82934c018c0",
+        "frontend/mystery-shopper/src/components/ui/select.jsx": "cdc6f3c083d88d09ea53bc2cb2b3490a6216ee225b4aed188b7506edc3dde621",
+        "frontend/mystery-shopper/src/components/ui/textarea.jsx": "d460dc8329bbf7f4a230165db0d6122aaa021947134604c530c395b80465cd1e",
+        "frontend/mystery-shopper/src/index.css": "9456dcc953cb173a738566ad27c9231f884926b53f94c161a5d7938363b816d3",
+        "frontend/mystery-shopper/tailwind.config.js": "4432983207e5a8570f7ebeb73d89d6209c813ca8bec64fbcd193f05aa081aa74",
+        "frontend/mystery-shopper/index.html": "40c9e5dd17d44dd5011adce1b41afa515d281e0cd2a178b0b0286939debfc31c",
+        "frontend/mystery-shopper/src/lib/utils.js": "eda3beb73fdfba01f4aacb1b6c1913b02238bc20254793bc9c6ef3c0dc5e72ea",
+        "frontend/mystery-shopper/public/logo.png": "f7ea9625e465ef275b69be38fdc81f15e3c65a6fdb2c91ee8c0f2af4f6ec8704",
+        "frontend/mystery-shopper/public/branding/cws-banner.png": "1331c7fb15079a8130ce2c45723e178c4766b7b47b1bfcaf894e24884fee7c74",
+        "frontend/mystery-shopper/public/branding/cws-logo.png": "f7ea9625e465ef275b69be38fdc81f15e3c65a6fdb2c91ee8c0f2af4f6ec8704",
+        "frontend/mystery-shopper/public/branding/online-survey.png": "4ad9143b74e1b55122184d7840de1b2c513b647ef90b8c5f7383c150e22e1ce4"
+      }
+    },
+    {
+      "id": "sign-in",
+      "title": "Sign-in screen (password + authenticator code)",
+      "videos": [
+        "desktop",
+        "mobile"
+      ],
+      "beats": [
+        "signin"
+      ],
+      "watch": [
+        "frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx",
+        "frontend/mystery-shopper/src/components/ui/*.jsx",
+        "frontend/mystery-shopper/src/index.css",
+        "frontend/mystery-shopper/tailwind.config.js",
+        "frontend/mystery-shopper/index.html",
+        "frontend/mystery-shopper/public/logo.png",
+        "frontend/mystery-shopper/public/branding/*"
+      ],
+      "baseline": {
+        "frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx": "f8c734fd4e5229b63a91a35b4aacb5515a97979b021a276c05ce934f751e9fd9",
+        "frontend/mystery-shopper/src/components/ui/badge.jsx": "b1e0ef671562ac9f61fd422d6819796ba06a5a9e38b9f81aa058ba7065b202ba",
+        "frontend/mystery-shopper/src/components/ui/button.jsx": "59f8cf29f702007d2e255151fa86f0d1818d86832f8c58420c901d69aa9e3d2d",
+        "frontend/mystery-shopper/src/components/ui/card.jsx": "33112f362464366d6253aa3d3c2e8dcad89f1821c3a9967b37375cb32b678692",
+        "frontend/mystery-shopper/src/components/ui/input.jsx": "23081d3467e0cffbbe878c052dc4aa71b6269ab70d70fdbfc860e82934c018c0",
+        "frontend/mystery-shopper/src/components/ui/select.jsx": "cdc6f3c083d88d09ea53bc2cb2b3490a6216ee225b4aed188b7506edc3dde621",
+        "frontend/mystery-shopper/src/components/ui/textarea.jsx": "d460dc8329bbf7f4a230165db0d6122aaa021947134604c530c395b80465cd1e",
+        "frontend/mystery-shopper/src/index.css": "9456dcc953cb173a738566ad27c9231f884926b53f94c161a5d7938363b816d3",
+        "frontend/mystery-shopper/tailwind.config.js": "4432983207e5a8570f7ebeb73d89d6209c813ca8bec64fbcd193f05aa081aa74",
+        "frontend/mystery-shopper/index.html": "40c9e5dd17d44dd5011adce1b41afa515d281e0cd2a178b0b0286939debfc31c",
+        "frontend/mystery-shopper/public/logo.png": "f7ea9625e465ef275b69be38fdc81f15e3c65a6fdb2c91ee8c0f2af4f6ec8704",
+        "frontend/mystery-shopper/public/branding/cws-banner.png": "1331c7fb15079a8130ce2c45723e178c4766b7b47b1bfcaf894e24884fee7c74",
+        "frontend/mystery-shopper/public/branding/cws-logo.png": "f7ea9625e465ef275b69be38fdc81f15e3c65a6fdb2c91ee8c0f2af4f6ec8704",
+        "frontend/mystery-shopper/public/branding/online-survey.png": "4ad9143b74e1b55122184d7840de1b2c513b647ef90b8c5f7383c150e22e1ce4"
+      }
+    }
+  ],
+  "history": [
+    {
+      "date": "2026-11-17",
+      "kind": "rerecorded",
+      "screens": [
+        "email",
+        "enroll-page",
+        "sign-in"
+      ],
+      "reason": "Initial baseline: v03 videos were recorded against origin/main 5810ed5 (sources verified identical).",
+      "by": "initial setup",
+      "commit": "5810ed5",
+      "video_version": "v03",
+      "changes_covered": [
+        "email: backend/app/api/mystery_auth.py::_build_enrollment_email",
+        "enroll-page: backend/app/api/mystery_auth.py::_build_enrollment_payload",
+        "enroll-page: backend/app/api/mystery_auth.py::enroll_confirm",
+        "enroll-page: backend/app/api/mystery_auth.py::enroll_start",
+        "enroll-page: frontend/mystery-shopper/index.html",
+        "enroll-page: frontend/mystery-shopper/public/branding/cws-banner.png",
+        "enroll-page: frontend/mystery-shopper/public/branding/cws-logo.png",
+        "enroll-page: frontend/mystery-shopper/public/branding/online-survey.png",
+        "enroll-page: frontend/mystery-shopper/public/logo.png",
+        "enroll-page: frontend/mystery-shopper/src/components/ui/badge.jsx",
+        "enroll-page: frontend/mystery-shopper/src/components/ui/button.jsx",
+        "enroll-page: frontend/mystery-shopper/src/components/ui/card.jsx",
+        "enroll-page: frontend/mystery-shopper/src/components/ui/input.jsx",
+        "enroll-page: frontend/mystery-shopper/src/components/ui/select.jsx",
+        "enroll-page: frontend/mystery-shopper/src/components/ui/textarea.jsx",
+        "enroll-page: frontend/mystery-shopper/src/index.css",
+        "enroll-page: frontend/mystery-shopper/src/lib/utils.js",
+        "enroll-page: frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx",
+        "enroll-page: frontend/mystery-shopper/tailwind.config.js",
+        "sign-in: frontend/mystery-shopper/index.html",
+        "sign-in: frontend/mystery-shopper/public/branding/cws-banner.png",
+        "sign-in: frontend/mystery-shopper/public/branding/cws-logo.png",
+        "sign-in: frontend/mystery-shopper/public/branding/online-survey.png",
+        "sign-in: frontend/mystery-shopper/public/logo.png",
+        "sign-in: frontend/mystery-shopper/src/components/ui/badge.jsx",
+        "sign-in: frontend/mystery-shopper/src/components/ui/button.jsx",
+        "sign-in: frontend/mystery-shopper/src/components/ui/card.jsx",
+        "sign-in: frontend/mystery-shopper/src/components/ui/input.jsx",
+        "sign-in: frontend/mystery-shopper/src/components/ui/select.jsx",
+        "sign-in: frontend/mystery-shopper/src/components/ui/textarea.jsx",
+        "sign-in: frontend/mystery-shopper/src/index.css",
+        "sign-in: frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx",
+        "sign-in: frontend/mystery-shopper/tailwind.config.js"
+      ]
+    }
+  ]
+}
