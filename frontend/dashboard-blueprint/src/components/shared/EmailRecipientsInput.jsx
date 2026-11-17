@@ -23,7 +23,7 @@ export default function EmailRecipientsInput({
 
   return (
     <div className="space-y-2">
-      <label className="text-xs font-medium text-muted-foreground mb-1 block">{label}</label>
+      <label className="block text-sm font-medium">{label}</label>
       <div className="rounded-md border bg-background p-2">
         {recipients.length ? (
           <div className="mb-2 flex flex-wrap gap-2">

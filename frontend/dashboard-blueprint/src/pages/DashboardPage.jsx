@@ -27,6 +27,11 @@ import SimpleStatusDataTable from "../components/shared/SimpleStatusDataTable";
 import EmailRecipientsInput from "../components/shared/EmailRecipientsInput";
 import EntityCombobox from "../components/shared/EntityCombobox";
 import ActionDialog from "../components/shared/ActionDialog";
+import Disclosure from "../components/shared/Disclosure";
+import Field from "../components/shared/Field";
+import FilterBar from "../components/shared/FilterBar";
+import ReportStep from "../components/shared/ReportStep";
+import ReportTypePicker from "../components/shared/ReportTypePicker";
 import InfoHint from "../components/shared/InfoHint";
 import MysteryReviewQueueSection from "../features/mystery-shopper/components/MysteryReviewQueueSection";
 import MysteryVisitDetailCard from "../features/mystery-shopper/components/MysteryVisitDetailCard";
@@ -2911,12 +2916,13 @@ const platformAbortRef = useRef(null);
         ) : (
         <>
           {isB2BPlatform ? (
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle>Business Focus Filter</CardTitle>
-                <CardDescription>Choose one or more businesses to see results for only those businesses.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
+            <Disclosure
+              className="mb-6"
+              summary="Filter by business"
+              meta={selectedAnalyticsBusinessIds.length === 0 ? "Showing all businesses" : `${selectedAnalyticsBusinessIds.length} selected`}
+              defaultOpen={selectedAnalyticsBusinessIds.length > 0}
+            >
+              <div className="space-y-4">
                 <Input
                   placeholder="Search businesses by name or location"
                   value={analyticsBusinessSearch}
@@ -2962,17 +2968,18 @@ const platformAbortRef = useRef(null);
                     })
                   )}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </Disclosure>
           ) : null}
 
           {isMysteryShopperPlatform ? (
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle>Location Focus Filter</CardTitle>
-                <CardDescription>Choose one or more locations to see results for only those locations.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
+            <Disclosure
+              className="mb-6"
+              summary="Filter by location"
+              meta={selectedAnalyticsLocationIds.length === 0 ? "Showing all locations" : `${selectedAnalyticsLocationIds.length} selected`}
+              defaultOpen={selectedAnalyticsLocationIds.length > 0}
+            >
+              <div className="space-y-4">
                 <Input
                   placeholder="Search locations"
                   value={analyticsLocationSearch}
@@ -2993,8 +3000,8 @@ const platformAbortRef = useRef(null);
                     })
                   )}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </Disclosure>
           ) : null}
 
           {analyticsLoading ? (
@@ -3616,33 +3623,32 @@ const platformAbortRef = useRef(null);
             <Card>
               <CardHeader>
                 <CardTitle>Create Planned Visit</CardTitle>
-                <CardDescription>Create B2B draft planned visits directly from dashboard.</CardDescription>
+                <CardDescription>Create a draft visit that surveyors can open and complete.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-                  <Select value={plannedForm.business_id} onChange={(event) => handlePlannedBusinessChange(event.target.value)}>
-                    <option value="">Select business</option>
-                    {businesses.map((business) => (
-                      <option key={business.id} value={String(business.id)}>{business.name}</option>
-                    ))}
-                  </Select>
-                  <Input type="date" value={plannedForm.visit_date} onChange={(event) => setPlannedForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
-                  <Select value={plannedForm.visit_type} onChange={(event) => setPlannedForm((prev) => ({ ...prev, visit_type: event.target.value }))}>
-                    <option value="Planned">Planned</option>
-                    <option value="Priority">Priority</option>
-                    <option value="Substitution">Substitution</option>
-                  </Select>
-                  <Button type="button" onClick={handleCreatePlannedVisit}>Create Draft Visit</Button>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <Field label="Business">
+                    <Select value={plannedForm.business_id} onChange={(event) => handlePlannedBusinessChange(event.target.value)}>
+                      <option value="">Select business</option>
+                      {businesses.map((business) => (
+                        <option key={business.id} value={String(business.id)}>{business.name}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Visit date">
+                    <Input type="date" value={plannedForm.visit_date} onChange={(event) => setPlannedForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
+                  </Field>
+                  <Field label="Visit type">
+                    <Select value={plannedForm.visit_type} onChange={(event) => setPlannedForm((prev) => ({ ...prev, visit_type: event.target.value }))}>
+                      <option value="Planned">Planned</option>
+                      <option value="Priority">Priority</option>
+                      <option value="Substitution">Substitution</option>
+                    </Select>
+                  </Field>
                 </div>
-                <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
-                  <p className="font-medium text-foreground">Quick tips</p>
-                  <p className="mt-1">1. Add the account executive responsible for this customer before creating the draft visit.</p>
-                  <p className="mt-1">2. Add each team member separately so they stay visible in the dashboard and the survey workspace.</p>
-                  <p className="mt-1">3. After the draft is created, surveyors can open it and continue with the full response flow.</p>
-                </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Account Executive</label>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Field label="Account executive" hint="Responsible for this customer. Pick from the directory or type a name.">
                     <Input
                       type="text"
                       list="planned-account-executive-list"
@@ -3657,11 +3663,10 @@ const platformAbortRef = useRef(null);
                       ))}
                     </datalist>
                     {plannedForm.account_executive_name.trim() && !representatives.some((executive) => (executive.name || "").toLowerCase() === plannedForm.account_executive_name.trim().toLowerCase()) ? (
-                      <p className="mt-1 text-xs text-amber-700">Not in the account executive directory. Pick an existing name, or add them below.</p>
+                      <p className="text-xs text-amber-700">Not in the account executive directory. Pick an existing name, or add them below.</p>
                     ) : null}
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Team Members</label>
+                  </Field>
+                  <Field label="Team members" hint="Add each person separately so they stay visible in the dashboard and survey workspace.">
                     <div className="space-y-2">
                       {plannedForm.team_member_names.map((memberName, index) => (
                         <div key={`planned-form-member-${index}`} className="flex gap-2">
@@ -3682,30 +3687,44 @@ const platformAbortRef = useRef(null);
                         </div>
                       ))}
                       <Button type="button" size="sm" variant="outline" onClick={() => addPlannedTeamMember()}>
-                        Add Team Member
+                        Add team member
                       </Button>
                     </div>
-                  </div>
+                  </Field>
                 </div>
-                <div className="grid grid-cols-1 gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-[1fr_1fr_auto]">
-                  <Input value={newPlannedExecutiveName} onChange={(event) => setNewPlannedExecutiveName(event.target.value)} placeholder="New account executive name" />
-                  <Input value={newPlannedExecutiveEmail} onChange={(event) => setNewPlannedExecutiveEmail(event.target.value)} placeholder="New account executive email" />
-                  <Button type="button" variant="outline" onClick={createPlannedAccountExecutive} disabled={plannedExecutiveSaving} title="Create a new account executive and reuse them immediately on this planned visit">
-                    {plannedExecutiveSaving ? "Adding..." : "Add Account Executive"}
-                  </Button>
+
+                <Disclosure summary="Account executive not in the list? Add a new one" className="bg-muted/30">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                    <Field label="Name">
+                      <Input value={newPlannedExecutiveName} onChange={(event) => setNewPlannedExecutiveName(event.target.value)} placeholder="New account executive name" />
+                    </Field>
+                    <Field label="Email">
+                      <Input value={newPlannedExecutiveEmail} onChange={(event) => setNewPlannedExecutiveEmail(event.target.value)} placeholder="New account executive email" />
+                    </Field>
+                    <Button type="button" variant="outline" onClick={createPlannedAccountExecutive} disabled={plannedExecutiveSaving} title="Create a new account executive and reuse them immediately on this planned visit">
+                      {plannedExecutiveSaving ? "Adding..." : "Add account executive"}
+                    </Button>
+                  </div>
+                </Disclosure>
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">After the draft is created, surveyors can open it and continue with the full response flow.</p>
+                  <Button type="button" onClick={handleCreatePlannedVisit}>Create draft visit</Button>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Draft Planned Visits</CardTitle>
-                <CardDescription>Current B2B draft visits queued for survey completion.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <Button type="button" variant="outline" onClick={loadPlannedVisits}>{plannedLoading ? "Refreshing..." : "Refresh"}</Button>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div className="space-y-1.5">
+                  <CardTitle>Draft Planned Visits</CardTitle>
+                  <CardDescription>Current B2B draft visits queued for survey completion.</CardDescription>
                 </div>
+                <Button type="button" variant="outline" size="sm" onClick={loadPlannedVisits} disabled={plannedLoading}>
+                  {plannedLoading ? "Refreshing..." : "Refresh"}
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <PlannedVisitsDataTable
                   data={plannedVisits}
                   representatives={representatives}
@@ -3844,7 +3863,7 @@ const platformAbortRef = useRef(null);
             </CardHeader>
           </Card>
 
-          <div className="rounded-lg border bg-muted/20 p-5 space-y-5">
+          <div className="space-y-8">
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
@@ -3852,65 +3871,18 @@ const platformAbortRef = useRef(null);
               </div>
             </div>
 
-            <section className="rounded-lg border bg-card p-4">
-              <div className="mb-3">
-                <p className="text-sm font-semibold tracking-tight">1) Select Report Type</p>
-                <p className="text-xs text-muted-foreground">Pick the report format you need.</p>
-              </div>
-              {/* Mobile: horizontal scroll pills */}
-              <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
-                {INSTALL_REPORT_TYPE_OPTIONS.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => {
-                      setInstallReportType(option.key);
+            <ReportStep number={1} title="Select Report Type" hint="Pick the report format you need.">
+              <ReportTypePicker options={INSTALL_REPORT_TYPE_OPTIONS} value={installReportType} onSelect={(key) => {
+                      setInstallReportType(key);
                       setInstallReportSurveyId("");
                       setInstallReportPreview(null);
                       setInstallReportPreviewHtml("");
-                    }}
-                    className={cn(
-                      "shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
-                      installReportType === option.key
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              {/* Desktop: card grid */}
-              <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {INSTALL_REPORT_TYPE_OPTIONS.map((option) => (
-                  <Card key={option.key} className="h-full min-w-0 overflow-visible">
-                    <CardHeader>
-                      <CardTitle className="text-base">{option.label}</CardTitle>
-                      <CardDescription>{option.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex min-h-[8rem] flex-col gap-3">
-                      <Button
-                        type="button"
-                        className="mt-auto w-full"
-                        variant={installReportType === option.key ? "default" : "outline"}
-                        onClick={() => {
-                          setInstallReportType(option.key);
-                          setInstallReportSurveyId("");
-                          setInstallReportPreview(null);
-                          setInstallReportPreviewHtml("");
-                        }}
-                      >
-                        {installReportType === option.key ? "Selected" : `Use ${option.label}`}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </section>
+                    }} />
+            </ReportStep>
 
-            <section className="rounded-lg border bg-background p-4 space-y-3">
+            <section className="space-y-4">
               <div>
-                <p className="text-sm font-semibold tracking-tight">2) Define Report Scope</p>
+                <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">2</span><h3 className="text-base font-semibold tracking-tight">Define Report Scope</h3></div>
                 {installReportType === "lifetime" ? (
                   <p className="text-xs text-muted-foreground">Lifetime Summary uses all installation data. Optionally filter by date range.</p>
                 ) : installReportType === "survey" ? (
@@ -3957,9 +3929,9 @@ const platformAbortRef = useRef(null);
               ) : null}
             </section>
 
-            <section className="rounded-lg border bg-background p-4 space-y-3">
+            <section className="space-y-4">
               <div>
-                <p className="text-sm font-semibold tracking-tight">3) Deliver Report</p>
+                <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">3</span><h3 className="text-base font-semibold tracking-tight">Deliver Report</h3></div>
                 <p className="text-xs text-muted-foreground">Preview the report, download as HTML, or send by email.</p>
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -4129,62 +4101,20 @@ const platformAbortRef = useRef(null);
               ) : null}
 
               {location.pathname === "/reports" ? (
-              <div className="rounded-lg border bg-muted/20 p-5 space-y-5">
+              <div className="space-y-8">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
                     <p className="text-sm text-muted-foreground">Choose a report type below. Each type has its own set of filters and options.</p>
                   </div>
                 </div>
-                <section className="rounded-lg border bg-card p-4">
-                <div className="mb-3">
-                  <p className="text-sm font-semibold tracking-tight">1) Select Report Type</p>
-                  <p className="text-xs text-muted-foreground">Pick the report format that matches your reporting objective.</p>
-                </div>
-                {/* Mobile: horizontal scroll pills */}
-                <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
-                  {reportTypeOptions.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => setReportType(option.key)}
-                      className={cn(
-                        "shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
-                        reportType === option.key
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                {/* Desktop: card grid */}
-                <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                  {reportTypeOptions.map((option) => (
-                    <Card key={option.key} className="h-full min-w-0 overflow-visible">
-                      <CardHeader>
-                        <CardTitle className="text-base">{option.label}</CardTitle>
-                        <CardDescription>{option.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="flex min-h-[8rem] flex-col gap-3">
-                        <Button
-                          type="button"
-                          className="mt-auto w-full"
-                          variant={reportType === option.key ? "default" : "outline"}
-                          onClick={() => setReportType(option.key)}
-                        >
-                          {reportType === option.key ? "Selected" : `Use ${option.label}`}
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-                </section>
+                <ReportStep number={1} title="Select Report Type" hint="Pick the report format that matches your reporting objective.">
+                  <ReportTypePicker options={reportTypeOptions} value={reportType} onSelect={(key) => setReportType(key)} />
+                </ReportStep>
 
-                <section className="rounded-lg border bg-background p-4 space-y-3">
+                <section className="space-y-4">
                 <div>
-                  <p className="text-sm font-semibold tracking-tight">2) Define Report Scope</p>
+                  <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">2</span><h3 className="text-base font-semibold tracking-tight">Define Report Scope</h3></div>
                   {reportType === "lifetime" ? (
                     <p className="text-xs text-muted-foreground">{isMysteryShopperPlatform ? "Lifetime overview uses all Mystery Shopper data across the selected scope." : "Lifetime Overview uses all data across the platform. No filters needed."}</p>
                   ) : reportType === "survey" ? (
@@ -4294,9 +4224,9 @@ const platformAbortRef = useRef(null);
                 ) : null}
                 </section>
 
-                <section className="rounded-lg border bg-background p-4 space-y-3">
+                <section className="space-y-4">
                 <div>
-                  <p className="text-sm font-semibold tracking-tight">3) Deliver Report</p>
+                  <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">3</span><h3 className="text-base font-semibold tracking-tight">Deliver Report</h3></div>
                   <p className="text-xs text-muted-foreground">Preview in-page, download as HTML, or send by email.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -4458,130 +4388,124 @@ const platformAbortRef = useRef(null);
             <Card>
               <CardHeader>
                 <CardTitle>Action Points Management</CardTitle>
-                <CardDescription>Track action points raised during surveys and filter by owner, support, timeline, status, or business.</CardDescription>
+                <CardDescription>Track action points raised during surveys. Filter by business and status, or open More filters for owner, support and timeline.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
-                  <Input
-                    placeholder="Filter by lead owner"
-                    value={actionsFilters.lead_owner}
-                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, lead_owner: event.target.value }))}
-                  />
-                  <Input
-                    placeholder="Filter by support needed"
-                    value={actionsFilters.support}
-                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, support: event.target.value }))}
-                  />
-                  <Select
-                    value={actionsFilters.timeline}
-                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, timeline: event.target.value }))}
-                  >
-                    <option value="">All timelines</option>
-                    {actionsTimelineOptions.map((option) => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </Select>
-                  <Select
-                    value={actionsFilters.action_status}
-                    onChange={(event) => setActionsFilters((prev) => ({ ...prev, action_status: event.target.value }))}
-                  >
-                    <option value="">All statuses</option>
-                    {actionsStatusOptions.map((option) => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </Select>
-                  <div>
+              <CardContent>
+                <FilterBar
+                  more={(
+                    <>
+                      <Field label="Lead owner">
+                        <Input
+                          placeholder="Filter by lead owner"
+                          value={actionsFilters.lead_owner}
+                          onChange={(event) => setActionsFilters((prev) => ({ ...prev, lead_owner: event.target.value }))}
+                        />
+                      </Field>
+                      <Field label="Support needed">
+                        <Input
+                          placeholder="Filter by support needed"
+                          value={actionsFilters.support}
+                          onChange={(event) => setActionsFilters((prev) => ({ ...prev, support: event.target.value }))}
+                        />
+                      </Field>
+                      <Field label="Timeline">
+                        <Select
+                          value={actionsFilters.timeline}
+                          onChange={(event) => setActionsFilters((prev) => ({ ...prev, timeline: event.target.value }))}
+                        >
+                          <option value="">All timelines</option>
+                          {actionsTimelineOptions.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                    </>
+                  )}
+                  moreActiveCount={[actionsFilters.lead_owner, actionsFilters.support, actionsFilters.timeline].filter(Boolean).length}
+                  onClear={() => setActionsFilters({ lead_owner: "", support: "", timeline: "", action_status: "", business_id: "" })}
+                  clearDisabled={!Object.values(actionsFilters).some(Boolean)}
+                  onRefresh={loadActionsBoard}
+                  refreshing={actionsBoardLoading}
+                  resultLabel={actionsBoardLoading ? "Loading actions..." : `${actionsBoardItems.length} action${actionsBoardItems.length === 1 ? "" : "s"}`}
+                >
+                  <Field label="Business">
                     <EntityCombobox
                       options={businesses}
                       value={actionsFilters.business_id}
                       onChange={(businessId) => setActionsFilters((prev) => ({ ...prev, business_id: businessId }))}
                       placeholder="Type to search business..."
                     />
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" onClick={loadActionsBoard} title="Reload the action points board with the filters currently selected">
-                    {actionsBoardLoading ? "Refreshing..." : "Refresh"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setActionsFilters({ lead_owner: "", support: "", timeline: "", action_status: "", business_id: "" })}
-                  >
-                    Clear Filters
-                  </Button>
-                  <span className="text-sm text-muted-foreground">
-                    {actionsBoardLoading ? "Loading actions..." : `${actionsBoardItems.length} actions`}
-                  </span>
-                </div>
+                  </Field>
+                  <Field label="Status">
+                    <Select
+                      value={actionsFilters.action_status}
+                      onChange={(event) => setActionsFilters((prev) => ({ ...prev, action_status: event.target.value }))}
+                    >
+                      <option value="">All statuses</option>
+                      {actionsStatusOptions.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                </FilterBar>
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {Object.keys(actionsBoardSummary?.by_survey || {}).length > 0 || Object.keys(actionsBoardSummary?.by_business || {}).length > 0 ? (
               <Card>
-                <CardHeader>
-                  <CardTitle>Action Points by Survey Type</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {Object.entries(actionsBoardSummary?.by_survey || {}).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No actions found for current filters.</p>
-                  ) : (
-                    Object.entries(actionsBoardSummary?.by_survey || {}).map(([surveyName, count]) => (
-                      <div key={surveyName} className="flex items-center justify-between rounded-md bg-muted/60 px-3 py-2 text-sm">
-                        <span>{surveyName}</span>
-                        <Badge variant="secondary">{count}</Badge>
+                <CardContent className="space-y-4 p-6">
+                  {[
+                    ["By survey type", actionsBoardSummary?.by_survey],
+                    ["By business", actionsBoardSummary?.by_business],
+                  ].map(([label, counts]) => (
+                    Object.keys(counts || {}).length > 0 ? (
+                      <div key={label} className="space-y-2">
+                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(counts).map(([name, count]) => (
+                            <Badge key={name} variant="secondary" className="gap-2">
+                              <span>{name}</span>
+                              <span className="tabular-nums">{count}</span>
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
-                    ))
-                  )}
+                    ) : null
+                  ))}
                 </CardContent>
               </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Action Points by Business</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {Object.entries(actionsBoardSummary?.by_business || {}).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No actions found for current filters.</p>
-                  ) : (
-                    Object.entries(actionsBoardSummary?.by_business || {}).map(([businessName, count]) => (
-                      <div key={businessName} className="flex items-center justify-between rounded-md bg-muted/60 px-3 py-2 text-sm">
-                        <span>{businessName}</span>
-                        <Badge variant="secondary">{count}</Badge>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+            ) : null}
 
             <div className="space-y-4">
               {Object.entries(groupedActionsBoard).length === 0 ? (
                 <Card>
-                  <CardContent className="pt-6">
+                  <CardContent className="p-6">
                     <p className="text-sm text-muted-foreground">No actions available for this filter set.</p>
                   </CardContent>
                 </Card>
               ) : (
-                Object.entries(groupedActionsBoard).map(([surveyName, businessGroups]) => (
-                  <Card key={surveyName}>
-                    <CardHeader>
-                      <CardTitle>{surveyName}</CardTitle>
-                      <CardDescription>Grouped by business, then by survey question.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
+                Object.entries(groupedActionsBoard).map(([surveyName, businessGroups], groupIndex) => {
+                  const groupTotal = Object.values(businessGroups).reduce((sum, rows) => sum + rows.length, 0);
+                  return (
+                    <Disclosure
+                      key={surveyName}
+                      summary={surveyName}
+                      meta={`${groupTotal} action${groupTotal === 1 ? "" : "s"}`}
+                      defaultOpen={groupIndex === 0}
+                      bodyClassName="space-y-6"
+                    >
                       {Object.entries(businessGroups).map(([businessName, rows]) => (
-                        <div key={`${surveyName}-${businessName}`} className="space-y-2">
-                          <div className="flex items-center justify-between">
+                        <div key={`${surveyName}-${businessName}`} className="space-y-3">
+                          <div className="flex items-center justify-between gap-3">
                             <h4 className="text-sm font-semibold">{businessName}</h4>
                             <Badge>{rows.length}</Badge>
                           </div>
                           <ActionPointsDataTable data={rows} statusOptions={actionsStatusOptions} onSaveActionPoint={handleUpdateActionPointStatus} />
                         </div>
                       ))}
-                    </CardContent>
-                  </Card>
-                ))
+                    </Disclosure>
+                  );
+                })
               )}
             </div>
           </div>
