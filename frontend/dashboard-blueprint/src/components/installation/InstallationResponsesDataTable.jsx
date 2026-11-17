@@ -80,7 +80,7 @@ export default function InstallationResponsesDataTable({ responses = [] }) {
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No saved question responses match the current table filter.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length} className="py-8 text-center text-sm text-muted-foreground">No saved question responses match the current table filter.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

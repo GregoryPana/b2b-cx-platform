@@ -3473,7 +3473,7 @@ const platformAbortRef = useRef(null);
           <Card>
             <CardHeader>
               <CardTitle className="text-xl font-semibold tracking-tight">Review Queue</CardTitle>
-              <CardDescription className="text-sm">These submitted visits are waiting for manager review. You can approve or reject each one.</CardDescription>
+              <CardDescription className="text-sm">These submitted visits are waiting for manager review. Approve each one, send it back with Needs Changes, or reject it.</CardDescription>
             </CardHeader>
             <CardContent>
               {pendingVisitsLoading ? (
