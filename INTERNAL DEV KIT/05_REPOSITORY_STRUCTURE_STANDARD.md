@@ -75,7 +75,7 @@ Contains TypeScript frontend apps only.
 
 Recommended:
 - `frontend/app/` for the main user app
-- `frontend/dashboard/` for admin/dashboard if needed
+- `frontend/dashboard-blueprint/` for admin/dashboard
 
 Each frontend app should contain:
 - `src/`
