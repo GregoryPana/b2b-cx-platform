@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { LoaderCircle } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import AuthShell, { Field, InlineAlert, PasswordInput } from "./AuthShell";
 
 export default function LoginScreen({ login, submitMfa, cancelMfa, loading, error, mfaPending, onShowRecovery }) {
   const [email, setEmail] = useState("");
@@ -41,52 +43,80 @@ export default function LoginScreen({ login, submitMfa, cancelMfa, loading, erro
     if (!result?.ok) setCode("");
   };
 
-  const onKeyDown = (handler) => (event) => {
-    if (event.key === "Enter") handler();
-  };
+  const spinner = <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
-      <Card className="w-full max-w-lg">
-        <CardHeader>
-          <CardTitle className="text-2xl">Mystery Shopper Sign In</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <AuthShell
+      title={!mfaPending ? "Sign in" : "Enter your 6-digit code"}
+      description={
+        !mfaPending
+          ? "Sign in with your registered email and password. You will then be asked for a 6-digit code from your authenticator app. You must be connected to the company VPN."
+          : "Open your authenticator app and enter the current 6-digit code for CWSCX Mystery Shopper. Codes change every 30 seconds — if one is about to change, wait for the next."
+      }
+    >
+      <Card>
+        <CardContent className="p-5 sm:p-6">
           {!mfaPending ? (
-            <>
-              <Input type="email" autoComplete="username" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} onKeyDown={onKeyDown(submitLogin)} />
-              <Input type="password" autoComplete="current-password" placeholder="Password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={onKeyDown(submitLogin)} />
-              <Button type="button" className="w-full" onClick={submitLogin} disabled={loading}>
+            <form
+              noValidate
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitLogin();
+              }}
+            >
+              <Field id="login-email" label="Email">
+                <Input id="login-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
+              </Field>
+              <Field id="login-password" label="Password">
+                <PasswordInput id="login-password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+              </Field>
+              <InlineAlert>{localError || error}</InlineAlert>
+              <Button type="submit" className="min-h-11 w-full gap-2" disabled={loading}>
+                {loading ? spinner : null}
                 {loading ? "Please wait..." : "Continue"}
               </Button>
-            </>
+              <div className="space-y-1 border-t pt-4 text-center">
+                <Button type="button" variant="ghost" className="w-full" onClick={onShowRecovery}>Use a recovery code instead</Button>
+                <p className="text-xs text-muted-foreground">
+                  Lost your authenticator app or password? Use a recovery code. Haven&apos;t enrolled yet? Open the enrollment link from your invitation email.
+                </p>
+              </div>
+            </form>
           ) : (
-            <>
-              <Input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={7} placeholder="6-digit authenticator code" value={code} onChange={(event) => setCode(event.target.value)} onKeyDown={onKeyDown(submitCode)} />
-              <Button type="button" className="w-full" onClick={submitCode} disabled={loading}>
+            <form
+              noValidate
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitCode();
+              }}
+            >
+              <Field id="login-code" label="6-digit authenticator code">
+                <Input
+                  id="login-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={7}
+                  placeholder="000 000"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  className="h-12 text-center font-mono text-xl tracking-[0.25em] tabular-nums"
+                />
+              </Field>
+              <InlineAlert>{localError || error}</InlineAlert>
+              <Button type="submit" className="min-h-11 w-full gap-2" disabled={loading}>
+                {loading ? spinner : null}
                 {loading ? "Verifying..." : "Verify code"}
               </Button>
               <Button type="button" variant="ghost" className="w-full" onClick={() => { setCode(""); setLocalError(""); cancelMfa(); }}>
                 Back to email and password
               </Button>
-            </>
+            </form>
           )}
-          <p className="text-sm text-muted-foreground">
-            {!mfaPending
-              ? "Sign in with your registered email and password. You will then be asked for a 6-digit code from your authenticator app. You must be connected to the company VPN."
-              : "Open your authenticator app and enter the current 6-digit code for CWSCX Mystery Shopper. Codes change every 30 seconds — if one is about to change, wait for the next."}
-          </p>
-          {!mfaPending ? (
-            <p className="text-xs text-muted-foreground">
-              Lost your authenticator app or password? Use a recovery code below. Haven&apos;t enrolled yet? Open the enrollment link from your invitation email.
-            </p>
-          ) : null}
-          {!mfaPending ? <Button type="button" variant="ghost" className="w-full" onClick={onShowRecovery}>Use a recovery code instead</Button> : null}
-          {(localError || error) ? (
-            <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{localError || error}</p>
-          ) : null}
         </CardContent>
       </Card>
-    </div>
+    </AuthShell>
   );
 }
