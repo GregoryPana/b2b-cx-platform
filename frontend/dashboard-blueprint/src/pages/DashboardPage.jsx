@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import html2pdf from "html2pdf.js";
-import { useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PageContainer from "../components/layout/PageContainer";
@@ -40,7 +40,6 @@ import {
   buildAnalyticsCards,
   presentB2BMetrics,
   getDeclaredQuestionScale,
-  getRouteContext,
   summarizeMysteryQuestions,
 } from "../features/mystery-shopper/mysteryPresentation";
 
@@ -2185,10 +2184,10 @@ const platformAbortRef = useRef(null);
     () => getDeclaredQuestionScale(questionAverages, selectedQuestionId),
     [questionAverages, selectedQuestionId],
   );
-  const routeContext = useMemo(
-    () => getRouteContext(location.pathname, activePlatform),
-    [activePlatform, location.pathname],
-  );
+  // Success messages go to the toaster (auto-dismiss) instead of a banner that pushed the page down.
+  useEffect(() => {
+    if (message) pushToast("success", message, 3200);
+  }, [message, pushToast]);
 
   const groupedActionsBoard = useMemo(() => {
     const grouped = {};
@@ -2895,24 +2894,12 @@ const platformAbortRef = useRef(null);
     <PageContainer>
       <Toaster position="top-right" richColors closeButton />
       {/* Error display */}
+      {/* The page title and help line live in the sticky <Header>; repeating them here doubled every heading. */}
       {errorText && (
-        <div className="mb-4 p-4 border border-destructive/50 bg-destructive/10 text-destructive rounded">
+        <div role="alert" className="mb-6 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
           {errorText}
         </div>
       )}
-
-      {message && (
-        <div className="mb-4 rounded border border-emerald-400/40 bg-emerald-500/10 p-4 text-emerald-700 dark:text-emerald-300">
-          {message}
-        </div>
-      )}
-
-      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">{routeContext.title}</h2>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{routeContext.help}</p>
-        </div>
-      </div>
 
       {location.pathname === "/" ? (
         isInstallationPlatform ? (
@@ -3021,7 +3008,7 @@ const platformAbortRef = useRef(null);
             {analyticsCards.map((card) => {
               const grade = getTrafficLightMetric(card.metric, card.numericValue ?? card.value);
               return (
-              <Card key={card.title} className={cn("transition-all duration-200 hover:-translate-y-1 hover:shadow-lg", card.metric ? grade.card : "")}>
+              <Card key={card.title} className={cn(card.metric ? grade.card : "")}>
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-3">
                     <CardDescription>{card.title}</CardDescription>
@@ -3738,12 +3725,7 @@ const platformAbortRef = useRef(null);
             </Card>
           </div>
         ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Planned Visits</CardTitle>
-              <CardDescription>Planned visit management is currently available only for B2B.</CardDescription>
-            </CardHeader>
-          </Card>
+          <Navigate to="/" replace />
         )
       ) : null}
 
@@ -4604,12 +4586,7 @@ const platformAbortRef = useRef(null);
             </div>
           </div>
         ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Action Points</CardTitle>
-              <CardDescription>Action point management is currently available only for the B2B platform.</CardDescription>
-            </CardHeader>
-          </Card>
+          <Navigate to="/" replace />
         )
       ) : null}
 
@@ -4629,12 +4606,7 @@ const platformAbortRef = useRef(null);
             deleteMysteryLocation={deleteMysteryLocation}
           />
         ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Locations</CardTitle>
-              <CardDescription>Location management is available only for the Mystery Shopper platform.</CardDescription>
-            </CardHeader>
-          </Card>
+          <Navigate to="/" replace />
         )
       ) : null}
 
@@ -4652,12 +4624,7 @@ const platformAbortRef = useRef(null);
             deleteMysteryPurpose={deleteMysteryPurpose}
           />
         ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Purposes</CardTitle>
-              <CardDescription>Purpose management is available only for the Mystery Shopper platform.</CardDescription>
-            </CardHeader>
-          </Card>
+          <Navigate to="/" replace />
         )
       ) : null}
 
@@ -4680,12 +4647,7 @@ const platformAbortRef = useRef(null);
             clearMysteryEnrollmentLink={() => setMysteryEnrollmentLink(null)}
           />
         ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Users</CardTitle>
-              <CardDescription>User management is available only for the Mystery Shopper platform.</CardDescription>
-            </CardHeader>
-          </Card>
+          <Navigate to="/" replace />
         )
       ) : null}
 
@@ -4762,12 +4724,7 @@ const platformAbortRef = useRef(null);
             />
          </>
          ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Businesses</CardTitle>
-              <CardDescription>Business management is currently available only for the B2B platform.</CardDescription>
-            </CardHeader>
-          </Card>
+          <Navigate to="/" replace />
          )
         ) : null}
 
@@ -4798,12 +4755,7 @@ const platformAbortRef = useRef(null);
             </Card>
           </>
          ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Account Executives</CardTitle>
-              <CardDescription>Account executive management is currently available only for the B2B platform.</CardDescription>
-            </CardHeader>
-          </Card>
+          <Navigate to="/" replace />
          )
        ) : null}
       <ActionDialog
