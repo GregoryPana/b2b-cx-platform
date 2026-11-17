@@ -50,7 +50,7 @@ export default function LoginScreen({ login, submitMfa, cancelMfa, loading, erro
       title={!mfaPending ? "Sign in" : "Enter your 6-digit code"}
       description={
         !mfaPending
-          ? "Sign in with your registered email and password. You will then be asked for a 6-digit code from your authenticator app. You must be connected to the company VPN."
+          ? "Sign in with your registered email and password. You will then be asked for a 6-digit code from your authenticator app. You must be connected to the CWS VPN."
           : "Open your authenticator app and enter the current 6-digit code for CWSCX Mystery Shopper. Codes change every 30 seconds — if one is about to change, wait for the next."
       }
     >
