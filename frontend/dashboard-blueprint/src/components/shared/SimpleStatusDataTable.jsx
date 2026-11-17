@@ -70,7 +70,7 @@ export default function SimpleStatusDataTable({ data, entityLabel, onActivate, o
               <TableRow key={row.id}>
                 {row.getVisibleCells().map((cell) => <TableCell key={cell.id} className="align-top whitespace-normal break-words" style={{ width: cell.column.getSize(), maxWidth: cell.column.getSize() }}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>)}
               </TableRow>
-            )) : <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No {entityLabel.toLowerCase()} found.</TableCell></TableRow>}
+            )) : <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length} className="py-8 text-center text-sm text-muted-foreground">No {entityLabel.toLowerCase()} found.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </div>

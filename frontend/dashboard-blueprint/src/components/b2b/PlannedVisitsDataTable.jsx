@@ -216,7 +216,7 @@ export default function PlannedVisitsDataTable({
       <div className="rounded-md border">
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <Select value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
+            <Select aria-label="Column to filter by" value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
               <option value="business_name">Filter by business</option>
               <option value="account_executive_name">Filter by account executive</option>
               <option value="team_member_names">Filter by team members</option>
@@ -224,7 +224,7 @@ export default function PlannedVisitsDataTable({
               <option value="visit_type">Filter by type</option>
               <option value="status">Filter by status</option>
             </Select>
-            <Input type={filterColumn === "visit_date" ? "date" : "text"} value={activeFilterValue} onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)} className="md:max-w-sm" />
+            <Input aria-label="Filter value" type={filterColumn === "visit_date" ? "date" : "text"} value={activeFilterValue} onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)} className="md:max-w-sm" />
           </div>
           <div className="flex gap-2">
             <DataTableViewOptions table={table} />
@@ -248,7 +248,7 @@ export default function PlannedVisitsDataTable({
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>Loading draft planned visits...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length} className="py-8 text-center text-sm text-muted-foreground">Loading draft planned visits...</TableCell></TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id}>
@@ -258,7 +258,7 @@ export default function PlannedVisitsDataTable({
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No draft planned visits found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length} className="py-8 text-center text-sm text-muted-foreground">No draft planned visits found.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

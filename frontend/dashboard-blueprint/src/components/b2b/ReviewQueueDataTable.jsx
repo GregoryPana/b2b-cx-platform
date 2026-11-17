@@ -102,7 +102,7 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
       <div className="rounded-md border">
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <Select value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
+            <Select aria-label="Column to filter by" value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
               <option value="business_name">{isMysteryShopperPlatform ? "Filter by location" : "Filter by business"}</option>
               <option value="visit_date">Filter by date</option>
               <option value="submitted_by_name">Filter by submitter</option>
@@ -110,6 +110,7 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
               <option value="status">Filter by status</option>
             </Select>
             <Input
+              aria-label="Filter value"
               type={filterColumn === "visit_date" ? "date" : "text"}
               placeholder="Filter selected column"
               value={activeFilterValue}
@@ -148,7 +149,7 @@ export default function ReviewQueueDataTable({ data, onView, onApprove, onReject
               ))
             ) : (
               <TableRow>
-                  <TableCell colSpan={table.getVisibleLeafColumns().length}>No pending visits in review queue.</TableCell>
+                  <TableCell colSpan={table.getVisibleLeafColumns().length} className="py-8 text-center text-sm text-muted-foreground">No pending visits in review queue.</TableCell>
                 </TableRow>
             )}
           </TableBody>

@@ -103,7 +103,7 @@ export default function InstallationSurveysDataTable({ data = [], loading, onVie
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>Loading installation surveys...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length} className="py-8 text-center text-sm text-muted-foreground">Loading installation surveys...</TableCell></TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id}>
@@ -113,7 +113,7 @@ export default function InstallationSurveysDataTable({ data = [], loading, onVie
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No submitted installation assessments match the current search and table filters.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length} className="py-8 text-center text-sm text-muted-foreground">No submitted installation assessments match the current search and table filters.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

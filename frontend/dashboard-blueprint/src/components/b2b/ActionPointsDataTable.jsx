@@ -125,7 +125,7 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
       <div className="rounded-md border">
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <Select value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
+            <Select aria-label="Column to filter by" value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
               <option value="visit_id">Filter by visit</option>
               <option value="visit_date">Filter by date</option>
               <option value="question_text">Filter by question</option>
@@ -134,7 +134,7 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
               <option value="action_status">Filter by status</option>
               <option value="action_comments">Filter by comments</option>
             </Select>
-            <Input value={activeFilterValue} onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)} className="md:max-w-sm" />
+            <Input aria-label="Filter value" value={activeFilterValue} onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)} className="md:max-w-sm" />
           </div>
           <div className="flex gap-2">
             <DataTableViewOptions table={table} />
@@ -156,7 +156,7 @@ export default function ActionPointsDataTable({ data, statusOptions, onSaveActio
               <TableRow key={row.id}>
                 {row.getVisibleCells().map((cell) => <TableCell key={cell.id} className="align-top whitespace-normal break-words" style={{ width: cell.column.getSize(), maxWidth: cell.column.getSize() }}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>)}
               </TableRow>
-            )) : <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No action points found.</TableCell></TableRow>}
+            )) : <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length} className="py-8 text-center text-sm text-muted-foreground">No action points found.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </div>
