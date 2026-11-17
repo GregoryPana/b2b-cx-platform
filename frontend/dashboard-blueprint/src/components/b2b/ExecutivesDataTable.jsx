@@ -119,11 +119,11 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
       <div className="rounded-md border">
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <Select value={filterColumn} onChange={(e) => setFilterColumn(e.target.value)} className="md:w-[220px]">
+            <Select aria-label="Column to filter by" value={filterColumn} onChange={(e) => setFilterColumn(e.target.value)} className="md:w-[220px]">
               <option value="name">Filter by name</option>
               <option value="email">Filter by email</option>
             </Select>
-            <Input value={activeFilterValue} onChange={(e) => table.getColumn(filterColumn)?.setFilterValue(e.target.value)} className="md:max-w-sm" />
+            <Input aria-label="Filter value" value={activeFilterValue} onChange={(e) => table.getColumn(filterColumn)?.setFilterValue(e.target.value)} className="md:max-w-sm" />
           </div>
           <div className="flex gap-2">
             <Button type="button" onClick={onStartNew}>Add Account Executive</Button>
@@ -154,7 +154,7 @@ export default function ExecutivesDataTable({ data, selectedExecutive, executive
                 </TableRow>
               ))
             ) : (
-              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length}>No account executives found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={table.getVisibleLeafColumns().length} className="py-8 text-center text-sm text-muted-foreground">No account executives found.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

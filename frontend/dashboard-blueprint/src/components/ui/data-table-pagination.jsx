@@ -12,6 +12,7 @@ export function DataTablePagination({ table }) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">Rows</span>
           <Select
+            aria-label="Rows per page"
             value={`${table.getState().pagination.pageSize}`}
             onChange={(event) => table.setPageSize(Number(event.target.value))}
             className="h-8 w-[88px]"
@@ -25,16 +26,16 @@ export function DataTablePagination({ table }) {
           Page {table.getState().pagination.pageIndex + 1} of {Math.max(table.getPageCount(), 1)}
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="icon" className="hidden h-8 w-8 lg:flex" onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
+          <Button type="button" variant="outline" size="icon" className="hidden h-8 w-8 lg:flex" aria-label="First page" onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
             <ChevronsLeft className="h-4 w-4" />
           </Button>
-          <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+          <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label="Previous page" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+          <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label="Next page" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button type="button" variant="outline" size="icon" className="hidden h-8 w-8 lg:flex" onClick={() => table.setPageIndex(Math.max(table.getPageCount() - 1, 0))} disabled={!table.getCanNextPage()}>
+          <Button type="button" variant="outline" size="icon" className="hidden h-8 w-8 lg:flex" aria-label="Last page" onClick={() => table.setPageIndex(Math.max(table.getPageCount() - 1, 0))} disabled={!table.getCanNextPage()}>
             <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>
