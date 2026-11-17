@@ -806,7 +806,7 @@ def _build_enrollment_email(
     video_text = (
         "WATCH FIRST (optional, about 2 minutes)\n"
         "A short video walkthrough of these steps is attached to this email. You can watch it any time,\n"
-        "including before you connect to the VPN. (You still need the VPN to open your enrollment link.)\n"
+        "including before you connect to the CWS VPN. (You still need the CWS VPN to open your enrollment link.)\n"
         "\n"
         if has_video
         else ""
@@ -815,7 +815,7 @@ def _build_enrollment_email(
         '<p style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:6px;padding:10px 12px">'
         "<strong>Watch first (optional, about 2 minutes)</strong><br>"
         "A short video walkthrough of these steps is attached to this email. You can watch it any time, "
-        "including before you connect to the VPN. (You still need the VPN to open your enrollment link.)</p>"
+        "including before you connect to the CWS VPN. (You still need the CWS VPN to open your enrollment link.)</p>"
         if has_video
         else ""
     )
@@ -844,8 +844,8 @@ def _build_enrollment_email(
         "  2. Choose the password you will use to sign in.\n"
         "  3. Enter the 6-digit code shown in the app, then save your one-time recovery codes.\n"
         "\n"
-        "IMPORTANT: You must be connected to the company VPN to access the platform.\n"
-        "Connect to the VPN before opening the link and before every future sign-in.\n"
+        "IMPORTANT: You must be connected to the CWS VPN to access the platform.\n"
+        "Connect to the CWS VPN before opening the link and before every future sign-in.\n"
         "\n"
         f"If the link has expired or you run into any issues, contact {admin_name} at {admin_email}.\n"
         "\n"
@@ -888,7 +888,7 @@ def _build_enrollment_email(
         "</ol>"
         "<p style=\"font-size:12px;color:#555\">If the button doesn&rsquo;t work, copy this full link into your browser:<br>"
         f"<a href=\"{safe_url}\" style=\"word-break:break-all\">{safe_url}</a></p>"
-        "<p style=\"color:#b91c1c\"><strong>Important:</strong> you must be connected to the company VPN to access the "
+        "<p style=\"color:#b91c1c\"><strong>Important:</strong> you must be connected to the CWS VPN to access the "
         "platform &mdash; connect before opening the link and before every future sign-in.</p>"
         f"<p>If the link has expired or you run into any issues, contact {safe_admin_name} at "
         f"<a href=\"mailto:{safe_admin_email}\">{safe_admin_email}</a>.</p>"

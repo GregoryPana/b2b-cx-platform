@@ -43,7 +43,7 @@ const VALIDATION_MESSAGES = {
 export function friendlyError(res, data, fallback) {
   const status = res?.status;
   if (status === 0) {
-    return "We couldn't reach the server. Check your internet connection and make sure you are connected to the company VPN, then try again.";
+    return "We couldn't reach the server. Check your internet connection and make sure you are connected to the CWS VPN, then try again.";
   }
   if (status === 408) return "The server took too long to respond. Please try again in a moment.";
   if (status === 422) {
