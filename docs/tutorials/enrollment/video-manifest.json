@@ -1,13 +1,13 @@
 {
   "schema": 1,
   "video_set": "mystery-enrollment",
-  "video_version": "v03",
+  "video_version": "v04",
   "videos": [
     "enrollment-desktop (16:9)",
     "enrollment-mobile (9:16)"
   ],
   "recorded_at": "2026-11-17",
-  "recorded_against_commit": "5810ed5",
+  "recorded_against_commit": "3186db2",
   "notes": "Screens recorded from the real app (shopper app in mystery_public mode) with a fictional shopper. Hashes are of the files the video depends on; a change means a video step may no longer match. See docs/tutorials/README.md.",
   "screens": [
     {
@@ -68,7 +68,8 @@
         "frontend/mystery-shopper/public/branding/*"
       ],
       "baseline": {
-        "frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx": "cc1ac8244591723d9095a0d66a016baf3298a7e4f6c7600baef059df23604a56",
+        "frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx": "b7ebc745215f7681949a416260e53987bb5c664b2f977a1bbbcedf66efc33765",
+        "frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx": "c3807def28895e6f02fc9be40a9cfa0a39307c61b1d95230b5d2dc320c259c62",
         "backend/app/api/mystery_auth.py::_build_enrollment_payload": "5f75e4786af1cc49c1199f2780b514c3669c78a79c83050efd48a80a85cadbe2",
         "backend/app/api/mystery_auth.py::enroll_start": "6b4eec18adb4ea6b829d717612482ff3c1a1562563d9bd6c5e21258a673ee779",
         "backend/app/api/mystery_auth.py::enroll_confirm": "2f9c73da7a5b890cf241e6955d1834b960d751f5aace240a1d54923120ae7a34",
@@ -109,7 +110,8 @@
         "frontend/mystery-shopper/public/branding/*"
       ],
       "baseline": {
-        "frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx": "f8c734fd4e5229b63a91a35b4aacb5515a97979b021a276c05ce934f751e9fd9",
+        "frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx": "6bcbdfcb51f3d4be6712c15dac320a1abb8917fbd6b318b6683ff7b2f40a876b",
+        "frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx": "c3807def28895e6f02fc9be40a9cfa0a39307c61b1d95230b5d2dc320c259c62",
         "frontend/mystery-shopper/src/components/ui/badge.jsx": "b1e0ef671562ac9f61fd422d6819796ba06a5a9e38b9f81aa058ba7065b202ba",
         "frontend/mystery-shopper/src/components/ui/button.jsx": "59f8cf29f702007d2e255151fa86f0d1818d86832f8c58420c901d69aa9e3d2d",
         "frontend/mystery-shopper/src/components/ui/card.jsx": "33112f362464366d6253aa3d3c2e8dcad89f1821c3a9967b37375cb32b678692",
@@ -187,6 +189,25 @@
       "video_version": "v03",
       "changes_covered": [
         "email: backend/app/api/mystery_auth.py::_build_enrollment_email"
+      ]
+    },
+    {
+      "date": "2026-11-17",
+      "kind": "rerecorded",
+      "screens": [
+        "email",
+        "enroll-page",
+        "sign-in"
+      ],
+      "reason": "Re-recorded desktop and mobile enrollment walkthroughs for the guided 3-step enrollment redesign (PR #56); sign-in now uses AuthShell.",
+      "by": "owner",
+      "commit": "3186db2",
+      "video_version": "v04",
+      "changes_covered": [
+        "enroll-page: frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx",
+        "enroll-page: frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx",
+        "sign-in: frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx",
+        "sign-in: frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx"
       ]
     }
   ]
