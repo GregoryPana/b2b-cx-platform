@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Select } from "../../../components/ui/select";
 import SurveysDataTable from "../../../components/b2b/SurveysDataTable";
 import MysteryVisitDetailCard from "./MysteryVisitDetailCard";
+import SidePanel from "../../../components/shared/SidePanel";
 
 export default function MysterySurveyResultsSection({
   surveyStatusFilter,
@@ -64,13 +65,15 @@ export default function MysterySurveyResultsSection({
       </Card>
 
       {selectedSurveyVisit ? (
-        <MysteryVisitDetailCard
-          visit={selectedSurveyVisit}
-          responseGroups={surveyResponseCategoryGroups}
-          formatSurveyResponseValue={formatSurveyResponseValue}
-          formatReadableDateTime={formatReadableDateTime}
-          onClose={onCloseDetails}
-        />
+        <SidePanel open title="Visit details" subtitle={selectedSurveyVisit.location_name || selectedSurveyVisit.business_name || ""} onClose={onCloseDetails}>
+          <MysteryVisitDetailCard
+            visit={selectedSurveyVisit}
+            responseGroups={surveyResponseCategoryGroups}
+            formatSurveyResponseValue={formatSurveyResponseValue}
+            formatReadableDateTime={formatReadableDateTime}
+            onClose={onCloseDetails}
+          />
+        </SidePanel>
       ) : null}
     </div>
   );

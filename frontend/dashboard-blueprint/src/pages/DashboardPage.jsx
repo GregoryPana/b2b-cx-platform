@@ -30,6 +30,7 @@ import ActionDialog from "../components/shared/ActionDialog";
 import Disclosure from "../components/shared/Disclosure";
 import Field from "../components/shared/Field";
 import FilterBar from "../components/shared/FilterBar";
+import SidePanel from "../components/shared/SidePanel";
 import ReportStep from "../components/shared/ReportStep";
 import ReportTypePicker from "../components/shared/ReportTypePicker";
 import InfoHint from "../components/shared/InfoHint";
@@ -1263,13 +1264,6 @@ const platformAbortRef = useRef(null);
       loadMysteryUsers();
     }
   }, [isMysteryShopperPlatform, headers, location.pathname]);
-
-  useEffect(() => {
-    if (!selectedSurveyVisit) return;
-    window.requestAnimationFrame(() => {
-      document.getElementById("survey-visit-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, [selectedSurveyVisit]);
 
   useEffect(() => {
     if (!message) return;
@@ -3501,7 +3495,8 @@ const platformAbortRef = useRef(null);
       ) : null}
 
           {location.pathname === "/review" && selectedSurveyVisit ? (
-            isMysteryShopperPlatform ? (
+            <SidePanel open title="Visit details" subtitle={selectedSurveyVisit.business_name || selectedSurveyVisit.location_name || ""} onClose={closeSurveyDetails}>
+            {isMysteryShopperPlatform ? (
               <MysteryVisitDetailCard
                 visit={selectedSurveyVisit}
                 responseGroups={surveyResponseCategoryGroups}
@@ -3614,7 +3609,8 @@ const platformAbortRef = useRef(null);
               </div>
             </CardContent>
           </Card>
-            )
+            )}
+            </SidePanel>
       ) : null}
 
       {location.pathname === "/planned" ? (
@@ -4317,7 +4313,8 @@ const platformAbortRef = useRef(null);
           </Card>
 
           {location.pathname === "/surveys" && selectedSurveyVisit ? (
-            isMysteryShopperPlatform ? (
+            <SidePanel open title="Visit details" subtitle={selectedSurveyVisit.business_name || selectedSurveyVisit.location_name || ""} onClose={closeSurveyDetails}>
+            {isMysteryShopperPlatform ? (
               <MysteryVisitDetailCard
                 visit={selectedSurveyVisit}
                 responseGroups={surveyResponseCategoryGroups}
@@ -4376,7 +4373,8 @@ const platformAbortRef = useRef(null);
                   </div>
                 </CardContent>
               </Card>
-            )
+            )}
+            </SidePanel>
           ) : null}
         </div>
         )
