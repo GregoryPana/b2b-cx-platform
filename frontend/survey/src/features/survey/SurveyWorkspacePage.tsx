@@ -4,9 +4,10 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { gsap } from "gsap";
 import Lottie from "lottie-react";
-import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Loader2, Plus, Save, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Check, CheckCircle2, Clock3, Loader2, Plus, Save } from "lucide-react";
 import emptyStateAnimation from "../../assets/empty-state-lottie.json";
 import PageContainer from "../../components/layout/PageContainer";
+import Disclosure from "../../components/Disclosure";
 import { cn } from "../../lib/utils";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -1270,60 +1271,44 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
   const submittedSorted = sortByPriority(submittedVisits);
   const isReadOnly = Boolean(isViewingSubmitted || status !== "Draft");
 
+  const sectionStats = useMemo(() => {
+    const stats: Record<string, { total: number; answered: number }> = {};
+    groupedQuestions.forEach((category) => { stats[category] = { total: 0, answered: 0 }; });
+    visibleQuestions.forEach((q) => {
+      const key = q.category || "General";
+      if (!stats[key] || !q.is_mandatory) return;
+      stats[key].total += 1;
+      if (responsesByQuestion[q.id]) stats[key].answered += 1;
+    });
+    return stats;
+  }, [groupedQuestions, visibleQuestions, responsesByQuestion]);
+  const activeCategory = groupedQuestions.includes(currentCategory) ? currentCategory : groupedQuestions[0] || "";
+  const activeIndex = Math.max(0, groupedQuestions.indexOf(activeCategory));
+  const isLastSection = activeIndex >= groupedQuestions.length - 1;
+  const requiredTotal = visibleQuestions.filter((q) => q.is_mandatory).length;
+  const requiredAnswered = visibleQuestions.filter((q) => q.is_mandatory && responsesByQuestion[q.id]).length;
+  const requiredPercent = requiredTotal > 0 ? Math.round((requiredAnswered / requiredTotal) * 100) : 0;
+  const teamNamesLabel = normalizeTeamMemberNames(visitForm.team_member_names).join(", ");
+  const visitDetailsIncomplete = !visitForm.account_executive_name || !teamNamesLabel;
+  const shortCategoryName = (category: string) => category.replace(/^Category\s+\d+:\s*/i, "");
+  const goToCategory = (category: string | undefined) => {
+    if (!category) return;
+    setCurrentCategory(category);
+    window.requestAnimationFrame(() => {
+      document.getElementById("survey-questions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   return (
     <div ref={animationRef}>
       <PageContainer className="space-y-6">
       {error ? <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
-      {message ? <div className="rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success">{message}</div> : null}
       <datalist id="account-executive-list">
         {accountExecutives.map((executive) => (
           <option key={executive.id} value={executive.name} />
         ))}
       </datalist>
 
-      <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="animate-target">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4" /> Current Survey Overview
-            </CardTitle>
-            <CardDescription>See which survey is currently open, who it belongs to, and what still needs to be completed.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-md bg-muted p-3">
-              <p className="text-xs text-muted-foreground">Active Survey</p>
-              <p className="font-semibold">{resolveActiveBusinessName()}</p>
-            </div>
-            <div className="rounded-md bg-muted p-3">
-              <p className="text-xs text-muted-foreground">Account Executive</p>
-              <p className="font-semibold">{visitForm.account_executive_name || "Not selected yet"}</p>
-            </div>
-            <div className="rounded-md bg-muted p-3">
-              <p className="text-xs text-muted-foreground">Status</p>
-              <p className="font-semibold">{status}</p>
-            </div>
-            <div className="rounded-md bg-muted p-3">
-              <p className="text-xs text-muted-foreground">Mandatory Progress</p>
-              <p className="font-semibold">
-                {visibleQuestions.filter((q) => q.is_mandatory && responsesByQuestion[q.id]).length}/{visibleQuestions.filter((q) => q.is_mandatory).length}
-              </p>
-            </div>
-            <div className="rounded-md bg-muted p-3 md:col-span-3">
-              <p className="text-xs text-muted-foreground">Survey Team</p>
-              <p className="font-semibold">{normalizeTeamMemberNames(visitForm.team_member_names).join(", ") || "Not captured yet"}</p>
-            </div>
-            <div className="rounded-md bg-muted p-3 md:col-span-3">
-              <p className="text-xs text-muted-foreground">Audit Signature</p>
-              <p className="font-semibold">
-                {submissionSignature.name || submissionSignature.email
-                  ? `${submissionSignature.name || "Unknown"} (${submissionSignature.email || "No email"})`
-                  : "Not submitted yet"}
-              </p>
-              {submissionSignature.submitted_at ? <p className="text-xs text-muted-foreground">Submitted at: {submissionSignature.submitted_at}</p> : null}
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
 
       {isPlannedRoute ? (
         <>
@@ -1334,7 +1319,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={loadDrafts}>{isLoadingDrafts ? "Refreshing..." : "Refresh"}</Button>
+                <Button variant="outline" onClick={() => loadDrafts()}>{isLoadingDrafts ? "Refreshing..." : "Refresh"}</Button>
               </div>
 
               {draftVisits.length === 0 ? (
@@ -1347,21 +1332,17 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
               ) : (
                 <div className="space-y-4">
                   {plannedOverdue.length > 0 ? (
-                    <div>
-                      <div className="mb-3 flex items-center justify-between rounded-md border bg-red-50 px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <Clock3 className="h-4 w-4 text-red-700" />
-                          <p className="text-sm font-semibold text-red-900">Overdue</p>
-                        </div>
-                        <Badge variant="destructive">{plannedOverdue.length}</Badge>
-                      </div>
+                    <Disclosure
+                      summary={<span className="flex items-center gap-2"><Clock3 className="h-4 w-4" aria-hidden="true" />Overdue</span>}
+                      meta={<Badge variant="destructive">{plannedOverdue.length}</Badge>}
+                      defaultOpen
+                    >
                       <p className="mb-3 text-xs text-muted-foreground">
                         These visits are past their planned date. Continuing will update the visit date to today.
                       </p>
                       <div className="space-y-3 lg:hidden">
                         {plannedOverdue.map((draft) => (
-                          <Card key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
-                            <CardContent className="space-y-3 p-4">
+                          <div key={draft.visit_id || draft.id || resolveBusinessName(draft)} className="space-y-3 rounded-lg border p-4">
                               <div className="flex items-start justify-between gap-3">
                                 <div>
                                   <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
@@ -1370,19 +1351,18 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                               </div>
                               <div className="grid grid-cols-2 gap-3 text-sm">
                                 <div>
-                                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date</p>
+                                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Date</p>
                                   <p>{draft.visit_date || "--"}</p>
                                 </div>
                                 <div>
-                                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Progress</p>
+                                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Progress</p>
                                   <p>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</p>
                                 </div>
                               </div>
                               <Button className="w-full" onClick={() => handleSelectOverdueVisit(draft)}>
                                 {draft.is_started ? "Continue" : "Start"} <ArrowRight className="h-4 w-4" />
                               </Button>
-                            </CardContent>
-                          </Card>
+                            </div>
                         ))}
                       </div>
 
@@ -1414,27 +1394,21 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                           </TableBody>
                         </Table>
                       </div>
-                    </div>
+                    </Disclosure>
                   ) : null}
 
-                  <div>
-                    <div className="mb-3 flex items-center justify-between rounded-md border bg-amber-50 px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <Clock3 className="h-4 w-4 text-amber-700" />
-                        <p className="text-sm font-semibold text-amber-900">Today</p>
-                      </div>
-                      <Badge variant="warning">{plannedToday.length}</Badge>
-                    </div>
+                  <Disclosure
+                    summary={<span className="flex items-center gap-2"><Clock3 className="h-4 w-4" aria-hidden="true" />Today</span>}
+                    meta={<Badge variant="warning">{plannedToday.length}</Badge>}
+                    defaultOpen
+                  >
                     <div className="space-y-3 lg:hidden">
                       {plannedToday.length === 0 ? (
-                        <Card>
-                          <CardContent className="p-4 text-sm text-muted-foreground">No visits planned for today.</CardContent>
-                        </Card>
+                        <p className="rounded-lg border p-4 text-sm text-muted-foreground">No visits planned for today.</p>
                       ) : (
                         plannedToday.map((draft) => {
                           return (
-                            <Card key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
-                              <CardContent className="space-y-3 p-4">
+                            <div key={draft.visit_id || draft.id || resolveBusinessName(draft)} className="space-y-3 rounded-lg border p-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
                                     <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
@@ -1443,19 +1417,18 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                 </div>
                                 <div className="grid grid-cols-2 gap-3 text-sm">
                                   <div>
-                                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date</p>
+                                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Date</p>
                                     <p>{draft.visit_date || "--"}</p>
                                   </div>
                                   <div>
-                                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Progress</p>
+                                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Progress</p>
                                     <p>{draft.mandatory_answered_count || 0}/{draft.mandatory_total_count || 0}</p>
                                   </div>
                                 </div>
                                 <Button className="w-full" onClick={() => handleSelectPlannedVisit(draft)}>
                                   Continue <ArrowRight className="h-4 w-4" />
                                 </Button>
-                              </CardContent>
-                            </Card>
+                              </div>
                           );
                         })
                       )}
@@ -1497,27 +1470,21 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                         </TableBody>
                       </Table>
                     </div>
-                  </div>
+                  </Disclosure>
 
-                  <div>
-                    <div className="mb-3 flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <CalendarDays className="h-4 w-4 text-slate-700" />
-                        <p className="text-sm font-semibold text-slate-900">Upcoming</p>
-                      </div>
-                      <Badge variant="secondary">{plannedUpcoming.length}</Badge>
-                    </div>
+                  <Disclosure
+                    summary={<span className="flex items-center gap-2"><CalendarDays className="h-4 w-4" aria-hidden="true" />Upcoming</span>}
+                    meta={<Badge variant="secondary">{plannedUpcoming.length}</Badge>}
+                    defaultOpen={plannedToday.length === 0 && plannedOverdue.length === 0}
+                  >
                     <div className="space-y-3 lg:hidden">
                       {plannedUpcoming.length === 0 ? (
-                        <Card>
-                          <CardContent className="p-4 text-sm text-muted-foreground">No upcoming planned visits.</CardContent>
-                        </Card>
+                        <p className="rounded-lg border p-4 text-sm text-muted-foreground">No upcoming planned visits.</p>
                       ) : (
                         plannedUpcoming.map((draft) => {
                           const priority = draft.business_priority || "sme";
                           return (
-                            <Card key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
-                              <CardContent className="space-y-3 p-4">
+                            <div key={draft.visit_id || draft.id || resolveBusinessName(draft)} className="space-y-3 rounded-lg border p-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
                                     <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
@@ -1525,12 +1492,11 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                   <Badge variant={businessTypeLabel(priority) === "Large Business/Corporate" ? "default" : "secondary"}>{businessTypeLabel(priority)}</Badge>
                                 </div>
                                 <div>
-                                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date</p>
+                                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Date</p>
                                   <p className="text-sm">{draft.visit_date || "--"}</p>
                                 </div>
                                 <Button className="w-full" variant="outline" onClick={() => handleSelectPlannedVisit(draft)}>Open</Button>
-                              </CardContent>
-                            </Card>
+                              </div>
                           );
                         })
                       )}
@@ -1567,18 +1533,14 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                         </TableBody>
                       </Table>
                     </div>
-                  </div>
+                  </Disclosure>
                 </div>
               )}
             </CardContent>
           </Card>
 
-          <Card className="animate-target">
-            <CardHeader>
-              <CardTitle className="text-xl font-semibold tracking-tight">Submitted Visits</CardTitle>
-              <CardDescription className="text-sm">View a previously submitted or reviewed visit, including any action points added per question during review. Read-only.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <Disclosure summary="Submitted visits" meta={`${submittedSorted.length} visit${submittedSorted.length === 1 ? "" : "s"}`}>
+              <p className="text-sm text-muted-foreground">View a previously submitted or reviewed visit, including any action points added per question during review. Read-only.</p>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" onClick={loadSubmittedVisits}>{isLoadingSubmitted ? "Refreshing..." : "Refresh"}</Button>
               </div>
@@ -1612,20 +1574,17 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
               )}
               <div className="space-y-3 lg:hidden">
                 {submittedSorted.map((draft) => (
-                  <Card key={draft.visit_id || draft.id || resolveBusinessName(draft)}>
-                    <CardContent className="space-y-3 p-4">
+                  <div key={draft.visit_id || draft.id || resolveBusinessName(draft)} className="space-y-3 rounded-lg border p-4">
                       <div className="flex items-start justify-between gap-3">
                         <p className="text-base font-semibold tracking-tight">{resolveBusinessName(draft)}</p>
                         <Badge variant="secondary">{draft.status || "--"}</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">{draft.visit_date || "--"}</p>
                       <Button className="w-full" variant="outline" onClick={() => handleViewSubmittedVisit(draft)}>View</Button>
-                    </CardContent>
-                  </Card>
+                    </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
+          </Disclosure>
 
           <Card className="animate-target">
             <CardHeader>
@@ -1634,18 +1593,18 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Source</label>
-                  <p className="mb-2 text-xs text-muted-foreground">Choose whether you are opening an already planned survey or starting a fresh one.</p>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium">Source</label>
+                  <p className="text-xs text-muted-foreground">Choose whether you are opening an already planned survey or starting a fresh one.</p>
                   <Select value={visitSource} onChange={(event) => setVisitSource(event.target.value as "new" | "planned")}>
                     <option value="new">Create new visit</option>
                     <option value="planned">Use planned visit</option>
                   </Select>
                 </div>
                 {visitSource === "new" ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-medium">Business Mode</label>
-                    <p className="mb-2 text-xs text-muted-foreground">Use an existing business or create a new one if it is not listed yet.</p>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium">Business Mode</label>
+                    <p className="text-xs text-muted-foreground">Use an existing business or create a new one if it is not listed yet.</p>
                     <Select value={businessMode} onChange={(event) => setBusinessMode(event.target.value as "existing" | "new")}>
                       <option value="existing">Use existing business</option>
                       <option value="new">Create business now</option>
@@ -1653,9 +1612,9 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                   </div>
                 ) : null}
                 {visitSource === "new" && businessMode === "existing" ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-medium">Business</label>
-                    <p className="mb-2 text-xs text-muted-foreground">Pick the customer account this survey is for.</p>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium">Business</label>
+                    <p className="text-xs text-muted-foreground">Pick the customer account this survey is for.</p>
                     <Select value={visitForm.business_id} onChange={(event) => setVisitForm((prev) => ({ ...prev, business_id: event.target.value }))}>
                       {businesses.map((business) => (
                         <option key={business.id} value={String(business.id)}>{business.name}</option>
@@ -1664,30 +1623,38 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                   </div>
                 ) : null}
                 {visitSource === "new" && businessMode === "new" ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-medium">New Business Name</label>
-                    <p className="mb-2 text-xs text-muted-foreground">Add the business name exactly as it should appear in reports and review screens.</p>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium">New Business Name</label>
+                    <p className="text-xs text-muted-foreground">Add the business name exactly as it should appear in reports and review screens.</p>
                     <Input value={newBusinessName} onChange={(event) => setNewBusinessName(event.target.value)} placeholder="Enter business name" />
                   </div>
                 ) : null}
                 {visitSource === "planned" ? null : null}
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Visit Date</label>
-                  <p className="mb-2 text-xs text-muted-foreground">Select the date this customer interaction happened or is planned for.</p>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium">Visit Date</label>
+                  <p className="text-xs text-muted-foreground">Select the date this customer interaction happened or is planned for.</p>
                   <Input type="date" value={visitForm.visit_date} onChange={(event) => setVisitForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Visit Type</label>
-                  <p className="mb-2 text-xs text-muted-foreground">Use Planned for standard surveys, or switch type if this is a special case.</p>
+              </div>
+              <Disclosure
+                summary="Visit type, account executive and team"
+                meta="Optional"
+                defaultOpen={Boolean(visitForm.account_executive_name) || visitForm.team_member_names.some((name) => name.trim()) || visitForm.visit_type !== "Planned"}
+                className="bg-muted/30"
+              >
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium">Visit Type</label>
+                  <p className="text-xs text-muted-foreground">Use Planned for standard surveys, or switch type if this is a special case.</p>
                   <Select value={visitForm.visit_type} onChange={(event) => setVisitForm((prev) => ({ ...prev, visit_type: event.target.value }))}>
                     <option value="Planned">Planned</option>
                     <option value="Priority">Priority</option>
                     <option value="Substitution">Substitution</option>
                   </Select>
                 </div>
-                <div className="md:col-span-2 lg:col-span-4">
-                  <label className="mb-1 block text-sm font-medium">Account Executive</label>
-                  <p className="mb-2 text-xs text-muted-foreground">Search an existing account executive by name, or add a new one if you are an admin.</p>
+                <div className="space-y-2 md:col-span-2 lg:col-span-4">
+                  <label className="block text-sm font-medium">Account Executive</label>
+                  <p className="text-xs text-muted-foreground">Search an existing account executive by name, or add a new one if you are an admin.</p>
                   <Input
                     type="text"
                     list="account-executive-list"
@@ -1738,6 +1705,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                   </div>
                 </div>
               </div>
+              </Disclosure>
               <Button className="w-full sm:w-auto" onClick={handleCreateVisit} disabled={isCreatingVisit || !visitForm.visit_date} title="Save these survey details and open the active survey workspace">
                 {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Prepare Visit
               </Button>
@@ -1746,133 +1714,157 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
         </>
       ) : (
         <>
-          <Card className="animate-target">
-            <CardHeader>
-              <CardTitle>Answer the Survey</CardTitle>
-              <CardDescription>Work through each section below. Save each response when you are happy with it, then submit the full survey for review.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {!visitId ? (
+          {!visitId ? (
+            <Card className="animate-target">
+              <CardContent className="p-6 text-sm text-muted-foreground">
+                No survey is active yet. Go to Planned Visits, choose or prepare a survey, then return here to complete the questions.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-6">
+              <div className="sticky top-14 z-10 -mx-4 border-b bg-background px-4 py-3 md:-mx-6 md:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{resolveActiveBusinessName()}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      Account executive: {visitForm.account_executive_name || "Not selected yet"}
+                      {teamNamesLabel ? ` · Team: ${teamNamesLabel}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant="secondary">{status}</Badge>
+                    <span className="text-xs tabular-nums text-muted-foreground">{requiredAnswered}/{requiredTotal} required saved</span>
+                  </div>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label="Required answers saved"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={requiredPercent}
+                  className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+                >
+                  <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${requiredPercent}%` }} />
+                </div>
+              </div>
+
+              <Disclosure
+                summary="Visit details"
+                meta={visitDetailsIncomplete ? "Needs attention" : "Account executive and team"}
+                defaultOpen={visitDetailsIncomplete}
+              >
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium">Account Executive</label>
+                  <p className="text-xs text-muted-foreground">Need to change the account executive? Search and update it here, then save the visit details.</p>
+                  <Input
+                    type="text"
+                    list="account-executive-list"
+                    value={accountExecutiveSearch}
+                    onChange={(event) => syncAccountExecutiveSelection(event.target.value)}
+                    placeholder="Type to search account executive"
+                  />
+                </div>
+                {canManageAccountExecutives ? (
+                  <div className="grid grid-cols-1 gap-4 rounded-md border bg-muted/30 p-4 md:grid-cols-[1fr_1fr_auto]">
+                    <Input value={newAccountExecutiveName} onChange={(event) => setNewAccountExecutiveName(event.target.value)} placeholder="New account executive name" />
+                    <Input value={newAccountExecutiveEmail} onChange={(event) => setNewAccountExecutiveEmail(event.target.value)} placeholder="New account executive email" />
+                    <Button type="button" variant="outline" onClick={createAccountExecutive} disabled={isCreatingAccountExecutive} title="Create a new account executive and assign them to this active survey">
+                      {isCreatingAccountExecutive ? "Adding..." : "Add New"}
+                    </Button>
+                  </div>
+                ) : null}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <label className="block text-sm font-medium">Team Member Names</label>
+                      <p className="text-xs text-muted-foreground">Add every team member who took part in this survey for audit visibility.</p>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={addVisitTeamMember}>
+                      Add Team Member
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {visitForm.team_member_names.map((memberName, index) => (
+                      <div key={`active-team-member-${index}`} className="flex gap-2">
+                        <Input
+                          value={memberName}
+                          onChange={(event) => updateVisitTeamMember(index, event.target.value)}
+                          placeholder={`Team member ${index + 1}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => removeVisitTeamMember(index)}
+                          disabled={visitForm.team_member_names.length === 1 && !visitForm.team_member_names[0].trim()}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <Button type="button" variant="outline" onClick={saveActiveVisitDetails} disabled={isCreatingVisit || !visitId} title="Save the selected account executive and team members to this active survey">
+                  {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Visit Details
+                </Button>
+              </Disclosure>
+
+              {groupedQuestions.length === 0 ? (
                 <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                  No survey is active yet. Go to Planned Visits, choose or prepare a survey, then return here to complete the questions.
+                  No B2B survey questions are available. You cannot complete this visit until an administrator configures the questionnaire.
                 </div>
               ) : (
                 <>
-                  <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
-                    <div className="rounded-md border bg-background p-3">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current Active Survey</p>
-                      <p className="mt-1 text-base font-semibold">{resolveActiveBusinessName()}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Account Executive: {visitForm.account_executive_name || "Not selected yet"}</p>
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                      <div className="md:col-span-2 lg:col-span-4">
-                        <label className="mb-1 block text-sm font-medium">Account Executive</label>
-                        <p className="mb-2 text-xs text-muted-foreground">Need to change the account executive? Search and update it here, then save the survey details.</p>
-                        <Input
-                          type="text"
-                          list="account-executive-list"
-                          value={accountExecutiveSearch}
-                          onChange={(event) => syncAccountExecutiveSelection(event.target.value)}
-                          placeholder="Type to search account executive"
-                        />
-                        {canManageAccountExecutives ? (
-                          <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-[1fr_1fr_auto]">
-                            <Input value={newAccountExecutiveName} onChange={(event) => setNewAccountExecutiveName(event.target.value)} placeholder="New account executive name" />
-                            <Input value={newAccountExecutiveEmail} onChange={(event) => setNewAccountExecutiveEmail(event.target.value)} placeholder="New account executive email" />
-                            <Button type="button" variant="outline" onClick={createAccountExecutive} disabled={isCreatingAccountExecutive} title="Create a new account executive and assign them to this active survey">
-                              {isCreatingAccountExecutive ? "Adding..." : "Add New"}
-                            </Button>
-                          </div>
-                        ) : null}
+                  <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Survey sections">
+                    {groupedQuestions.map((category, index) => {
+                      const stats = sectionStats[category];
+                      const complete = stats.total > 0 && stats.answered >= stats.total;
+                      return (
+                        <Button
+                          key={category}
+                          type="button"
+                          size="sm"
+                          variant={category === activeCategory ? "default" : "outline"}
+                          aria-current={category === activeCategory ? "step" : undefined}
+                          className="shrink-0"
+                          onClick={() => goToCategory(category)}
+                        >
+                          {complete ? <Check className="h-4 w-4" aria-hidden="true" /> : null}
+                          {index + 1}. {shortCategoryName(category)}
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  <div id="survey-questions" className="scroll-mt-40 space-y-4">
+                    <div className="flex items-end justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Section {activeIndex + 1} of {groupedQuestions.length}</p>
+                        <h2 className="text-lg font-semibold tracking-tight">{shortCategoryName(activeCategory)}</h2>
                       </div>
-                      <div className="md:col-span-2 lg:col-span-4 space-y-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <label className="block text-sm font-medium">Team Member Names</label>
-                            <p className="text-xs text-muted-foreground">Add every team member who took part in this survey for audit visibility.</p>
-                          </div>
-                          <Button type="button" size="sm" variant="outline" onClick={addVisitTeamMember}>
-                            Add Team Member
-                          </Button>
-                        </div>
-                        <div className="space-y-2">
-                          {visitForm.team_member_names.map((memberName, index) => (
-                            <div key={`active-team-member-${index}`} className="flex gap-2">
-                              <Input
-                                value={memberName}
-                                onChange={(event) => updateVisitTeamMember(index, event.target.value)}
-                                placeholder={`Team member ${index + 1}`}
-                              />
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => removeVisitTeamMember(index)}
-                                disabled={visitForm.team_member_names.length === 1 && !visitForm.team_member_names[0].trim()}
-                              >
-                                Remove
-                              </Button>
+                      <Badge variant="outline">{sectionStats[activeCategory].answered}/{sectionStats[activeCategory].total} required saved</Badge>
+                    </div>
+
+                    {visibleQuestions
+                      .filter((q) => q.category === activeCategory)
+                      .map((question) => {
+                        const draft = responseDrafts[question.id] || { ...emptyDraft };
+                        const choices = parseChoices(question);
+                        const saving = savingQuestionId === question.id;
+                        const questionSaved = isQuestionSaved(question);
+                        const scoreRangeLabel = getScoreRangeLabel(question);
+                        const scoreOptions = getScoreOptions(question);
+                        const scoreValidationMessage = getScoreValidationMessage(question, draft.score);
+                        return (
+                          <section key={question.id} className="space-y-4 rounded-lg border bg-card p-4 md:p-6">
+                            <div className="space-y-2">
+                              <h3 className="text-sm font-semibold">Q{question.question_number || question.id} - {question.question_text}</h3>
+                              <div className="flex flex-wrap gap-2">
+                                <Badge variant="secondary">{question.input_type}</Badge>
+                                {scoreRangeLabel ? <Badge variant="outline">Score range: {scoreRangeLabel}</Badge> : null}
+                                {question.is_mandatory ? <Badge variant="warning">Required</Badge> : null}
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    <Button type="button" variant="outline" onClick={saveActiveVisitDetails} disabled={isCreatingVisit || !visitId} title="Save the selected account executive and team members to this active survey">
-                      {isCreatingVisit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Visit Details
-                    </Button>
-                  </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {groupedQuestions.map((category) => (
-                      <Button
-                        key={category}
-                        size="sm"
-                        variant={currentCategory === category ? "default" : "outline"}
-                        onClick={() => {
-                          setCurrentCategory(category);
-                          document.getElementById(categoryToId(category))?.scrollIntoView({ behavior: "smooth", block: "start" });
-                        }}
-                      >
-                        {category}
-                      </Button>
-                    ))}
-                  </div>
-
-                  <div className="space-y-6">
-                    {groupedQuestions.length === 0 ? (
-                      <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                        No B2B survey questions are available. You cannot complete this visit until an administrator configures the questionnaire.
-                      </div>
-                    ) : null}
-                    {groupedQuestions.map((category) => (
-                      <div key={category} id={categoryToId(category)} className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-base font-semibold">{category}</h3>
-                          <Badge variant="outline">{visibleQuestions.filter((q) => q.category === category).length} questions</Badge>
-                        </div>
-                        <div className="grid grid-cols-1 gap-4">
-                          {visibleQuestions
-                            .filter((q) => q.category === category)
-                            .map((question) => {
-                              const draft = responseDrafts[question.id] || { ...emptyDraft };
-                              const choices = parseChoices(question);
-                              const saving = savingQuestionId === question.id;
-                              const questionSaved = isQuestionSaved(question);
-                              const scoreRangeLabel = getScoreRangeLabel(question);
-                              const scoreOptions = getScoreOptions(question);
-                              const scoreValidationMessage = getScoreValidationMessage(question, draft.score);
-                              return (
-                                <Card key={question.id}>
-                                  <CardHeader>
-                                    <CardTitle className="text-sm">Q{question.question_number || question.id} - {question.question_text}</CardTitle>
-                                    <CardDescription>
-                                      <span className="inline-flex gap-2">
-                                        <Badge variant="secondary">{question.input_type}</Badge>
-                                        {scoreRangeLabel ? <Badge variant="outline">Score range: {scoreRangeLabel}</Badge> : null}
-                                        {question.is_mandatory ? <Badge variant="warning">Required</Badge> : null}
-                                      </span>
-                                    </CardDescription>
-                                  </CardHeader>
-                                  <CardContent className="space-y-4">
                                     {isReadOnly ? (
                                       <div className="rounded bg-muted/30 px-3 py-2 text-sm">
                                         {question.input_type === "score"
@@ -1936,25 +1928,25 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                       <Textarea value={draft.answer_text} onChange={(event) => updateQuestionDraft(question.id, "answer_text", event.target.value)} />
                                     )}
 
-                                    <div>
-                                      <label className="mb-1 block text-sm font-medium">Verbatim</label>
-                                      {isReadOnly ? (
-                                        <div className="rounded bg-muted/30 px-3 py-2 text-sm">{draft.verbatim || "--"}</div>
-                                      ) : (
-                                        <Textarea value={draft.verbatim} onChange={(event) => updateQuestionDraft(question.id, "verbatim", event.target.value)} />
-                                      )}
-                                    </div>
+                            <div className="space-y-2">
+                              <label className="block text-sm font-medium">Verbatim</label>
+                              {isReadOnly ? (
+                                <div className="rounded bg-muted/30 px-3 py-2 text-sm">{draft.verbatim || "--"}</div>
+                              ) : (
+                                <Textarea value={draft.verbatim} onChange={(event) => updateQuestionDraft(question.id, "verbatim", event.target.value)} />
+                              )}
+                            </div>
 
-                                    <div className="space-y-2 rounded-md border bg-muted/40 p-3">
-                                      <div className="flex items-center justify-between">
-                                        <p className="text-sm font-medium">Action Points</p>
-                                        {isReadOnly ? null : (
-                                          <Button size="sm" variant="outline" onClick={() => addActionItem(question.id)}>Add Action</Button>
-                                        )}
-                                      </div>
-                                      {draft.actions.length === 0 ? (
-                                        <p className="text-xs text-muted-foreground">{isReadOnly ? "No action points for this question." : null}</p>
-                                      ) : null}
+                            {isReadOnly && draft.actions.length === 0 ? null : (
+                              <Disclosure
+                                summary="Action points"
+                                meta={draft.actions.length > 0 ? `${draft.actions.length} added` : "None yet"}
+                                defaultOpen={draft.actions.length > 0}
+                                className="bg-muted/30"
+                              >
+                                {isReadOnly ? null : (
+                                  <Button size="sm" variant="outline" onClick={() => addActionItem(question.id)}>Add Action</Button>
+                                )}
                                       {isReadOnly
                                         ? draft.actions.map((action, index) => (
                                             <div key={`${question.id}-action-${index}`} className="rounded-md border bg-background p-3 text-sm space-y-1">
@@ -1985,7 +1977,8 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                               </div>
                                             </div>
                                           ))}
-                                    </div>
+                              </Disclosure>
+                            )}
 
                                     {isReadOnly ? null : (
                                       <Button
@@ -2001,29 +1994,41 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {questionSaved && !saving ? "Response Saved" : "Save Response"}
                                       </Button>
                                     )}
-                                  </CardContent>
-                                </Card>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    ))}
+                          </section>
+                        );
+                      })}
+
+                    <div className="flex items-center justify-between gap-3">
+                      <Button type="button" variant="outline" onClick={() => goToCategory(groupedQuestions[activeIndex - 1])} disabled={activeIndex <= 0}>
+                        <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Previous
+                      </Button>
+                      {!isLastSection ? (
+                        <Button type="button" onClick={() => goToCategory(groupedQuestions[activeIndex + 1])}>
+                          Next section <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                 </>
               )}
-            </CardContent>
-          </Card>
 
-          {visitId && isReadOnly ? (
-            <Card className="animate-target">
-              <CardHeader>
-                <CardTitle>Read-only</CardTitle>
-                <CardDescription>This visit has already been submitted (status: {status}). Responses and action points are shown for reference only.</CardDescription>
-              </CardHeader>
-            </Card>
-          ) : null}
+              {isReadOnly ? (
+                <Card className="animate-target">
+                  <CardHeader>
+                    <CardTitle>Read-only</CardTitle>
+                    <CardDescription>This visit has already been submitted (status: {status}). Responses and action points are shown for reference only.</CardDescription>
+                  </CardHeader>
+                  {submissionSignature.name || submissionSignature.email ? (
+                    <CardContent className="space-y-1 text-sm">
+                      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Audit signature</p>
+                      <p>{submissionSignature.name || "Unknown"} ({submissionSignature.email || "No email"})</p>
+                      {submissionSignature.submitted_at ? <p className="text-xs text-muted-foreground">Submitted at: {submissionSignature.submitted_at}</p> : null}
+                    </CardContent>
+                  ) : null}
+                </Card>
+              ) : null}
 
-          {visitId && !isReadOnly ? (
+              {isLastSection && !isReadOnly ? (
             <Card className="animate-target">
               <CardHeader>
                 <CardTitle>Submit Visit</CardTitle>
@@ -2047,7 +2052,9 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                 <Badge variant="secondary">Current status: {status}</Badge>
               </CardContent>
             </Card>
-          ) : null}
+              ) : null}
+            </div>
+          )}
         </>
       )}
       </PageContainer>
