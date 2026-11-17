@@ -30,6 +30,8 @@ import ActionDialog from "../components/shared/ActionDialog";
 import Disclosure from "../components/shared/Disclosure";
 import Field from "../components/shared/Field";
 import FilterBar from "../components/shared/FilterBar";
+import ReportStep from "../components/shared/ReportStep";
+import ReportTypePicker from "../components/shared/ReportTypePicker";
 import InfoHint from "../components/shared/InfoHint";
 import MysteryReviewQueueSection from "../features/mystery-shopper/components/MysteryReviewQueueSection";
 import MysteryVisitDetailCard from "../features/mystery-shopper/components/MysteryVisitDetailCard";
@@ -3861,7 +3863,7 @@ const platformAbortRef = useRef(null);
             </CardHeader>
           </Card>
 
-          <div className="rounded-lg border bg-muted/20 p-5 space-y-5">
+          <div className="space-y-8">
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
@@ -3869,65 +3871,18 @@ const platformAbortRef = useRef(null);
               </div>
             </div>
 
-            <section className="rounded-lg border bg-card p-4">
-              <div className="mb-3">
-                <p className="text-sm font-semibold tracking-tight">1) Select Report Type</p>
-                <p className="text-xs text-muted-foreground">Pick the report format you need.</p>
-              </div>
-              {/* Mobile: horizontal scroll pills */}
-              <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
-                {INSTALL_REPORT_TYPE_OPTIONS.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => {
-                      setInstallReportType(option.key);
+            <ReportStep number={1} title="Select Report Type" hint="Pick the report format you need.">
+              <ReportTypePicker options={INSTALL_REPORT_TYPE_OPTIONS} value={installReportType} onSelect={(key) => {
+                      setInstallReportType(key);
                       setInstallReportSurveyId("");
                       setInstallReportPreview(null);
                       setInstallReportPreviewHtml("");
-                    }}
-                    className={cn(
-                      "shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
-                      installReportType === option.key
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              {/* Desktop: card grid */}
-              <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {INSTALL_REPORT_TYPE_OPTIONS.map((option) => (
-                  <Card key={option.key} className="h-full min-w-0 overflow-visible">
-                    <CardHeader>
-                      <CardTitle className="text-base">{option.label}</CardTitle>
-                      <CardDescription>{option.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex min-h-[8rem] flex-col gap-3">
-                      <Button
-                        type="button"
-                        className="mt-auto w-full"
-                        variant={installReportType === option.key ? "default" : "outline"}
-                        onClick={() => {
-                          setInstallReportType(option.key);
-                          setInstallReportSurveyId("");
-                          setInstallReportPreview(null);
-                          setInstallReportPreviewHtml("");
-                        }}
-                      >
-                        {installReportType === option.key ? "Selected" : `Use ${option.label}`}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </section>
+                    }} />
+            </ReportStep>
 
-            <section className="rounded-lg border bg-background p-4 space-y-3">
+            <section className="space-y-4">
               <div>
-                <p className="text-sm font-semibold tracking-tight">2) Define Report Scope</p>
+                <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">2</span><h3 className="text-base font-semibold tracking-tight">Define Report Scope</h3></div>
                 {installReportType === "lifetime" ? (
                   <p className="text-xs text-muted-foreground">Lifetime Summary uses all installation data. Optionally filter by date range.</p>
                 ) : installReportType === "survey" ? (
@@ -3974,9 +3929,9 @@ const platformAbortRef = useRef(null);
               ) : null}
             </section>
 
-            <section className="rounded-lg border bg-background p-4 space-y-3">
+            <section className="space-y-4">
               <div>
-                <p className="text-sm font-semibold tracking-tight">3) Deliver Report</p>
+                <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">3</span><h3 className="text-base font-semibold tracking-tight">Deliver Report</h3></div>
                 <p className="text-xs text-muted-foreground">Preview the report, download as HTML, or send by email.</p>
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -4146,62 +4101,20 @@ const platformAbortRef = useRef(null);
               ) : null}
 
               {location.pathname === "/reports" ? (
-              <div className="rounded-lg border bg-muted/20 p-5 space-y-5">
+              <div className="space-y-8">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
                     <p className="text-sm text-muted-foreground">Choose a report type below. Each type has its own set of filters and options.</p>
                   </div>
                 </div>
-                <section className="rounded-lg border bg-card p-4">
-                <div className="mb-3">
-                  <p className="text-sm font-semibold tracking-tight">1) Select Report Type</p>
-                  <p className="text-xs text-muted-foreground">Pick the report format that matches your reporting objective.</p>
-                </div>
-                {/* Mobile: horizontal scroll pills */}
-                <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
-                  {reportTypeOptions.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => setReportType(option.key)}
-                      className={cn(
-                        "shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
-                        reportType === option.key
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                {/* Desktop: card grid */}
-                <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                  {reportTypeOptions.map((option) => (
-                    <Card key={option.key} className="h-full min-w-0 overflow-visible">
-                      <CardHeader>
-                        <CardTitle className="text-base">{option.label}</CardTitle>
-                        <CardDescription>{option.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="flex min-h-[8rem] flex-col gap-3">
-                        <Button
-                          type="button"
-                          className="mt-auto w-full"
-                          variant={reportType === option.key ? "default" : "outline"}
-                          onClick={() => setReportType(option.key)}
-                        >
-                          {reportType === option.key ? "Selected" : `Use ${option.label}`}
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-                </section>
+                <ReportStep number={1} title="Select Report Type" hint="Pick the report format that matches your reporting objective.">
+                  <ReportTypePicker options={reportTypeOptions} value={reportType} onSelect={(key) => setReportType(key)} />
+                </ReportStep>
 
-                <section className="rounded-lg border bg-background p-4 space-y-3">
+                <section className="space-y-4">
                 <div>
-                  <p className="text-sm font-semibold tracking-tight">2) Define Report Scope</p>
+                  <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">2</span><h3 className="text-base font-semibold tracking-tight">Define Report Scope</h3></div>
                   {reportType === "lifetime" ? (
                     <p className="text-xs text-muted-foreground">{isMysteryShopperPlatform ? "Lifetime overview uses all Mystery Shopper data across the selected scope." : "Lifetime Overview uses all data across the platform. No filters needed."}</p>
                   ) : reportType === "survey" ? (
@@ -4311,9 +4224,9 @@ const platformAbortRef = useRef(null);
                 ) : null}
                 </section>
 
-                <section className="rounded-lg border bg-background p-4 space-y-3">
+                <section className="space-y-4">
                 <div>
-                  <p className="text-sm font-semibold tracking-tight">3) Deliver Report</p>
+                  <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">3</span><h3 className="text-base font-semibold tracking-tight">Deliver Report</h3></div>
                   <p className="text-xs text-muted-foreground">Preview in-page, download as HTML, or send by email.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">

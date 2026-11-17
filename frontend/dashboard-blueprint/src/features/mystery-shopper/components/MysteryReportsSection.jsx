@@ -2,8 +2,18 @@ import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
 import { Select } from "../../../components/ui/select";
+import Disclosure from "../../../components/shared/Disclosure";
 import EmailRecipientsInput from "../../../components/shared/EmailRecipientsInput";
+import Field from "../../../components/shared/Field";
+import ReportStep from "../../../components/shared/ReportStep";
+import ReportTypePicker from "../../../components/shared/ReportTypePicker";
 import { cn, getTrafficLightMetric } from "../../../lib/utils";
+
+const STEP_TWO_HINT = {
+  lifetime: "The Lifetime Overview covers all mystery shopping data. Optionally limit it to a date range.",
+  survey: "Choose a location, then pick a completed and approved visit from the list that appears.",
+  date: "Choose a start and end date to include every visit in that period.",
+};
 
 export default function MysteryReportsSection({
   reportTypeOptions,
@@ -36,88 +46,45 @@ export default function MysteryReportsSection({
   reportPreviewHtml,
   mysteryReportMetricCards,
 }) {
+  const optionalDateRange = (
+    <Disclosure
+      summary="Limit by date range (optional)"
+      meta={reportDateFrom || reportDateTo ? "Active" : null}
+      defaultOpen={Boolean(reportDateFrom || reportDateTo)}
+      className="bg-muted/30"
+    >
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Field label="From date">
+          <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
+        </Field>
+        <Field label="To date">
+          <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
+        </Field>
+      </div>
+    </Disclosure>
+  );
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl font-semibold tracking-tight">Mystery Shopper Reports</CardTitle>
-          <CardDescription>Create a report from mystery shopping visits. Choose what you want to see, then preview it on-screen, save it as a file, or send it by email.</CardDescription>
+          <CardTitle>Mystery Shopper Reports</CardTitle>
+          <CardDescription>Create a report from mystery shopping visits. Choose what you want to see, then preview it, save it as a file, or send it by email.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-lg border bg-muted/20 p-5 space-y-5">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <p className="text-base font-semibold tracking-tight">Export and Share Report</p>
-                <p className="text-sm text-muted-foreground">Choose a report type below. Each type has its own set of filters and options.</p>
-              </div>
-            </div>
+        <CardContent className="space-y-8">
+          <ReportStep number={1} title="What kind of report do you need?">
+            <ReportTypePicker
+              options={reportTypeOptions}
+              value={reportType}
+              onSelect={(key) => { setReportType(key); setReportBusinessId(""); setReportVisitId(""); }}
+            />
+          </ReportStep>
 
-            <section className="rounded-lg border bg-card p-4">
-              <div className="mb-3">
-                <p className="text-sm font-semibold tracking-tight">Step 1 — What kind of report do you need?</p>
-                <p className="text-xs text-muted-foreground">Pick one of the options below. Each type shows a different slice of the mystery shopping data.</p>
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-1 md:hidden">
-                {reportTypeOptions.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => { setReportType(option.key); setReportBusinessId(""); setReportVisitId(""); }}
-                    className={cn(
-                      "shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
-                      reportType === option.key
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {reportTypeOptions.map((option) => (
-                  <Card key={option.key} className="h-full min-w-0 overflow-visible">
-                    <CardHeader>
-                      <CardTitle className="text-base">{option.label}</CardTitle>
-                      <CardDescription>{option.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex min-h-[8rem] flex-col gap-3">
-                      <Button
-                        type="button"
-                        className="mt-auto w-full"
-                        variant={reportType === option.key ? "default" : "outline"}
-                        onClick={() => { setReportType(option.key); setReportBusinessId(""); setReportVisitId(""); }}
-                      >
-                        {reportType === option.key ? "Selected" : `Use ${option.label}`}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-lg border bg-background p-4 space-y-3">
-              <div>
-                <p className="text-sm font-semibold tracking-tight">Step 2 — Narrow it down</p>
-                {reportType === "lifetime" ? (
-                  <p className="text-xs text-muted-foreground">The Lifetime Overview covers all mystery shopping data. You can optionally filter it to a specific location or date range below.</p>
-                ) : reportType === "survey" ? (
-                  <p className="text-xs text-muted-foreground">Choose a location first, then pick a completed and approved visit from the list that appears.</p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">Enter a start and end date to include all visits that happened in that period. You can use the same date for both fields to see a single day.</p>
-                )}
-              </div>
-
-              {reportType === "lifetime" ? (
-                <div className="rounded-md border bg-blue-50 p-3">
-                  <p className="text-sm text-blue-900">This report brings together all mystery shopping visits into a single summary. It is ideal for management reviews, performance tracking, and sharing with senior stakeholders.</p>
-                </div>
-              ) : null}
-
-              {reportType === "survey" ? (
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Location</label>
+          <ReportStep number={2} title="Narrow it down" hint={STEP_TWO_HINT[reportType]}>
+            {reportType === "survey" ? (
+              <>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Field label="Location">
                     <Input
                       type="text"
                       list="report-mystery-location-list"
@@ -134,116 +101,105 @@ export default function MysteryReportsSection({
                         <option key={item.id} value={item.name} />
                       ))}
                     </datalist>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Survey</label>
+                  </Field>
+                  <Field label="Survey">
                     <Select aria-label="Approved Mystery Shopper visit" value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)} disabled={!reportBusinessId || reportSurveyLoading}>
                       <option value="">Select approved survey</option>
                       {reportEligibleSurveys.map((visit) => (
                         <option key={visit.visit_id} value={visit.visit_id}>Survey on {visit.visit_date || "--"} ({visit.status})</option>
                       ))}
                     </Select>
-                  </div>
+                  </Field>
                 </div>
-              ) : null}
-
-              {reportType === "date" ? (
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="rounded-md border bg-blue-50 p-3 md:col-span-2">
-                    <p className="text-sm font-medium text-blue-900">Single Date vs Date Range</p>
-                    <p className="text-xs text-blue-800 mt-1"><strong>Single day:</strong> Set both dates to the same date to see only that day&apos;s visits.</p>
-                    <p className="text-xs text-blue-800 mt-1"><strong>Date range:</strong> Set different start and end dates to cover a full week, month, or quarter.</p>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date</label>
-                    <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">To Date</label>
-                    <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
-                  </div>
-                </div>
-              ) : null}
-
-              {reportType === "survey" ? (
-                <div className="space-y-2">
-                  {reportSurveyLoading ? <p className="text-sm text-muted-foreground">Loading available surveys...</p> : null}
-                  {!reportSurveyLoading && reportBusinessId && reportEligibleSurveys.length === 0 ? (
-                    <p className="text-sm text-amber-700">No completed/approved surveys are available for this location yet.</p>
-                  ) : null}
-                  {reportIneligibleSurveys.length > 0 ? (
-                    <div className="rounded-md border bg-amber-50 p-3">
-                      <p className="text-sm font-medium text-amber-900">Some visits cannot be included in a report yet</p>
-                      <p className="text-xs text-amber-800 mt-1 mb-2">Reports can only be generated from approved visits. The visits below are not yet approved:</p>
-                      <div className="space-y-1 text-xs text-amber-800">
-                        {reportIneligibleSurveys.slice(0, 8).map((visit) => (
-                          <p key={`ineligible-${visit.visit_id}`}>Visit on {visit.visit_date || "--"} — currently <strong>{visit.status}</strong>{visit.reason ? ` (${visit.reason})` : ""}</p>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </section>
-
-            <section className="rounded-lg border bg-background p-4 space-y-3">
-              <div>
-                <p className="text-sm font-semibold tracking-tight">Step 3 — Preview, download, or share</p>
-                <p className="text-xs text-muted-foreground">Click <strong>Preview</strong> to see the report on-screen first. Download it as an HTML file to open in any browser, or as a PDF to print or attach to an email. You can also send it directly to one or more email addresses.</p>
-              </div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {(reportType === "lifetime" || reportType === "survey") ? (
-                  <>
-                    <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} placeholder="From date (optional)" />
-                    <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} placeholder="To date (optional)" />
-                  </>
+                {reportSurveyLoading ? <p className="text-sm text-muted-foreground" role="status">Loading available surveys...</p> : null}
+                {!reportSurveyLoading && reportBusinessId && reportEligibleSurveys.length === 0 ? (
+                  <p className="text-sm text-amber-700">No completed or approved surveys are available for this location yet.</p>
                 ) : null}
-                <EmailRecipientsInput
-                  label="Email recipients"
-                  placeholder="manager@example.com"
-                  recipients={reportEmailRecipients}
-                  draft={reportEmailDraft}
-                  onDraftChange={setReportEmailDraft}
-                  onAddRecipient={addReportRecipients}
-                  onRemoveRecipient={removeReportRecipient}
-                  onDraftBlur={addReportRecipients}
-                />
+                {reportIneligibleSurveys.length > 0 ? (
+                  <Disclosure
+                    summary="Some visits cannot be included yet"
+                    meta={`${reportIneligibleSurveys.length} not approved`}
+                    className="border-warning/40 bg-warning/10"
+                  >
+                    <p className="mb-2 text-xs text-muted-foreground">Reports can only be generated from approved visits. These visits are not approved yet:</p>
+                    <ul className="space-y-1 text-xs">
+                      {reportIneligibleSurveys.slice(0, 8).map((visit) => (
+                        <li key={`ineligible-${visit.visit_id}`}>
+                          Visit on {visit.visit_date || "--"} - currently <strong>{visit.status}</strong>{visit.reason ? ` (${visit.reason})` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </Disclosure>
+                ) : null}
+                {optionalDateRange}
+              </>
+            ) : null}
+
+            {reportType === "date" ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Field label="From date" hint="Use the same date in both fields to see a single day.">
+                  <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
+                </Field>
+                <Field label="To date" hint="Pick a later date to cover a week, month, or quarter.">
+                  <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
+                </Field>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={handlePreviewReport} disabled={reportLoading}>{reportLoading ? "Generating..." : "Preview Report"}</Button>
-                <Button type="button" variant="outline" onClick={handleDownloadReport}>Download HTML</Button>
-                <Button type="button" variant="outline" onClick={handleDownloadPdfReport}>Download PDF</Button>
-                <Button type="button" onClick={handleEmailReport} disabled={reportSending}>{reportSending ? "Sending..." : "Email Report"}</Button>
-              </div>
-              {reportPreview ? (
-                <div className="mt-4 space-y-3 rounded-md border bg-background p-3">
-                  <p className="text-sm font-semibold">Report Preview Summary</p>
-                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Visits</p><p className="text-lg font-semibold">{reportPreview.summary?.total_visits ?? 0}</p></div>
-                    <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Locations</p><p className="text-lg font-semibold">{reportPreview.summary?.total_locations ?? 0}</p></div>
-                    {mysteryReportMetricCards.filter((card) => card.value !== "--" && card.value !== "--%").map((card) => {
-                      const grade = getTrafficLightMetric(card.metric, card.value);
-                      return (
-                        <div key={card.title} className={cn("rounded-md border p-2", grade.card)}>
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-xs text-muted-foreground">{card.title}</p>
-                            <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", grade.badge)}>{grade.label}</span>
-                          </div>
-                          <p className={cn("text-lg font-semibold", grade.value)}>{card.value}</p>
+            ) : null}
+
+            {reportType === "lifetime" ? optionalDateRange : null}
+          </ReportStep>
+
+          <ReportStep number={3} title="Preview, download, or share">
+            <Disclosure
+              summary="Email this report"
+              meta={reportEmailRecipients.length > 0 ? `${reportEmailRecipients.length} recipient${reportEmailRecipients.length === 1 ? "" : "s"}` : null}
+              defaultOpen={reportEmailRecipients.length > 0}
+              className="bg-muted/30"
+            >
+              <EmailRecipientsInput
+                label="Email recipients"
+                placeholder="manager@example.com"
+                recipients={reportEmailRecipients}
+                draft={reportEmailDraft}
+                onDraftChange={setReportEmailDraft}
+                onAddRecipient={addReportRecipients}
+                onRemoveRecipient={removeReportRecipient}
+                onDraftBlur={addReportRecipients}
+              />
+            </Disclosure>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={handlePreviewReport} disabled={reportLoading}>{reportLoading ? "Generating..." : "Preview report"}</Button>
+              <Button type="button" variant="outline" onClick={handleDownloadReport}>Download HTML</Button>
+              <Button type="button" variant="outline" onClick={handleDownloadPdfReport}>Download PDF</Button>
+              <Button type="button" variant="outline" onClick={handleEmailReport} disabled={reportSending}>{reportSending ? "Sending..." : "Email report"}</Button>
+            </div>
+
+            {reportPreview ? (
+              <div className="space-y-4 rounded-lg border p-4">
+                <h4 className="text-sm font-semibold">Report preview summary</h4>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-md bg-muted p-3"><p className="text-xs text-muted-foreground">Visits</p><p className="text-lg font-semibold tabular-nums">{reportPreview.summary?.total_visits ?? 0}</p></div>
+                  <div className="rounded-md bg-muted p-3"><p className="text-xs text-muted-foreground">Locations</p><p className="text-lg font-semibold tabular-nums">{reportPreview.summary?.total_locations ?? 0}</p></div>
+                  {mysteryReportMetricCards.filter((card) => card.value !== "--" && card.value !== "--%").map((card) => {
+                    const grade = getTrafficLightMetric(card.metric, card.value);
+                    return (
+                      <div key={card.title} className={cn("rounded-md border p-3", grade.card)}>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs text-muted-foreground">{card.title}</p>
+                          <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium", grade.badge)}>{grade.label}</span>
                         </div>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-muted-foreground">This is a live preview of what will be included in your report. The colours on each metric tell you at a glance whether the score is good (green), needs attention (yellow), or is a concern (red). Click Download PDF to get a print-ready version.</p>
-                  {reportPreviewHtml ? (
-                    <div className="rounded-md border">
-                      <iframe title="Report Preview" srcDoc={reportPreviewHtml} className="h-[720px] w-full rounded-md bg-white" />
-                    </div>
-                  ) : null}
+                        <p className={cn("text-lg font-semibold tabular-nums", grade.value)}>{card.value}</p>
+                      </div>
+                    );
+                  })}
                 </div>
-              ) : null}
-            </section>
-          </div>
+                <p className="text-xs text-muted-foreground">Green means the score is good, yellow needs attention, red is a concern. Use Download PDF for a print-ready version.</p>
+                {reportPreviewHtml ? (
+                  <iframe title="Report Preview" srcDoc={reportPreviewHtml} className="h-[720px] w-full rounded-md border bg-white" />
+                ) : null}
+              </div>
+            ) : null}
+          </ReportStep>
         </CardContent>
       </Card>
     </div>
