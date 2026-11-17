@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
+import Disclosure from "../../components/Disclosure";
 import PageContainer from "../../components/layout/PageContainer";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
@@ -165,6 +166,12 @@ export default function InstallationSurveyPage({ headers }) {
   const canSubmit = questionsReady && !loadingQuestions && questions.length > 0 &&
     !missingDetails.length && !missingQuestions.length && !submitting && !saveScope.current.attempted;
 
+  const resultRef = useRef<HTMLDivElement | null>(null);
+  const hasResult = Boolean(error || success);
+  useEffect(() => {
+    if (hasResult) resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [hasResult, success?.saveVerified]);
+
   const updateForm = (key, value) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
   };
@@ -265,12 +272,49 @@ export default function InstallationSurveyPage({ headers }) {
 
   return (
     <PageContainer>
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold tracking-tight">Assess an installation</h1>
-        <p className="text-muted-foreground mt-2">Record the job details, score every installation check on its stated scale, then submit the assessment.</p>
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Assess an installation</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Record the job details, score every installation check on its stated scale, then submit the assessment.</p>
       </div>
 
+      {error || success ? <div ref={resultRef} className="mb-6 scroll-mt-32 space-y-4">
+        {error && <div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
+        {success && !success.saveVerified && (
+          <div role="status" className="space-y-2 rounded-lg border border-warning/50 bg-warning/10 p-4 text-sm text-warning">
+            <div>Submission accepted (Reference: <strong>{success.survey_id}</strong>), but we couldn't confirm all responses were saved. Retained details exist only in this page; do not refresh or close it until checked.</div>
+            <div>Keep this reference and ask an administrator to check the saved answers before submitting again, to avoid a duplicate. Your form has not been cleared.</div>
+            <Button type="button" variant="outline" disabled={submitting} onClick={() => verifyExisting()}>Reverify existing assessment</Button>
+          </div>
+        )}
+        {success && success.saveVerified && (
+          <div role="status" className="space-y-2 rounded-lg border border-success/50 bg-success/10 p-4 text-sm text-success">
+            <div>Saved answers verified. Reference: <strong>{success.survey_id}</strong></div>
+            <Button type="button" variant="outline" disabled={submitting} onClick={startNewAssessment}>Start new assessment</Button>
+            <div>Overall score: <strong>{Number.isFinite(success.overall_score) ? `${success.overall_score.toFixed(2)} / 5` : "Unavailable"}</strong> {Number.isFinite(success.overall_score) ? `(${scoreBandLabel(success.overall_score)})` : ""}</div>
+            {success.action_points?.length ? (
+              <div className="mt-2">
+                <div>Action points / recommendations:</div>
+                <ul className="list-disc pl-5">
+                  {success.action_points.map((point, index) => (
+                    <li key={index}>{point}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div> : null}
+
       <form onSubmit={handleSubmit}>
+        <div className="sticky top-14 z-10 -mx-4 mb-6 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
+            <span className="font-medium">{answeredCount}/{questions.length || 0} checks scored</span>
+            <span className="text-xs tabular-nums text-muted-foreground">Current score: {averageScore != null ? `${averageScore.toFixed(2)} / 5` : "Not scored"}</span>
+          </div>
+          <div role="progressbar" aria-label="Checks scored" aria-valuemin={0} aria-valuemax={100} aria-valuenow={questions.length ? Math.round((answeredCount / questions.length) * 100) : 0} className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%` }} />
+          </div>
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8">
             <Card>
@@ -279,32 +323,6 @@ export default function InstallationSurveyPage({ headers }) {
                 <CardDescription>Enter the installation quality assessment details below.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {error && <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
-                {success && !success.saveVerified && (
-                  <div className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
-                    <div>Submission accepted (Reference: <strong>{success.survey_id}</strong>), but we couldn't confirm all responses were saved. Retained details exist only in this page; do not refresh or close it until checked.</div>
-                    <div>Keep this reference and ask an administrator to check the saved answers before submitting again, to avoid a duplicate. Your form has not been cleared.</div>
-                    <Button type="button" variant="outline" disabled={submitting} onClick={() => verifyExisting()}>Reverify existing assessment</Button>
-                  </div>
-                )}
-                {success && success.saveVerified && (
-                  <div className="rounded-md border border-success/50 bg-success/10 p-3 text-sm text-success">
-                    <div>Saved answers verified. Reference: <strong>{success.survey_id}</strong></div>
-                    <Button type="button" variant="outline" disabled={submitting} onClick={startNewAssessment}>Start new assessment</Button>
-                    <div>Overall score: <strong>{Number.isFinite(success.overall_score) ? `${success.overall_score.toFixed(2)} / 5` : "Unavailable"}</strong> {Number.isFinite(success.overall_score) ? `(${scoreBandLabel(success.overall_score)})` : ""}</div>
-                    {success.action_points?.length ? (
-                      <div className="mt-2">
-                        <div>Action points / recommendations:</div>
-                        <ul className="list-disc pl-5">
-                          {success.action_points.map((point, index) => (
-                            <li key={index}>{point}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-
                 {success && <p className="text-sm text-muted-foreground">The reference and result above apply to the submitted snapshot only. Edits below are retained but are not saved to that assessment. Start a new assessment only after verification; this clears the form with confirmation.</p>}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
@@ -563,11 +581,7 @@ export default function InstallationSurveyPage({ headers }) {
           </div>
 
           <div className="lg:col-span-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Scoring Guide</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 text-sm">
+            <Disclosure summary="Scoring guide" defaultOpen={typeof window !== "undefined" && Boolean(window.matchMedia?.("(min-width: 1024px)").matches)}>
                 <div className="rounded-md border p-3">
                   <p className="font-medium">4 to 5 - Pass (Excellent)</p>
                   <p className="text-muted-foreground">High-quality install. No further action needed.</p>
@@ -584,8 +598,7 @@ export default function InstallationSurveyPage({ headers }) {
                   <p className="font-medium">1 - Critical Fail</p>
                   <p className="text-muted-foreground">Major safety/property/network issue. Immediate escalation is required.</p>
                 </div>
-              </CardContent>
-            </Card>
+            </Disclosure>
 
             <Card className="mt-6">
               <CardHeader>
