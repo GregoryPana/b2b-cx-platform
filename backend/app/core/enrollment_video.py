@@ -6,7 +6,7 @@ backend that sends the email (the internal backend):
   ENROLLMENT_VIDEO_ATTACH=true
   ENROLLMENT_VIDEO_DIR=/path/to/folder/with/the/videos      (on the sending VM's disk)
   ENROLLMENT_VIDEO_FILES=enrollment-desktop-email.mp4,enrollment-mobile-email.mp4
-  ENROLLMENT_VIDEO_MAX_MB=12                                 (optional; total raw size cap)
+  ENROLLMENT_VIDEO_MAX_MB=8                                  (optional; total raw size cap)
 
 If it is enabled but misconfigured (missing file, too big, unsafe name) the
 email is still sent WITHOUT the video and without any mention of one: a missing
@@ -39,9 +39,9 @@ def load_enrollment_video_attachments() -> list[EmailAttachment]:
         logger.warning("Enrollment video attachment enabled but ENROLLMENT_VIDEO_DIR/FILES not set; sending without video.")
         return []
     try:
-        max_bytes = int(float(os.getenv("ENROLLMENT_VIDEO_MAX_MB", "12")) * 1024 * 1024)
+        max_bytes = int(float(os.getenv("ENROLLMENT_VIDEO_MAX_MB", "8")) * 1024 * 1024)
     except ValueError:
-        max_bytes = 12 * 1024 * 1024
+        max_bytes = 8 * 1024 * 1024
 
     base = Path(directory).resolve()
     attachments: list[EmailAttachment] = []
