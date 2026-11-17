@@ -1,0 +1,68 @@
+name: tutorial-drift-guard
+
+# Warns (red check + sticky PR comment) when a pull request changes a screen,
+# style or email template that a tutorial video was recorded against.
+# It is a WARNING, not a gate: do not add it to the required checks unless you
+# want it to block merging. Clear it by updating docs/tutorials/*/video-manifest.json
+# with `acknowledge` or `rebaseline` (see docs/tutorials/README.md).
+
+on:
+  pull_request:
+    paths:
+      - "frontend/mystery-shopper/**"
+      - "backend/app/api/mystery_auth.py"
+      - "docs/tutorials/**"
+      - "scripts/dev/check_tutorial_drift.py"
+      - "scripts/dev/tests/**"
+      - ".github/workflows/tutorial-drift-guard.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Unit tests for the checker
+        run: python -m unittest discover -s scripts/dev/tests -v
+      - name: Check tutorial drift
+        id: drift
+        run: |
+          set +e
+          python scripts/dev/check_tutorial_drift.py check --changed-since "origin/${{ github.base_ref }}" --format markdown --output drift.md
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          python scripts/dev/check_tutorial_drift.py check --changed-since "origin/${{ github.base_ref }}" --format github
+          cat drift.md >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - name: Post or update the PR comment
+        continue-on-error: true   # read-only token on forked PRs
+        uses: actions/github-script@v7
+        env:
+          RC: ${{ steps.drift.outputs.rc }}
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('drift.md', 'utf8');
+            const marker = '<!-- tutorial-drift-guard -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            const drifted = !body.includes('match the watched screens');
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else if (drifted) {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+      - name: Fail the check when THIS pull request introduces drift
+        if: steps.drift.outputs.rc != '0'
+        run: |
+          echo "::error title=TUTORIAL VIDEOS MAY NOW BE WRONG::This PR changes screens the enrollment video was recorded against. Re-record (rebaseline) or acknowledge in docs/tutorials/enrollment/video-manifest.json. Not a required check: merging is still possible."
+          exit 1
