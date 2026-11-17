@@ -55,6 +55,7 @@
       ],
       "watch": [
         "frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx",
+        "frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx",
         "backend/app/api/mystery_auth.py::_build_enrollment_payload",
         "backend/app/api/mystery_auth.py::enroll_start",
         "backend/app/api/mystery_auth.py::enroll_confirm",
@@ -99,6 +100,7 @@
       ],
       "watch": [
         "frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx",
+        "frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx",
         "frontend/mystery-shopper/src/components/ui/*.jsx",
         "frontend/mystery-shopper/src/index.css",
         "frontend/mystery-shopper/tailwind.config.js",

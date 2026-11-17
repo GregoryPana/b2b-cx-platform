@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Button } from "../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import AuthShell, { Field, InlineAlert } from "./AuthShell";
 
 export default function RecoveryScreen({ useRecoveryCode, error, onRecovered, onBackToLogin }) {
   const [email, setEmail] = useState("");
@@ -26,25 +27,32 @@ export default function RecoveryScreen({ useRecoveryCode, error, onRecovered, on
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
-      <Card className="w-full max-w-lg">
-        <CardHeader>
-          <CardTitle className="text-2xl">Recover Mystery Shopper Access</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Input type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
-          <Input type="text" placeholder="Recovery code" value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} />
-          <Button type="button" className="w-full" onClick={submit}>Use recovery code</Button>
-          <Button type="button" variant="outline" className="w-full" onClick={onBackToLogin}>Back to login</Button>
-          <p className="text-xs text-muted-foreground">
-            Use this if you forgot your password or lost your authenticator app. Each recovery code works once, and you will then
-            set a new password and link your authenticator app again.
-          </p>
-          {(localError || error) ? (
-            <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{localError || error}</p>
-          ) : null}
+    <AuthShell
+      title="Recover your access"
+      description="Use this if you forgot your password or lost your authenticator app. Each recovery code works once, and you will then set a new password and link your authenticator app again."
+    >
+      <Card>
+        <CardContent className="p-5 sm:p-6">
+          <form
+            noValidate
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submit();
+            }}
+          >
+            <Field id="recovery-email" label="Email">
+              <Input id="recovery-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
+            </Field>
+            <Field id="recovery-code" label="Recovery code">
+              <Input id="recovery-code" type="text" autoComplete="off" value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} className="font-mono" />
+            </Field>
+            <InlineAlert>{localError || error}</InlineAlert>
+            <Button type="submit" className="min-h-11 w-full">Use recovery code</Button>
+            <Button type="button" variant="outline" className="w-full" onClick={onBackToLogin}>Back to sign in</Button>
+          </form>
         </CardContent>
       </Card>
-    </div>
+    </AuthShell>
   );
 }
