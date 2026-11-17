@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import os
 import smtplib
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -26,7 +28,18 @@ def smtp_configured() -> bool:
     return bool(os.getenv("SMTP_HOST", "").strip() and smtp_from)
 
 
-def send_email(to: list[str], subject: str, text_body: str, html_body: str | None = None, reply_to: str | None = None) -> None:
+# (filename, raw bytes, "maintype/subtype"), e.g. ("walkthrough.mp4", data, "video/mp4")
+EmailAttachment = tuple[str, bytes, str]
+
+
+def send_email(
+    to: list[str],
+    subject: str,
+    text_body: str,
+    html_body: str | None = None,
+    reply_to: str | None = None,
+    attachments: list[EmailAttachment] | None = None,
+) -> None:
     smtp_host = os.getenv("SMTP_HOST", "").strip()
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USERNAME", "").strip()
@@ -45,19 +58,32 @@ def send_email(to: list[str], subject: str, text_body: str, html_body: str | Non
     if not smtp_host or not smtp_from:
         raise HTTPException(status_code=400, detail="SMTP is not configured. Set SMTP_HOST and SMTP_FROM (or SMTP_EMAIL).")
 
-    message = MIMEMultipart("alternative")
+    body = MIMEMultipart("alternative")
+    body.attach(MIMEText(text_body, "plain"))
+    if html_body:
+        body.attach(MIMEText(html_body, "html"))
+    if attachments:
+        # multipart/mixed: the readable body first, then each attachment.
+        message = MIMEMultipart("mixed")
+        message.attach(body)
+        for filename, data, mime in attachments:
+            maintype, _, subtype = mime.partition("/")
+            part = MIMEBase(maintype or "application", subtype or "octet-stream")
+            part.set_payload(data)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename=filename)
+            message.attach(part)
+    else:
+        message = body
     message["Subject"] = subject
     message["From"] = smtp_from
     message["To"] = ", ".join(to)
     if reply_to:
         message["Reply-To"] = reply_to
-    message.attach(MIMEText(text_body, "plain"))
-    if html_body:
-        message.attach(MIMEText(html_body, "html"))
 
     try:
         smtp_client_cls = smtplib.SMTP_SSL if smtp_use_ssl else smtplib.SMTP
-        with smtp_client_cls(smtp_host, smtp_port, timeout=20) as server:
+        with smtp_client_cls(smtp_host, smtp_port, timeout=90 if attachments else 20) as server:
             if not smtp_use_ssl:
                 try:
                     server.ehlo()

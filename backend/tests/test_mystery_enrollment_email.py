@@ -49,3 +49,20 @@ class EnrollmentEmailTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnrollmentVideoEmailTests(unittest.TestCase):
+    def test_default_email_is_unchanged_and_mentions_no_video(self):
+        _, (_, text_body, html_body) = _build(30)
+        for body in (text_body, html_body):
+            self.assertNotIn("video", body.lower())
+            self.assertNotIn("attached", body.lower())
+
+    def test_video_block_only_when_attached(self):
+        expires_at = m.utcnow() + timedelta(minutes=30)
+        _, text_body, html_body = m._build_enrollment_email("A B", URL, expires_at, "Admin", "a@example.com", has_video=True)
+        for body in (text_body, html_body):
+            self.assertIn("attached to this email", body)
+            self.assertIn("before you connect to the VPN", body)
+        # the video note comes before Step 1
+        self.assertLess(text_body.index("WATCH FIRST"), text_body.index("STEP 1"))

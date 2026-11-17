@@ -30,7 +30,7 @@
         "backend/app/api/mystery_auth.py::_build_enrollment_email"
       ],
       "baseline": {
-        "backend/app/api/mystery_auth.py::_build_enrollment_email": "6cf4ebfd339e1803629211c50e05f1c8d93c5a7d6f2e66416d74f3dc5e62f58c"
+        "backend/app/api/mystery_auth.py::_build_enrollment_email": "72a48ee86fa37ee8345bb89befa5078d7d1bb6ea8ce94825647f0a11fff50ba7"
       }
     },
     {
@@ -171,6 +171,20 @@
         "sign-in: frontend/mystery-shopper/src/index.css",
         "sign-in: frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx",
         "sign-in: frontend/mystery-shopper/tailwind.config.js"
+      ]
+    },
+    {
+      "date": "2026-11-17",
+      "kind": "acknowledged-no-visible-change",
+      "screens": [
+        "email"
+      ],
+      "reason": "Added optional 'video attached' block, only rendered when ENROLLMENT_VIDEO_ATTACH is on (default off). Default email is byte-identical, so the v03 email beats are unchanged.",
+      "by": "Claude (for owner review)",
+      "commit": "71ffeb8",
+      "video_version": "v03",
+      "changes_covered": [
+        "email: backend/app/api/mystery_auth.py::_build_enrollment_email"
       ]
     }
   ]
