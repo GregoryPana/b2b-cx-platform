@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, CalendarDays, ChevronLeft, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
+import { BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
 import { GuidePage, ScoringKeyCard } from "./SurveyGuide";
 
 import { cn } from "./lib/utils";
@@ -134,6 +134,21 @@ function QuestionField({ question, draft, onUpdate }) {
   return <Textarea value={draft.answer_text || ""} onChange={(event) => onUpdate("answer_text", event.target.value)} />;
 }
 
+function VisitRow({ visit, onSelect }) {
+  return (
+    <button type="button" onClick={() => onSelect(visit)} className="flex w-full items-start justify-between gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-muted/40">
+      <div className="min-w-0 space-y-1">
+        <p className="font-medium">{visit.location_name}</p>
+        <p className="text-sm text-muted-foreground">{visit.visit_date} at {visit.visit_time || "--"}</p>
+      </div>
+      <div className="shrink-0 space-y-1 text-right text-sm text-muted-foreground">
+        <p>{visit.purpose_of_visit || "--"}</p>
+        <p>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</p>
+      </div>
+    </button>
+  );
+}
+
 export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const [activeTab, setActiveTab] = useState("planned");
   const [entryChoicePending, setEntryChoicePending] = useState(true);
@@ -229,6 +244,17 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
     }).length,
     [questions, responseDrafts, responsesByQuestion],
   );
+
+  // Per-section progress drives the section navigation and the one-section-at-a-time view.
+  const sectionStats = useMemo(() => groupedQuestions.map(([category, items]) => {
+    const mandatory = items.filter((q) => q.is_mandatory);
+    const mandatoryDone = mandatory.filter((q) => hasMeaningfulAnswer(q, responseDrafts[q.id] || {}, responsesByQuestion[q.id])).length;
+    const unsaved = items.filter((q) => isQuestionDirty(q, responseDrafts[q.id] || {}, responsesByQuestion[q.id] || {})).length;
+    const answered = items.filter((q) => hasMeaningfulAnswer(q, responseDrafts[q.id] || {}, responsesByQuestion[q.id])).length;
+    return { category, total: items.length, answered, mandatory: mandatory.length, mandatoryDone, unsaved, complete: answered === items.length };
+  }), [groupedQuestions, responseDrafts, responsesByQuestion, hasMeaningfulAnswer]);
+  const activeSectionIndex = Math.max(0, groupedQuestions.findIndex(([category]) => category === currentCategory));
+  const requiredPercent = totalMandatory > 0 ? Math.round((completedMandatory / totalMandatory) * 100) : 0;
 
   const todayString = new Date().toISOString().split("T")[0];
   const plannedToday = draftVisits.filter((v) => v.visit_date === todayString);
@@ -567,10 +593,12 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
 
   const scrollToCategory = useCallback((category) => {
     setCurrentCategory(category);
-    const el = document.getElementById(categoryToId(category));
-    if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY - 86;
-    window.scrollTo({ top, behavior: "smooth" });
+    // The section swaps on the next render; scroll after it so the new section starts at the top.
+    window.requestAnimationFrame(() => {
+      const el = document.getElementById("survey-questions");
+      if (!el) return;
+      window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 130, behavior: "smooth" });
+    });
   }, []);
 
   // --- Render ---
@@ -701,52 +729,6 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
             )}
 
             <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-2xl">Mystery Shopper Survey</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">Current Visit</p>
-                      <p className="mt-1 text-sm font-medium">{visitId || "Not selected"}</p>
-                    </div>
-                    <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">Status</p>
-                      <p className="mt-1 text-sm font-medium">{status}</p>
-                    </div>
-                    <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">Required Progress</p>
-                      <p className="mt-1 text-sm font-medium">{completedMandatory}/{totalMandatory || 0}</p>
-                    </div>
-                    <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">Configured Locations</p>
-                      <p className="mt-1 text-sm font-medium">{locations.length}</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {creatingVisit && <Badge className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Creating visit</Badge>}
-                    {savingQuestionId && <Badge variant="secondary" className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Saving response</Badge>}
-                    {submitting && <Badge variant="secondary" className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Submitting survey</Badge>}
-                    {unsavedQuestionCount > 0 && (
-                      <Badge variant="outline" className="gap-1">
-                        <PencilLine className="h-3.5 w-3.5" /> {unsavedQuestionCount} unsaved change{unsavedQuestionCount === 1 ? "" : "s"}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">User</label>
-                      <Input value={userInfo?.name || "-"} disabled />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Email</label>
-                      <Input value={userInfo?.email || "-"} disabled />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
               {entryChoicePending && (
                 <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }}>
                   <Card className="border-primary/15 shadow-sm">
@@ -802,36 +784,14 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       {plannedToday.length === 0 && <p className="text-sm text-muted-foreground">No visits planned for today.</p>}
-                      {plannedToday.map((visit) => (
-                        <button key={visit.visit_id} type="button" onClick={() => selectDraftVisit(visit)} className="flex w-full items-start justify-between rounded-lg border p-4 text-left transition-colors hover:bg-muted/40">
-                          <div className="space-y-1">
-                            <p className="font-medium">{visit.location_name}</p>
-                            <p className="text-sm text-muted-foreground">{visit.visit_date} at {visit.visit_time || "--"}</p>
-                          </div>
-                          <div className="space-y-1 text-right text-sm text-muted-foreground">
-                            <p>{visit.purpose_of_visit || "--"}</p>
-                            <p>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</p>
-                          </div>
-                        </button>
-                      ))}
+                      {plannedToday.map((visit) => <VisitRow key={visit.visit_id} visit={visit} onSelect={selectDraftVisit} />)}
                     </CardContent>
                   </Card>
                   <Card>
                     <CardHeader><CardTitle>Upcoming</CardTitle></CardHeader>
                     <CardContent className="space-y-3">
                       {plannedUpcoming.length === 0 && <p className="text-sm text-muted-foreground">No upcoming visits.</p>}
-                      {plannedUpcoming.map((visit) => (
-                        <button key={visit.visit_id} type="button" onClick={() => selectDraftVisit(visit)} className="flex w-full items-start justify-between rounded-lg border p-4 text-left transition-colors hover:bg-muted/40">
-                          <div className="space-y-1">
-                            <p className="font-medium">{visit.location_name}</p>
-                            <p className="text-sm text-muted-foreground">{visit.visit_date} at {visit.visit_time || "--"}</p>
-                          </div>
-                          <div className="space-y-1 text-right text-sm text-muted-foreground">
-                            <p>{visit.purpose_of_visit || "--"}</p>
-                            <p>{visit.mandatory_answered_count}/{visit.mandatory_total_count} required</p>
-                          </div>
-                        </button>
-                      ))}
+                      {plannedUpcoming.map((visit) => <VisitRow key={visit.visit_id} visit={visit} onSelect={selectDraftVisit} />)}
                     </CardContent>
                   </Card>
                 </div>
@@ -839,130 +799,237 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
 
               {activeTab === "survey" && (
                 <div className="space-y-6">
-                  <ScoringKeyCard compact />
-                  <Card>
-                    <CardHeader><CardTitle>Visit Header</CardTitle></CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-muted-foreground">Customer Service Centre</label>
-                          <Select value={headerForm.location_id} onChange={(e) => setHeaderForm((prev) => ({ ...prev, location_id: e.target.value }))}>
-                            <option value="">Select location</option>
-                            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                          </Select>
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-muted-foreground">Date of Visit</label>
-                          <Input type="date" value={headerForm.visit_date} onChange={(e) => setHeaderForm((prev) => ({ ...prev, visit_date: e.target.value }))} />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-muted-foreground">Time of Visit</label>
-                          <Input type="time" value={headerForm.visit_time} onChange={(e) => setHeaderForm((prev) => ({ ...prev, visit_time: e.target.value }))} />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-muted-foreground">Purpose of Visit</label>
-                          <Select value={headerForm.purpose_of_visit} onChange={(e) => setHeaderForm((prev) => ({ ...prev, purpose_of_visit: e.target.value }))}>
-                            {purposeOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                          </Select>
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-muted-foreground">Staff on Duty</label>
-                          <Input value={headerForm.staff_on_duty} onChange={(e) => setHeaderForm((prev) => ({ ...prev, staff_on_duty: e.target.value }))} />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-muted-foreground">Mystery Shopper Name (You)</label>
-                          <Input value={headerForm.shopper_name} disabled readOnly title="Filled automatically from your account" />
+                  {visitId ? (
+                    <div className="sticky top-14 z-10 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
+                      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                        <p className="text-sm font-medium">
+                          Required answers <span className="tabular-nums text-muted-foreground">{completedMandatory} of {totalMandatory || 0}</span>
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2" aria-live="polite">
+                          {creatingVisit && <Badge className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Creating visit</Badge>}
+                          {savingQuestionId && <Badge variant="secondary" className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Saving</Badge>}
+                          {submitting && <Badge variant="secondary" className="gap-1"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Submitting</Badge>}
+                          {unsavedQuestionCount > 0 && (
+                            <Badge variant="outline" className="gap-1">
+                              <PencilLine className="h-3.5 w-3.5" /> {unsavedQuestionCount} unsaved
+                            </Badge>
+                          )}
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Button type="button" onClick={createVisitFn} disabled={creatingVisit}>
-                          {creatingVisit ? "Creating..." : "Create / Load Visit"}
-                        </Button>
-                        <Badge variant="secondary">Current Visit: {visitId || "Not selected"}</Badge>
+                      <div
+                        role="progressbar"
+                        aria-label="Required answers completed"
+                        aria-valuemin={0}
+                        aria-valuemax={totalMandatory || 0}
+                        aria-valuenow={completedMandatory}
+                        className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+                      >
+                        <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${requiredPercent}%` }} />
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  ) : null}
 
-                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-                    <Card className="hidden xl:block self-start sticky top-20">
-                      <CardHeader><CardTitle className="text-sm">Sections</CardTitle></CardHeader>
-                      <CardContent className="space-y-2">
-                        {groupedQuestions.map(([category], index) => (
-                          <Button
-                            key={category}
-                            type="button"
-                            variant={currentCategory === category ? "secondary" : "ghost"}
-                            className="h-auto w-full justify-start gap-3 px-3 py-2 text-left"
-                            onClick={() => scrollToCategory(category)}
-                          >
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background text-xs font-medium">{index + 1}</span>
-                            <span className="whitespace-normal">{category}</span>
-                          </Button>
-                        ))}
+                  <ScoringKeyCard compact />
+
+                  {visitId ? (
+                    <Card>
+                      <CardContent className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 p-4">
+                        <div className="min-w-0">
+                          <p className="font-medium">{locations.find((l) => String(l.id) === String(headerForm.location_id))?.name || "Visit"}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {headerForm.visit_date} at {headerForm.visit_time || "--"} · {headerForm.purpose_of_visit}
+                          </p>
+                        </div>
+                        <p className="text-sm text-muted-foreground">Staff on duty: {headerForm.staff_on_duty || "--"}</p>
+                        <Badge variant="secondary" title={`Visit ${visitId}`}>{status}</Badge>
                       </CardContent>
                     </Card>
-
-                    <div className="space-y-6">
-                      {groupedQuestions.length === 0 ? (
-                        <Card>
-                          <CardContent className="p-5 text-sm text-muted-foreground">
-                            No Mystery Shopper questions are available. You cannot complete this visit until an administrator configures the questionnaire.
-                          </CardContent>
-                        </Card>
-                      ) : null}
-                      {groupedQuestions.map(([category, items]) => (
-                        <Card key={category} id={categoryToId(category)}>
-                          <CardHeader><CardTitle>{category}</CardTitle></CardHeader>
-                          <CardContent className="space-y-4">
-                            {items.map((question, questionIndex) => {
-                              const draft = responseDrafts[question.id] || {};
-                              const existing = responsesByQuestion[question.id] || null;
-                              const hasChanges = isQuestionDirty(question, draft, existing);
-                              const hasSavedResponse = Boolean(existing?.response_id);
-                              const qLabel = displayQuestionNumber(question, questionIndex);
-                              const btnLabel = savingQuestionId === question.id
-                                ? "Saving..."
-                                : hasChanges ? "Save" : hasSavedResponse ? "Saved" : "No changes";
-                              const statusText = hasChanges
-                                ? "Unsaved changes"
-                                : hasSavedResponse ? "Response captured" : "No response captured yet";
-                              return (
-                                <div key={question.id} className="rounded-lg border p-4 space-y-4">
-                                  <div className="flex items-start gap-3">
-                                    <Badge>{qLabel}</Badge>
-                                    <div className="space-y-2 min-w-0 flex-1">
-                                      <p className="font-medium leading-6">{question.question_text}</p>
-                                      <QuestionField question={question} draft={draft} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center justify-between gap-3">
-                                    <p className={cn("text-xs", hasChanges ? "text-amber-700" : hasSavedResponse ? "text-emerald-700" : "text-muted-foreground")}>
-                                      {statusText}
-                                    </p>
-                                    <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={submitting || savingQuestionId !== null || !hasChanges}>
-                                      {btnLabel}
-                                    </Button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </CardContent>
-                        </Card>
-                      ))}
-
-                      <Card>
-                        <CardContent className="pt-6">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            {!questionnaireReady ? <p role="status" className="text-sm text-muted-foreground">{questionnaireState === "loading" ? "Loading questionnaire..." : questionnaireState === "empty" ? "The questionnaire has no questions. Ask an administrator to configure it before submitting." : "The questionnaire has not loaded. Reload the page before submitting."}</p> : null}
-                            <Badge variant="secondary">Mandatory completion: {completedMandatory}/{totalMandatory || 0}</Badge>
-                            <Button type="button" onClick={submitVisitFn} disabled={submitting || savingQuestionId !== null || !visitId || !questionnaireReady}>
-                              {submitting ? "Submitting..." : "Submit for Review"}
-                            </Button>
+                  ) : (
+                    <Card>
+                      <CardHeader><CardTitle>Visit details</CardTitle></CardHeader>
+                      <CardContent className="space-y-6">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                          <div className="space-y-2">
+                            <label className="block text-sm font-medium">Customer Service Centre</label>
+                            <Select value={headerForm.location_id} onChange={(e) => setHeaderForm((prev) => ({ ...prev, location_id: e.target.value }))}>
+                              <option value="">Select location</option>
+                              {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                            </Select>
                           </div>
+                          <div className="space-y-2">
+                            <label className="block text-sm font-medium">Date of Visit</label>
+                            <Input type="date" value={headerForm.visit_date} onChange={(e) => setHeaderForm((prev) => ({ ...prev, visit_date: e.target.value }))} />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-sm font-medium">Time of Visit</label>
+                            <Input type="time" value={headerForm.visit_time} onChange={(e) => setHeaderForm((prev) => ({ ...prev, visit_time: e.target.value }))} />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-sm font-medium">Purpose of Visit</label>
+                            <Select value={headerForm.purpose_of_visit} onChange={(e) => setHeaderForm((prev) => ({ ...prev, purpose_of_visit: e.target.value }))}>
+                              {purposeOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-sm font-medium">Staff on Duty</label>
+                            <Input value={headerForm.staff_on_duty} onChange={(e) => setHeaderForm((prev) => ({ ...prev, staff_on_duty: e.target.value }))} />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-sm font-medium">Mystery Shopper Name (You)</label>
+                            <Input value={headerForm.shopper_name} disabled readOnly title="Filled automatically from your account" />
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <Button type="button" onClick={createVisitFn} disabled={creatingVisit}>
+                            {creatingVisit ? "Creating..." : "Create visit and start"}
+                          </Button>
+                          <p className="text-sm text-muted-foreground">The questions open once the visit is created.</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {visitId ? (
+                    <div id="survey-questions" className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+                      <Card className="hidden self-start xl:sticky xl:top-36 xl:block">
+                        <CardHeader><CardTitle className="text-sm">Sections</CardTitle></CardHeader>
+                        <CardContent className="space-y-1">
+                          {sectionStats.map((section, index) => (
+                            <Button
+                              key={section.category}
+                              type="button"
+                              variant={activeSectionIndex === index ? "secondary" : "ghost"}
+                              className="h-auto w-full justify-start gap-3 px-3 py-2 text-left"
+                              aria-current={activeSectionIndex === index ? "step" : undefined}
+                              onClick={() => scrollToCategory(section.category)}
+                            >
+                              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-xs font-medium">
+                                {section.complete ? <Check className="h-3.5 w-3.5 text-success" aria-label="Complete" /> : index + 1}
+                              </span>
+                              <span className="min-w-0 flex-1 whitespace-normal">{section.category}</span>
+                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{section.answered}/{section.total}</span>
+                            </Button>
+                          ))}
                         </CardContent>
                       </Card>
+
+                      <div className="min-w-0 space-y-4">
+                        {/* Phones and tablets: the same sections as a swipeable row instead of a hidden drawer item. */}
+                        {sectionStats.length > 1 ? (
+                          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 xl:hidden" role="group" aria-label="Survey sections">
+                            {sectionStats.map((section, index) => (
+                              <button
+                                key={section.category}
+                                type="button"
+                                onClick={() => scrollToCategory(section.category)}
+                                aria-current={activeSectionIndex === index ? "step" : undefined}
+                                className={cn(
+                                  "inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                                  activeSectionIndex === index ? "border-primary bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                                )}
+                              >
+                                {section.complete ? <Check className="h-3.5 w-3.5" aria-label="Complete" /> : <span className="tabular-nums">{index + 1}</span>}
+                                <span>{section.category}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {groupedQuestions.length === 0 ? (
+                          <Card>
+                            <CardContent className="p-6 text-sm text-muted-foreground">
+                              No Mystery Shopper questions are available. You cannot complete this visit until an administrator configures the questionnaire.
+                            </CardContent>
+                          </Card>
+                        ) : (
+                          (() => {
+                            const [category, items] = groupedQuestions[activeSectionIndex];
+                            const section = sectionStats[activeSectionIndex];
+                            const isLastSection = activeSectionIndex === groupedQuestions.length - 1;
+                            return (
+                              <>
+                                <Card key={category} id={categoryToId(category)}>
+                                  <CardHeader>
+                                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                      <CardTitle>{category}</CardTitle>
+                                      <p className="text-xs text-muted-foreground">Section {activeSectionIndex + 1} of {groupedQuestions.length}</p>
+                                    </div>
+                                  </CardHeader>
+                                  <CardContent className="space-y-4">
+                                    {items.map((question, questionIndex) => {
+                                      const draft = responseDrafts[question.id] || {};
+                                      const existing = responsesByQuestion[question.id] || null;
+                                      const hasChanges = isQuestionDirty(question, draft, existing);
+                                      const hasSavedResponse = Boolean(existing?.response_id);
+                                      const qLabel = displayQuestionNumber(question, questionIndex);
+                                      const btnLabel = savingQuestionId === question.id
+                                        ? "Saving..."
+                                        : hasChanges ? "Save" : hasSavedResponse ? "Saved" : "No changes";
+                                      const statusText = hasChanges
+                                        ? "Unsaved changes"
+                                        : hasSavedResponse ? "Response captured" : "No response captured yet";
+                                      return (
+                                        <div key={question.id} className="space-y-4 rounded-lg border p-4">
+                                          <div className="flex items-start gap-3">
+                                            <Badge>{qLabel}</Badge>
+                                            <div className="min-w-0 flex-1 space-y-2">
+                                              <p className="font-medium leading-6">{question.question_text}</p>
+                                              <QuestionField question={question} draft={draft} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center justify-between gap-3">
+                                            <p className={cn("text-xs", hasChanges ? "text-amber-700" : hasSavedResponse ? "text-emerald-700" : "text-muted-foreground")}>
+                                              {statusText}
+                                            </p>
+                                            <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={submitting || savingQuestionId !== null || !hasChanges}>
+                                              {btnLabel}
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </CardContent>
+                                </Card>
+
+                                {section.unsaved > 0 ? (
+                                  <p className="text-sm text-amber-700" role="status">
+                                    {section.unsaved} answer{section.unsaved === 1 ? "" : "s"} in this section not saved yet. Use Save on each question before you submit.
+                                  </p>
+                                ) : null}
+
+                                <div className="flex items-center justify-between gap-3">
+                                  <Button type="button" variant="outline" onClick={() => scrollToCategory(groupedQuestions[activeSectionIndex - 1][0])} disabled={activeSectionIndex === 0}>
+                                    <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Previous
+                                  </Button>
+                                  {!isLastSection ? (
+                                    <Button type="button" onClick={() => scrollToCategory(groupedQuestions[activeSectionIndex + 1][0])}>
+                                      Next section <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                                    </Button>
+                                  ) : null}
+                                </div>
+
+                                {isLastSection ? (
+                                  <Card>
+                                    <CardContent className="p-6">
+                                      <div className="flex flex-wrap items-center justify-between gap-3">
+                                        {!questionnaireReady ? <p role="status" className="text-sm text-muted-foreground">{questionnaireState === "loading" ? "Loading questionnaire..." : questionnaireState === "empty" ? "The questionnaire has no questions. Ask an administrator to configure it before submitting." : "The questionnaire has not loaded. Reload the page before submitting."}</p> : null}
+                                        <Badge variant="secondary">Mandatory completion: {completedMandatory}/{totalMandatory || 0}</Badge>
+                                        <Button type="button" onClick={submitVisitFn} disabled={submitting || savingQuestionId !== null || !visitId || !questionnaireReady}>
+                                          {submitting ? "Submitting..." : "Submit for Review"}
+                                        </Button>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                ) : null}
+                              </>
+                            );
+                          })()
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Create the visit above to see the questions.</p>
+                  )}
                 </div>
               )}
             </div>
