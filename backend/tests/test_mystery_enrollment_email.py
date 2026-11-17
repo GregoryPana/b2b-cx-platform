@@ -63,6 +63,6 @@ class EnrollmentVideoEmailTests(unittest.TestCase):
         _, text_body, html_body = m._build_enrollment_email("A B", URL, expires_at, "Admin", "a@example.com", has_video=True)
         for body in (text_body, html_body):
             self.assertIn("attached to this email", body)
-            self.assertIn("before you connect to the VPN", body)
+            self.assertIn("before you connect to the CWS VPN", body)
         # the video note comes before Step 1
         self.assertLess(text_body.index("WATCH FIRST"), text_body.index("STEP 1"))

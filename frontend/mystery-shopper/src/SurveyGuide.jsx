@@ -67,7 +67,7 @@ const GUIDE_SECTIONS = [
     id: "guide-signing-in",
     title: "3. Signing in (every time)",
     body: [
-      "Connect to the company VPN first — the platform is only reachable over the VPN.",
+      "Connect to the CWS VPN first — the platform is only reachable over the CWS VPN.",
       "Sign in with your email and password, then enter the current 6-digit code from your authenticator app. This two-step sign-in protects the platform and your account.",
       "Forgot your password or lost your authenticator? Choose \"Use a recovery code instead\" on the sign-in page and follow the steps — one recovery code lets you re-enroll with a new password and authenticator. If you have no recovery codes left, contact your CX administrator to reset your access.",
     ],
