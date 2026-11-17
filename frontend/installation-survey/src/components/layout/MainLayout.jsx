@@ -19,7 +19,7 @@ export default function MainLayout({ children, onLogout, userName, userEmail, st
       />
       <div className={cn("flex flex-1 flex-col transition-all duration-300", collapsed ? "lg:pl-20" : "lg:pl-72")}>
         <Header userName={userName} statusText={statusText} onOpenMobileNav={() => setMobileOpen(true)} />
-        <main className="flex-1 overflow-y-auto custom-scrollbar">{children}</main>
+        <main className="flex-1">{children}</main>
       </div>
     </div>
   );
