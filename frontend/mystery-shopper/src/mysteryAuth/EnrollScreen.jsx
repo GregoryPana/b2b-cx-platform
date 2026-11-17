@@ -574,7 +574,7 @@ export default function EnrollScreen({ enrollmentToken, startEnrollment, confirm
             </div>
             <p className="text-sm text-muted-foreground">
               Enrollment links are single-use and expire after a set time. If yours has expired or was replaced, ask your administrator
-              to send a new one. Remember to be connected to the company VPN.
+              to send a new one. Remember to be connected to the CWS VPN.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="button" variant="outline" className="min-h-11" onClick={() => window.location.reload()}>Try again</Button>
