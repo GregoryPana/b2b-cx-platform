@@ -791,9 +791,18 @@ def _format_validity(expires_at: datetime) -> str:
 
 
 def _build_enrollment_email(
-    full_name: str, enroll_url: str, expires_at: datetime, admin_name: str, admin_email: str, has_video: bool = False
+    full_name: str,
+    enroll_url: str,
+    expires_at: datetime,
+    admin_name: str,
+    admin_email: str,
+    has_video: bool = False,
+    signin_url: str | None = None,
 ) -> tuple[str, str, str]:
     subject = "Your CWS Mystery Shopper enrollment link"
+    # The permanent sign-in address is the enrollment link without its one-time token.
+    signin_url = signin_url or enroll_url.split("?enroll=", 1)[0]
+    safe_signin_url = html.escape(signin_url, quote=True)
     local_expiry = expires_at.astimezone(SEYCHELLES_TZ)
     expiry_text = local_expiry.strftime("%A %d %B %Y at %H:%M") + " (Seychelles time)"
     validity_text = _format_validity(expires_at)
@@ -844,6 +853,11 @@ def _build_enrollment_email(
         "  2. Choose the password you will use to sign in.\n"
         "  3. Enter the 6-digit code shown in the app, then save your one-time recovery codes.\n"
         "\n"
+        "AFTER YOU ENROLL - SIGN IN ANY TIME\n"
+        "The enrollment link above works once. From then on, sign in with your email, password and\n"
+        "authenticator code at this address (save it as a bookmark in your browser):\n"
+        f"{signin_url}\n"
+        "\n"
         "IMPORTANT: You must be connected to the CWS VPN to access the platform.\n"
         "Connect to the CWS VPN before opening the link and before every future sign-in.\n"
         "\n"
@@ -888,6 +902,19 @@ def _build_enrollment_email(
         "</ol>"
         "<p style=\"font-size:12px;color:#555\">If the button doesn&rsquo;t work, copy this full link into your browser:<br>"
         f"<a href=\"{safe_url}\" style=\"word-break:break-all\">{safe_url}</a></p>"
+        "<p><strong>After you enroll &mdash; sign in any time</strong><br>"
+        "The enrollment link above works once. From then on, sign in with your email, password and authenticator code "
+        "using the button below. <strong>Save this address as a bookmark in your browser</strong> so you can always find it.</p>"
+        # Outlined (secondary) button so the primary action stays the enrollment button above.
+        "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:8px 0 12px 0;\"><tr>"
+        "<td align=\"center\" bgcolor=\"#ffffff\" style=\"border-radius:6px;border:2px solid #0f766e;background:#ffffff;\">"
+        f"<a href=\"{safe_signin_url}\" target=\"_blank\" rel=\"noopener noreferrer\" "
+        "style=\"display:block;padding:10px 22px;font-family:Arial,Helvetica,sans-serif;font-size:15px;"
+        "font-weight:bold;color:#0f766e;text-decoration:none;border-radius:6px;\">"
+        "<span style=\"color:#0f766e;\">Sign in to the platform</span></a>"
+        "</td></tr></table>"
+        "<p style=\"font-size:12px;color:#555\">Or copy this sign-in address:<br>"
+        f"<a href=\"{safe_signin_url}\" style=\"word-break:break-all\">{safe_signin_url}</a></p>"
         "<p style=\"color:#b91c1c\"><strong>Important:</strong> you must be connected to the CWS VPN to access the "
         "platform &mdash; connect before opening the link and before every future sign-in.</p>"
         f"<p>If the link has expired or you run into any issues, contact {safe_admin_name} at "
