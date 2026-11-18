@@ -15,7 +15,7 @@ function harness({ drafts = {1: {score: '0'}}, questions, rows = {}, confirm = t
   const c = {
     API_BASE: '/api', visitId: 'A', purposeOptions: ['Billing'], userInfo: {name: 'Synthetic shopper'}, DEFAULT_PURPOSE_OPTIONS: ['Billing'], questions: questions || [q], questionnaireReady: true,
     selection: {current: 0}, operation: {current: null}, liveDrafts: {current: structuredClone(drafts)},
-    useCallback: f => f, window: {confirm: text => {state.prompts.push(text); return confirm;}},
+    useCallback: f => f, askConfirm: async o => {state.prompts.push([o.title, o.description, ...(o.items || [])].filter(Boolean).join(' | ')); return confirm;},
     setResponsesByQuestion: rows => {state.saved = rows;}, setSavingQuestionId: v => {state.saving = v;},
     setVisitId: v => {state.visitId=v;}, setResponseDrafts: v => {state.drafts=v;}, setHeaderForm: v => {state.header=v;}, setEntryChoicePending: v => {state.entry=v;}, setActiveTab: v => {state.tab=v;},
     setSubmitting: v => {state.submitting = v;}, setStatus: v => {state.status = v;},
@@ -102,7 +102,7 @@ describe('production Mystery Save / Submit callback contract (mock IO, not authe
   });
   it('bulk confirmation lists every changed saved answer exactly once', async () => {
     const h=harness({drafts:{1:{score:'0'},2:{score:'6'}}, rows:{1:{question_id:1,response_id:'id1',score:8},2:{question_id:2,response_id:'id2',score:3}},questions:[{id:1,order_index:2001,input_type:'score',is_mandatory:true},{id:2,order_index:2002,input_type:'score',is_mandatory:true}]});
-    await h.submit(); expect(h.state.prompts).toHaveLength(1); expect(h.state.prompts[0]).toMatch(/Q1, Q2/); expect(h.state.status).toBe('Pending');
+    await h.submit(); expect(h.state.prompts).toHaveLength(1); expect(h.state.prompts[0]).toMatch(/Replace saved answers.*\| Q1 \| Q2$/); expect(h.state.status).toBe('Pending');
   });
   it('concurrent newly persisted answer aborts before an unconfirmed overwrite', async () => {
     const h=harness(); let reads=0;
@@ -111,7 +111,7 @@ describe('production Mystery Save / Submit callback contract (mock IO, not authe
   });
   it.each([true,false])('optional missing notice preserves existing optional submission policy: %s', async confirm => {
     const h=harness({confirm,questions:[{id:1,input_type:'score',is_mandatory:true},{id:2,order_index:2002,input_type:'text',is_mandatory:false}]});
-    await h.submit(); expect(h.state.prompts[0]).toMatch(/Optional unanswered: Q2/); expect(h.state.status).toBe(confirm ? 'Pending' : 'Draft'); expect(h.state.saved[1].score).toBe(0);
+    await h.submit(); expect(h.state.prompts[0]).toMatch(/unanswered optional questions.*\| Q2$/); expect(h.state.status).toBe(confirm ? 'Pending' : 'Draft'); expect(h.state.saved[1].score).toBe(0);
   });
   it('edits during end-only saving remain draft and prevent stale submission', async () => {
     const h=harness(); let release;
@@ -194,5 +194,67 @@ describe('production Mystery Save / Submit callback contract (mock IO, not authe
   });
   it('unready questionnaire blocks all Submit IO', async () => {
     const h=harness(); h.c.questionnaireReady=false; await h.submit(); expect(h.state.calls).toHaveLength(0);
+  });
+});
+
+describe('comment (verbatim) and reviewer action points survive a shopper save (mock IO)', () => {
+  const body = h => JSON.parse(mutations(h.state).at(-1)[1].body);
+  const reviewerActions = [{action_required: 'Retrain staff', action_owner: 'Branch manager'}];
+  it('saves the comment with the answer; a comment-only edit counts as a change', async () => {
+    const h = harness({drafts: {1: {score: '5', verbatim: 'Waited 10 minutes'}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, verbatim: ''}}});
+    await h.save();
+    expect(mutations(h.state)).toHaveLength(1); expect(body(h).verbatim).toBe('Waited 10 minutes'); expect(body(h).score).toBe(5);
+    expect(h.state.saved[1].verbatim).toBe('Waited 10 minutes'); expect(success(h.state)).toBe(true);
+  });
+  it('clearing a saved comment sends null, not the old text', async () => {
+    const h = harness({drafts: {1: {score: '5', verbatim: ''}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, verbatim: 'Old note'}}});
+    await h.save();
+    expect(body(h).verbatim).toBeNull(); expect(h.state.saved[1].verbatim).toBeNull();
+  });
+  it('keeps reviewer action points when the shopper edits an answer', async () => {
+    const h = harness({drafts: {1: {score: '9'}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, actions: reviewerActions}}});
+    await h.save();
+    expect(body(h).actions).toEqual(reviewerActions); expect(h.state.rows[1].actions).toEqual(reviewerActions); expect(h.state.rows[1].score).toBe(9);
+  });
+  it('sends the actions from the fresh read, not from when the visit was loaded', async () => {
+    const h = harness({drafts: {1: {score: '9'}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, actions: []}}}); let reads = 0;
+    h.state.hook = async (_url, o) => { if (!o.method && ++reads === 2) h.state.rows[1] = {...h.state.rows[1], actions: reviewerActions}; };
+    await h.save();
+    expect(body(h).actions).toEqual(reviewerActions);
+  });
+  it('a first save sends an empty action list', async () => {
+    const h = harness({drafts: {1: {score: '4'}}});
+    await h.save();
+    expect(mutations(h.state)[0][1].method).toBe('POST'); expect(body(h).actions).toEqual([]);
+  });
+  it('Submit also preserves actions on every answer it has to rewrite', async () => {
+    const h = harness({drafts: {1: {score: '9'}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, actions: reviewerActions}}});
+    await h.submit();
+    expect(h.state.status).toBe('Pending'); expect(h.state.rows[1].actions).toEqual(reviewerActions);
+  });
+});
+
+describe('confirmation dialogs say what they are asking (mock IO, replaces window.confirm)', () => {
+  it('the overwrite dialog names the question and offers an explicit action', async () => {
+    const opened = [];
+    const h = harness({rows: {1: {question_id: 1, response_id: 'id1', score: 5}}});
+    h.q.order_index = 2003; h.c.askConfirm = async o => { opened.push(o); return false; };
+    await h.save();
+    expect(opened).toHaveLength(1); expect(opened[0].title).toBe('Replace the saved answer for Q3?'); expect(opened[0].confirmLabel).toBe('Replace answer');
+    expect(mutations(h.state)).toHaveLength(0);
+  });
+  it('the optional-questions dialog lists each unanswered optional question with its text', async () => {
+    const opened = [];
+    const h = harness({questions: [{id: 1, input_type: 'score', is_mandatory: true}, {id: 2, order_index: 2002, input_type: 'text', is_mandatory: false, question_text: 'Anything else?'}, {id: 3, order_index: 2003, input_type: 'text', is_mandatory: false, question_text: 'Parking?'}]});
+    h.c.askConfirm = async o => { opened.push(o); return true; };
+    await h.submit();
+    expect(opened).toHaveLength(1); expect(opened[0].items).toEqual(['Q2: Anything else?', 'Q3: Parking?']); expect(opened[0].confirmLabel).toBe('Submit anyway');
+    expect(h.state.status).toBe('Pending');
+  });
+  it('a dialog that never opens (nothing to confirm) is not asked for', async () => {
+    const opened = [];
+    const h = harness(); h.c.askConfirm = async o => { opened.push(o); return true; };
+    await h.save();
+    expect(opened).toHaveLength(0); expect(success(h.state)).toBe(true);
   });
 });
