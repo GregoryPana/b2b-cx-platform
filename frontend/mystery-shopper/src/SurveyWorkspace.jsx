@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardCheck, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
+import { BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, ClipboardCheck, Info, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
 import { GuidePage, ScoringKeyCard } from "./SurveyGuide";
 
 import { cn } from "./lib/utils";
@@ -33,6 +33,13 @@ function parseChoices(question) {
   } catch {
     return [];
   }
+}
+
+// The shopper's own calendar day. toISOString() is UTC, which is still "yesterday" for the first
+// four hours of the day in Seychelles (UTC+4).
+function localDateString(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function categoryToId(value) {
@@ -74,8 +81,12 @@ function isQuestionDirty(question, draft = {}, existing = null) {
   return draftOnly.score !== persisted.score || draftOnly.answerText !== persisted.answerText || draftOnly.verbatim !== persisted.verbatim;
 }
 
-function QuestionField({ question, draft, onUpdate }) {
+const OPTION_GRID = "flex flex-wrap gap-2";
+const OPTION_BUTTON = "h-11 min-w-11 px-3";
+
+function QuestionField({ question, draft, onUpdate, disabled = false }) {
   const choices = parseChoices(question);
+  const groupLabel = `Answer for question ${displayQuestionNumber(question)}`;
 
   if (question.input_type === "score") {
     const scoreOptions = getScoreOptions(question);
@@ -86,7 +97,7 @@ function QuestionField({ question, draft, onUpdate }) {
     const scoreMax = scoreOptions[scoreOptions.length - 1];
     return (
       <div>
-        <div className="option-grid score-option-grid" role="group" aria-label={`Select a score from ${scoreMin} to ${scoreMax}`}>
+        <div className={OPTION_GRID} role="group" aria-label={`Select a score from ${scoreMin} to ${scoreMax}`}>
           {scoreOptions.map((scoreValue) => {
             const selected = String(draft.score ?? "") === String(scoreValue);
             return (
@@ -95,9 +106,10 @@ function QuestionField({ question, draft, onUpdate }) {
                 type="button"
                 variant={selected ? "default" : "outline"}
                 size="sm"
-                className="option-pill score-pill"
+                className={OPTION_BUTTON}
                 aria-pressed={selected}
                 aria-label={`Score ${scoreValue} out of ${scoreMax}`}
+                disabled={disabled}
                 onClick={() => onUpdate("score", String(scoreValue))}
               >
                 {scoreValue}
@@ -112,18 +124,18 @@ function QuestionField({ question, draft, onUpdate }) {
 
   if (question.input_type === "yes_no") {
     return (
-      <div className="option-grid" role="radiogroup" aria-label="Yes or No response">
-        <Button type="button" variant={draft.answer_text === "Y" ? "default" : "outline"} size="sm" className="option-pill" onClick={() => onUpdate("answer_text", "Y")}>Yes</Button>
-        <Button type="button" variant={draft.answer_text === "N" ? "default" : "outline"} size="sm" className="option-pill" onClick={() => onUpdate("answer_text", "N")}>No</Button>
+      <div className={OPTION_GRID} role="group" aria-label={`${groupLabel}: Yes or No`}>
+        <Button type="button" variant={draft.answer_text === "Y" ? "default" : "outline"} size="sm" className={cn(OPTION_BUTTON, "min-w-20")} aria-pressed={draft.answer_text === "Y"} disabled={disabled} onClick={() => onUpdate("answer_text", "Y")}>Yes</Button>
+        <Button type="button" variant={draft.answer_text === "N" ? "default" : "outline"} size="sm" className={cn(OPTION_BUTTON, "min-w-20")} aria-pressed={draft.answer_text === "N"} disabled={disabled} onClick={() => onUpdate("answer_text", "N")}>No</Button>
       </div>
     );
   }
 
   if (choices.length > 0) {
     return (
-      <div className="option-grid" role="radiogroup" aria-label="Select one option">
+      <div className={OPTION_GRID} role="group" aria-label={`${groupLabel}: select one option`}>
         {choices.map((choice) => (
-          <Button key={choice} type="button" variant={draft.answer_text === choice ? "default" : "outline"} size="sm" className="option-pill" onClick={() => onUpdate("answer_text", choice)}>
+          <Button key={choice} type="button" variant={draft.answer_text === choice ? "default" : "outline"} size="sm" className="h-auto min-h-11 whitespace-normal px-3 py-2 text-left" aria-pressed={draft.answer_text === choice} disabled={disabled} onClick={() => onUpdate("answer_text", choice)}>
             {choice}
           </Button>
         ))}
@@ -131,7 +143,7 @@ function QuestionField({ question, draft, onUpdate }) {
     );
   }
 
-  return <Textarea value={draft.answer_text || ""} onChange={(event) => onUpdate("answer_text", event.target.value)} />;
+  return <Textarea aria-label={groupLabel} value={draft.answer_text || ""} disabled={disabled} onChange={(event) => onUpdate("answer_text", event.target.value)} />;
 }
 
 function VisitRow({ visit, onSelect }) {
@@ -166,6 +178,9 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const [status, setStatus] = useState("Draft");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState("info");
+  const [messageSeq, setMessageSeq] = useState(0);
+  const messageRef = useRef(null);
+  const lockedRef = useRef(null);
   const [loadingDrafts, setLoadingDrafts] = useState(false);
   const [creatingVisit, setCreatingVisit] = useState(false);
   const [savingQuestionId, setSavingQuestionId] = useState(null);
@@ -199,6 +214,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const raiseMessage = useCallback((text, tone = "info") => {
     setMessage(text);
     setMessageTone(tone);
+    setMessageSeq((count) => count + 1);
   }, []);
 
   const groupedQuestions = useMemo(() => {
@@ -256,9 +272,15 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const activeSectionIndex = Math.max(0, groupedQuestions.findIndex(([category]) => category === currentCategory));
   const requiredPercent = totalMandatory > 0 ? Math.round((completedMandatory / totalMandatory) * 100) : 0;
 
-  const todayString = new Date().toISOString().split("T")[0];
-  const plannedToday = draftVisits.filter((v) => v.visit_date === todayString);
-  const plannedUpcoming = draftVisits.filter((v) => v.visit_date > todayString);
+  // A submitted (Pending) or later visit is read-only here; only Draft is editable.
+  const locked = status !== "Draft";
+
+  const todayString = localDateString();
+  const sortedDrafts = [...draftVisits].sort((a, b) => `${a.visit_date || ""} ${a.visit_time || ""}`.localeCompare(`${b.visit_date || ""} ${b.visit_time || ""}`));
+  // Every draft lands in exactly one group, so none can silently disappear from the list.
+  const plannedOverdue = sortedDrafts.filter((v) => v.visit_date && v.visit_date < todayString);
+  const plannedToday = sortedDrafts.filter((v) => v.visit_date === todayString);
+  const plannedUpcoming = sortedDrafts.filter((v) => !v.visit_date || v.visit_date > todayString);
 
   const sidebarPages = [
     { key: "planned", label: "Draft Visits", icon: CalendarDays },
@@ -391,11 +413,22 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
     }
   }, [purposeOptions, headerForm.purpose_of_visit]);
 
+  // Errors stay until dismissed or replaced (they can be long and the shopper has to act on them).
   useEffect(() => {
-    if (!message) return;
-    const timeout = window.setTimeout(() => setMessage(""), 3200);
+    if (!message || messageTone === "error") return undefined;
+    const timeout = window.setTimeout(() => setMessage(""), 6000);
     return () => window.clearTimeout(timeout);
-  }, [message]);
+  }, [message, messageTone, messageSeq]);
+
+  // Submit is at the bottom of the last section but the "Submitted for review" card is at the top: bring it into view.
+  useEffect(() => {
+    if (visitId && locked) lockedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [visitId, locked]);
+
+  // The banner sits at the top of the page but Save/Submit are at the bottom, so bring errors into view.
+  useEffect(() => {
+    if (message && messageTone === "error") messageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [message, messageTone, messageSeq]);
 
   // --- Actions ---
   const selectDraftVisit = useCallback(async (visit) => {
@@ -601,6 +634,23 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
     });
   }, []);
 
+  // Clears the open visit so the shopper can fill in a new visit header.
+  const startNewVisit = () => {
+    selection.current += 1;
+    operation.current = null;
+    setSavingQuestionId(null);
+    setSubmitting(false);
+    setVisitId("");
+    setStatus("Draft");
+    setResponsesByQuestion({});
+    liveDrafts.current = {};
+    setResponseDrafts({});
+    setHeaderForm((prev) => ({ ...prev, visit_date: "", visit_time: "", staff_on_duty: "" }));
+    setMessage("");
+    setCurrentCategory(groupedQuestions[0]?.[0] || "");
+    setActiveTab("survey");
+  };
+
   // --- Render ---
   return (
     <>
@@ -712,19 +762,25 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
           >
             {message && (
               <motion.div
+                ref={messageRef}
+                role={messageTone === "error" ? "alert" : "status"}
                 className={cn(
-                  "mb-4 rounded border px-4 py-3 text-sm",
+                  "mb-4 flex scroll-mt-32 items-start gap-3 rounded-lg border p-4 text-sm",
                   messageTone === "error"
                     ? "border-destructive/30 bg-destructive/10 text-destructive"
                     : messageTone === "success"
-                      ? "border-success/30 bg-emerald-50 text-emerald-900"
-                      : "border-amber-300 bg-amber-50 text-amber-900",
+                      ? "border-success/30 bg-success/10 text-foreground"
+                      : "bg-muted text-foreground",
                 )}
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                {message}
+                {messageTone === "error" ? <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> : messageTone === "success" ? <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" /> : <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />}
+                <p className="min-w-0 flex-1 break-words">{message}</p>
+                <Button type="button" variant="ghost" size="icon" className="-my-2 -mr-2 h-8 w-8 shrink-0" onClick={() => setMessage("")} aria-label="Dismiss message">
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </Button>
               </motion.div>
             )}
 
@@ -774,7 +830,22 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
               {activeTab === "guide" && <GuidePage onNavigateToTab={navigateFromGuide} />}
 
               {activeTab === "planned" && (
-                <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <div className="space-y-6">
+                  {plannedOverdue.length > 0 ? (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-center justify-between gap-2">
+                          <CardTitle>Overdue</CardTitle>
+                          <Badge variant="outline">{plannedOverdue.length}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">These drafts were planned for an earlier date. Open one to finish it.</p>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {plannedOverdue.map((visit) => <VisitRow key={visit.visit_id} visit={visit} onSelect={selectDraftVisit} />)}
+                      </CardContent>
+                    </Card>
+                  ) : null}
+                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0">
                       <CardTitle>Today</CardTitle>
@@ -794,6 +865,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                       {plannedUpcoming.map((visit) => <VisitRow key={visit.visit_id} visit={visit} onSelect={selectDraftVisit} />)}
                     </CardContent>
                   </Card>
+                  </div>
                 </div>
               )}
 
@@ -825,6 +897,28 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                         className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
                       >
                         <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${requiredPercent}%` }} />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {visitId && locked ? (
+                    <div ref={lockedRef} role="status" className="scroll-mt-32 rounded-lg border border-success/30 bg-success/10 p-4">
+                      <div className="flex items-start gap-3">
+                        <CircleCheck className="mt-0.5 h-5 w-5 shrink-0 text-success" aria-hidden="true" />
+                        <div className="min-w-0 flex-1 space-y-3">
+                          <div className="space-y-1">
+                            <p className="font-medium">{status === "Pending" ? "Submitted for review" : `Visit status: ${status}`}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {status === "Pending"
+                                ? "A CX reviewer checks it next. You can no longer edit it here; if it is sent back it appears in your draft visits again."
+                                : "This visit can no longer be edited here."}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button type="button" onClick={startNewVisit}>Start another survey</Button>
+                            <Button type="button" variant="outline" onClick={() => setActiveTab("planned")}>Back to draft visits</Button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -974,14 +1068,14 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                                             <Badge>{qLabel}</Badge>
                                             <div className="min-w-0 flex-1 space-y-2">
                                               <p className="font-medium leading-6">{question.question_text}</p>
-                                              <QuestionField question={question} draft={draft} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
+                                              <QuestionField question={question} draft={draft} disabled={locked} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
                                             </div>
                                           </div>
                                           <div className="flex items-center justify-between gap-3">
                                             <p className={cn("text-xs", hasChanges ? "text-amber-700" : hasSavedResponse ? "text-emerald-700" : "text-muted-foreground")}>
                                               {statusText}
                                             </p>
-                                            <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={submitting || savingQuestionId !== null || !hasChanges}>
+                                            <Button type="button" variant="outline" size="sm" onClick={() => saveQuestion(question)} disabled={locked || submitting || savingQuestionId !== null || !hasChanges}>
                                               {btnLabel}
                                             </Button>
                                           </div>
@@ -1008,7 +1102,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                                   ) : null}
                                 </div>
 
-                                {isLastSection ? (
+                                {isLastSection && !locked ? (
                                   <Card>
                                     <CardContent className="p-6">
                                       <div className="flex flex-wrap items-center justify-between gap-3">
