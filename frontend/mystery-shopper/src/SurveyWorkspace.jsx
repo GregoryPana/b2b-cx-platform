@@ -148,6 +148,36 @@ function QuestionField({ question, draft, onUpdate, disabled = false }) {
   return <Textarea aria-label={groupLabel} value={draft.answer_text || ""} disabled={disabled} onChange={(event) => onUpdate("answer_text", event.target.value)} />;
 }
 
+// Optional free-text comment saved with the answer (the `verbatim` field reviewers also see in the dashboard
+// and in the survey report). Collapsed unless a comment already exists; the initial state is fixed at mount so
+// clearing the text never closes the box under the shopper's cursor.
+function CommentField({ id, value, disabled, onChange }) {
+  const hasComment = value.trim().length > 0;
+  const initiallyOpen = useRef(hasComment).current;
+  if (disabled && !hasComment) return null;
+  return (
+    <details open={initiallyOpen || undefined} className="group">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md py-1 text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" aria-hidden="true" />
+        {hasComment ? "Comment" : "Add a comment"}
+        <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+      </summary>
+      <div className="mt-2">
+        <label htmlFor={id} className="sr-only">Comment for this question</label>
+        <Textarea
+          id={id}
+          value={value}
+          maxLength={4000}
+          disabled={disabled}
+          placeholder="What was said, how long you waited, anything that was unclear."
+          className="min-h-20"
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </div>
+    </details>
+  );
+}
+
 function VisitRow({ visit, onSelect }) {
   return (
     <button type="button" onClick={() => onSelect(visit)} className="flex w-full items-start justify-between gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-muted/40">
@@ -530,7 +560,9 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
       score: question.input_type === "score" ? Number(draft.score) : null,
       answer_text: question.input_type === "score" ? null : draft.answer_text || null,
       verbatim: draft.verbatim || null,
-      actions: [],
+      // The save endpoint overwrites stored actions with this list. Reviewers add action points, so send back
+      // exactly what was just read from the server instead of wiping them with [].
+      actions: Array.isArray(current?.actions) ? current.actions : [],
     };
     let lostReply;
     let reply;
@@ -1073,12 +1105,13 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                                         ? "Unsaved changes"
                                         : hasSavedResponse ? "Response captured" : "No response captured yet";
                                       return (
-                                        <div key={question.id} className="space-y-4 rounded-lg border p-4">
+                                        <div key={`${visitId}-${question.id}`} className="space-y-4 rounded-lg border p-4">
                                           <div className="flex items-start gap-3">
                                             <Badge>{qLabel}</Badge>
                                             <div className="min-w-0 flex-1 space-y-2">
                                               <p className="font-medium leading-6">{question.question_text}</p>
                                               <QuestionField question={question} draft={draft} disabled={locked} onUpdate={(field, value) => updateQuestionDraft(question.id, field, value)} />
+                                              <CommentField id={`comment-${question.id}`} value={draft.verbatim || ""} disabled={locked} onChange={(value) => updateQuestionDraft(question.id, "verbatim", value)} />
                                             </div>
                                           </div>
                                           <div className="flex items-center justify-between gap-3">
