@@ -11,7 +11,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, ClipboardCheck, Info, LoaderCircle, LogOut, Menu, PencilLine, PlayCircle, X } from "lucide-react";
-import { GuidePage, ScoringKeyCard } from "./SurveyGuide";
+import { GuidePage, ScoringKeyBody } from "./SurveyGuide";
+import Disclosure from "./components/Disclosure";
+import PageTitle from "./components/PageTitle";
 
 import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
@@ -634,6 +636,17 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
     });
   }, []);
 
+  // Re-runs the initial load after a failure, without reloading the page.
+  const retryLoad = async () => {
+    try {
+      await initialize();
+      await loadDrafts();
+      setMessage("");
+    } catch (error) {
+      raiseMessage(error.message || "Failed to initialise", "error");
+    }
+  };
+
   // Clears the open visit so the shopper can fill in a new visit header.
   const startNewVisit = () => {
     selection.current += 1;
@@ -691,7 +704,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                     type="button"
                     variant={activeTab === page.key ? "secondary" : "ghost"}
                     className="w-full justify-start gap-3"
-                    onClick={() => { setActiveTab(page.key); setMobileNavOpen(false); }}
+                    onClick={() => { setActiveTab(page.key); setEntryChoicePending(false); setMobileNavOpen(false); }}
                   >
                     <Icon className="h-4 w-4" />
                     <span>{page.label}</span>
@@ -699,26 +712,6 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                 );
               })}
             </nav>
-
-            {activeTab === "survey" && groupedQuestions.length > 0 && (
-              <div className="mt-6 space-y-3">
-                <p className="text-xs font-medium text-muted-foreground">Jump to section</p>
-                <div className="space-y-2">
-                  {groupedQuestions.map(([category], index) => (
-                    <Button
-                      key={category}
-                      type="button"
-                      variant={currentCategory === category ? "secondary" : "ghost"}
-                      className="h-auto w-full justify-start gap-3 px-3 py-2 text-left"
-                      onClick={() => { scrollToCategory(category); setMobileNavOpen(false); }}
-                    >
-                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background text-xs font-medium">{index + 1}</span>
-                      <span className="whitespace-normal">{category}</span>
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <div className="mt-auto rounded-lg border bg-muted/40 p-3">
               <p className="text-xs text-muted-foreground">Signed in</p>
@@ -750,7 +743,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                   <p className="truncate text-xs text-muted-foreground">Mystery Shopper survey workspace</p>
                 </div>
               </div>
-              <p className="truncate pl-2 text-xs text-muted-foreground">{userInfo?.name || "Unknown user"}</p>
+              <p className="truncate pl-2 text-xs text-muted-foreground lg:hidden">{userInfo?.name || "Unknown user"}</p>
             </motion.div>
           </header>
 
@@ -786,57 +779,56 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
 
             <div className="space-y-6">
               {entryChoicePending && (
-                <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }}>
-                  <Card className="border-primary/15 shadow-sm">
-                    <CardHeader>
-                      <CardTitle>How would you like to begin?</CardTitle>
-                    </CardHeader>
-                    <CardContent className="grid gap-3 md:grid-cols-2">
-                      <button
-                        type="button"
-                        onClick={() => { setEntryChoicePending(false); setActiveTab("survey"); setMobileNavOpen(false); raiseMessage("Fill out the visit header to begin a new survey.", "info"); }}
-                        className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10 active:scale-[0.99]"
-                      >
-                        <div className="flex items-center gap-3">
-                          <PlayCircle className="h-5 w-5 text-primary" />
-                          <div>
-                            <p className="font-medium">Start a new survey</p>
-                            <p className="text-sm text-muted-foreground">Open the visit header and create a fresh Mystery Shopper visit.</p>
-                          </div>
+                <motion.div className="space-y-6" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }}>
+                  <PageTitle title="How would you like to begin?" />
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => { setEntryChoicePending(false); setActiveTab("survey"); setMobileNavOpen(false); }}
+                      className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-left transition-colors hover:bg-primary/10"
+                    >
+                      <div className="flex items-center gap-3">
+                        <PlayCircle className="h-5 w-5 text-primary" aria-hidden="true" />
+                        <div>
+                          <p className="font-medium">Start a new survey</p>
+                          <p className="text-sm text-muted-foreground">Enter the visit details and create a fresh Mystery Shopper visit.</p>
                         </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setEntryChoicePending(false); setActiveTab("planned"); setMobileNavOpen(false); }}
-                        disabled={loadingDrafts || draftVisits.length === 0}
-                        className="rounded-xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <div className="flex items-center gap-3">
-                          <CalendarDays className="h-5 w-5 text-primary" />
-                          <div>
-                            <p className="font-medium">Load an existing draft</p>
-                            <p className="text-sm text-muted-foreground">Resume one of {draftVisits.length} draft visit{draftVisits.length === 1 ? "" : "s"} already saved.</p>
-                          </div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEntryChoicePending(false); setActiveTab("planned"); setMobileNavOpen(false); }}
+                      disabled={loadingDrafts || draftVisits.length === 0}
+                      className="rounded-lg border p-4 text-left transition-colors hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <div className="flex items-center gap-3">
+                        <CalendarDays className="h-5 w-5 text-primary" aria-hidden="true" />
+                        <div>
+                          <p className="font-medium">Load an existing draft</p>
+                          <p className="text-sm text-muted-foreground">
+                            {loadingDrafts ? "Checking for saved drafts..." : draftVisits.length === 0 ? "You have no saved drafts." : `Resume one of ${draftVisits.length} draft visit${draftVisits.length === 1 ? "" : "s"} already saved.`}
+                          </p>
                         </div>
-                      </button>
-                    </CardContent>
-                  </Card>
-                  <div className="mt-6">
-                    <ScoringKeyCard />
+                      </div>
+                    </button>
                   </div>
+                  <Disclosure summary="Scoring key" meta="Read before you start">
+                    <ScoringKeyBody />
+                  </Disclosure>
                 </motion.div>
               )}
 
               {activeTab === "guide" && <GuidePage onNavigateToTab={navigateFromGuide} />}
 
-              {activeTab === "planned" && (
+              {activeTab === "planned" && !entryChoicePending && (
                 <div className="space-y-6">
+                  <PageTitle title="Draft visits" description="Pick up a visit you have already started or planned." />
                   {plannedOverdue.length > 0 ? (
                     <Card>
                       <CardHeader>
                         <div className="flex items-center justify-between gap-2">
                           <CardTitle>Overdue</CardTitle>
-                          <Badge variant="outline">{plannedOverdue.length}</Badge>
+                          <Badge variant="warning">{plannedOverdue.length}</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground">These drafts were planned for an earlier date. Open one to finish it.</p>
                       </CardHeader>
@@ -845,7 +837,6 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                       </CardContent>
                     </Card>
                   ) : null}
-                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0">
                       <CardTitle>Today</CardTitle>
@@ -854,23 +845,26 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                       </Button>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {plannedToday.length === 0 && <p className="text-sm text-muted-foreground">No visits planned for today.</p>}
+                      {plannedToday.length === 0 && <p className="rounded-lg border p-4 text-sm text-muted-foreground">No visits planned for today.</p>}
                       {plannedToday.map((visit) => <VisitRow key={visit.visit_id} visit={visit} onSelect={selectDraftVisit} />)}
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardHeader><CardTitle>Upcoming</CardTitle></CardHeader>
-                    <CardContent className="space-y-3">
-                      {plannedUpcoming.length === 0 && <p className="text-sm text-muted-foreground">No upcoming visits.</p>}
+                  {plannedUpcoming.length > 0 ? (
+                    <Disclosure summary="Upcoming" meta={`${plannedUpcoming.length} visit${plannedUpcoming.length === 1 ? "" : "s"}`}>
                       {plannedUpcoming.map((visit) => <VisitRow key={visit.visit_id} visit={visit} onSelect={selectDraftVisit} />)}
-                    </CardContent>
-                  </Card>
-                  </div>
+                    </Disclosure>
+                  ) : (
+                    <p className="rounded-lg border p-4 text-sm text-muted-foreground">No upcoming visits.</p>
+                  )}
                 </div>
               )}
 
               {activeTab === "survey" && (
                 <div className="space-y-6">
+                  <PageTitle
+                    title={visitId ? "Survey" : "New visit"}
+                    description={visitId ? undefined : "Enter the visit details to create the visit. The questions open once it is created."}
+                  />
                   {visitId ? (
                     <div className="sticky top-14 z-10 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
                       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -923,7 +917,10 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                     </div>
                   ) : null}
 
-                  <ScoringKeyCard compact />
+                  {/* Open before the visit exists (read it first), closed once the questions are showing. */}
+                  <Disclosure key={visitId ? "in-visit" : "before-visit"} summary="Scoring key" meta={visitId ? "Reference" : "Read before you start"} defaultOpen={!visitId}>
+                    <ScoringKeyBody />
+                  </Disclosure>
 
                   {visitId ? (
                     <Card>
@@ -942,42 +939,55 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
                     <Card>
                       <CardHeader><CardTitle>Visit details</CardTitle></CardHeader>
                       <CardContent className="space-y-6">
+                        {questionnaireState === "error" || questionnaireState === "empty" || (questionnaireState === "ready" && locations.length === 0) ? (
+                          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                            <p className="min-w-0 flex-1">
+                              {questionnaireState === "error"
+                                ? "The questions or locations could not be loaded, so a visit cannot be created yet."
+                                : questionnaireState === "empty"
+                                  ? "There are no Mystery Shopper questions yet. Ask an administrator to configure the questionnaire."
+                                  : "No active locations are available. Ask an administrator to add the location you visited."}
+                            </p>
+                            <Button type="button" variant="outline" size="sm" onClick={retryLoad}>Try again</Button>
+                          </div>
+                        ) : null}
+                        <p className="text-sm text-muted-foreground">All fields are required.</p>
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                           <div className="space-y-2">
-                            <label className="block text-sm font-medium">Customer Service Centre</label>
-                            <Select value={headerForm.location_id} onChange={(e) => setHeaderForm((prev) => ({ ...prev, location_id: e.target.value }))}>
+                            <label htmlFor="visit-location" className="block text-sm font-medium">Customer Service Centre <span aria-hidden="true" className="text-destructive">*</span></label>
+                            <Select id="visit-location" aria-required="true" value={headerForm.location_id} onChange={(e) => setHeaderForm((prev) => ({ ...prev, location_id: e.target.value }))}>
                               <option value="">Select location</option>
                               {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                             </Select>
                           </div>
                           <div className="space-y-2">
-                            <label className="block text-sm font-medium">Date of Visit</label>
-                            <Input type="date" value={headerForm.visit_date} onChange={(e) => setHeaderForm((prev) => ({ ...prev, visit_date: e.target.value }))} />
+                            <label htmlFor="visit-date" className="block text-sm font-medium">Date of Visit <span aria-hidden="true" className="text-destructive">*</span></label>
+                            <Input id="visit-date" aria-required="true" type="date" value={headerForm.visit_date} onChange={(e) => setHeaderForm((prev) => ({ ...prev, visit_date: e.target.value }))} />
                           </div>
                           <div className="space-y-2">
-                            <label className="block text-sm font-medium">Time of Visit</label>
-                            <Input type="time" value={headerForm.visit_time} onChange={(e) => setHeaderForm((prev) => ({ ...prev, visit_time: e.target.value }))} />
+                            <label htmlFor="visit-time" className="block text-sm font-medium">Time of Visit <span aria-hidden="true" className="text-destructive">*</span></label>
+                            <Input id="visit-time" aria-required="true" type="time" value={headerForm.visit_time} onChange={(e) => setHeaderForm((prev) => ({ ...prev, visit_time: e.target.value }))} />
                           </div>
                           <div className="space-y-2">
-                            <label className="block text-sm font-medium">Purpose of Visit</label>
-                            <Select value={headerForm.purpose_of_visit} onChange={(e) => setHeaderForm((prev) => ({ ...prev, purpose_of_visit: e.target.value }))}>
+                            <label htmlFor="visit-purpose" className="block text-sm font-medium">Purpose of Visit <span aria-hidden="true" className="text-destructive">*</span></label>
+                            <Select id="visit-purpose" aria-required="true" value={headerForm.purpose_of_visit} onChange={(e) => setHeaderForm((prev) => ({ ...prev, purpose_of_visit: e.target.value }))}>
                               {purposeOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                             </Select>
                           </div>
                           <div className="space-y-2">
-                            <label className="block text-sm font-medium">Staff on Duty</label>
-                            <Input value={headerForm.staff_on_duty} onChange={(e) => setHeaderForm((prev) => ({ ...prev, staff_on_duty: e.target.value }))} />
+                            <label htmlFor="visit-staff" className="block text-sm font-medium">Staff on Duty <span aria-hidden="true" className="text-destructive">*</span></label>
+                            <Input id="visit-staff" aria-required="true" value={headerForm.staff_on_duty} onChange={(e) => setHeaderForm((prev) => ({ ...prev, staff_on_duty: e.target.value }))} />
                           </div>
                           <div className="space-y-2">
-                            <label className="block text-sm font-medium">Mystery Shopper Name (You)</label>
-                            <Input value={headerForm.shopper_name} disabled readOnly title="Filled automatically from your account" />
+                            <label htmlFor="visit-shopper" className="block text-sm font-medium">Mystery Shopper Name (You)</label>
+                            <Input id="visit-shopper" value={headerForm.shopper_name} disabled readOnly title="Filled automatically from your account" />
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
-                          <Button type="button" onClick={createVisitFn} disabled={creatingVisit}>
+                          <Button type="button" onClick={createVisitFn} disabled={creatingVisit || !questionnaireReady}>
                             {creatingVisit ? "Creating..." : "Create visit and start"}
                           </Button>
-                          <p className="text-sm text-muted-foreground">The questions open once the visit is created.</p>
+                          {!questionnaireReady && questionnaireState === "loading" ? <p className="text-sm text-muted-foreground">Loading the questionnaire...</p> : null}
                         </div>
                       </CardContent>
                     </Card>
