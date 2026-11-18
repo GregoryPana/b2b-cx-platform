@@ -1,13 +1,13 @@
 {
   "schema": 1,
   "video_set": "mystery-enrollment",
-  "video_version": "v05",
+  "video_version": "v06",
   "videos": [
     "enrollment-desktop (16:9)",
     "enrollment-mobile (9:16)"
   ],
   "recorded_at": "2026-11-18",
-  "recorded_against_commit": "d9d0d2c",
+  "recorded_against_commit": "94f1322",
   "notes": "Screens recorded from the real app (shopper app in mystery_public mode) with a fictional shopper. Hashes are of the files the video depends on; a change means a video step may no longer match. See docs/tutorials/README.md.",
   "screens": [
     {
@@ -30,7 +30,7 @@
         "backend/app/api/mystery_auth.py::_build_enrollment_email"
       ],
       "baseline": {
-        "backend/app/api/mystery_auth.py::_build_enrollment_email": "ddf422ee50878eafd1920a53b95e6a3cb11d4c83ed24c959b97d6f05790a0035"
+        "backend/app/api/mystery_auth.py::_build_enrollment_email": "3df3a2c9f35a59e9f93dc4d3c6eaa0939882e9aeb0dfd160f939a7bde2a39105"
       }
     },
     {
@@ -226,6 +226,20 @@
         "email: backend/app/api/mystery_auth.py::_build_enrollment_email",
         "enroll-page: frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx",
         "sign-in: frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx"
+      ]
+    },
+    {
+      "date": "2026-11-18",
+      "kind": "rerecorded",
+      "screens": [
+        "email"
+      ],
+      "reason": "Re-recorded desktop and mobile walkthroughs: enrollment email now shows the permanent sign-in button, copyable address and bookmark advice; final sign-in caption updated.",
+      "by": "owner",
+      "commit": "94f1322",
+      "video_version": "v06",
+      "changes_covered": [
+        "email: backend/app/api/mystery_auth.py::_build_enrollment_email"
       ]
     }
   ]
