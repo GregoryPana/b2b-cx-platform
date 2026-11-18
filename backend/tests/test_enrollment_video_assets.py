@@ -11,17 +11,17 @@ EMAIL_FILES = ["enrollment-desktop-email.mp4", "enrollment-mobile-email.mp4"]
 
 class EnrollmentVideoAssetsTest(unittest.TestCase):
     def test_checksums_match_files(self):
-        lines = (ASSET_DIR / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
-        self.assertTrue(lines, "SHA256SUMS is empty")
+        lines = (ASSET_DIR / "checksums.sha256").read_text(encoding="utf-8").splitlines()
+        self.assertTrue(lines, "checksums.sha256 is empty")
         listed = set()
         for line in lines:
             digest, name = line.split(" ", 1)
             name = name.lstrip("* ").strip()
             listed.add(name)
             actual = hashlib.sha256((ASSET_DIR / name).read_bytes()).hexdigest()
-            self.assertEqual(digest, actual, f"{name} changed; regenerate SHA256SUMS if intentional")
-        on_disk = {p.name for p in ASSET_DIR.iterdir() if p.name != "SHA256SUMS"}
-        self.assertEqual(listed, on_disk, "files and SHA256SUMS disagree")
+            self.assertEqual(digest, actual, f"{name} changed; regenerate checksums.sha256 if intentional")
+        on_disk = {p.name for p in ASSET_DIR.iterdir() if p.name != "checksums.sha256"}
+        self.assertEqual(listed, on_disk, "files and checksums.sha256 disagree")
 
     def test_both_email_videos_attach_under_the_size_cap(self):
         from app.core.enrollment_video import load_enrollment_video_attachments

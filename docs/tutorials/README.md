@@ -40,7 +40,7 @@ Both update the baseline hashes and append to `history` in the manifest (date, r
 
 ## Where the videos live and how they ship
 
-Single source folder: `frontend/mystery-shopper/public/tutorials/enrollment/`. Vite copies it into the shopper app build, so **both** the internal bundle and the DMZ bundle carry the same files and nothing is fetched across VMs at run time. The DMZ bundle's `SHA256SUMS` already covers them; `backend/tests/test_enrollment_video_assets.py` also checks them against the folder's own `SHA256SUMS`.
+Single source folder: `frontend/mystery-shopper/public/tutorials/enrollment/`. Vite copies it into the shopper app build, so **both** the internal bundle and the DMZ bundle carry the same files and nothing is fetched across VMs at run time. The DMZ bundle's `SHA256SUMS` already covers them; `backend/tests/test_enrollment_video_assets.py` also checks them against the folder's own `checksums.sha256`.
 
 | File | Used for |
 | --- | --- |
@@ -53,4 +53,4 @@ Single source folder: `frontend/mystery-shopper/public/tutorials/enrollment/`. V
   `ENROLLMENT_VIDEO_ATTACH=true`,
   `ENROLLMENT_VIDEO_DIR=/opt/cwscx/frontends-src/public/mystery-shopper/dist/tutorials/enrollment`,
   `ENROLLMENT_VIDEO_FILES=enrollment-desktop-email.mp4,enrollment-mobile-email.mp4`, then restart `cwscx-backend`. Remove `ENROLLMENT_VIDEO_ATTACH` to switch it off. A missing file never blocks an email; it is sent without the video.
-- **Updating a video:** re-record, replace the files, regenerate the sums (`cd` into the folder, `sha256sum $(ls | grep -v SHA256SUMS | sort) > SHA256SUMS`), then `rebaseline` as above. Keep the two email encodes under about 8 MB in total (the SMTP relay limit is 15.7 MB after base64 growth).
+- **Updating a video:** re-record, replace the files, regenerate the sums (`cd` into the folder, `sha256sum $(ls | grep -v checksums.sha256 | sort) > checksums.sha256`), then `rebaseline` as above. Keep the two email encodes under about 8 MB in total (the SMTP relay limit is 15.7 MB after base64 growth).
