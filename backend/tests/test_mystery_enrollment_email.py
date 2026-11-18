@@ -66,3 +66,27 @@ class EnrollmentVideoEmailTests(unittest.TestCase):
             self.assertIn("before you connect to the CWS VPN", body)
         # the video note comes before Step 1
         self.assertLess(text_body.index("WATCH FIRST"), text_body.index("STEP 1"))
+
+
+class SigninLinkTests(unittest.TestCase):
+    SIGNIN = "https://cwscx-web01.cwsey.com/"
+
+    def test_signin_section_has_button_and_copyable_link_without_the_token(self):
+        _, (_, text_body, html_body) = _build(30)
+        section = html_body[html_body.index("After you enroll"):]
+        self.assertIn(f'href="{self.SIGNIN}"', section)
+        self.assertIn("Sign in to the platform", section)
+        self.assertIn("bookmark", section)
+        self.assertNotIn(TOKEN, section)  # the permanent link must never carry the one-time token
+        text_section = text_body[text_body.index("AFTER YOU ENROLL"):text_body.index("IMPORTANT")]
+        self.assertIn(self.SIGNIN, text_section)
+        self.assertIn("bookmark", text_section)
+        self.assertNotIn(TOKEN, text_section)
+
+    def test_explicit_signin_url_is_used_and_escaped(self):
+        expires_at = m.utcnow() + timedelta(minutes=30)
+        _, text_body, html_body = m._build_enrollment_email(
+            "A B", URL, expires_at, "Admin", "a@example.com", signin_url="https://example.test/app/?a=1&b=2"
+        )
+        self.assertIn("https://example.test/app/?a=1&b=2", text_body)
+        self.assertIn("https://example.test/app/?a=1&amp;b=2", html_body)
