@@ -381,6 +381,8 @@ Structure: `Card > CardHeader (CardTitle + CardDescription) > CardContent > Card
 - Every content card gets a `CardTitle` (short noun phrase) and, when the card isn't self-evident, a one-sentence `CardDescription` in plain English, e.g. *"See which survey is currently open, who it belongs to, and what still needs to be completed."* This description habit is a signature of the house style — use it liberally.
 - Card surface obeys §3.3 (light: tinted, borderless, `shadow-sm`; dark: lighter-than-bg + subtle border).
 - Sub-groups inside cards: `rounded-md bg-muted p-3` blocks, with `text-xs text-muted-foreground` labels above values.
+- **No cards inside cards.** A repeated item inside a card (a visit row, a question, an installation check) is a plain bordered block, `rounded-lg border p-4`, never a nested `Card`. Empty states inside a card are `rounded-lg border p-4 text-sm text-muted-foreground`, not another card. Nested surfaces stack shadows and borders and make hierarchy unreadable on phones.
+- **Page-level groupings the user may want to skip** (submitted history, optional details, reference guides) are a Disclosure (§4.11), not a permanently open card.
 
 ## 4.3 Input, Textarea, Select, Label
 
@@ -424,7 +426,9 @@ Selected = solid primary; unselected = outline. This gives one-tap answers, visi
 - Sortable/filterable/paginated data: `@tanstack/react-table` wrapped in the shadcn DataTable pattern (column header sort buttons, pagination footer, view options).
 - Row actions live at the row end as `ghost`/`outline` `size="sm"` buttons or a "⋯" menu when >2 actions.
 - Every table scrolls horizontally inside its own wrapper (`overflow-x-auto`) — the page never scrolls sideways.
-- Empty table = empty state (§7.5), not a blank body.
+- Empty table = empty state (§7.5), not a blank body. Inside a table the empty and loading rows are one full-width cell: `colSpan={visibleColumns}` with `py-8 text-center text-sm text-muted-foreground`, and the text says what to do next.
+- **Table controls are labelled.** The filter-column `<Select>` and the filter-value `<Input>` need an `aria-label` (placeholders are not labels); pagination icon buttons need `aria-label` ("First page", "Previous page", "Next page", "Last page") and the rows-per-page select "Rows per page".
+- Review/approval tables expose every state transition the backend supports (Approve, Needs Changes, Reject) as row actions, each opening a dialog (§7.3), never `window.prompt` or `window.confirm`. Keep the page description in sync with the actions offered.
 
 ## 4.8 Dialog / Sheet / Popover / Tooltip / DropdownMenu
 
@@ -443,6 +447,18 @@ Selected = solid primary; unselected = outline. This gives one-tap answers, visi
 ## 4.10 Separator, Checkbox, Switch, Accordion
 
 Use stock shadcn versions, token-styled. `Separator` sparingly — prefer whitespace for grouping; separators mark genuine region boundaries (e.g., sidebar footer meta).
+
+## 4.11 Disclosure (progressive disclosure)
+
+Use a `Disclosure`, a native `<details>`/`<summary>` wrapper with a chevron, to keep the default view short without hiding anything from keyboard or screen-reader users. Props: `summary` (what it is), optional `meta` (count or state, right-aligned), `defaultOpen`, `className`. Body `space-y-4 border-t px-4 py-4`; summary row `rounded-lg border bg-card`.
+
+Rules:
+
+- **Open by default only when the content needs attention or action now.** Open: Overdue and Today visit groups; "Visit details" while the account executive or team is missing; "Action points" when some exist. Closed: history (Submitted visits), optional inputs (visit type / account executive / team on the Start form), reference material (Scoring guide on phones).
+- Put a **count or state in `meta`** ("12 visits", "Optional", "Needs attention") so a closed Disclosure still informs.
+- Responsive reference content (scoring guide, legends) may open by default on `lg` and stay closed below it: `defaultOpen={window.matchMedia("(min-width: 1024px)").matches}`.
+- Do not use Disclosure for sequential steps (use the section flow in §5.4) or for content the user must read before acting.
+- Prefer native `<details>` over a JS accordion: no state to manage, correct semantics, works without hydration.
 
 ---
 
@@ -476,11 +492,26 @@ Analytics ordering within regions 3–4: volume/response overview → core KPIs 
 - Content grid: CSS grid with Tailwind (`grid-cols-1 md:grid-cols-2 lg:grid-cols-4` for KPIs; `lg:grid-cols-3` for chart layouts with a 2/3 + 1/3 split).
 - Breakpoints (Tailwind defaults): stack everything at `<768px` in a single column, preserving the *same* section order as desktop priority; 2-column at `md`; full layout at `lg`/`xl`; content max-width 1600px.
 - No clipping, no overlapping fixed elements, no hidden primary actions at any width. Wide content scrolls within its own container.
-- Sticky elements allowed: header bar, sidebar, in-page jump-nav. Nothing sticky may obscure content or stack over toasts (toasts own `z-50`).
+- Sticky elements allowed: header bar, sidebar, in-page jump-nav, survey progress bar (§5.4). Nothing sticky may obscure content or stack over toasts (toasts own `z-50`).
+- **Sticky gotcha:** `position: sticky` pins to the nearest ancestor that can scroll, and any ancestor with `overflow-y: auto|scroll|hidden` counts even if it never actually scrolls. The shell's `<main>` must be a plain `flex-1` with no `overflow-*` classes, otherwise a sticky header inside the page silently stops sticking. Sticky bars under the 56px header use `top-14`, and anchor targets they would cover need `scroll-mt-32` or larger.
 
 ## 5.4 In-page navigation for long forms (survey pattern)
 
 Long questionnaires group questions into **category sections**, each an anchor target, with a jump-nav: sticky sidebar list on desktop, a collapsible "Jump to section" toggle on mobile. The active section is highlighted. Show per-category progress ("4/6 answered") wherever cheap to compute.
+
+### One section at a time (B2B survey, adopted 2026-11)
+
+For questionnaires with more than ~10 questions or several categories, show **one category at a time** rather than one endless page:
+
+1. **Sticky progress header** (`sticky top-14 z-10 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6`): subject (business / assessment), who is answering, status Badge, "x/y required saved", and a `role="progressbar"` bar with `aria-valuenow`. It replaces any overview-tile card; do not show seven stat tiles above the form.
+2. **Context details in a Disclosure** (§4.11) directly under the header, open only while required details are missing.
+3. **Section chips** (`role="group"`, horizontally scrollable on phones): `1. Short name`; the current one `variant="default"` with `aria-current="step"`; completed ones show a `Check` icon. Strip "Category N:" prefixes from chip labels.
+4. **Section header**: `Section N of M` eyebrow (`text-xs uppercase tracking-wider text-muted-foreground`), the category name as `h2`, and an `n/m required saved` Badge.
+5. **Questions** each in one `rounded-lg border bg-card p-4 md:p-6` block with `space-y-4`; optional parts (action points) collapsed in a Disclosure.
+6. **Previous / Next section** buttons. The **Submit** card renders only on the last section and only when not read-only. One default (solid) button per visible section.
+7. Switching section scrolls the section header into view (`scrollIntoView({block:"start"})`, with `scroll-mt`).
+
+Checklists where every item is scored in one pass (installation assessment) stay on a single page but use the same **sticky progress bar** ("N/M checks scored" + current score), and the submission result appears per §7.2.
 
 ---
 
@@ -537,6 +568,12 @@ For state that should **persist on screen** (a form-level error, an access warni
 ```
 
 Animate mount/unmount with framer-motion (§8.2). Rule of thumb: toast for *events*, banner for *conditions*.
+
+Placement and semantics (added in the 2026-11 audit):
+
+- A banner that reports the outcome of a submit (success, "saved but not verified", error) goes **at the top of the page content, above the form**, never inside the first card of a long form, where it is off screen after the user scrolls to the submit button. Mount it in a wrapper with `scroll-mt-32` and call `scrollIntoView({behavior:"smooth", block:"start"})` when it appears.
+- Use `role="alert"` for errors and `role="status"` for success and warning banners so screen readers announce them. Banner padding `p-4`, `rounded-lg`, internal stack `space-y-2`.
+- Do not show the same success twice: if a toast already reported it and the screen state (status chip, list move) shows it, drop the banner. Keep a banner only when it carries information the user must keep (a reference number, an unverified-save warning).
 
 ## 7.3 Action lifecycles
 
@@ -747,7 +784,10 @@ Conversion rules:
 - [ ] All primitives are shadcn/ui from `components/ui/`, token-styled, single implementation each.
 - [ ] Page anatomy order: header → filters → KPIs → detail → actions.
 - [ ] One solid-primary button per section; explicit verb labels; destructive actions confirmed.
-- [ ] Tables scroll in their own wrapper; numerics `tabular-nums`; empty states designed.
+- [ ] Tables scroll in their own wrapper; numerics `tabular-nums`; empty states designed; filter controls and pagination buttons have `aria-label`s.
+- [ ] No card inside a card; optional, history and reference content is a Disclosure with a count or state in `meta`.
+- [ ] Long surveys use the one-section flow with sticky progress (§5.4); no `overflow-*` on the shell `<main>`, verified by scrolling in a browser.
+- [ ] Submit-result banners sit above the form with a `role` and scroll into view; no duplicate toast plus banner.
 
 **Feedback & motion**
 
@@ -810,3 +850,16 @@ A consistency sweep was applied on 2026-07-07 (user decisions: deep CWS blue sta
 12. **Tooltip/guidance coverage is uneven.** ⏳ OPEN. Derived metrics in survey apps should gain info-tips per §9.1.
 13. **frontend-unified.** ⏳ OPEN (untouched by design). Archive it; never extend.
 14. **Accent token.** ✅ RESOLVED (found during sweep). survey/mystery/blueprint had a saturated cyan `--accent` (`188 100% 39%`), making ghost/outline hovers bright cyan. All apps now use the canonical light-tint hover accent (`214 100% 96%` light / `217 33% 17%` dark).
+
+## A.3 UI audit log, November 2026 (what changed and the lesson from each)
+
+| PRs | Area | Change | Principle it established |
+| --- | ---- | ------ | ------------------------ |
+| #44-#48 | Dashboard, shopper, side panels | Cleanup chain: side panels replace inline flyouts, copy and spacing alignment | Prefer `SidePanel`/dialog over cramped inline editing (§4.8) |
+| #49 | B2B survey | One section at a time, sticky progress header, section chips, visit details collapsed, overview tiles removed | §5.4 one-section flow; §5.3 sticky gotcha (`<main overflow-y-auto>` broke stickiness in survey and installation layouts) |
+| #52 | B2B survey planned visits | Overdue/Today/Upcoming as Disclosures, submitted history collapsed, nested cards removed, optional start-form fields collapsed | §4.2 no nested cards; §4.11 Disclosure rules |
+| #54 | Installation survey | Result banner above the form with scroll-into-view, h1 reduced to `text-2xl md:text-3xl`, sticky "N/M scored", Scoring guide as responsive Disclosure | §7.2 banner placement; one h1 at the canonical size (never `text-4xl`) |
+| #55 | Dashboard data tables | aria-labels on filters and pagination, centered empty/loading rows, Review Queue copy matches its actions | §4.7 table controls |
+| #59 | Repository | Legacy `frontend/dashboard` removed; `dashboard-blueprint` is the only admin dashboard | Do not keep a second, unbuilt implementation of a screen |
+
+Still open: `window.confirm` for deleting planned visits, executives, locations and purposes and for suspending a user should move to `ActionDialog` (§7.3); phone-width verification of the new survey flows; coverage of the remaining apps (mystery-shopper in-survey screens, dashboard analytics pages).
