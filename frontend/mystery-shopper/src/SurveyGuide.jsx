@@ -1,44 +1,54 @@
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
+import PageTitle from "./components/PageTitle";
+import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+
+// The scoring key content on its own, so it can sit in a Disclosure or a Card.
+export function ScoringKeyBody() {
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="text-muted-foreground">
+        Questions use different answer types. For every numeric scale, the lowest number is always the worst
+        experience and the highest number is always the best experience.
+      </p>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="rounded-md border p-3">
+          <p className="font-semibold">1 – 5 scale</p>
+          <p className="mt-1 text-muted-foreground">
+            <strong>1 = lowest</strong> (very poor) · <strong>5 = highest</strong> (excellent).
+            Used for most service-quality questions.
+          </p>
+        </div>
+        <div className="rounded-md border p-3">
+          <p className="font-semibold">0 – 10 scale</p>
+          <p className="mt-1 text-muted-foreground">
+            <strong>0 = lowest</strong> (not at all likely / very poor) · <strong>10 = highest</strong> (extremely
+            likely / excellent). Used for recommendation-style questions.
+          </p>
+        </div>
+        <div className="rounded-md border p-3">
+          <p className="font-semibold">Yes / No &amp; text</p>
+          <p className="mt-1 text-muted-foreground">
+            Yes/No questions record whether something happened. Text questions ask you to describe what you
+            observed in your own words.
+          </p>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Each question shows its own scale on the answer buttons (for example 1–5 or 0–10), so the range to use is
+        always visible while you answer. Score honestly based on what you actually experienced during the visit.
+      </p>
+    </div>
+  );
+}
 
 export function ScoringKeyCard({ compact = false }) {
   return (
     <Card className={compact ? "border-dashed" : "border-primary/15 shadow-sm"}>
       <CardHeader className={compact ? "pb-2" : undefined}>
         <CardTitle className={compact ? "text-base" : undefined}>Scoring key — read before you start</CardTitle>
-        <CardDescription>
-          Questions use different answer types. For every numeric scale, the lowest number is always the worst
-          experience and the highest number is always the best experience.
-        </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="rounded-md border p-3">
-            <p className="font-semibold">1 – 5 scale</p>
-            <p className="mt-1 text-muted-foreground">
-              <strong>1 = lowest</strong> (very poor) · <strong>5 = highest</strong> (excellent).
-              Used for most service-quality questions.
-            </p>
-          </div>
-          <div className="rounded-md border p-3">
-            <p className="font-semibold">0 – 10 scale</p>
-            <p className="mt-1 text-muted-foreground">
-              <strong>0 = lowest</strong> (not at all likely / very poor) · <strong>10 = highest</strong> (extremely
-              likely / excellent). Used for recommendation-style questions.
-            </p>
-          </div>
-          <div className="rounded-md border p-3">
-            <p className="font-semibold">Yes / No &amp; text</p>
-            <p className="mt-1 text-muted-foreground">
-              Yes/No questions record whether something happened. Text questions ask you to describe what you
-              observed in your own words.
-            </p>
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Each question shows its own scale on the answer buttons (for example 1–5 or 0–10), so the range to use is
-          always visible while you answer. Score honestly based on what you actually experienced during the visit.
-        </p>
+      <CardContent>
+        <ScoringKeyBody />
       </CardContent>
     </Card>
   );
@@ -127,15 +137,10 @@ const GUIDE_SECTIONS = [
 export function GuidePage({ onNavigateToTab }) {
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-xl">Mystery Shopper User Guide</CardTitle>
-          <CardDescription>
-            Everything you need to use this platform from start to finish: your role, getting access, signing in,
-            completing surveys, and who to contact when you need help.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <PageTitle
+        title="User guide"
+        description="Everything you need to use this platform from start to finish: your role, getting access, signing in, completing surveys, and who to contact when you need help."
+      />
 
       <ScoringKeyCard compact />
 
