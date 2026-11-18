@@ -1,13 +1,13 @@
 {
   "schema": 1,
   "video_set": "mystery-enrollment",
-  "video_version": "v04",
+  "video_version": "v05",
   "videos": [
     "enrollment-desktop (16:9)",
     "enrollment-mobile (9:16)"
   ],
-  "recorded_at": "2026-11-17",
-  "recorded_against_commit": "3186db2",
+  "recorded_at": "2026-11-18",
+  "recorded_against_commit": "d9d0d2c",
   "notes": "Screens recorded from the real app (shopper app in mystery_public mode) with a fictional shopper. Hashes are of the files the video depends on; a change means a video step may no longer match. See docs/tutorials/README.md.",
   "screens": [
     {
@@ -30,7 +30,7 @@
         "backend/app/api/mystery_auth.py::_build_enrollment_email"
       ],
       "baseline": {
-        "backend/app/api/mystery_auth.py::_build_enrollment_email": "72a48ee86fa37ee8345bb89befa5078d7d1bb6ea8ce94825647f0a11fff50ba7"
+        "backend/app/api/mystery_auth.py::_build_enrollment_email": "ddf422ee50878eafd1920a53b95e6a3cb11d4c83ed24c959b97d6f05790a0035"
       }
     },
     {
@@ -68,7 +68,7 @@
         "frontend/mystery-shopper/public/branding/*"
       ],
       "baseline": {
-        "frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx": "b7ebc745215f7681949a416260e53987bb5c664b2f977a1bbbcedf66efc33765",
+        "frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx": "26fbba9fb1d185a6d97a3ff21fc38d53820a689eb247045c57c73e2be04c8e9b",
         "frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx": "c3807def28895e6f02fc9be40a9cfa0a39307c61b1d95230b5d2dc320c259c62",
         "backend/app/api/mystery_auth.py::_build_enrollment_payload": "5f75e4786af1cc49c1199f2780b514c3669c78a79c83050efd48a80a85cadbe2",
         "backend/app/api/mystery_auth.py::enroll_start": "6b4eec18adb4ea6b829d717612482ff3c1a1562563d9bd6c5e21258a673ee779",
@@ -110,7 +110,7 @@
         "frontend/mystery-shopper/public/branding/*"
       ],
       "baseline": {
-        "frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx": "6bcbdfcb51f3d4be6712c15dac320a1abb8917fbd6b318b6683ff7b2f40a876b",
+        "frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx": "1e33995feb2648e5187261b00663bed33d780a8a32ce7559d841481b74594b43",
         "frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx": "c3807def28895e6f02fc9be40a9cfa0a39307c61b1d95230b5d2dc320c259c62",
         "frontend/mystery-shopper/src/components/ui/badge.jsx": "b1e0ef671562ac9f61fd422d6819796ba06a5a9e38b9f81aa058ba7065b202ba",
         "frontend/mystery-shopper/src/components/ui/button.jsx": "59f8cf29f702007d2e255151fa86f0d1818d86832f8c58420c901d69aa9e3d2d",
@@ -207,6 +207,24 @@
         "enroll-page: frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx",
         "enroll-page: frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx",
         "sign-in: frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx",
+        "sign-in: frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx"
+      ]
+    },
+    {
+      "date": "2026-11-18",
+      "kind": "rerecorded",
+      "screens": [
+        "email",
+        "enroll-page",
+        "sign-in"
+      ],
+      "reason": "Re-recorded desktop and mobile walkthroughs with 'CWS VPN' wording (email, enrollment and sign-in text).",
+      "by": "owner",
+      "commit": "d9d0d2c",
+      "video_version": "v05",
+      "changes_covered": [
+        "email: backend/app/api/mystery_auth.py::_build_enrollment_email",
+        "enroll-page: frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx",
         "sign-in: frontend/mystery-shopper/src/mysteryAuth/LoginScreen.jsx"
       ]
     }

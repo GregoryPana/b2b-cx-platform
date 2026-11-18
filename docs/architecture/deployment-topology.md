@@ -19,7 +19,8 @@ CWSCX uses a single-domain, path-based deployment model.
 
 ### Access Control
 - access is enforced primarily through Azure Entra ID authentication and role claims
-- authorization is program-scoped via Entra roles, not VPN-only restriction
+- authorization is program-scoped via Entra roles; in addition, the platform (including mystery-shopper enrollment links) is only reachable over the CWS VPN
+- the walkthrough videos need no VPN: they are attached to the enrollment email
 - the dashboard and protected SPAs rely on bearer-token validation in the backend
 
 ### Staging Layout

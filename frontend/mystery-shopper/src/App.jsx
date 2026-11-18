@@ -12,6 +12,7 @@ import EnrollScreen from "./mysteryAuth/EnrollScreen";
 import RecoveryScreen from "./mysteryAuth/RecoveryScreen";
 import { useMysteryAuth } from "./mysteryAuth/MysteryAuthContext";
 import SurveyWorkspace from "./SurveyWorkspace";
+import TutorialPage from "./TutorialPage";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 const MYSTERY_ALLOWED_ROLES = new Set(["MYSTERY_ADMIN", "MYSTERY_SURVEYOR", "CX_SUPER_ADMIN"]);
@@ -311,5 +312,7 @@ function MysteryPublicApp() {
 // Root — selects auth mode
 // ---------------------------------------------------------------------------
 export default function App() {
+  // Walkthrough video page: open to anyone who can reach the app, no sign-in (`?tutorial=enrollment`).
+  if (new URLSearchParams(window.location.search).get("tutorial") === "enrollment") return <TutorialPage />;
   return isMysteryPublicAuthMode ? <MysteryPublicApp /> : <EntraMysteryApp />;
 }
