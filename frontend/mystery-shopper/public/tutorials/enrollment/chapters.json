@@ -6,11 +6,11 @@
     },
     {
       "title": "Your email",
-      "start": 10.9
+      "start": 11
     },
     {
       "title": "Get an app",
-      "start": 16.5
+      "start": 16.6
     },
     {
       "title": "Open the link",
@@ -18,15 +18,15 @@
     },
     {
       "title": "Add account",
-      "start": 76.2
+      "start": 83.3
     },
     {
       "title": "Password & code",
-      "start": 110.7
+      "start": 117.6
     },
     {
       "title": "Done",
-      "start": 131.7
+      "start": 138.4
     }
   ],
   "mobile": [
@@ -48,15 +48,15 @@
     },
     {
       "title": "Add account",
-      "start": 74.9
+      "start": 82.3
     },
     {
       "title": "Password & code",
-      "start": 101.1
+      "start": 110.3
     },
     {
       "title": "Done",
-      "start": 125.2
+      "start": 135
     }
   ]
 }
