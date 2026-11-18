@@ -196,3 +196,40 @@ describe('production Mystery Save / Submit callback contract (mock IO, not authe
     const h=harness(); h.c.questionnaireReady=false; await h.submit(); expect(h.state.calls).toHaveLength(0);
   });
 });
+
+describe('comment (verbatim) and reviewer action points survive a shopper save (mock IO)', () => {
+  const body = h => JSON.parse(mutations(h.state).at(-1)[1].body);
+  const reviewerActions = [{action_required: 'Retrain staff', action_owner: 'Branch manager'}];
+  it('saves the comment with the answer; a comment-only edit counts as a change', async () => {
+    const h = harness({drafts: {1: {score: '5', verbatim: 'Waited 10 minutes'}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, verbatim: ''}}});
+    await h.save();
+    expect(mutations(h.state)).toHaveLength(1); expect(body(h).verbatim).toBe('Waited 10 minutes'); expect(body(h).score).toBe(5);
+    expect(h.state.saved[1].verbatim).toBe('Waited 10 minutes'); expect(success(h.state)).toBe(true);
+  });
+  it('clearing a saved comment sends null, not the old text', async () => {
+    const h = harness({drafts: {1: {score: '5', verbatim: ''}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, verbatim: 'Old note'}}});
+    await h.save();
+    expect(body(h).verbatim).toBeNull(); expect(h.state.saved[1].verbatim).toBeNull();
+  });
+  it('keeps reviewer action points when the shopper edits an answer', async () => {
+    const h = harness({drafts: {1: {score: '9'}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, actions: reviewerActions}}});
+    await h.save();
+    expect(body(h).actions).toEqual(reviewerActions); expect(h.state.rows[1].actions).toEqual(reviewerActions); expect(h.state.rows[1].score).toBe(9);
+  });
+  it('sends the actions from the fresh read, not from when the visit was loaded', async () => {
+    const h = harness({drafts: {1: {score: '9'}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, actions: []}}}); let reads = 0;
+    h.state.hook = async (_url, o) => { if (!o.method && ++reads === 2) h.state.rows[1] = {...h.state.rows[1], actions: reviewerActions}; };
+    await h.save();
+    expect(body(h).actions).toEqual(reviewerActions);
+  });
+  it('a first save sends an empty action list', async () => {
+    const h = harness({drafts: {1: {score: '4'}}});
+    await h.save();
+    expect(mutations(h.state)[0][1].method).toBe('POST'); expect(body(h).actions).toEqual([]);
+  });
+  it('Submit also preserves actions on every answer it has to rewrite', async () => {
+    const h = harness({drafts: {1: {score: '9'}}, rows: {1: {question_id: 1, response_id: 'id1', score: 5, actions: reviewerActions}}});
+    await h.submit();
+    expect(h.state.status).toBe('Pending'); expect(h.state.rows[1].actions).toEqual(reviewerActions);
+  });
+});
