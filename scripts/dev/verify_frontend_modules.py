@@ -20,10 +20,9 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
-APPS = ("dashboard-blueprint", "dashboard", "survey", "installation-survey", "mystery-shopper")
+APPS = ("dashboard-blueprint", "survey", "installation-survey", "mystery-shopper")
 BUILDS = (
     ("dashboard-blueprint", "/dashboard/", "entra"),
-    ("dashboard", "/dashboard/", "entra"),
     ("survey", "/surveys/b2b/", "entra"),
     ("installation-survey", "/surveys/installation/", "entra"),
     ("mystery-shopper", "/surveys/mystery-shopper/", "entra"),
