@@ -103,7 +103,7 @@ cd frontend/app
 npm install
 ```
 
-Repeat for any additional frontend app such as `frontend/dashboard`.
+Repeat for any additional frontend app such as `frontend/dashboard-blueprint`.
 
 ### Step 6: start the local database if needed
 

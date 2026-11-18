@@ -64,7 +64,7 @@ jobs:
         run: python -m playwright install --with-deps chromium
       - name: Install locked dependencies for affected frontends
         run: |
-          for app in dashboard-blueprint dashboard survey installation-survey mystery-shopper; do
+          for app in dashboard-blueprint survey installation-survey mystery-shopper; do
             npm ci --no-audit --no-fund --prefix "frontend/$app"
           done
       - name: Frontend module-boundary tests (Node and Vitest; no skips)

@@ -172,7 +172,7 @@ const GUIDE_CONTENT = {
           "An administrator prepares reference data here in the dashboard: the customer service Locations that can be visited and the visit Purposes shoppers choose from.",
           "An administrator invites each mystery shopper on the Users page, which generates a one-time enrollment link (copied or emailed directly from the dashboard).",
           "The shopper opens the link on the public survey site, sets a password, links an authenticator app (two-factor authentication), and saves their recovery codes.",
-          "The shopper visits a location as a normal customer, then signs in (VPN + email + password + authenticator code) and completes the survey, saving answers as they go and submitting when all mandatory questions are answered.",
+          "The shopper visits a location as a normal customer, then signs in (CWS VPN + email + password + authenticator code) and completes the survey, saving answers as they go and submitting when all mandatory questions are answered.",
           "A reviewer processes the submitted visit on the Review page: approve it into the official results, or send it back / reject it.",
           "Approved results feed Analytics, Trends, Surveys, and Reports automatically.",
         ],
@@ -216,7 +216,7 @@ const GUIDE_CONTENT = {
         summary: "The Users page is the allow-list for the public survey site. Nobody can sign up on their own.",
         steps: [
           "Open Users and invite a shopper with their email address and full name. The platform generates a one-time enrollment link.",
-          "Send the link: either press Copy and deliver it yourself over a trusted channel, or press Email link so the platform sends a pre-formatted invitation (it explains the enrollment steps, reminds the user to connect to the VPN, and lists you as the contact for problems).",
+          "Send the link: either press Copy and deliver it yourself over a trusted channel, or press Email link so the platform sends a pre-formatted invitation (it explains the enrollment steps, reminds the user to connect to the CWS VPN, and lists you as the contact for problems).",
           "Watch the Status column: invited means the link was issued but enrollment is not finished; active means the shopper has enrolled and can sign in; recovery pending means they used a recovery code and must finish re-enrolling; suspended means access is blocked.",
           "Use Last sign-in to see whether a shopper has actually been using the platform.",
           "Use Reset / new link when a shopper has lost their password, authenticator app, and recovery codes - it issues a fresh enrollment link so they can set everything up again.",
