@@ -12,7 +12,7 @@ changes, the video can silently become wrong. The drift guard tells the owner.
 - `watch`: the files the screen depends on (a `file::function` entry watches only that Python function; `dir/*.jsx` entries watch every match, so added or removed files are caught too)
 - `baseline`: SHA-256 of each watched item when the video was last recorded or confirmed
 
-Currently: `email`, `enroll-page`, `sign-in` for the `mystery-enrollment` set (v03).
+Currently: `email`, `enroll-page`, `sign-in` for the `mystery-enrollment` set (v05).
 
 ## What happens when something changes
 
@@ -37,3 +37,20 @@ Both update the baseline hashes and append to `history` in the manifest (date, r
 - Screens depend on more than the listed files (for example the app shell or API data). If a new file starts to affect a recorded screen, add it to `watch`.
 - Not watched yet: the capture/render project that produces the videos, which still lives outside this repository.
 - Tests: `python -m unittest discover -s scripts/dev/tests`.
+
+## Where the videos live and how they ship
+
+Single source folder: `frontend/mystery-shopper/public/tutorials/enrollment/`. Vite copies it into the shopper app build, so **both** the internal bundle and the DMZ bundle carry the same files and nothing is fetched across VMs at run time. The DMZ bundle's `SHA256SUMS` already covers them; `backend/tests/test_enrollment_video_assets.py` also checks them against the folder's own `SHA256SUMS`.
+
+| File | Used for |
+| --- | --- |
+| `enrollment-desktop-720.mp4`, `enrollment-mobile-720.mp4` | Player page (captions are burned in) |
+| `enrollment-*-poster.jpg`, `chapters.json` | Player page poster and "Jump to a step" list |
+| `enrollment-desktop-email.mp4`, `enrollment-mobile-email.mp4` | Email attachment and the page's download link (about 3.7 MB together) |
+
+- **Player page:** `<shopper app URL>/?tutorial=enrollment` (for example `/surveys/mystery-shopper/?tutorial=enrollment`). No sign-in; it only serves static files.
+- **Email attachment (OFF by default):** on the internal backend only, set in `/opt/cwscx/.env`:
+  `ENROLLMENT_VIDEO_ATTACH=true`,
+  `ENROLLMENT_VIDEO_DIR=/opt/cwscx/frontends-src/public/mystery-shopper/dist/tutorials/enrollment`,
+  `ENROLLMENT_VIDEO_FILES=enrollment-desktop-email.mp4,enrollment-mobile-email.mp4`, then restart `cwscx-backend`. Remove `ENROLLMENT_VIDEO_ATTACH` to switch it off. A missing file never blocks an email; it is sent without the video.
+- **Updating a video:** re-record, replace the files, regenerate the sums (`cd` into the folder, `sha256sum $(ls | grep -v SHA256SUMS | sort) > SHA256SUMS`), then `rebaseline` as above. Keep the two email encodes under about 8 MB in total (the SMTP relay limit is 15.7 MB after base64 growth).
