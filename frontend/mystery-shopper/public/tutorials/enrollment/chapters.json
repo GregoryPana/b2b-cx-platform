@@ -1,0 +1,62 @@
+{
+  "desktop": [
+    {
+      "title": "What you will need",
+      "start": 0
+    },
+    {
+      "title": "Your email",
+      "start": 10.9
+    },
+    {
+      "title": "Get an app",
+      "start": 16.5
+    },
+    {
+      "title": "Open the link",
+      "start": 33.6
+    },
+    {
+      "title": "Add account",
+      "start": 76.2
+    },
+    {
+      "title": "Password & code",
+      "start": 110.7
+    },
+    {
+      "title": "Done",
+      "start": 131.7
+    }
+  ],
+  "mobile": [
+    {
+      "title": "What you will need",
+      "start": 0
+    },
+    {
+      "title": "Your email",
+      "start": 10.9
+    },
+    {
+      "title": "Get an app",
+      "start": 16.5
+    },
+    {
+      "title": "Open the link",
+      "start": 33.6
+    },
+    {
+      "title": "Add account",
+      "start": 74.9
+    },
+    {
+      "title": "Password & code",
+      "start": 101.1
+    },
+    {
+      "title": "Done",
+      "start": 125.2
+    }
+  ]
+}
