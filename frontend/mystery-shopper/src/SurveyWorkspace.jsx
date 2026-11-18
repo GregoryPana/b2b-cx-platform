@@ -14,6 +14,7 @@ import { BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, CircleAlert, 
 import { GuidePage, ScoringKeyBody } from "./SurveyGuide";
 import Disclosure from "./components/Disclosure";
 import PageTitle from "./components/PageTitle";
+import ConfirmDialog from "./components/ConfirmDialog";
 
 import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
@@ -212,6 +213,22 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
   const [messageTone, setMessageTone] = useState("info");
   const [messageSeq, setMessageSeq] = useState(0);
   const messageRef = useRef(null);
+  // askConfirm(options) opens ConfirmDialog and resolves true (confirmed) or false (cancelled / closed).
+  const [confirmState, setConfirmState] = useState(null);
+  const confirmResolver = useRef(null);
+  const askConfirm = useCallback((options) => new Promise((resolve) => {
+    confirmResolver.current?.(false);
+    confirmResolver.current = resolve;
+    setConfirmState(options);
+  }), []);
+  const settleConfirm = useCallback((answer) => {
+    const resolve = confirmResolver.current;
+    confirmResolver.current = null;
+    setConfirmState(null);
+    resolve?.(answer);
+  }, []);
+  // Leaving the page with a question open counts as cancelling it.
+  useEffect(() => () => { confirmResolver.current?.(false); confirmResolver.current = null; }, []);
   const lockedRef = useRef(null);
   const [loadingDrafts, setLoadingDrafts] = useState(false);
   const [creatingVisit, setCreatingVisit] = useState(false);
@@ -593,7 +610,11 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
     try {
       const { rows } = await readSaved(visitId, token.owner);
       const existing = rows[question.id];
-      if (existing && isQuestionDirty(question, draft, existing) && !window.confirm(`Overwrite the saved answer for Q${displayQuestionNumber(question)}? Your new answer will replace it.`)) return;
+      if (existing && isQuestionDirty(question, draft, existing) && !(await askConfirm({
+        title: `Replace the saved answer for Q${displayQuestionNumber(question)}?`,
+        description: "Your new answer will replace the one already saved.",
+        confirmLabel: "Replace answer",
+      }))) return;
       await persistAnswer(question, draft, visitId, token.owner, existing);
       if (selection.current === token.owner) raiseMessage(`Saved Q${displayQuestionNumber(question)} (verified on server).`, "success");
     } catch (error) {
@@ -601,7 +622,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
     } finally {
       if (operation.current === token) { operation.current = null; setSavingQuestionId(null); }
     }
-  }, [visitId, hasMeaningfulAnswer, readSaved, persistAnswer, raiseMessage]);
+  }, [visitId, hasMeaningfulAnswer, readSaved, persistAnswer, raiseMessage, askConfirm]);
 
   const submitVisitFn = useCallback(async () => {
     if (!visitId) { raiseMessage("No visit selected.", "error"); return; }
@@ -615,13 +636,19 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
     try {
       const before = (await readSaved(visitId, token.owner)).rows;
       const overwritten = answered.filter(q => before[q.id] && isQuestionDirty(q, snapshot[q.id], before[q.id]));
-      if (overwritten.length && !window.confirm(`Overwrite previously saved answers: ${overwritten.map(q => `Q${displayQuestionNumber(q)}`).join(", ")}? Submit will save all answered questions, then check for unanswered questions.`)) return;
+      if (overwritten.length && !(await askConfirm({
+        title: "Replace saved answers?",
+        description: "Submit saves every answered question first. These already have a different saved answer, which your changes will replace:",
+        items: overwritten.map(q => `Q${displayQuestionNumber(q)}`),
+        confirmLabel: "Replace and continue",
+      }))) return;
       for (const q of answered) await persistAnswer(q, snapshot[q.id], visitId, token.owner, before[q.id]);
       const verified = await readSaved(visitId, token.owner);
       if (answered.some(q => !verified.rows[q.id] || isQuestionDirty(q, snapshot[q.id], verified.rows[q.id]))) throw new Error("Some saved answers changed during verification. Drafts retained; check and retry.");
       if (questions.some(q => isQuestionDirty(q, liveDrafts.current[q.id] || {}, snapshot[q.id]))) throw new Error("Answers edited while saving. Saved answers are retained; submit again to include your latest changes.");
       const missing = questions.filter(q => !hasMeaningfulAnswer(q, snapshot[q.id]) || !hasMeaningfulAnswer(q, {}, verified.rows[q.id]));
-      const labels = list => list.map(q => `Q${displayQuestionNumber(q)}${q.question_text ? `: ${q.question_text}` : ""}`).join("; ");
+      const labelList = list => list.map(q => `Q${displayQuestionNumber(q)}${q.question_text ? `: ${q.question_text}` : ""}`);
+      const labels = list => labelList(list).join("; ");
       const required = missing.filter(q => q.is_mandatory);
       const optional = missing.filter(q => !q.is_mandatory);
       // An explicit cleared/invalid field is not an untouched optional omission.
@@ -640,7 +667,12 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
         raiseMessage(`Answered questions saved and verified. Visit remains Draft. Required unanswered: ${labels(required)}.${optional.length ? ` Optional unanswered: ${labels(optional)}.` : ""}`, "error");
         return;
       }
-      if (optional.length && !window.confirm(`Answered questions saved. Optional unanswered: ${labels(optional)}. Submit anyway?`)) {
+      if (optional.length && !(await askConfirm({
+        title: "Submit with unanswered optional questions?",
+        description: "Your answers are saved. These optional questions have no answer:",
+        items: labelList(optional),
+        confirmLabel: "Submit anyway",
+      }))) {
         raiseMessage("Answered questions saved and verified. Visit remains Draft.", "success"); return;
       }
       const { res, data } = await apiFetch(`${API_BASE}/mystery-shopper/visits/${visitId}/submit`, { method: "PUT" });
@@ -656,7 +688,7 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
     } finally {
       if (operation.current === token) { operation.current = null; setSubmitting(false); }
     }
-  }, [visitId, questions, questionnaireReady, hasMeaningfulAnswer, readSaved, persistAnswer, apiFetch, loadDrafts, raiseMessage]);
+  }, [visitId, questions, questionnaireReady, hasMeaningfulAnswer, readSaved, persistAnswer, apiFetch, loadDrafts, raiseMessage, askConfirm]);
 
   const scrollToCategory = useCallback((category) => {
     setCurrentCategory(category);
@@ -1173,6 +1205,16 @@ export default function SurveyWorkspace({ apiFetch, userInfo, onLogout }) {
           </motion.main>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title || ""}
+        description={confirmState?.description}
+        items={confirmState?.items}
+        confirmLabel={confirmState?.confirmLabel}
+        onConfirm={() => settleConfirm(true)}
+        onCancel={() => settleConfirm(false)}
+      />
 
       {guideReturnAnchor && activeTab !== "guide" ? (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
