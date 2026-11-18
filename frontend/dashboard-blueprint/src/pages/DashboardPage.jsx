@@ -393,6 +393,19 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [reportSending, setReportSending] = useState(false);
   const [reviewActionLoadingVisitId, setReviewActionLoadingVisitId] = useState("");
   const [reviewDialog, setReviewDialog] = useState(null);
+  // Generic confirm dialog for destructive actions (replaces window.confirm). Open with askConfirm({...}).
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const askConfirm = (config) => setConfirmDialog({ ...config, busy: false });
+  const submitConfirmDialog = async () => {
+    const dialog = confirmDialog;
+    if (!dialog) return;
+    setConfirmDialog({ ...dialog, busy: true });
+    try {
+      await dialog.run();
+    } finally {
+      setConfirmDialog(null);
+    }
+  };
 
 
   const [mysteryLocations, setMysteryLocations] = useState([]);
@@ -1732,8 +1745,17 @@ const platformAbortRef = useRef(null);
     await loadPlannedVisits();
   };
 
-  const handleDeletePlannedVisit = async (visitId) => {
-    if (!window.confirm("Delete this draft planned visit?")) return;
+  const handleDeletePlannedVisit = (visitId) => {
+    askConfirm({
+      title: "Delete this draft planned visit?",
+      description: <p>The draft is removed from the planned visits list. This cannot be undone.</p>,
+      label: "Delete visit",
+      variant: "destructive",
+      run: () => runHandleDeletePlannedVisit(visitId),
+    });
+  };
+
+  const runHandleDeletePlannedVisit = async (visitId) => {
     pushToast("info", "Deleting planned visit...", 1500);
     const res = await fetch(`${API_BASE}/dashboard-visits/${visitId}?_cb=${Date.now()}`, { method: "DELETE", headers });
     const data = await readJsonSafe(res);
@@ -2642,8 +2664,17 @@ const platformAbortRef = useRef(null);
     setExecutiveForm({ name: executive.name || "", email: executive.email || "" });
   };
 
-  const deleteExecutive = async (executive) => {
-    if (!window.confirm(`Delete account executive "${executive.name}"?`)) return;
+  const deleteExecutive = (executive) => {
+    askConfirm({
+      title: `Delete "${executive.name}"?`,
+      description: <p>This removes the account executive from the list. This cannot be undone.</p>,
+      label: "Delete executive",
+      variant: "destructive",
+      run: () => runDeleteExecutive(executive),
+    });
+  };
+
+  const runDeleteExecutive = async (executive) => {
     const { res, data } = await fetchJsonSafe(`${API_BASE}/account-executives/${executive.id}`, { method: "DELETE", headers });
     if (!res.ok) {
       setError(formatApiError(data?.detail, "Failed to delete account executive"));
@@ -2701,8 +2732,17 @@ const platformAbortRef = useRef(null);
     await loadMysteryLocations();
   };
 
-  const deleteMysteryLocation = async (locationItem) => {
-    if (!window.confirm(`Delete location "${locationItem.name}" permanently?`)) return;
+  const deleteMysteryLocation = (locationItem) => {
+    askConfirm({
+      title: `Delete "${locationItem.name}"?`,
+      description: <p>This permanently deletes the location. This cannot be undone.</p>,
+      label: "Delete location",
+      variant: "destructive",
+      run: () => runDeleteMysteryLocation(locationItem),
+    });
+  };
+
+  const runDeleteMysteryLocation = async (locationItem) => {
     pushToast("info", "Deleting location...", 1500);
     const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/locations/${locationItem.id}/purge`, { method: "DELETE", headers }, 30000);
     if (!res.ok) {
@@ -2768,8 +2808,17 @@ const platformAbortRef = useRef(null);
     await loadMysteryUsers();
   };
 
-  const suspendMysteryUser = async (userItem) => {
-    if (!window.confirm(`Suspend access for "${userItem.email}"? Their active sessions will be revoked.`)) return;
+  const suspendMysteryUser = (userItem) => {
+    askConfirm({
+      title: `Suspend "${userItem.email}"?`,
+      description: <p>Their active sessions are revoked straight away. You can reactivate the user later.</p>,
+      label: "Suspend user",
+      variant: "destructive",
+      run: () => runSuspendMysteryUser(userItem),
+    });
+  };
+
+  const runSuspendMysteryUser = async (userItem) => {
     pushToast("info", "Suspending user...", 1500);
     const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-admin/users/${userItem.id}/suspend`, {
       method: "POST",
@@ -2844,8 +2893,17 @@ const platformAbortRef = useRef(null);
     await loadMysteryPurposes();
   };
 
-  const deleteMysteryPurpose = async (purposeItem) => {
-    if (!window.confirm(`Delete purpose "${purposeItem.name}" permanently?`)) return;
+  const deleteMysteryPurpose = (purposeItem) => {
+    askConfirm({
+      title: `Delete "${purposeItem.name}"?`,
+      description: <p>This permanently deletes the purpose. This cannot be undone.</p>,
+      label: "Delete purpose",
+      variant: "destructive",
+      run: () => runDeleteMysteryPurpose(purposeItem),
+    });
+  };
+
+  const runDeleteMysteryPurpose = async (purposeItem) => {
     pushToast("info", "Deleting purpose...", 1500);
     const { res, data } = await fetchJsonSafe(`${API_BASE}/mystery-shopper/purposes/${purposeItem.id}/purge`, { method: "DELETE", headers }, 30000);
     if (!res.ok) {
@@ -4702,6 +4760,15 @@ const platformAbortRef = useRef(null);
         error={reviewDialog?.error || ""}
         onSubmit={submitReviewDialog}
         onCancel={() => setReviewDialog(null)}
+      />
+      <ActionDialog
+        open={Boolean(confirmDialog)}
+        title={confirmDialog?.title || ""}
+        description={confirmDialog?.description}
+        actions={confirmDialog ? [{ key: "confirm", label: confirmDialog.label, variant: confirmDialog.variant }] : []}
+        busy={Boolean(confirmDialog?.busy)}
+        onSubmit={submitConfirmDialog}
+        onCancel={() => setConfirmDialog(null)}
       />
     </PageContainer>
   );
