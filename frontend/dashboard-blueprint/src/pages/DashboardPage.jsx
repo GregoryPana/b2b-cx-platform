@@ -28,6 +28,7 @@ import EmailRecipientsInput from "../components/shared/EmailRecipientsInput";
 import EntityCombobox from "../components/shared/EntityCombobox";
 import ActionDialog from "../components/shared/ActionDialog";
 import Disclosure from "../components/shared/Disclosure";
+import DateRangeFilter from "../components/shared/DateRangeFilter";
 import Field from "../components/shared/Field";
 import FilterBar from "../components/shared/FilterBar";
 import SidePanel from "../components/shared/SidePanel";
@@ -54,6 +55,7 @@ import { createRequestScope } from "../lib/requestScope";
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
 const ANALYTICS_BUSINESS_FILTER_KEY = "cx.b2b.analyticsBusinessIds";
+const ANALYTICS_DATE_RANGE_KEY = "cx.analytics.dateRange";
 const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
 const REPORT_TYPE_OPTIONS = [
   { key: "survey", label: "Selected Business", description: "View survey details for a specific business. Pick a business then select an approved survey." },
@@ -349,6 +351,20 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       return [];
     }
   });
+  // Date range for Analytics and Trends (inclusive, on the visit date). Same day in both fields = a single day.
+  const [analyticsDateRange, setAnalyticsDateRange] = useState(() => {
+    try {
+      const parsed = JSON.parse(sessionStorage.getItem(ANALYTICS_DATE_RANGE_KEY) || "{}");
+      const ok = (value) => (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "");
+      return { from: ok(parsed?.from), to: ok(parsed?.to) };
+    } catch {
+      return { from: "", to: "" };
+    }
+  });
+  // A reversed range is not sent (it would match nothing); the filter says so instead.
+  const analyticsDateRangeInvalid = Boolean(analyticsDateRange.from && analyticsDateRange.to && analyticsDateRange.from > analyticsDateRange.to);
+  const analyticsDateFrom = analyticsDateRangeInvalid ? "" : analyticsDateRange.from;
+  const analyticsDateTo = analyticsDateRangeInvalid ? "" : analyticsDateRange.to;
   const [analyticsBusinessSearch, setAnalyticsBusinessSearch] = useState("");
   const [surveyResults, setSurveyResults] = useState([]);
   const [selectedSurveyVisit, setSelectedSurveyVisit] = useState(null);
@@ -971,6 +987,8 @@ const platformAbortRef = useRef(null);
        setAnalytics(null);
         const params = new URLSearchParams();
         params.set("survey_type", activePlatform);
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
             isMysteryShopperPlatform ? "mystery_location_ids" : "business_ids",
@@ -1014,7 +1032,7 @@ const platformAbortRef = useRef(null);
       };
      load();
      return () => requests.invalidate("analytics");
-     }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+     }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, fetchJsonSafe]);
 
    // Load yes/no question analytics (B2B and Mystery Shopper)
     useEffect(() => {
@@ -1028,6 +1046,8 @@ const platformAbortRef = useRef(null);
      const load = async () => {
         const isStale = request.isStale;
         const params = new URLSearchParams({ survey_type: activePlatform });
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (isMysteryShopperPlatform && selectedAnalyticsEntityIds.length > 0) {
           params.set("mystery_location_ids", selectedAnalyticsEntityIds.join(","));
         } else if (selectedAnalyticsEntityIds.length > 0) {
@@ -1045,7 +1065,7 @@ const platformAbortRef = useRef(null);
 
       load();
      return () => requests.invalidate("yesNo");
-    }, [location.pathname, activePlatform, isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, fetchJsonSafe]);
 
     // The account executive chart is drawn on the Trends page, so it is loaded there (it used to load only on "/").
     useEffect(() => {
@@ -1063,6 +1083,8 @@ const platformAbortRef = useRef(null);
         setAccountExecutiveYesNoLoading(true);
         setAccountExecutiveYesNoError("");
         const params = new URLSearchParams({ survey_type: activePlatform });
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set("business_ids", selectedAnalyticsEntityIds.join(","));
         }
@@ -1082,7 +1104,7 @@ const platformAbortRef = useRef(null);
 
       load();
       return () => requests.invalidate("executiveTrends");
-    }, [location.pathname, activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, headers, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, headers, fetchJsonSafe]);
 
    // Load question averages for drilldown table
    useEffect(() => {
@@ -1094,6 +1116,8 @@ const platformAbortRef = useRef(null);
      const load = async () => {
         const isStale = request.isStale;
         const params = new URLSearchParams({ survey_type: activePlatform });
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
             isMysteryShopperPlatform ? "mystery_location_ids" : "business_ids",
@@ -1122,7 +1146,7 @@ const platformAbortRef = useRef(null);
      };
      load();
      return () => requests.invalidate("questions");
-    }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, fetchJsonSafe]);
 
    // Load question trend data
    useEffect(() => {
@@ -1139,6 +1163,8 @@ const platformAbortRef = useRef(null);
         setTrendError("");
         setTrendData([]);
         const params = new URLSearchParams({ survey_type: activePlatform, interval: "week" });
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
             isMysteryShopperPlatform ? "mystery_location_ids" : "business_ids",
@@ -1159,7 +1185,7 @@ const platformAbortRef = useRef(null);
       };
      load();
      return () => requests.invalidate("trend");
-    }, [location.pathname, activePlatform, isMysteryShopperPlatform, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isMysteryShopperPlatform, selectedQuestionId, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, fetchJsonSafe]);
 
   const loadPendingVisits = useCallback(async () => {
     const request = requests.begin("pending");
@@ -2632,6 +2658,14 @@ const platformAbortRef = useRef(null);
     }
   }, [selectedAnalyticsBusinessIds]);
 
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(ANALYTICS_DATE_RANGE_KEY, JSON.stringify(analyticsDateRange));
+    } catch {
+      // storage unavailable: the date range simply will not persist
+    }
+  }, [analyticsDateRange]);
+
   // Drop saved selections for businesses that no longer qualify (deleted/retired/no approved surveys).
   useEffect(() => {
     if (!isB2BPlatform || analyticsBusinesses.length === 0) return;
@@ -2978,6 +3012,8 @@ const platformAbortRef = useRef(null);
           />
         ) : (
         <>
+          <DateRangeFilter className="mb-6" from={analyticsDateRange.from} to={analyticsDateRange.to} invalid={analyticsDateRangeInvalid} onChange={setAnalyticsDateRange} />
+
           {isB2BPlatform ? (
             <Disclosure
               className="mb-6"
@@ -3424,6 +3460,7 @@ const platformAbortRef = useRef(null);
           </div>
         ) : (
           <div className="space-y-6">
+            <DateRangeFilter from={analyticsDateRange.from} to={analyticsDateRange.to} invalid={analyticsDateRangeInvalid} onChange={setAnalyticsDateRange} />
             {isB2BPlatform && selectedAnalyticsBusinessIds.length > 0 ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-4 py-2 text-sm">
                 <span>Filtered to {selectedAnalyticsBusinessIds.length} business{selectedAnalyticsBusinessIds.length === 1 ? "" : "es"} chosen on the Analytics page.</span>

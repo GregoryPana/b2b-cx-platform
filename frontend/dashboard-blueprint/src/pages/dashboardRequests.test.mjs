@@ -34,6 +34,7 @@ function harness(overrides = {}) {
     API_BASE: '/api', headers: {}, activePlatform: 'Mystery Shopper', isMysteryShopperPlatform: true,
     isB2BPlatform: false, isInstallationPlatform: false, location: { pathname: '/' },
     platformRequestVersion: { current: 1 }, selectedAnalyticsEntityIds: [], selectedQuestionId: '1',
+    analyticsDateFrom: '', analyticsDateTo: '',
     surveyStatusFilter: 'all', selectedSurveyLocation: '', selectedSurveyBusiness: '',
     reportType: 'survey', reportBusinessId: '1', reportVisitId: 'visit1',
     reportSelectedDate: '', reportDateFrom: '', reportDateTo: '',
@@ -192,6 +193,22 @@ test('failed Mystery analytics and trends finish loading with explicit errors, n
   trend.pending[0].resolve({ res: { ok: false }, data: { detail: 'Trend offline' } }); await tick();
   assert.equal(trend.state.setTrendData.length, 0); assert.equal(trend.state.setTrendLoading, false);
   assert.equal(trend.state.setTrendError, 'Trend offline');
+});
+
+test('analytics date range is sent to every analytics request that has one, and omitted when empty', async () => {
+  const markers = ['   // Load core metrics', '   // Load yes/no question analytics (B2B and Mystery Shopper)', '   // Load question averages for drilldown table', '   // Load question trend data'];
+  for (const marker of markers) {
+    const withDates = harness({ analyticsDateFrom: '2026-03-01', analyticsDateTo: '2026-03-31', isB2BPlatform: true, isMysteryShopperPlatform: false, activePlatform: 'B2B' });
+    effect(marker, withDates.context)();
+    const url = String(withDates.pending[0].args[0]);
+    assert.match(url, /date_from=2026-03-01/, marker); assert.match(url, /date_to=2026-03-31/, marker);
+    const without = harness({ isB2BPlatform: true, isMysteryShopperPlatform: false, activePlatform: 'B2B' });
+    effect(marker, without.context)();
+    assert.doesNotMatch(String(without.pending[0].args[0]), /date_(from|to)=/, marker);
+  }
+  const exec = harness({ analyticsDateFrom: '2026-03-05', analyticsDateTo: '2026-03-05', isB2BPlatform: true, isMysteryShopperPlatform: false, activePlatform: 'B2B', location: { pathname: '/trends' } });
+  effect('    // The account executive chart is drawn on the Trends page', exec.context)();
+  assert.match(String(exec.pending[0].args[0]), /yes-no-trends\?.*date_from=2026-03-05.*date_to=2026-03-05/);
 });
 
 test('survey list: same-module status/location race keeps latest data and loading state', async () => {
