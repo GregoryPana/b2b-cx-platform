@@ -28,6 +28,7 @@ import EmailRecipientsInput from "../components/shared/EmailRecipientsInput";
 import EntityCombobox from "../components/shared/EntityCombobox";
 import ActionDialog from "../components/shared/ActionDialog";
 import Disclosure from "../components/shared/Disclosure";
+import DateRangeFilter from "../components/shared/DateRangeFilter";
 import Field from "../components/shared/Field";
 import FilterBar from "../components/shared/FilterBar";
 import SidePanel from "../components/shared/SidePanel";
@@ -54,6 +55,7 @@ import { createRequestScope } from "../lib/requestScope";
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const B2B_API_BASE = `${API_BASE}/b2b`;
 const ANALYTICS_BUSINESS_FILTER_KEY = "cx.b2b.analyticsBusinessIds";
+const ANALYTICS_DATE_RANGE_KEY = "cx.analytics.dateRange";
 const ACTION_TIMEFRAME_OPTIONS = ["<1 month", "<3 months", "<6 months", ">6 months"];
 const REPORT_TYPE_OPTIONS = [
   { key: "survey", label: "Selected Business", description: "View survey details for a specific business. Pick a business then select an approved survey." },
@@ -314,6 +316,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState("");
   const [accountExecutiveYesNoTrendData, setAccountExecutiveYesNoTrendData] = useState([]);
+  const [accountExecutiveYesNoLoading, setAccountExecutiveYesNoLoading] = useState(false);
+  const [accountExecutiveYesNoError, setAccountExecutiveYesNoError] = useState("");
   const [pendingVisits, setPendingVisits] = useState([]);
   const [pendingVisitsLoading, setPendingVisitsLoading] = useState(false);
   const [businesses, setBusinesses] = useState([]);
@@ -347,6 +351,20 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
       return [];
     }
   });
+  // Date range for Analytics and Trends (inclusive, on the visit date). Same day in both fields = a single day.
+  const [analyticsDateRange, setAnalyticsDateRange] = useState(() => {
+    try {
+      const parsed = JSON.parse(sessionStorage.getItem(ANALYTICS_DATE_RANGE_KEY) || "{}");
+      const ok = (value) => (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "");
+      return { from: ok(parsed?.from), to: ok(parsed?.to) };
+    } catch {
+      return { from: "", to: "" };
+    }
+  });
+  // A reversed range is not sent (it would match nothing); the filter says so instead.
+  const analyticsDateRangeInvalid = Boolean(analyticsDateRange.from && analyticsDateRange.to && analyticsDateRange.from > analyticsDateRange.to);
+  const analyticsDateFrom = analyticsDateRangeInvalid ? "" : analyticsDateRange.from;
+  const analyticsDateTo = analyticsDateRangeInvalid ? "" : analyticsDateRange.to;
   const [analyticsBusinessSearch, setAnalyticsBusinessSearch] = useState("");
   const [surveyResults, setSurveyResults] = useState([]);
   const [selectedSurveyVisit, setSelectedSurveyVisit] = useState(null);
@@ -969,6 +987,8 @@ const platformAbortRef = useRef(null);
        setAnalytics(null);
         const params = new URLSearchParams();
         params.set("survey_type", activePlatform);
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
             isMysteryShopperPlatform ? "mystery_location_ids" : "business_ids",
@@ -1012,7 +1032,7 @@ const platformAbortRef = useRef(null);
       };
      load();
      return () => requests.invalidate("analytics");
-     }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+     }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, fetchJsonSafe]);
 
    // Load yes/no question analytics (B2B and Mystery Shopper)
     useEffect(() => {
@@ -1026,6 +1046,8 @@ const platformAbortRef = useRef(null);
      const load = async () => {
         const isStale = request.isStale;
         const params = new URLSearchParams({ survey_type: activePlatform });
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (isMysteryShopperPlatform && selectedAnalyticsEntityIds.length > 0) {
           params.set("mystery_location_ids", selectedAnalyticsEntityIds.join(","));
         } else if (selectedAnalyticsEntityIds.length > 0) {
@@ -1043,35 +1065,46 @@ const platformAbortRef = useRef(null);
 
       load();
      return () => requests.invalidate("yesNo");
-    }, [location.pathname, activePlatform, isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, fetchJsonSafe]);
 
+    // The account executive chart is drawn on the Trends page, so it is loaded there (it used to load only on "/").
     useEffect(() => {
-      if (location.pathname !== "/") return;
+      if (location.pathname !== "/trends") return;
       if (!activePlatform || !isB2BPlatform) {
         setAccountExecutiveYesNoTrendData([]);
+        setAccountExecutiveYesNoError("");
+        setAccountExecutiveYesNoLoading(false);
         return;
       }
 
       const request = requests.begin("executiveTrends");
-     const load = async () => {
+      const load = async () => {
         const isStale = request.isStale;
+        setAccountExecutiveYesNoLoading(true);
+        setAccountExecutiveYesNoError("");
         const params = new URLSearchParams({ survey_type: activePlatform });
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set("business_ids", selectedAnalyticsEntityIds.join(","));
         }
-        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/account-executives/yes-no-trends?${params.toString()}`, { headers, signal: request.signal });
-        if (!res.ok) {
+        try {
+          const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/account-executives/yes-no-trends?${params.toString()}`, { headers, signal: request.signal });
           if (isStale()) return;
-          setAccountExecutiveYesNoTrendData([]);
-          return;
+          if (!res.ok) {
+            setAccountExecutiveYesNoTrendData([]);
+            setAccountExecutiveYesNoError(formatApiError(data?.detail, "Could not load account executive results"));
+            return;
+          }
+          setAccountExecutiveYesNoTrendData(Array.isArray(data?.items) ? data.items : []);
+        } finally {
+          if (!isStale()) setAccountExecutiveYesNoLoading(false);
         }
-        if (isStale()) return;
-        setAccountExecutiveYesNoTrendData(Array.isArray(data?.items) ? data.items : []);
       };
 
       load();
-     return () => requests.invalidate("executiveTrends");
-    }, [location.pathname, activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, headers, fetchJsonSafe]);
+      return () => requests.invalidate("executiveTrends");
+    }, [location.pathname, activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, headers, fetchJsonSafe]);
 
    // Load question averages for drilldown table
    useEffect(() => {
@@ -1083,6 +1116,8 @@ const platformAbortRef = useRef(null);
      const load = async () => {
         const isStale = request.isStale;
         const params = new URLSearchParams({ survey_type: activePlatform });
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
             isMysteryShopperPlatform ? "mystery_location_ids" : "business_ids",
@@ -1111,7 +1146,7 @@ const platformAbortRef = useRef(null);
      };
      load();
      return () => requests.invalidate("questions");
-    }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isInstallationPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, fetchJsonSafe]);
 
    // Load question trend data
    useEffect(() => {
@@ -1128,6 +1163,8 @@ const platformAbortRef = useRef(null);
         setTrendError("");
         setTrendData([]);
         const params = new URLSearchParams({ survey_type: activePlatform, interval: "week" });
+        if (analyticsDateFrom) params.set("date_from", analyticsDateFrom);
+        if (analyticsDateTo) params.set("date_to", analyticsDateTo);
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set(
             isMysteryShopperPlatform ? "mystery_location_ids" : "business_ids",
@@ -1148,7 +1185,7 @@ const platformAbortRef = useRef(null);
       };
      load();
      return () => requests.invalidate("trend");
-    }, [location.pathname, activePlatform, isMysteryShopperPlatform, selectedQuestionId, selectedAnalyticsEntityIds, fetchJsonSafe]);
+    }, [location.pathname, activePlatform, isMysteryShopperPlatform, selectedQuestionId, selectedAnalyticsEntityIds, analyticsDateFrom, analyticsDateTo, fetchJsonSafe]);
 
   const loadPendingVisits = useCallback(async () => {
     const request = requests.begin("pending");
@@ -2621,6 +2658,14 @@ const platformAbortRef = useRef(null);
     }
   }, [selectedAnalyticsBusinessIds]);
 
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(ANALYTICS_DATE_RANGE_KEY, JSON.stringify(analyticsDateRange));
+    } catch {
+      // storage unavailable: the date range simply will not persist
+    }
+  }, [analyticsDateRange]);
+
   // Drop saved selections for businesses that no longer qualify (deleted/retired/no approved surveys).
   useEffect(() => {
     if (!isB2BPlatform || analyticsBusinesses.length === 0) return;
@@ -2967,6 +3012,8 @@ const platformAbortRef = useRef(null);
           />
         ) : (
         <>
+          <DateRangeFilter className="mb-6" from={analyticsDateRange.from} to={analyticsDateRange.to} invalid={analyticsDateRangeInvalid} onChange={setAnalyticsDateRange} />
+
           {isB2BPlatform ? (
             <Disclosure
               className="mb-6"
@@ -3084,43 +3131,8 @@ const platformAbortRef = useRef(null);
           </div>
           )}
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            <Card className="min-w-0 lg:col-span-8">
-                <CardHeader>
-                  <CardTitle>Question Trend</CardTitle>
-                <Select aria-label="Question" value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
-                  {questionAverages.length === 0 ? <option value="">No questions available</option> : null}
-                  {questionAverages.map((question) => (
-                    <option key={question.question_id} value={String(question.question_id)}>
-                      {question.question_text}
-                    </option>
-                  ))}
-                </Select>
-              </CardHeader>
-              <CardContent className="min-w-0 h-[360px]">
-                {trendLoading ? (
-                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">Loading trend data...</div>
-                ) : trendError ? (
-                  <div className="flex h-full items-center justify-center text-sm text-destructive" role="alert">Trend unavailable: {trendError}</div>
-                ) : !selectedQuestionScale ? (
-                  <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">This question has no declared score scale, so a score trend cannot be drawn.</div>
-                ) : trendData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                  <LineChart data={trendData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="period" />
-                    <YAxis domain={[selectedQuestionScale.min, selectedQuestionScale.max]} />
-                    <Tooltip formatter={(value) => [`${Number(value).toFixed(2)} / ${selectedQuestionScale.max}`, "Average rating"]} />
-                    <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-                ) : (
-                  <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">No approved ratings are available for this question and filter selection.</div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="min-w-0 lg:col-span-4">
+          <div className="grid grid-cols-1 gap-6">
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   Category Breakdown
@@ -3448,6 +3460,7 @@ const platformAbortRef = useRef(null);
           </div>
         ) : (
           <div className="space-y-6">
+            <DateRangeFilter from={analyticsDateRange.from} to={analyticsDateRange.to} invalid={analyticsDateRangeInvalid} onChange={setAnalyticsDateRange} />
             {isB2BPlatform && selectedAnalyticsBusinessIds.length > 0 ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-4 py-2 text-sm">
                 <span>Filtered to {selectedAnalyticsBusinessIds.length} business{selectedAnalyticsBusinessIds.length === 1 ? "" : "es"} chosen on the Analytics page.</span>
@@ -3498,7 +3511,11 @@ const platformAbortRef = useRef(null);
                 </CardHeader>
                 <CardContent>
                   <div className="min-w-0 h-[420px]">
-                    {accountExecutiveYesNoChartData.length > 0 ? (
+                    {accountExecutiveYesNoLoading ? (
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">Loading account executive results...</div>
+                    ) : accountExecutiveYesNoError ? (
+                      <div className="flex h-full items-center justify-center px-4 text-center text-sm text-destructive" role="alert">Account executive results unavailable: {accountExecutiveYesNoError}</div>
+                    ) : accountExecutiveYesNoChartData.length > 0 ? (
                       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                         <BarChart data={accountExecutiveYesNoChartData} margin={{ top: 8, right: 8, left: 8, bottom: 24 }}>
                           <CartesianGrid strokeDasharray="3 3" />
@@ -3510,7 +3527,7 @@ const platformAbortRef = useRef(null);
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No account executive yes/no data available.</div>
+                      <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">No account executive results yet. This chart uses approved surveys that have an account executive name recorded.</div>
                     )}
                   </div>
                 </CardContent>
