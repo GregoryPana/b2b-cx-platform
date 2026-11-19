@@ -36,8 +36,35 @@ environment.
 | `deploy-production` | manual | Install the frozen ZIP | Keep |
 | `deploy-mystery-public` | manual | DMZ build, deploy, rollback, recover | Keep |
 | `mystery-public-preflight` | manual | Read-only check of the DMZ host | Keep (cheap safety check before a first or risky DMZ deploy) |
-| `analytics-release-preflight` | manual | Read-only inspection of staging or production hosts | Candidate to retire or fold into a "preflight" step |
-| `analytics-host-repair` | PR, push, manual | One-off repairs (for example staging TLS) plus tests for the artifact script | Candidate to retire the manual repair once it is no longer needed; its tests stay |
+| `analytics-release-preflight` | manual | Read-only host check before a release (details in 2a). Still valid today. | Keep; run before risky releases. Not part of the normal chain |
+| `analytics-host-repair` | PR, push, manual | CI tests for the release-artifact script (runs automatically) plus a manual NGINX/TLS repair (details in 2a) | Keep the tests. The manual repair is break-glass: keep it, do not run it routinely |
+
+### 2a. What the two analytics workflows actually do (read from the files, 2026-11-19)
+
+**`analytics-release-readonly-preflight`** (manual, target staging or production, read-only, 24 runs, last 2026-10-19).
+On the target host it checks: the hostname is the expected one; `cwscx-backend` is active and runs from `/opt/cwscx`;
+at least 1 GB of disk is free; `/health` reports the database healthy; six key backend files match the checked-out
+source (`require_installed_source` makes a mismatch fatal); the live database Alembic head equals
+`20260714_000032` (the current head in this repo) and the auth-timestamp catalog is compatible; an anonymous call to
+`/dashboard-visits/all` returns 401; the NGINX site and its TLS certificate map to the right hostname and the served
+certificate is the configured one; and the served dashboard bundle is identical to the installed file. It also lists
+rollback bundles and certificates. It changes nothing.
+Overlap with the normal chain: the deploys already run a health check, `nginx -t`, and (production/staging) the
+artifact digest validation. They do not check the database head, installed-source equality or certificate match.
+**Caveat:** the expected head is hard-coded. The next Alembic migration will make this workflow fail until the value
+is updated, so it must be bumped with every migration or it will give a false alarm.
+
+**`analytics-host-repair`** has two jobs. `test` runs automatically on pushes and PRs that touch the artifact or repair
+scripts (unit tests in a locked-down container); this is the part that keeps running. `repair` is manual
+(`staging_tls` or `production_site`) and runs `scripts/linux/analytics_host_repair.py` as root on the host to fix
+the NGINX site and TLS certificate, restoring the old files if verification fails. It ran 3 times, last on
+2026-10-15, for the analytics release incident. It reaches the `production` host and reconfigures NGINX, so it is a
+break-glass tool rather than a deploy step.
+
+**Assessment.** Neither is dead code, and neither should be deleted on a hunch. They are not part of the release chain,
+which is why they feel like clutter. The cheapest fix is naming and documentation, not removal: label them as
+"pre-release host check" and "emergency repair", mention them in the runbook, and make the preflight's expected
+database head read from the repo instead of a literal.
 
 ## 3. Why there are "so many" deploy actions
 
@@ -69,15 +96,20 @@ environment.
    manual use and recovery. Value: removes the copy and paste step, not any safety check.
 2. **Reusable workflows for the shared shell.** Move the install and rollback script into one reusable workflow or a
    script under `scripts/linux/` called by staging and production. Lower risk if done as a script first.
-3. **Retire the analytics helpers** once the incidents they were written for are closed, keeping their unit tests.
+3. **Keep and relabel the analytics helpers** (see 2a) instead of retiring them; derive the preflight's expected database head from the repo.
 4. **Delete the unused change-detection jobs** (or make them gate something), so nobody assumes they do.
 
 Not recommended: merging internal and DMZ deploys, or letting production rebuild. Both would weaken the guarantee
 that production runs exactly what was tested.
 
-## 6. Open questions for the owner
+## 6. Decisions
 
-- Are `analytics-release-preflight` and the manual repair path of `analytics-host-repair` still used?
-- Pauses today: only the DMZ deploy waits for a human (required reviewer on `mystery-public`). Staging and production
-  have no required reviewer; their only "pause" is that you must start each workflow and supply the digest. Should
-  `production` get a required reviewer, and should `promote` pause before the production step?
+- **Approvals (decided 2026-11-19):** for now there is no required reviewer on `staging` or `production`. The control
+  is the pull request: a commit is approved on `main` (one approving review, required checks) and then deployed.
+  The DMZ keeps its required reviewer on `mystery-public`. Today only the DMZ deploy waits for a human.
+- **Keep the option open.** A required reviewer on `production` can be added later in GitHub (Settings, Environments,
+  production) with no workflow changes, because the deploy jobs already name `environment: production`. The
+  `promote` workflow must be written so that the production job keeps that `environment:` line and any later
+  reviewer takes effect automatically. Do not remove it.
+- **Still open:** is the preflight wanted as a step in `promote` (a read-only check before production), or kept as a
+  separate manual tool?
