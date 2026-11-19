@@ -22,7 +22,7 @@ export default function MysteryPurposesSection({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Input value={newMysteryPurpose} onChange={(event) => setNewMysteryPurpose(event.target.value)} placeholder="Add new purpose" />
+          <Input aria-label="New purpose name" value={newMysteryPurpose} onChange={(event) => setNewMysteryPurpose(event.target.value)} placeholder="Add new purpose" />
           <Button type="button" onClick={createMysteryPurpose}>Add Purpose</Button>
           <Button type="button" variant="outline" onClick={loadMysteryPurposes}>{mysteryPurposesLoading ? "Refreshing..." : "Refresh"}</Button>
         </div>
