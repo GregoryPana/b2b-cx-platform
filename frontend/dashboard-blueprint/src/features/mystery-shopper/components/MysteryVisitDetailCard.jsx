@@ -68,6 +68,7 @@ function ResponseAnswer({ response, editable, draft, updateReviewDraft, response
   if (type === "yes_no" || ["yes", "no"].includes(String(answerText).toLowerCase().trim())) {
     return editable ? (
       <Select
+        aria-label="Answer"
         value={answerText}
         onChange={(e) => updateReviewDraft?.(responseId, { ...draft, answer_text: e.target.value })}
         className="w-24"
@@ -84,6 +85,7 @@ function ResponseAnswer({ response, editable, draft, updateReviewDraft, response
   if (editable) {
     return (
       <Textarea
+        aria-label="Answer"
         value={answerText}
         onChange={(e) => updateReviewDraft?.(responseId, { ...draft, answer_text: e.target.value })}
         className="mt-1"
@@ -224,8 +226,9 @@ export default function MysteryVisitDetailCard({
                           {/* Verbatim */}
                           {editable ? (
                             <div className="mt-2">
-                              <label className="mb-1 block text-xs font-medium text-muted-foreground">Verbatim notes</label>
+                              <label htmlFor={`review-verbatim-${responseId}`} className="mb-1 block text-xs font-medium text-muted-foreground">Verbatim notes</label>
                               <Textarea
+                                id={`review-verbatim-${responseId}`}
                                 value={draft.verbatim}
                                 onChange={(e) => updateReviewDraft(responseId, { ...draft, verbatim: e.target.value })}
                                 rows={2}
@@ -252,16 +255,19 @@ export default function MysteryVisitDetailCard({
                                 >
                                   <Textarea
                                     className="min-h-20 resize-y md:col-span-2"
+                                    aria-label="Action required"
                                     placeholder="Action required"
                                     value={action.action_required || ""}
                                     onChange={(e) => updateReviewAction(responseId, actionIndex, "action_required", e.target.value)}
                                   />
                                   <Input
+                                    aria-label="Lead owner"
                                     placeholder="Lead owner"
                                     value={action.action_owner || ""}
                                     onChange={(e) => updateReviewAction(responseId, actionIndex, "action_owner", e.target.value)}
                                   />
                                   <Select
+                                    aria-label="Action timeframe"
                                     value={action.action_timeframe || ""}
                                     onChange={(e) => updateReviewAction(responseId, actionIndex, "action_timeframe", e.target.value)}
                                   >
@@ -272,12 +278,14 @@ export default function MysteryVisitDetailCard({
                                   </Select>
                                   <Textarea
                                     className="min-h-20 resize-y"
+                                    aria-label="Support needed"
                                     placeholder="Support needed"
                                     value={action.action_support_needed || ""}
                                     onChange={(e) => updateReviewAction(responseId, actionIndex, "action_support_needed", e.target.value)}
                                   />
                                   <Textarea
                                     className="min-h-20 resize-y"
+                                    aria-label="Action comments"
                                     placeholder="Comments"
                                     value={action.action_comments || ""}
                                     onChange={(e) => updateReviewAction(responseId, actionIndex, "action_comments", e.target.value)}

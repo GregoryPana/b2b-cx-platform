@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Input } from "../ui/input";
+import useFocusTrap from "./useFocusTrap";
 
 /**
  * Small modal that replaces window.confirm / window.prompt.
@@ -31,6 +32,9 @@ export default function ActionDialog({
   const [note, setNote] = useState("");
   const [typed, setTyped] = useState("");
   const firstFieldRef = useRef(null);
+  const dialogRef = useRef(null);
+  const idBase = useId();
+  useFocusTrap(dialogRef, open);
 
   useEffect(() => {
     if (open) {
@@ -58,21 +62,21 @@ export default function ActionDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCancel(); }}>
-      <div role="dialog" aria-modal="true" aria-label={title} className="w-full max-w-lg rounded-lg border bg-card p-5 shadow-lg">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className="w-full max-w-lg rounded-lg border bg-card p-5 shadow-lg">
         <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
         {description ? <div className="mt-2 space-y-2 text-sm text-muted-foreground">{description}</div> : null}
 
         {confirmText ? (
           <div className="mt-4">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">{confirmTextLabel || `Type "${confirmText}" to confirm`}</label>
-            <Input ref={firstFieldRef} value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={confirmText} autoComplete="off" />
+            <label htmlFor={`${idBase}-confirm`} className="mb-1 block text-xs font-medium text-muted-foreground">{confirmTextLabel || `Type "${confirmText}" to confirm`}</label>
+            <Input id={`${idBase}-confirm`} ref={firstFieldRef} value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={confirmText} autoComplete="off" />
           </div>
         ) : null}
 
         {usesNote ? (
           <div className="mt-4">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">{noteLabel}</label>
-            <Textarea ref={confirmText ? undefined : firstFieldRef} value={note} onChange={(event) => setNote(event.target.value)} placeholder={notePlaceholder} className="min-h-24" />
+            <label htmlFor={`${idBase}-note`} className="mb-1 block text-xs font-medium text-muted-foreground">{noteLabel}</label>
+            <Textarea id={`${idBase}-note`} ref={confirmText ? undefined : firstFieldRef} value={note} onChange={(event) => setNote(event.target.value)} placeholder={notePlaceholder} className="min-h-24" />
           </div>
         ) : null}
 
