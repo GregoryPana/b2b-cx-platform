@@ -838,7 +838,7 @@ def render_mystery_report_html(payload: dict[str, Any], generated_by: str) -> st
                     f'<thead><tr>'
                     f'<th style="width:40%;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;text-align:left;border-bottom:1px solid #e2e8f0">Question</th>'
                     f'<th style="width:20%;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;text-align:center;border-bottom:1px solid #e2e8f0">Score / Answer</th>'
-                    f'<th style="width:40%;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;text-align:left;border-bottom:1px solid #e2e8f0">Customer Comment</th>'
+                    f'<th style="width:40%;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;text-align:left;border-bottom:1px solid #e2e8f0">Verbatim / Comments</th>'
                     f'</tr></thead>'
                     f'<tbody>{q_rows}</tbody>'
                     f'</table>'

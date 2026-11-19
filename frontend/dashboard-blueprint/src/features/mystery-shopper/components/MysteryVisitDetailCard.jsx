@@ -226,13 +226,13 @@ export default function MysteryVisitDetailCard({
                           {/* Verbatim */}
                           {editable ? (
                             <div className="mt-2">
-                              <label htmlFor={`review-verbatim-${responseId}`} className="mb-1 block text-xs font-medium text-muted-foreground">Verbatim notes</label>
+                              <label htmlFor={`review-verbatim-${responseId}`} className="mb-1 block text-xs font-medium text-muted-foreground">Verbatim / Comments</label>
                               <Textarea
                                 id={`review-verbatim-${responseId}`}
                                 value={draft.verbatim}
                                 onChange={(e) => updateReviewDraft(responseId, { ...draft, verbatim: e.target.value })}
                                 rows={2}
-                                placeholder="Optional verbatim notes..."
+                                placeholder="Optional verbatim / comments..."
                               />
                             </div>
                           ) : response.verbatim ? (
