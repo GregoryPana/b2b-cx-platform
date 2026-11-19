@@ -24,7 +24,7 @@ export default function MysteryLocationsSection({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Input value={newMysteryLocation} onChange={(event) => setNewMysteryLocation(event.target.value)} placeholder="Add new location" />
+          <Input aria-label="New location name" value={newMysteryLocation} onChange={(event) => setNewMysteryLocation(event.target.value)} placeholder="Add new location" />
           <Button type="button" onClick={createMysteryLocation}>Add Location</Button>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={loadMysteryLocations}>{mysteryLocationsLoading ? "Refreshing..." : "Refresh"}</Button>
