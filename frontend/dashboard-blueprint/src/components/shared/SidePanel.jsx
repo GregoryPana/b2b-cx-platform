@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
+import useFocusTrap from "./useFocusTrap";
 
 // Right-hand detail drawer: the list stays visible behind it, so opening a visit no longer
 // moves the user away from where they were. Layered below ActionDialog (z-50) so an approve /
@@ -10,6 +11,7 @@ export default function SidePanel({ open, title, subtitle, onClose, children, cl
   const panelRef = useRef(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  useFocusTrap(panelRef, open);
 
   // Depends only on `open`: re-running on every parent render would pull focus out of the form fields.
   useEffect(() => {

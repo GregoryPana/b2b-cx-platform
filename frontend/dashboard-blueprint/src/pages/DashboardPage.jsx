@@ -2976,6 +2976,7 @@ const platformAbortRef = useRef(null);
             >
               <div className="space-y-4">
                 <Input
+                  aria-label="Search businesses"
                   placeholder="Search businesses by name or location"
                   value={analyticsBusinessSearch}
                   onChange={(event) => setAnalyticsBusinessSearch(event.target.value)}
@@ -3008,10 +3009,11 @@ const platformAbortRef = useRef(null);
                     filteredAnalyticsBusinesses.map((business) => {
                       const checked = selectedAnalyticsBusinessIds.includes(business.id);
                       return (
-                        <label key={business.id} className="flex cursor-pointer items-center justify-between gap-3 rounded p-1 hover:bg-muted">
+                        <label key={business.id} className="flex min-h-10 cursor-pointer items-center justify-between gap-3 rounded px-2 hover:bg-muted">
                           <span className="text-sm">{business.name}</span>
                           <input
                             type="checkbox"
+                            className="h-5 w-5 shrink-0"
                             checked={checked}
                             onChange={() => toggleAnalyticsBusiness(business.id)}
                           />
@@ -3033,6 +3035,7 @@ const platformAbortRef = useRef(null);
             >
               <div className="space-y-4">
                 <Input
+                  aria-label="Search locations"
                   placeholder="Search locations"
                   value={analyticsLocationSearch}
                   onChange={(event) => setAnalyticsLocationSearch(event.target.value)}
@@ -3044,9 +3047,9 @@ const platformAbortRef = useRef(null);
                     filteredAnalyticsLocations.map((locationItem) => {
                       const checked = selectedAnalyticsLocationIds.includes(locationItem.id);
                       return (
-                        <label key={locationItem.id} className="flex cursor-pointer items-center justify-between gap-3 rounded p-1 hover:bg-muted">
+                        <label key={locationItem.id} className="flex min-h-10 cursor-pointer items-center justify-between gap-3 rounded px-2 hover:bg-muted">
                           <span className="text-sm">{locationItem.name}</span>
-                          <input type="checkbox" checked={checked} onChange={() => toggleAnalyticsLocation(locationItem.id)} />
+                          <input type="checkbox" className="h-5 w-5 shrink-0" checked={checked} onChange={() => toggleAnalyticsLocation(locationItem.id)} />
                         </label>
                       );
                     })
@@ -3085,7 +3088,7 @@ const platformAbortRef = useRef(null);
             <Card className="min-w-0 lg:col-span-8">
                 <CardHeader>
                   <CardTitle>Question Trend</CardTitle>
-                <Select value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
+                <Select aria-label="Question" value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
                   {questionAverages.length === 0 ? <option value="">No questions available</option> : null}
                   {questionAverages.map((question) => (
                     <option key={question.question_id} value={String(question.question_id)}>
@@ -3423,13 +3426,13 @@ const platformAbortRef = useRef(null);
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <Input type="month" value={installationTrendMonth} onChange={(event) => setInstallationTrendMonth(event.target.value)} />
-                  <Select value={installationTrendCustomerType} onChange={(event) => setInstallationTrendCustomerType(event.target.value)}>
+                  <Input type="month" aria-label="Month" value={installationTrendMonth} onChange={(event) => setInstallationTrendMonth(event.target.value)} />
+                  <Select aria-label="Customer type" value={installationTrendCustomerType} onChange={(event) => setInstallationTrendCustomerType(event.target.value)}>
                     <option value="">All customer types</option>
                     <option value="B2B">B2B (Business/Corporate)</option>
                     <option value="B2C">B2C (Residential)</option>
                   </Select>
-                  <Select value={installationTrendWorkerType} onChange={(event) => setInstallationTrendWorkerType(event.target.value)}>
+                  <Select aria-label="Worker type" value={installationTrendWorkerType} onChange={(event) => setInstallationTrendWorkerType(event.target.value)}>
                     <option value="">All worker types</option>
                     <option value="Field Team">Field Team</option>
                     <option value="Contractor">Contractor</option>
@@ -3457,7 +3460,7 @@ const platformAbortRef = useRef(null);
                 <CardDescription>Shows how the selected score changes over time so you can spot improvements or declines.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <Select value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
+                <Select aria-label="Question" value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
                   {questionAverages.length === 0 ? <option value="">No questions available</option> : null}
                   {questionAverages.map((question) => (
                     <option key={question.question_id} value={String(question.question_id)}>{question.question_text}</option>
@@ -3611,8 +3614,8 @@ const platformAbortRef = useRef(null);
                           </div>
                           {canEditResponseAnswer(response) ? (
                             <div>
-                              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Answer</label>
-                              <Textarea value={draft.answer_text} onChange={(event) => updateReviewDraft(responseId, { ...draft, answer_text: event.target.value })} />
+                              <label htmlFor={`review-answer-${responseId}`} className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Answer</label>
+                              <Textarea id={`review-answer-${responseId}`} value={draft.answer_text} onChange={(event) => updateReviewDraft(responseId, { ...draft, answer_text: event.target.value })} />
                             </div>
                           ) : (
                             <div className="flex items-start gap-3 rounded bg-muted/30 px-3 py-2">
@@ -3621,8 +3624,8 @@ const platformAbortRef = useRef(null);
                             </div>
                           )}
                           <div>
-                            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Verbatim</label>
-                            <Textarea value={draft.verbatim} onChange={(event) => updateReviewDraft(responseId, { ...draft, verbatim: event.target.value })} />
+                            <label htmlFor={`review-verbatim-${responseId}`} className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Verbatim</label>
+                            <Textarea id={`review-verbatim-${responseId}`} value={draft.verbatim} onChange={(event) => updateReviewDraft(responseId, { ...draft, verbatim: event.target.value })} />
                           </div>
                           {canEditResponseActions(response) ? (
                             <div className="mt-3 space-y-2 rounded-md border bg-muted/40 p-3">
@@ -3632,16 +3635,16 @@ const platformAbortRef = useRef(null);
                               </div>
                               {(draft.actions || []).map((action, actionIndex) => (
                                 <div key={`${responseId}-action-${actionIndex}`} className="grid grid-cols-1 gap-2 rounded-md border bg-background p-3 md:grid-cols-2">
-                                  <Textarea className="min-h-24 resize-y md:col-span-2" placeholder="Action required" value={action.action_required || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_required", event.target.value)} />
-                                  <Input placeholder="Lead owner" value={action.action_owner || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_owner", event.target.value)} />
-                                  <Select value={action.action_timeframe || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_timeframe", event.target.value)}>
+                                  <Textarea aria-label="Action required" className="min-h-24 resize-y md:col-span-2" placeholder="Action required" value={action.action_required || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_required", event.target.value)} />
+                                  <Input aria-label="Lead owner" placeholder="Lead owner" value={action.action_owner || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_owner", event.target.value)} />
+                                  <Select aria-label="Action timeframe" value={action.action_timeframe || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_timeframe", event.target.value)}>
                                     <option value="">Action timeframe</option>
                                     {ACTION_TIMEFRAME_OPTIONS.map((option) => (
                                       <option key={`${responseId}-${actionIndex}-${option}`} value={option}>{option}</option>
                                     ))}
                                   </Select>
-                                    <Textarea className="min-h-24 resize-y" placeholder="Support needed" value={action.action_support_needed || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_support_needed", event.target.value)} />
-                                    <Textarea className="min-h-24 resize-y" placeholder="Comments" value={action.action_comments || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_comments", event.target.value)} />
+                                    <Textarea aria-label="Support needed" className="min-h-24 resize-y" placeholder="Support needed" value={action.action_support_needed || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_support_needed", event.target.value)} />
+                                    <Textarea aria-label="Action comments" className="min-h-24 resize-y" placeholder="Comments" value={action.action_comments || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_comments", event.target.value)} />
                                   <div className="md:col-span-2">
                                     <Button type="button" size="sm" variant="destructive" onClick={() => removeReviewAction(responseId, actionIndex)}>Remove Action</Button>
                                   </div>
@@ -3727,6 +3730,7 @@ const platformAbortRef = useRef(null);
                           <Input
                             value={memberName}
                             onChange={(event) => updatePlannedTeamMember(index, event.target.value)}
+                            aria-label={`Team member ${index + 1}`}
                             placeholder={`Team member ${index + 1}`}
                             title="Add one team member per row"
                           />
@@ -3828,6 +3832,7 @@ const platformAbortRef = useRef(null);
                 <Input
                   value={newInstallationContractorName}
                   onChange={(event) => setNewInstallationContractorName(event.target.value)}
+                  aria-label="Contractor name"
                   placeholder="Enter contractor name"
                 />
                 <Button type="button" onClick={createInstallationContractor} disabled={installationContractorSaving}>
@@ -3838,6 +3843,7 @@ const platformAbortRef = useRef(null);
                 <Input
                   value={installationContractorQuery}
                   onChange={(event) => setInstallationContractorQuery(event.target.value)}
+                  aria-label="Search contractors"
                   placeholder="Search contractors"
                 />
                 <Button type="button" variant="outline" onClick={() => loadInstallationContractors(installationContractorQuery)}>
@@ -3946,18 +3952,15 @@ const platformAbortRef = useRef(null);
 
               {installReportType === "lifetime" ? (
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Month (optional)</label>
+                  <Field label="Month (optional)">
                     <Input type="month" value={installReportMonth} onChange={(e) => setInstallReportMonth(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date (optional)</label>
+                  </Field>
+                  <Field label="From Date (optional)">
                     <Input type="date" value={installReportDateFrom} onChange={(e) => setInstallReportDateFrom(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">To Date (optional)</label>
+                  </Field>
+                  <Field label="To Date (optional)">
                     <Input type="date" value={installReportDateTo} onChange={(e) => setInstallReportDateTo(e.target.value)} />
-                  </div>
+                  </Field>
                 </div>
               ) : null}
 
@@ -3971,7 +3974,7 @@ const platformAbortRef = useRef(null);
                       {installReportSurveyListLoading ? "Loading..." : `${installReportSurveyList.length} surveys available`}
                     </span>
                   </div>
-                    <Select value={installReportSurveyId} onChange={(e) => setInstallReportSurveyId(e.target.value)}>
+                    <Select aria-label="Survey" value={installReportSurveyId} onChange={(e) => setInstallReportSurveyId(e.target.value)}>
                       <option value="">Select a survey</option>
                       {installReportSurveyList.map((survey) => (
                         <option key={survey.survey_id} value={survey.survey_id}>
@@ -4127,7 +4130,7 @@ const platformAbortRef = useRef(null);
             <CardContent className="space-y-4">
               {location.pathname === "/surveys" ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-2">
-                <Select value={surveyStatusFilter} onChange={(event) => setSurveyStatusFilter(event.target.value)}>
+                <Select aria-label="Status" value={surveyStatusFilter} onChange={(event) => setSurveyStatusFilter(event.target.value)}>
                   <option value="all">All Statuses</option>
                   <option value="Draft">Draft</option>
                       <option value="Pending">Pending</option>
@@ -4135,14 +4138,14 @@ const platformAbortRef = useRef(null);
                       <option value="Rejected">Rejected</option>
                     </Select>
                 {isB2BPlatform ? (
-                  <Select value={selectedSurveyBusiness} onChange={(event) => setSelectedSurveyBusiness(event.target.value)}>
+                  <Select aria-label="Business" value={selectedSurveyBusiness} onChange={(event) => setSelectedSurveyBusiness(event.target.value)}>
                     <option value="">All Businesses</option>
                     {businesses.map((business) => (
                       <option key={business.id} value={business.name}>{business.name}</option>
                     ))}
                   </Select>
                 ) : isMysteryShopperPlatform ? (
-                  <Select value={selectedSurveyLocation} onChange={(event) => setSelectedSurveyLocation(event.target.value)}>
+                  <Select aria-label="Location" value={selectedSurveyLocation} onChange={(event) => setSelectedSurveyLocation(event.target.value)}>
                     <option value="">All Locations</option>
                     {mysteryLocations.map((locationItem) => (
                       <option key={locationItem.id} value={locationItem.name}>{locationItem.name}</option>
@@ -4188,24 +4191,22 @@ const platformAbortRef = useRef(null);
 
                 {reportType === "survey" ? (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">{isMysteryShopperPlatform ? "Select Location" : "Select Business"}</label>
+                    <Field label={isMysteryShopperPlatform ? "Select Location" : "Select Business"}>
                       <EntityCombobox
                         options={isMysteryShopperPlatform ? mysteryLocations : businesses}
                         value={reportBusinessId}
                         onChange={setReportBusinessId}
                         placeholder={isMysteryShopperPlatform ? "Type to search location..." : "Type to search business..."}
                       />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Survey</label>
+                    </Field>
+                    <Field label="Survey">
                       <Select value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)}>
                         <option value="">Select approved survey</option>
                         {reportEligibleSurveys.map((visit) => (
                           <option key={visit.visit_id} value={visit.visit_id}>Survey on {visit.visit_date || "--"} ({visit.status})</option>
                         ))}
                       </Select>
-                    </div>
+                    </Field>
                   </div>
                 ) : null}
 
@@ -4216,45 +4217,39 @@ const platformAbortRef = useRef(null);
                       <p className="text-xs text-blue-800 mt-1"><strong>Single date:</strong> Shows all surveys completed on exactly that date. Use the date picker below.</p>
                       <p className="text-xs text-blue-800 mt-1"><strong>Date range:</strong> Shows all surveys completed between two dates. Fill in both "From" and "To" fields below.</p>
                     </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date</label>
+                    <Field label="From Date">
                       <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">To Date</label>
+                    </Field>
+                    <Field label="To Date">
                       <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
-                    </div>
+                    </Field>
                   </div>
                 ) : null}
 
                 {reportType === "action_points" ? (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Business (optional)</label>
+                    <Field label="Business (optional)">
                       <EntityCombobox
                         options={businesses}
                         value={reportBusinessId}
                         onChange={setReportBusinessId}
                         placeholder="All businesses"
                       />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">From Date (optional)</label>
+                    </Field>
+                    <Field label="From Date (optional)">
                       <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">To Date (optional)</label>
+                    </Field>
+                    <Field label="To Date (optional)">
                       <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Status</label>
+                    </Field>
+                    <Field label="Status">
                       <Select value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)}>
                         <option value="">All action points</option>
                           <option value="Outstanding">Outstanding only</option>
                           <option value="In Progress">In Progress only</option>
                           <option value="Completed">Completed only</option>
                       </Select>
-                    </div>
+                    </Field>
                   </div>
                 ) : null}
 
@@ -4286,8 +4281,8 @@ const platformAbortRef = useRef(null);
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                   {reportType === "lifetime" ? (
                     <>
-                      <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} placeholder="From date (optional)" />
-                      <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} placeholder="To date (optional)" />
+                      <Input type="date" aria-label="From date (optional)" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
+                      <Input type="date" aria-label="To date (optional)" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
                     </>
                   ) : null}
                   <EmailRecipientsInput

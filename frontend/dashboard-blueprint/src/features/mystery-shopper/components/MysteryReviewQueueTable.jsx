@@ -169,6 +169,7 @@ export default function MysteryReviewQueueTable({ data, onView, onApprove, onRej
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
             <Select
+              aria-label="Filter column"
               value={filterColumn}
               onChange={(e) => {
                 setFilterColumn(e.target.value);
@@ -182,6 +183,7 @@ export default function MysteryReviewQueueTable({ data, onView, onApprove, onRej
             </Select>
             <Input
               type={filterColumn === "visit_date" ? "date" : "text"}
+              aria-label="Filter value"
               placeholder="Filter selected column"
               value={activeFilterValue}
               onChange={(e) => table.getColumn(filterColumn)?.setFilterValue(e.target.value)}
