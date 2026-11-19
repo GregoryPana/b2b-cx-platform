@@ -100,7 +100,7 @@ const GUIDE_SECTIONS = [
       "Questions are grouped by section — use the Sections list to jump between them. Read the scoring key (the \"Scoring key\" panel at the top of the survey page): on every numeric scale the lowest number means the worst experience and the highest number means the best.",
       "Answer types: numeric scores (tap the number), Yes/No buttons, multiple choice, and free-text boxes for describing what you observed. Some questions are mandatory — the survey cannot be submitted until every mandatory question has a saved answer.",
       "Save each answer with its Save button as you go. Saved answers are stored on the server immediately, so nothing is lost if your connection drops.",
-      "Under each question you can open \"Add a comment\" (optional) to add context — specific details (what was said, how long you waited, what was unclear) make your assessment far more useful than a number alone.",
+      "Under each question you can open \"Add verbatim / comments\" (optional) to add context — specific details (what was said, how long you waited, what was unclear) make your assessment far more useful than a number alone.",
     ],
     link: { label: "Go to the survey", tab: "survey" },
   },

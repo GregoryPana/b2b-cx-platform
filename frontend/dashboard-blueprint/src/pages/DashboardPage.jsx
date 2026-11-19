@@ -3641,7 +3641,7 @@ const platformAbortRef = useRef(null);
                             </div>
                           )}
                           <div>
-                            <label htmlFor={`review-verbatim-${responseId}`} className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Verbatim</label>
+                            <label htmlFor={`review-verbatim-${responseId}`} className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Verbatim / Comments</label>
                             <Textarea id={`review-verbatim-${responseId}`} value={draft.verbatim} onChange={(event) => updateReviewDraft(responseId, { ...draft, verbatim: event.target.value })} />
                           </div>
                           {canEditResponseActions(response) ? (
@@ -4426,7 +4426,7 @@ const platformAbortRef = useRef(null);
                               </div>
                               {response.verbatim ? (
                                 <div>
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Verbatim</p>
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Verbatim / Comments</p>
                                   <p className="mt-0.5 text-sm text-foreground">{response.verbatim}</p>
                                 </div>
                               ) : null}

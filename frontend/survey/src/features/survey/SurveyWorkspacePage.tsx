@@ -1929,7 +1929,7 @@ export default function SurveyWorkspacePage({ headers, userId, role }: SurveyWor
                                     )}
 
                             <div className="space-y-2">
-                              <label className="block text-sm font-medium">Verbatim</label>
+                              <label className="block text-sm font-medium">Verbatim / Comments</label>
                               {isReadOnly ? (
                                 <div className="rounded bg-muted/30 px-3 py-2 text-sm">{draft.verbatim || "--"}</div>
                               ) : (

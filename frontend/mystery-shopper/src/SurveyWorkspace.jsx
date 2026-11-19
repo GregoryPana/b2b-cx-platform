@@ -160,11 +160,11 @@ function CommentField({ id, value, disabled, onChange }) {
     <details open={initiallyOpen || undefined} className="group">
       <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md py-1 text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" aria-hidden="true" />
-        {hasComment ? "Comment" : "Add a comment"}
+        {hasComment ? "Verbatim / Comments" : "Add verbatim / comments"}
         <span className="text-xs font-normal text-muted-foreground">(optional)</span>
       </summary>
       <div className="mt-2">
-        <label htmlFor={id} className="sr-only">Comment for this question</label>
+        <label htmlFor={id} className="sr-only">Verbatim / Comments for this question</label>
         <Textarea
           id={id}
           value={value}

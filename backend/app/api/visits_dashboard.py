@@ -1970,7 +1970,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
                     + "".join(rows)
                 )
             return f'''<div class="table-wrap"><table>
-                <thead><tr><th>Survey Date</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th><th>Linked Question</th><th>Answer</th><th>Verbatim</th></tr></thead>
+                <thead><tr><th>Survey Date</th><th>Action Point</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th><th>Linked Question</th><th>Answer</th><th>Verbatim / Comments</th></tr></thead>
                 <tbody>{"".join(sections)}</tbody>
             </table></div>'''
 
@@ -2299,7 +2299,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             table_body = "".join(rows)
             rendered.append(
                 f"<div class='card'><div class='label'>{category_name}</div>"
-                f"<div class='table-wrap'><table><thead><tr><th>Question</th><th>Prompt</th><th>Answer (Range)</th><th>Verbatim</th></tr></thead><tbody>{table_body}</tbody></table></div></div>"
+                f"<div class='table-wrap'><table><thead><tr><th>Question</th><th>Prompt</th><th>Answer (Range)</th><th>Verbatim / Comments</th></tr></thead><tbody>{table_body}</tbody></table></div></div>"
             )
         survey_detail_blocks = "".join(rendered)
 
@@ -2476,17 +2476,17 @@ def render_report_html(payload: dict, generated_by: str) -> str:
         no_completed_actions = '<tr><td colspan="10">No completed action points.</td></tr>'
         action_points_section = (
             f'<h3>Outstanding Action Points</h3><div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Answer</th><th>Verbatim</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Answer</th><th>Verbatim / Comments</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows_outstanding or no_outstanding_actions}</tbody></table></div>'
             f'<h3>Completed Action Points</h3><div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Answer</th><th>Verbatim</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Answer</th><th>Verbatim / Comments</th><th>Lead Owner</th><th>Timeline</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows_completed or no_completed_actions}</tbody></table></div>'
         )
     else:
         no_action_points = '<tr><td colspan="11">No action points found for this report scope.</td></tr>'
         action_points_section = (
             f'<div class="table-wrap"><table>'
-            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Answer</th><th>Verbatim</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th><th>Comments</th></tr></thead>'
+            f'<thead><tr><th>Survey Date</th><th>Business</th><th>Action Point</th><th>Related Question</th><th>Answer</th><th>Verbatim / Comments</th><th>Lead Owner</th><th>Timeline</th><th>Status</th><th>Support Needed</th><th>Comments</th></tr></thead>'
             f'<tbody>{action_rows or no_action_points}</tbody></table></div>'
         )
 
@@ -2540,7 +2540,7 @@ def render_report_html(payload: dict, generated_by: str) -> str:
             f'<div class="card"><div class="label">Survey Team</div><div class="value">{", ".join(selected_visit_info.get("team_member_names") or []) or "--"}</div></div>'
             f'</div>'
             f'<div class="explain"><p>Representative: {selected_visit_info.get("representative_name") or "--"}</p><p>Edited before review: {selected_visit_info.get("edited_by_name") or "--"}{edited_suffix}</p></div>'
-            f'<h2>Survey Responses and Verbatim</h2>'
+            f'<h2>Survey Responses and Verbatim / Comments</h2>'
             f'<div class="viz-grid">{survey_detail_blocks or no_survey_details}</div>'
         )
 
