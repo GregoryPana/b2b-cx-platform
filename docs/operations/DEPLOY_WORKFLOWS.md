@@ -43,8 +43,9 @@ environment.
 
 - **Different instances.** Internal and DMZ differ in auth mode, build, host and approval environment, so they cannot
   share one deploy.
-- **Separation of duties.** Building, validating and installing are separate jobs on separate runners with their own
-  environment approvals. This is deliberate: it is what lets production trust a staging result.
+- **Separation of duties.** Building, validating and installing are separate jobs on separate runners. This is
+  deliberate: it is what lets production trust a staging result. Only the DMZ `mystery-public` environment has a
+  required reviewer; `staging` and `production` have none (checked 2026-11-19).
 - **Historical helpers.** The two analytics workflows were added for specific incidents (a host repair, a release
   inspection). They are still listed beside the real deploys, which is most of the noise.
 - **Manual handoff.** Nothing links step 1 to 2 to 3, so you copy a run id, a SHA256 and a source commit between
@@ -64,7 +65,7 @@ environment.
 1. **A `promote` workflow (recommended; planned as the next item).** One manual workflow that runs staging, then
    export, then production in sequence, passing the run id, SHA256 and source commit between jobs automatically.
    Keep every existing gate: the production job still downloads the artifact, still validates digest, source commit
-   and producer, and still waits for the `production` environment approval. The three existing workflows stay for
+   and producer, and still stops on a bad digest. (Today `production` has no required reviewer, so there is no human pause; see section 6.) The three existing workflows stay for
    manual use and recovery. Value: removes the copy and paste step, not any safety check.
 2. **Reusable workflows for the shared shell.** Move the install and rollback script into one reusable workflow or a
    script under `scripts/linux/` called by staging and production. Lower risk if done as a script first.
@@ -77,5 +78,6 @@ that production runs exactly what was tested.
 ## 6. Open questions for the owner
 
 - Are `analytics-release-preflight` and the manual repair path of `analytics-host-repair` still used?
-- Should `promote` pause for approval between staging and production, or only at the existing `production`
-  environment gate?
+- Pauses today: only the DMZ deploy waits for a human (required reviewer on `mystery-public`). Staging and production
+  have no required reviewer; their only "pause" is that you must start each workflow and supply the digest. Should
+  `production` get a required reviewer, and should `promote` pause before the production step?
