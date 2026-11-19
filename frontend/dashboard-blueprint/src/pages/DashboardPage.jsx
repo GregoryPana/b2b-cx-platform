@@ -314,6 +314,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState("");
   const [accountExecutiveYesNoTrendData, setAccountExecutiveYesNoTrendData] = useState([]);
+  const [accountExecutiveYesNoLoading, setAccountExecutiveYesNoLoading] = useState(false);
+  const [accountExecutiveYesNoError, setAccountExecutiveYesNoError] = useState("");
   const [pendingVisits, setPendingVisits] = useState([]);
   const [pendingVisitsLoading, setPendingVisitsLoading] = useState(false);
   const [businesses, setBusinesses] = useState([]);
@@ -1045,32 +1047,41 @@ const platformAbortRef = useRef(null);
      return () => requests.invalidate("yesNo");
     }, [location.pathname, activePlatform, isB2BPlatform, isMysteryShopperPlatform, selectedAnalyticsEntityIds, fetchJsonSafe]);
 
+    // The account executive chart is drawn on the Trends page, so it is loaded there (it used to load only on "/").
     useEffect(() => {
-      if (location.pathname !== "/") return;
+      if (location.pathname !== "/trends") return;
       if (!activePlatform || !isB2BPlatform) {
         setAccountExecutiveYesNoTrendData([]);
+        setAccountExecutiveYesNoError("");
+        setAccountExecutiveYesNoLoading(false);
         return;
       }
 
       const request = requests.begin("executiveTrends");
-     const load = async () => {
+      const load = async () => {
         const isStale = request.isStale;
+        setAccountExecutiveYesNoLoading(true);
+        setAccountExecutiveYesNoError("");
         const params = new URLSearchParams({ survey_type: activePlatform });
         if (selectedAnalyticsEntityIds.length > 0) {
           params.set("business_ids", selectedAnalyticsEntityIds.join(","));
         }
-        const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/account-executives/yes-no-trends?${params.toString()}`, { headers, signal: request.signal });
-        if (!res.ok) {
+        try {
+          const { res, data } = await fetchJsonSafe(`${API_BASE}/analytics/account-executives/yes-no-trends?${params.toString()}`, { headers, signal: request.signal });
           if (isStale()) return;
-          setAccountExecutiveYesNoTrendData([]);
-          return;
+          if (!res.ok) {
+            setAccountExecutiveYesNoTrendData([]);
+            setAccountExecutiveYesNoError(formatApiError(data?.detail, "Could not load account executive results"));
+            return;
+          }
+          setAccountExecutiveYesNoTrendData(Array.isArray(data?.items) ? data.items : []);
+        } finally {
+          if (!isStale()) setAccountExecutiveYesNoLoading(false);
         }
-        if (isStale()) return;
-        setAccountExecutiveYesNoTrendData(Array.isArray(data?.items) ? data.items : []);
       };
 
       load();
-     return () => requests.invalidate("executiveTrends");
+      return () => requests.invalidate("executiveTrends");
     }, [location.pathname, activePlatform, isB2BPlatform, selectedAnalyticsEntityIds, headers, fetchJsonSafe]);
 
    // Load question averages for drilldown table
@@ -3084,43 +3095,8 @@ const platformAbortRef = useRef(null);
           </div>
           )}
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            <Card className="min-w-0 lg:col-span-8">
-                <CardHeader>
-                  <CardTitle>Question Trend</CardTitle>
-                <Select aria-label="Question" value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
-                  {questionAverages.length === 0 ? <option value="">No questions available</option> : null}
-                  {questionAverages.map((question) => (
-                    <option key={question.question_id} value={String(question.question_id)}>
-                      {question.question_text}
-                    </option>
-                  ))}
-                </Select>
-              </CardHeader>
-              <CardContent className="min-w-0 h-[360px]">
-                {trendLoading ? (
-                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">Loading trend data...</div>
-                ) : trendError ? (
-                  <div className="flex h-full items-center justify-center text-sm text-destructive" role="alert">Trend unavailable: {trendError}</div>
-                ) : !selectedQuestionScale ? (
-                  <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">This question has no declared score scale, so a score trend cannot be drawn.</div>
-                ) : trendData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                  <LineChart data={trendData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="period" />
-                    <YAxis domain={[selectedQuestionScale.min, selectedQuestionScale.max]} />
-                    <Tooltip formatter={(value) => [`${Number(value).toFixed(2)} / ${selectedQuestionScale.max}`, "Average rating"]} />
-                    <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-                ) : (
-                  <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">No approved ratings are available for this question and filter selection.</div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="min-w-0 lg:col-span-4">
+          <div className="grid grid-cols-1 gap-6">
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   Category Breakdown
@@ -3498,7 +3474,11 @@ const platformAbortRef = useRef(null);
                 </CardHeader>
                 <CardContent>
                   <div className="min-w-0 h-[420px]">
-                    {accountExecutiveYesNoChartData.length > 0 ? (
+                    {accountExecutiveYesNoLoading ? (
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">Loading account executive results...</div>
+                    ) : accountExecutiveYesNoError ? (
+                      <div className="flex h-full items-center justify-center px-4 text-center text-sm text-destructive" role="alert">Account executive results unavailable: {accountExecutiveYesNoError}</div>
+                    ) : accountExecutiveYesNoChartData.length > 0 ? (
                       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                         <BarChart data={accountExecutiveYesNoChartData} margin={{ top: 8, right: 8, left: 8, bottom: 24 }}>
                           <CartesianGrid strokeDasharray="3 3" />
@@ -3510,7 +3490,7 @@ const platformAbortRef = useRef(null);
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No account executive yes/no data available.</div>
+                      <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">No account executive results yet. This chart uses approved surveys that have an account executive name recorded.</div>
                     )}
                   </div>
                 </CardContent>
