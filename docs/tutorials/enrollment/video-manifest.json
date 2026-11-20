@@ -1,13 +1,13 @@
 {
   "schema": 1,
   "video_set": "mystery-enrollment",
-  "video_version": "v06",
+  "video_version": "v07",
   "videos": [
     "enrollment-desktop (16:9)",
     "enrollment-mobile (9:16)"
   ],
-  "recorded_at": "2026-11-18",
-  "recorded_against_commit": "94f1322",
+  "recorded_at": "2026-11-20",
+  "recorded_against_commit": "dd23520",
   "notes": "Screens recorded from the real app (shopper app in mystery_public mode) with a fictional shopper. Hashes are of the files the video depends on; a change means a video step may no longer match. See docs/tutorials/README.md.",
   "screens": [
     {
@@ -68,7 +68,7 @@
         "frontend/mystery-shopper/public/branding/*"
       ],
       "baseline": {
-        "frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx": "26fbba9fb1d185a6d97a3ff21fc38d53820a689eb247045c57c73e2be04c8e9b",
+        "frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx": "d7ca8df7e2f4e8bf77e3658df480bfcbbebb8ef656f9be99335b9964dd951805",
         "frontend/mystery-shopper/src/mysteryAuth/AuthShell.jsx": "c3807def28895e6f02fc9be40a9cfa0a39307c61b1d95230b5d2dc320c259c62",
         "backend/app/api/mystery_auth.py::_build_enrollment_payload": "5f75e4786af1cc49c1199f2780b514c3669c78a79c83050efd48a80a85cadbe2",
         "backend/app/api/mystery_auth.py::enroll_start": "6b4eec18adb4ea6b829d717612482ff3c1a1562563d9bd6c5e21258a673ee779",
@@ -240,6 +240,20 @@
       "video_version": "v06",
       "changes_covered": [
         "email: backend/app/api/mystery_auth.py::_build_enrollment_email"
+      ]
+    },
+    {
+      "date": "2026-11-20",
+      "kind": "rerecorded",
+      "screens": [
+        "enroll-page"
+      ],
+      "reason": "Re-recorded desktop and mobile walkthroughs: enrollment-complete screen now shows the bookmark-the-sign-in-address note under Continue to sign in; fixed the desktop step-1 label that covered the Step 2 heading.",
+      "by": "owner",
+      "commit": "dd23520",
+      "video_version": "v07",
+      "changes_covered": [
+        "enroll-page: frontend/mystery-shopper/src/mysteryAuth/EnrollScreen.jsx"
       ]
     }
   ]
