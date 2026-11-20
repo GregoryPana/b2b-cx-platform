@@ -27,6 +27,8 @@ import SimpleStatusDataTable from "../components/shared/SimpleStatusDataTable";
 import EmailRecipientsInput from "../components/shared/EmailRecipientsInput";
 import EntityCombobox from "../components/shared/EntityCombobox";
 import ActionDialog from "../components/shared/ActionDialog";
+import { ReviewActionPoints, ReviewSaveBar } from "../components/shared/ReviewEditorParts";
+import { dirtyReviewResponseIds } from "../components/shared/reviewDrafts";
 import Disclosure from "../components/shared/Disclosure";
 import DateRangeFilter from "../components/shared/DateRangeFilter";
 import Field from "../components/shared/Field";
@@ -511,6 +513,21 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
     requests.invalidate("reviewSave");
     setSelectedSurveyVisit(null);
     setReviewResponseDrafts({});
+  };
+  // Review edits are saved one response at a time. Closing the panel with unsaved edits asks first.
+  const dirtyResponseIds = dirtyReviewResponseIds(selectedSurveyVisit, reviewResponseDrafts);
+  const requestCloseSurveyDetails = () => {
+    if (!dirtyResponseIds.length) {
+      closeSurveyDetails();
+      return;
+    }
+    askConfirm({
+      title: "Discard unsaved changes?",
+      description: `${dirtyResponseIds.length} ${dirtyResponseIds.length === 1 ? "response has" : "responses have"} edits that are not saved. Closing the panel discards them.`,
+      label: "Discard changes",
+      variant: "destructive",
+      run: async () => closeSurveyDetails(),
+    });
   };
   const closeInstallationDetails = () => {
     requests.invalidate("loadInstallationSurveyDetail");
@@ -1846,7 +1863,7 @@ const platformAbortRef = useRef(null);
     await loadPlannedVisits();
   };
 
-  const loadSurveyVisitDetails = async (visitId) => {
+  const loadSurveyVisitDetails = async (visitId, options = {}) => {
     const request = requests.begin("detail");
     requests.invalidate("reviewSave");
     setSelectedSurveyVisit(null);
@@ -1869,7 +1886,9 @@ const platformAbortRef = useRef(null);
         actions: Array.isArray(response.actions) ? response.actions : [],
       };
     });
-    setReviewResponseDrafts(drafts);
+    // After saving one response, edits still open on the other responses stay as typed.
+    if (options.keepDraftsExcept === undefined) setReviewResponseDrafts(drafts);
+    else setReviewResponseDrafts((prev) => ({ ...drafts, ...Object.fromEntries(Object.entries(prev).filter(([key]) => key !== options.keepDraftsExcept && key in drafts)) }));
   };
 
   // Approve / Reject / Needs Changes open a dialog (replaces window.prompt). For B2B, rejecting
@@ -2043,7 +2062,7 @@ const platformAbortRef = useRef(null);
       return;
     }
     setMessage("Survey response updated.");
-    await loadSurveyVisitDetails(visitId);
+    await loadSurveyVisitDetails(visitId, { keepDraftsExcept: responseId });
   };
 
   const formatReadableDateTime = (value) => {
@@ -3573,14 +3592,14 @@ const platformAbortRef = useRef(null);
       ) : null}
 
           {location.pathname === "/review" && selectedSurveyVisit ? (
-            <SidePanel open title="Visit details" subtitle={selectedSurveyVisit.business_name || selectedSurveyVisit.location_name || ""} onClose={closeSurveyDetails}>
+            <SidePanel open title="Visit details" subtitle={selectedSurveyVisit.business_name || selectedSurveyVisit.location_name || ""} onClose={requestCloseSurveyDetails}>
             {isMysteryShopperPlatform ? (
               <MysteryVisitDetailCard
                 visit={selectedSurveyVisit}
                 responseGroups={surveyResponseCategoryGroups}
                 formatSurveyResponseValue={formatSurveyResponseValue}
                 formatReadableDateTime={formatReadableDateTime}
-                onClose={closeSurveyDetails}
+                onClose={requestCloseSurveyDetails}
                 editable
                 canEditResponseAnswer={canEditResponseAnswer}
                 canEditResponseActions={canEditResponseActions}
@@ -3592,6 +3611,7 @@ const platformAbortRef = useRef(null);
                 removeReviewAction={removeReviewAction}
                 onSaveResponse={saveReviewResponseEdits}
                 actionTimeframeOptions={ACTION_TIMEFRAME_OPTIONS}
+                dirtyResponseIds={dirtyResponseIds}
               />
             ) : (
               <Card id="survey-visit-detail">
@@ -3613,18 +3633,18 @@ const platformAbortRef = useRef(null);
             <CardContent className="space-y-3">
               {surveyResponseCategoryGroups.length > 0 ? (
                 surveyResponseCategoryGroups.map(({ category, responses }) => (
-                  <div key={category} className="space-y-3 rounded-lg border p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-base font-semibold tracking-tight">{category}</p>
+                  <section key={category} aria-label={category}>
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <h3 className="text-base font-semibold tracking-tight">{category}</h3>
                       <Badge variant="secondary">{responses.length} questions</Badge>
                     </div>
+                    <div className="divide-y">
                     {responses.map((response) => {
-                      const display = formatSurveyResponseValue(response);
                       const responseId = String(response.response_id || "");
                       const draft = reviewResponseDrafts[responseId] || { answer_text: response.answer_text || "", verbatim: response.verbatim || "", actions: response.actions || [] };
                       const isSaving = reviewSavingResponseId === responseId;
                       return (
-                        <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-4 space-y-3">
+                        <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="space-y-3 py-4">
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Q{response.display_number ?? response.question_number ?? response.question_id}</p>
                             <p className="mt-1 text-sm font-semibold leading-snug">{response.question_text || "--"}</p>
@@ -3635,7 +3655,7 @@ const platformAbortRef = useRef(null);
                               <Textarea id={`review-answer-${responseId}`} value={draft.answer_text} onChange={(event) => updateReviewDraft(responseId, { ...draft, answer_text: event.target.value })} />
                             </div>
                           ) : (
-                            <div className="flex items-start gap-3 rounded bg-muted/30 px-3 py-2">
+                            <div className="flex items-start gap-3">
                               <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-0.5">Answer</span>
                               <div className="min-w-0 text-sm"><SurveyResponseDisplay response={response} /></div>
                             </div>
@@ -3645,45 +3665,27 @@ const platformAbortRef = useRef(null);
                             <Textarea id={`review-verbatim-${responseId}`} value={draft.verbatim} onChange={(event) => updateReviewDraft(responseId, { ...draft, verbatim: event.target.value })} />
                           </div>
                           {canEditResponseActions(response) ? (
-                            <div className="mt-3 space-y-2 rounded-md border bg-muted/40 p-3">
-                              <div className="flex items-center justify-between">
-                                <p className="text-sm font-medium">Action Points</p>
-                                <Button type="button" size="sm" variant="outline" onClick={() => addReviewAction(responseId)}>Add Action</Button>
-                              </div>
-                              {(draft.actions || []).map((action, actionIndex) => (
-                                <div key={`${responseId}-action-${actionIndex}`} className="grid grid-cols-1 gap-2 rounded-md border bg-background p-3 md:grid-cols-2">
-                                  <Textarea aria-label="Action required" className="min-h-24 resize-y md:col-span-2" placeholder="Action required" value={action.action_required || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_required", event.target.value)} />
-                                  <Input aria-label="Lead owner" placeholder="Lead owner" value={action.action_owner || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_owner", event.target.value)} />
-                                  <Select aria-label="Action timeframe" value={action.action_timeframe || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_timeframe", event.target.value)}>
-                                    <option value="">Action timeframe</option>
-                                    {ACTION_TIMEFRAME_OPTIONS.map((option) => (
-                                      <option key={`${responseId}-${actionIndex}-${option}`} value={option}>{option}</option>
-                                    ))}
-                                  </Select>
-                                    <Textarea aria-label="Support needed" className="min-h-24 resize-y" placeholder="Support needed" value={action.action_support_needed || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_support_needed", event.target.value)} />
-                                    <Textarea aria-label="Action comments" className="min-h-24 resize-y" placeholder="Comments" value={action.action_comments || ""} onChange={(event) => updateReviewAction(responseId, actionIndex, "action_comments", event.target.value)} />
-                                  <div className="md:col-span-2">
-                                    <Button type="button" size="sm" variant="destructive" onClick={() => removeReviewAction(responseId, actionIndex)}>Remove Action</Button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
+                            <ReviewActionPoints
+                              responseId={responseId}
+                              actions={draft.actions}
+                              timeframeOptions={ACTION_TIMEFRAME_OPTIONS}
+                              onAdd={addReviewAction}
+                              onUpdate={updateReviewAction}
+                              onRemove={removeReviewAction}
+                            />
                           ) : null}
-                          <div className="mt-3">
-                            <Button type="button" size="sm" variant="outline" onClick={() => saveReviewResponseEdits(response)} disabled={isSaving}>
-                              {isSaving ? "Saving..." : "Save Response Edit"}
-                            </Button>
-                          </div>
+                          <ReviewSaveBar dirty={dirtyResponseIds.includes(responseId)} saving={isSaving} onSave={() => saveReviewResponseEdits(response)} />
                         </div>
                       );
                     })}
-                  </div>
+                    </div>
+                  </section>
                 ))
               ) : (
                 <p className="text-sm text-muted-foreground">No responses found for this visit.</p>
               )}
               <div>
-                <Button type="button" variant="outline" onClick={closeSurveyDetails}>Close Details</Button>
+                <Button type="button" variant="outline" onClick={requestCloseSurveyDetails}>Close Details</Button>
               </div>
             </CardContent>
           </Card>

@@ -1,9 +1,9 @@
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
-import { Input } from "../../../components/ui/input";
 import { Select } from "../../../components/ui/select";
 import { Textarea } from "../../../components/ui/textarea";
+import { ReviewActionPoints, ReviewSaveBar } from "../../../components/shared/ReviewEditorParts";
 
 function scoreColor(score, max) {
   const s = Number(score);
@@ -114,6 +114,7 @@ export default function MysteryVisitDetailCard({
   removeReviewAction,
   onSaveResponse,
   actionTimeframeOptions,
+  dirtyResponseIds = [],
 }) {
   if (!visit) return null;
 
@@ -194,6 +195,7 @@ export default function MysteryVisitDetailCard({
                     actions: response.actions || [],
                   };
                   const isSaving = reviewSavingResponseId === responseId;
+                  const isDirty = dirtyResponseIds.includes(responseId);
                   const displayNum = response.display_number ?? response.question_number ?? (qIndex + 1);
 
                   return (
@@ -241,82 +243,22 @@ export default function MysteryVisitDetailCard({
 
                           {/* Action points */}
                           {editable && canEditResponseActions?.(response) ? (
-                            <div className="mt-3 space-y-2 rounded-lg border bg-muted/20 p-3">
-                              <div className="flex items-center justify-between">
-                                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Action Points</p>
-                                <Button type="button" size="sm" variant="outline" onClick={() => addReviewAction(responseId)}>
-                                  + Add Action
-                                </Button>
-                              </div>
-                              {(draft.actions || []).map((action, actionIndex) => (
-                                <div
-                                  key={`${responseId}-action-${actionIndex}`}
-                                  className="grid grid-cols-1 gap-2 rounded-md border bg-background p-3 md:grid-cols-2"
-                                >
-                                  <Textarea
-                                    className="min-h-20 resize-y md:col-span-2"
-                                    aria-label="Action required"
-                                    placeholder="Action required"
-                                    value={action.action_required || ""}
-                                    onChange={(e) => updateReviewAction(responseId, actionIndex, "action_required", e.target.value)}
-                                  />
-                                  <Input
-                                    aria-label="Lead owner"
-                                    placeholder="Lead owner"
-                                    value={action.action_owner || ""}
-                                    onChange={(e) => updateReviewAction(responseId, actionIndex, "action_owner", e.target.value)}
-                                  />
-                                  <Select
-                                    aria-label="Action timeframe"
-                                    value={action.action_timeframe || ""}
-                                    onChange={(e) => updateReviewAction(responseId, actionIndex, "action_timeframe", e.target.value)}
-                                  >
-                                    <option value="">Action timeframe</option>
-                                    {(actionTimeframeOptions || []).map((opt) => (
-                                      <option key={`${responseId}-${actionIndex}-${opt}`} value={opt}>{opt}</option>
-                                    ))}
-                                  </Select>
-                                  <Textarea
-                                    className="min-h-20 resize-y"
-                                    aria-label="Support needed"
-                                    placeholder="Support needed"
-                                    value={action.action_support_needed || ""}
-                                    onChange={(e) => updateReviewAction(responseId, actionIndex, "action_support_needed", e.target.value)}
-                                  />
-                                  <Textarea
-                                    className="min-h-20 resize-y"
-                                    aria-label="Action comments"
-                                    placeholder="Comments"
-                                    value={action.action_comments || ""}
-                                    onChange={(e) => updateReviewAction(responseId, actionIndex, "action_comments", e.target.value)}
-                                  />
-                                  <div className="md:col-span-2">
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="destructive"
-                                      onClick={() => removeReviewAction(responseId, actionIndex)}
-                                    >
-                                      Remove Action
-                                    </Button>
-                                  </div>
-                                </div>
-                              ))}
+                            <div className="mt-3">
+                              <ReviewActionPoints
+                                responseId={responseId}
+                                actions={draft.actions}
+                                timeframeOptions={actionTimeframeOptions}
+                                onAdd={addReviewAction}
+                                onUpdate={updateReviewAction}
+                                onRemove={removeReviewAction}
+                              />
                             </div>
                           ) : null}
 
-                          {/* Save button */}
+                          {/* Save */}
                           {editable ? (
-                            <div className="mt-2 flex justify-end">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => onSaveResponse(response)}
-                                disabled={isSaving}
-                              >
-                                {isSaving ? "Saving..." : "Save Edit"}
-                              </Button>
+                            <div className="mt-3">
+                              <ReviewSaveBar dirty={isDirty} saving={isSaving} onSave={() => onSaveResponse(response)} />
                             </div>
                           ) : null}
                         </div>
