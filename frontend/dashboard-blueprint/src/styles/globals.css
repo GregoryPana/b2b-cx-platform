@@ -28,6 +28,13 @@
     --popover-foreground: 222 47% 11%;
     --ring: 211 100% 36%;
     --radius: 0.75rem;
+    /* Chart series: restrained categorical set derived from the primary hue plus neutrals (design system 6.2). */
+    --chart-1: 211 100% 36%;
+    --chart-2: 262 52% 47%;
+    --chart-3: 173 58% 33%;
+    --chart-4: 24 90% 48%;
+    --chart-5: 330 60% 48%;
+    --chart-6: 215 16% 47%;
   }
 
   .dark {
@@ -54,6 +61,12 @@
     --popover: 220 47% 13%;
     --popover-foreground: 210 40% 96%;
     --ring: 213 74% 53%;
+    --chart-1: 213 74% 53%;
+    --chart-2: 262 60% 68%;
+    --chart-3: 173 55% 50%;
+    --chart-4: 24 90% 62%;
+    --chart-5: 330 65% 66%;
+    --chart-6: 215 20% 65%;
   }
 
   * {
