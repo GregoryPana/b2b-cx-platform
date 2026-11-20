@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import html2pdf from "html2pdf.js";
 import { Navigate, useLocation } from "react-router-dom";
 import { Toaster, toast } from "sonner";
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PageContainer from "../components/layout/PageContainer";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -29,6 +29,8 @@ import EntityCombobox from "../components/shared/EntityCombobox";
 import ActionDialog from "../components/shared/ActionDialog";
 import { ReviewActionPoints, ReviewSaveBar } from "../components/shared/ReviewEditorParts";
 import { dirtyReviewResponseIds } from "../components/shared/reviewDrafts";
+import ChartScope, { chartScopeText } from "../components/shared/ChartScope";
+import { CHART_SEMANTIC, CHART_SERIES } from "../lib/chartColors";
 import Disclosure from "../components/shared/Disclosure";
 import DateRangeFilter from "../components/shared/DateRangeFilter";
 import Field from "../components/shared/Field";
@@ -206,14 +208,25 @@ const INSTALL_REPORT_TYPE_OPTIONS = [
 ];
 
 const COLORS = {
-  promoters: "#10b981",
-  passives: "#f59e0b",
-  detractors: "#ef4444",
-  very_satisfied: "#10b981",
-  satisfied: "#34d399",
-  neutral: "#f59e0b",
-  dissatisfied: "#fb7185",
-  very_dissatisfied: "#ef4444",
+  promoters: CHART_SEMANTIC.good,
+  passives: CHART_SEMANTIC.warning,
+  detractors: CHART_SEMANTIC.bad,
+  very_satisfied: CHART_SEMANTIC.good,
+  satisfied: CHART_SEMANTIC.goodSoft,
+  neutral: CHART_SEMANTIC.warning,
+  dissatisfied: CHART_SEMANTIC.badSoft,
+  very_dissatisfied: CHART_SEMANTIC.bad,
+};
+
+// Y-axis title with the unit, so a number on the axis is never ambiguous.
+const axisTitle = (value) => ({ value, angle: -90, position: "insideLeft", style: { textAnchor: "middle", fontSize: 12, fill: "hsl(var(--muted-foreground))" } });
+
+// "Questions 4, 6 and 9" built from the numbers actually on the card, never typed in.
+const describeQuestionNumbers = (numbers) => {
+  const list = [...new Set(numbers.filter((n) => Number.isFinite(n)))].sort((x, y) => x - y);
+  if (list.length === 0) return "";
+  if (list.length === 1) return `Question ${list[0]}`;
+  return `Questions ${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
 };
 
 function normalizeBusinessPriorityLevel(value) {
@@ -2207,7 +2220,7 @@ const platformAbortRef = useRef(null);
    // Prepare NPS pie data
    const npsPieData = useMemo(() => {
      const nps = analytics?.nps;
-     if (!nps) return [];
+     if (!nps || !((nps.promoters || 0) + (nps.passives || 0) + (nps.detractors || 0))) return [];
      return [
        { name: "Promoters", value: nps.promoters || 0, color: COLORS.promoters },
        { name: "Passives", value: nps.passives || 0, color: COLORS.passives },
@@ -2218,7 +2231,7 @@ const platformAbortRef = useRef(null);
    // Prepare CSAT pie data
    const csatPieData = useMemo(() => {
      const csat = analytics?.customer_satisfaction?.score_distribution;
-     if (!csat) return [];
+     if (!csat || !((csat.very_satisfied || 0) + (csat.satisfied || 0) + (csat.neutral || 0) + (csat.dissatisfied || 0) + (csat.very_dissatisfied || 0))) return [];
      return [
        { name: "Very Satisfied", value: csat.very_satisfied || 0, color: COLORS.very_satisfied },
        { name: "Satisfied", value: csat.satisfied || 0, color: COLORS.satisfied },
@@ -2227,6 +2240,14 @@ const platformAbortRef = useRef(null);
        { name: "Very Dissatisfied", value: csat.very_dissatisfied || 0, color: COLORS.very_dissatisfied },
      ];
     }, [analytics]);
+
+  // What the analytics charts are drawn from: the date range and any business/location picked on Analytics.
+  const chartScope = chartScopeText({
+    dateFrom: analyticsDateFrom,
+    dateTo: analyticsDateTo,
+    businessCount: selectedAnalyticsBusinessIds.length,
+    locationCount: selectedAnalyticsLocationIds.length,
+  });
 
   const representativeMap = useMemo(() => {
     return representatives.reduce((acc, rep) => {
@@ -2415,27 +2436,25 @@ const platformAbortRef = useRef(null);
     }));
   }, [yesNoQuestionAnalytics]);
 
+  // One bar series per question number that is in the data (the API decides which questions these are).
+  const accountExecutiveYesNoQuestions = useMemo(
+    () => [...new Set(accountExecutiveYesNoTrendData.map((item) => Number(item.question_number)).filter((n) => Number.isFinite(n)))].sort((x, y) => x - y),
+    [accountExecutiveYesNoTrendData]
+  );
+
   const accountExecutiveYesNoChartData = useMemo(() => {
     const grouped = accountExecutiveYesNoTrendData.reduce((acc, item) => {
       const name = item.account_executive_name || "Unassigned";
-      if (!acc[name]) {
-        acc[name] = {
-          accountExecutive: name,
-          q4YesPercent: 0,
-          q6YesPercent: 0,
-        };
-      }
-      if (Number(item.question_number) === 4) {
-        acc[name].q4YesPercent = Number(item.yes_percent || 0);
-      }
-      if (Number(item.question_number) === 6) {
-        acc[name].q6YesPercent = Number(item.yes_percent || 0);
-      }
+      if (!acc[name]) acc[name] = { accountExecutive: name };
+      acc[name][`q${Number(item.question_number)}YesPercent`] = Number(item.yes_percent || 0);
       return acc;
     }, {});
-
-    return Object.values(grouped).sort((a, b) => a.accountExecutive.localeCompare(b.accountExecutive));
-  }, [accountExecutiveYesNoTrendData]);
+    const rows = Object.values(grouped).map((row) => {
+      accountExecutiveYesNoQuestions.forEach((n) => { if (row[`q${n}YesPercent`] === undefined) row[`q${n}YesPercent`] = 0; });
+      return row;
+    });
+    return rows.sort((a, b) => a.accountExecutive.localeCompare(b.accountExecutive));
+  }, [accountExecutiveYesNoTrendData, accountExecutiveYesNoQuestions]);
 
   const yesNoQuestionCards = useMemo(() => {
     const requiredQuestions = [
@@ -2459,6 +2478,7 @@ const platformAbortRef = useRef(null);
       return {
         key: required.key,
         label: displayNumber ? `Question ${displayNumber}` : "Question",
+        number: displayNumber ? Number(displayNumber) : null,
         question_text: matched?.question_text || required.text,
         yes_count: yesCount,
         no_count: noCount,
@@ -2466,8 +2486,8 @@ const platformAbortRef = useRef(null);
         yes_percent: yesPercent,
         no_percent: noPercent,
         chart_data: [
-          { name: "Yes", value: yesCount, color: "#16a34a" },
-          { name: "No", value: noCount, color: "#dc2626" },
+          { name: "Yes", value: yesCount, color: CHART_SEMANTIC.good },
+          { name: "No", value: noCount, color: CHART_SEMANTIC.bad },
         ],
       };
     });
@@ -3207,6 +3227,7 @@ const platformAbortRef = useRef(null);
                 <CardDescription>
                   Based on {analytics?.nps?.total_responses ?? 0} completed responses.
                 </CardDescription>
+                <ChartScope text={chartScope} />
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col items-center">
@@ -3267,14 +3288,16 @@ const platformAbortRef = useRef(null);
                 <CardDescription>
                   Based on {analytics?.customer_satisfaction?.response_count ?? 0} answers to the satisfaction question.
                 </CardDescription>
+                <ChartScope text={chartScope} />
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col items-center">
                   <div className={cn("mb-4 text-6xl font-bold", getTrafficLightMetric("b2b_csat", analytics?.customer_satisfaction?.csat_score).value)}>
-                    {analytics?.customer_satisfaction?.csat_score?.toFixed?.(1) ?? "--"}%
+                    {analytics?.customer_satisfaction?.csat_score != null ? `${analytics.customer_satisfaction.csat_score.toFixed?.(1) ?? analytics.customer_satisfaction.csat_score}%` : "--"}
                   </div>
                   
                   <div className="min-w-0 w-full h-64">
+                    {csatPieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                       <PieChart>
                         <Pie
@@ -3293,6 +3316,9 @@ const platformAbortRef = useRef(null);
                         <Tooltip formatter={(value) => [value, "Count"]} />
                       </PieChart>
                     </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">No satisfaction data</div>
+                    )}
                   </div>
 
                   <div className="mt-4 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
@@ -3332,6 +3358,7 @@ const platformAbortRef = useRef(null);
                     <InfoHint text="This score combines key relationship questions into one number from 0 to 100. A higher score means customers feel the relationship is strong and healthy." />
                   </CardTitle>
                   <CardDescription>A simple 0-100 score that summarizes relationship quality from key relationship questions. Higher means a stronger relationship.</CardDescription>
+                  <ChartScope text={chartScope} />
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className={cn("text-4xl font-semibold", getTrafficLightMetric("b2b_relationship", analytics?.relationship_score?.score).value)}>{analytics?.relationship_score?.score?.toFixed?.(1) ?? "--"}</div>
@@ -3340,9 +3367,9 @@ const platformAbortRef = useRef(null);
                       <BarChart data={relationshipGraphData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="label" />
-                        <YAxis domain={[0, 100]} />
+                        <YAxis width={64} domain={[0, 100]} label={axisTitle("Score (0-100)")} />
                         <Tooltip formatter={(value) => [`${Number(value).toFixed(1)} / 100`, "Score"]} />
-                        <Bar dataKey="score" radius={[6, 6, 0, 0]} fill="#0ea5e9" />
+                        <Bar dataKey="score" radius={[6, 6, 0, 0]} fill={CHART_SERIES[0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -3365,6 +3392,7 @@ const platformAbortRef = useRef(null);
                     <InfoHint text="This shows how many customers also buy similar services from other providers. If this is high, there is more risk of losing business and we should follow up." />
                   </CardTitle>
                   <CardDescription>Shows how many customers also use competitor services. Lower is better for retention.</CardDescription>
+                  <ChartScope text={chartScope} />
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className={cn("text-4xl font-semibold", getTrafficLightMetric("b2b_competitive_exposure", analytics?.competitive_exposure?.exposure_rate).value)}>{analytics?.competitive_exposure?.exposure_rate?.toFixed?.(1) ?? "0.0"}%</div>
@@ -3373,11 +3401,11 @@ const platformAbortRef = useRef(null);
                       <BarChart data={competitorGraphData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="label" />
-                        <YAxis allowDecimals={false} domain={[0, "dataMax"]} />
+                        <YAxis width={64} allowDecimals={false} domain={[0, "dataMax"]} label={axisTitle("Accounts")} />
                         <Tooltip formatter={(value) => [Number(value), "Accounts"]} />
                         <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                          <Cell fill="#f97316" />
-                          <Cell fill="#6366f1" />
+                          <Cell fill={CHART_SERIES[3]} />
+                          <Cell fill={CHART_SERIES[0]} />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
@@ -3401,7 +3429,8 @@ const platformAbortRef = useRef(null);
             <Card className="mt-6">
               <CardHeader>
                 <CardTitle>Yes/No Question Results</CardTitle>
-                <CardDescription>Shows how people answered Yes or No for Questions 4, 6, 9, and 16.</CardDescription>
+                <CardDescription>{yesNoQuestionCards.some((item) => item.number) ? `Shows how people answered Yes or No for ${describeQuestionNumbers(yesNoQuestionCards.map((item) => item.number))}.` : "Shows how people answered the Yes/No questions."}</CardDescription>
+                <ChartScope text={chartScope} />
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -3490,6 +3519,7 @@ const platformAbortRef = useRef(null);
               <CardHeader>
                 <CardTitle>Trend Explorer</CardTitle>
                 <CardDescription>Shows how the selected score changes over time so you can spot improvements or declines.</CardDescription>
+                <ChartScope text={chartScope} />
               </CardHeader>
               <CardContent className="space-y-3">
                 <Select aria-label="Question" value={selectedQuestionId} onChange={(event) => setSelectedQuestionId(event.target.value)}>
@@ -3512,7 +3542,7 @@ const platformAbortRef = useRef(null);
                     <LineChart data={trendData}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="period" />
-                      <YAxis domain={[selectedQuestionScale.min, selectedQuestionScale.max]} />
+                      <YAxis width={64} domain={[selectedQuestionScale.min, selectedQuestionScale.max]} label={axisTitle(`Average rating (${selectedQuestionScale.min}-${selectedQuestionScale.max})`)} />
                       <Tooltip formatter={(value) => [`${Number(value).toFixed(2)} / ${selectedQuestionScale.max}`, "Average rating"]} />
                       <Line type="monotone" dataKey="average" stroke="hsl(var(--primary))" strokeWidth={2.5} />
                     </LineChart>
@@ -3526,7 +3556,8 @@ const platformAbortRef = useRef(null);
               <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle>Account Executive Yes/No Performance</CardTitle>
-                  <CardDescription>Shows the percentage of "Yes" answers for Questions 4 and 6 grouped by the account executive captured on each approved survey.</CardDescription>
+                  <CardDescription>{accountExecutiveYesNoQuestions.length ? `Shows the percentage of "Yes" answers for ${describeQuestionNumbers(accountExecutiveYesNoQuestions)}` : 'Shows the percentage of "Yes" answers'} grouped by the account executive captured on each approved survey.</CardDescription>
+                  <ChartScope text={chartScope} />
                 </CardHeader>
                 <CardContent>
                   <div className="min-w-0 h-[420px]">
@@ -3539,10 +3570,12 @@ const platformAbortRef = useRef(null);
                         <BarChart data={accountExecutiveYesNoChartData} margin={{ top: 8, right: 8, left: 8, bottom: 24 }}>
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis dataKey="accountExecutive" interval={0} angle={-20} textAnchor="end" height={80} />
-                          <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                          <YAxis width={64} domain={[0, 100]} tickFormatter={(value) => `${value}%`} label={axisTitle("Yes answers (%)")} />
                           <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Yes Rate"]} />
-                          <Bar dataKey="q4YesPercent" fill="#0ea5e9" name="Q4 Yes %" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="q6YesPercent" fill="#8b5cf6" name="Q6 Yes %" radius={[4, 4, 0, 0]} />
+                          <Legend />
+                          {accountExecutiveYesNoQuestions.map((n, index) => (
+                            <Bar key={n} dataKey={`q${n}YesPercent`} fill={CHART_SERIES[index % CHART_SERIES.length]} name={`Q${n} Yes %`} radius={[4, 4, 0, 0]} />
+                          ))}
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
