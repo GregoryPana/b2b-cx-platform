@@ -353,6 +353,9 @@ function RecoveryCodes({ email, recoveryCodes, onDownload, onBackToLogin }) {
         <Button type="button" className="min-h-11 w-full gap-2" onClick={onBackToLogin} disabled={!saved}>
           Continue to sign in <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </Button>
+        <p className="text-center text-xs text-muted-foreground">
+          This enrollment link only works once. Save the sign-in address <span className="break-all font-medium text-foreground">{`${window.location.origin}/`}</span> as a bookmark so you can sign in any time.
+        </p>
       </CardContent>
     </Card>
   );

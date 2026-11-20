@@ -12,7 +12,7 @@ changes, the video can silently become wrong. The drift guard tells the owner.
 - `watch`: the files the screen depends on (a `file::function` entry watches only that Python function; `dir/*.jsx` entries watch every match, so added or removed files are caught too)
 - `baseline`: SHA-256 of each watched item when the video was last recorded or confirmed
 
-Currently: `email`, `enroll-page`, `sign-in` for the `mystery-enrollment` set (v06).
+Currently: `email`, `enroll-page`, `sign-in` for the `mystery-enrollment` set (v07).
 
 ## What happens when something changes
 
