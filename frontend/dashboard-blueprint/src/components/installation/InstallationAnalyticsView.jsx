@@ -1,3 +1,4 @@
+import { CHART_SERIES } from "../../lib/chartColors";
 import { useId, useState } from "react";
 import { CircleHelp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -167,7 +168,7 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
                       <XAxis dataKey="label" />
                       <YAxis domain={[0, SCORE_MAX]} />
                       <Tooltip content={<ScoreTooltip />} />
-                      <Bar dataKey="average" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="average" fill={CHART_SERIES[0]} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : <EmptyChart>No customer-type scores are available for the current result set.</EmptyChart>}
@@ -189,7 +190,7 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
                       <XAxis dataKey="label" />
                       <YAxis domain={[0, SCORE_MAX]} />
                       <Tooltip content={<ScoreTooltip />} />
-                      <Bar dataKey="average" fill="#0f766e" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="average" fill={CHART_SERIES[2]} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : <EmptyChart>No worker-type scores are available for the current result set.</EmptyChart>}
@@ -215,7 +216,7 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
                         <XAxis type="number" domain={[0, SCORE_MAX]} />
                         <YAxis type="category" dataKey="contractor_name" width={220} tick={{ fontSize: 12 }} />
                         <Tooltip content={<ScoreTooltip />} />
-                        <Bar dataKey="average" fill="#f97316" radius={[0, 6, 6, 0]} />
+                        <Bar dataKey="average" fill={CHART_SERIES[3]} radius={[0, 6, 6, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -250,7 +251,7 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
                         const row = payload[0].payload;
                         return <div className="max-w-xs rounded-md border bg-popover p-2 text-xs text-popover-foreground shadow-md"><p className="font-medium">{label}: {row.question_text}</p><p>{row.average.toFixed(2)} / {SCORE_MAX} average</p><p className="text-muted-foreground">{row.response_count} scored responses</p></div>;
                       }} />
-                      <Bar dataKey="average" fill="#7c3aed" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="average" fill={CHART_SERIES[1]} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : <EmptyChart>No scored question responses are available for the current result set.</EmptyChart>}
@@ -272,7 +273,7 @@ export default function InstallationAnalyticsView({ analytics, loading, onRefres
                       <XAxis type="number" domain={[0, SCORE_MAX]} />
                       <YAxis type="category" dataKey="label" width={180} tick={{ fontSize: 12 }} />
                       <Tooltip content={<ScoreTooltip countKey="response_count" countLabel="scored responses" />} />
-                      <Bar dataKey="average" fill="#10b981" radius={[0, 6, 6, 0]} />
+                      <Bar dataKey="average" fill={CHART_SERIES[4]} radius={[0, 6, 6, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : <EmptyChart>No category scores are available for the current result set.</EmptyChart>}

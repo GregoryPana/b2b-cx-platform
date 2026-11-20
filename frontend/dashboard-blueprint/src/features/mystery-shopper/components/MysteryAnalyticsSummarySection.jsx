@@ -13,21 +13,23 @@ import {
 } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { getTrafficLightMetric } from "../../../lib/utils";
+import { CHART_SEMANTIC, CHART_SERIES } from "../../../lib/chartColors";
 import { buildMysteryCategoryRollup, presentMysteryMetrics } from "../mysteryPresentation";
 
 // Chart fills for the shared traffic-light tones (same thresholds as the report cards).
-const MYSTERY_TONE_FILL = { good: "#10b981", warning: "#f59e0b", bad: "#ef4444", neutral: "#6b7280" };
+const MYSTERY_TONE_FILL = { good: CHART_SEMANTIC.good, warning: CHART_SEMANTIC.warning, bad: CHART_SEMANTIC.bad, neutral: CHART_SEMANTIC.neutral };
 
+// Categories are not good/bad, so they take series colours in a fixed order, never the semantic ones.
 const CATEGORY_COLORS = {
-  "External Environment & First Impression": "#3b82f6",
-  "Store Environment & Comfort": "#10b981",
-  "Staff Appearance & Professionalism": "#f59e0b",
-  "Customer Service Interaction": "#8b5cf6",
-  "Time & Efficiency": "#ef4444",
-  "Overall Experience (CSAT & NPS)": "#ec4899",
+  "External Environment & First Impression": CHART_SERIES[0],
+  "Store Environment & Comfort": CHART_SERIES[2],
+  "Staff Appearance & Professionalism": CHART_SERIES[3],
+  "Customer Service Interaction": CHART_SERIES[1],
+  "Time & Efficiency": CHART_SERIES[5],
+  "Overall Experience (CSAT & NPS)": CHART_SERIES[4],
 };
 
-const DEFAULT_BAR_COLOR = "#6b7280";
+const DEFAULT_BAR_COLOR = CHART_SEMANTIC.neutral;
 
 const CATEGORY_ORDER = [
   "External Environment & First Impression",
@@ -254,7 +256,7 @@ export default function MysteryAnalyticsSummarySection({ loading = false, error 
                     type="monotone"
                     dataKey="visit_count"
                     name="Visits"
-                    stroke="#3b82f6"
+                    stroke={CHART_SERIES[0]}
                     strokeWidth={2}
                     dot={false}
                     activeDot={{ r: 4 }}
@@ -312,7 +314,7 @@ export default function MysteryAnalyticsSummarySection({ loading = false, error 
                   {yesNoItems.map((q) => (
                     <Cell
                       key={q.question_id}
-                      fill={q.yes_percent >= 80 ? "#10b981" : q.yes_percent >= 50 ? "#f59e0b" : "#ef4444"}
+                      fill={q.yes_percent >= 80 ? CHART_SEMANTIC.good : q.yes_percent >= 50 ? CHART_SEMANTIC.warning : CHART_SEMANTIC.bad}
                     />
                   ))}
                 </Bar>
@@ -337,7 +339,7 @@ export default function MysteryAnalyticsSummarySection({ loading = false, error 
                   <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} width={110} />
                   <Tooltip />
-                  <Bar dataKey="count" name="Responses" fill="#10b981" radius={[0, 3, 3, 0]} />
+                  <Bar dataKey="count" name="Responses" fill={CHART_SERIES[0]} radius={[0, 3, 3, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -359,7 +361,7 @@ export default function MysteryAnalyticsSummarySection({ loading = false, error 
                   <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} width={110} />
                   <Tooltip />
-                  <Bar dataKey="count" name="Responses" fill="#8b5cf6" radius={[0, 3, 3, 0]} />
+                  <Bar dataKey="count" name="Responses" fill={CHART_SERIES[1]} radius={[0, 3, 3, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -384,7 +386,7 @@ export default function MysteryAnalyticsSummarySection({ loading = false, error 
                   <XAxis type="number" domain={[0, 10]} tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="location_name" tick={{ fontSize: 11 }} width={130} />
                   <Tooltip content={<LocationTooltip />} />
-                  <Bar dataKey="csat_average" name="CSAT Avg" fill="#f59e0b" radius={[0, 3, 3, 0]} />
+                  <Bar dataKey="csat_average" name="CSAT Avg" fill={CHART_SERIES[3]} radius={[0, 3, 3, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -404,7 +406,7 @@ export default function MysteryAnalyticsSummarySection({ loading = false, error 
                   <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="purpose" tick={{ fontSize: 11 }} width={130} />
                   <Tooltip />
-                  <Bar dataKey="count" name="Visits" fill="#3b82f6" radius={[0, 3, 3, 0]} />
+                  <Bar dataKey="count" name="Visits" fill={CHART_SERIES[0]} radius={[0, 3, 3, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>

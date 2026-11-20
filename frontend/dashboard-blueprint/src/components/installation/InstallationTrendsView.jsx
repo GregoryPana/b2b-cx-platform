@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CHART_SERIES } from "../../lib/chartColors";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 
 const SCORE_MAX = 5;
-const SERIES_COLORS = ["#2563eb", "#7c3aed", "#059669", "#f97316", "#dc2626", "#0891b2"];
+const SERIES_COLORS = CHART_SERIES;
 
 function formatPeriod(period) {
   return period ? period.slice(0, 7) : "Unknown month";
@@ -104,7 +105,7 @@ export default function InstallationTrendsView({ trends, loading }) {
           <CardDescription>Each point is the mean overall score, out of 5, for submitted assessments in that month. Missing months are not zero.</CardDescription>
         </CardHeader>
         <TrendChart data={overallTrend} emptyText="No monthly overall scores match the current filters.">
-          <Line type="monotone" dataKey="average" name="Overall mean score" stroke="#0ea5e9" strokeWidth={2.5} connectNulls={false} />
+          <Line type="monotone" dataKey="average" name="Overall mean score" stroke={CHART_SERIES[0]} strokeWidth={2.5} connectNulls={false} />
         </TrendChart>
       </Card>
 
@@ -116,8 +117,8 @@ export default function InstallationTrendsView({ trends, loading }) {
           </CardHeader>
           <TrendChart data={customerTrend} emptyText="No customer-type trend scores match the current filters.">
             <Legend />
-            <Line type="monotone" dataKey="B2B" name="B2B mean score" stroke="#2563eb" strokeWidth={2.5} connectNulls={false} />
-            <Line type="monotone" dataKey="B2C" name="B2C mean score" stroke="#7c3aed" strokeWidth={2.5} connectNulls={false} />
+            <Line type="monotone" dataKey="B2B" name="B2B mean score" stroke={CHART_SERIES[0]} strokeWidth={2.5} connectNulls={false} />
+            <Line type="monotone" dataKey="B2C" name="B2C mean score" stroke={CHART_SERIES[1]} strokeWidth={2.5} connectNulls={false} />
           </TrendChart>
         </Card>
 
@@ -128,8 +129,8 @@ export default function InstallationTrendsView({ trends, loading }) {
           </CardHeader>
           <TrendChart data={workerTrend} emptyText="No worker-type trend scores match the current filters.">
             <Legend />
-            <Line type="monotone" dataKey="Field Team" name="Field Team mean score" stroke="#059669" strokeWidth={2.5} connectNulls={false} />
-            <Line type="monotone" dataKey="Contractor" name="Contractor mean score" stroke="#f97316" strokeWidth={2.5} connectNulls={false} />
+            <Line type="monotone" dataKey="Field Team" name="Field Team mean score" stroke={CHART_SERIES[2]} strokeWidth={2.5} connectNulls={false} />
+            <Line type="monotone" dataKey="Contractor" name="Contractor mean score" stroke={CHART_SERIES[3]} strokeWidth={2.5} connectNulls={false} />
           </TrendChart>
         </Card>
       </div>
