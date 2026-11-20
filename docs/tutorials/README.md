@@ -54,3 +54,24 @@ Single source folder: `frontend/mystery-shopper/public/tutorials/enrollment/`. V
   `ENROLLMENT_VIDEO_DIR=/opt/cwscx/frontends-src/public/mystery-shopper/dist/tutorials/enrollment`,
   `ENROLLMENT_VIDEO_FILES=enrollment-desktop-email.mp4,enrollment-mobile-email.mp4`, then restart `cwscx-backend`. Remove `ENROLLMENT_VIDEO_ATTACH` to switch it off. A missing file never blocks an email; it is sent without the video.
 - **Updating a video:** re-record, replace the files, regenerate the sums (`cd` into the folder, `sha256sum $(ls | grep -v checksums.sha256 | sort) > checksums.sha256`), then `rebaseline` as above. Keep the two email encodes under about 8 MB in total (the SMTP relay limit is 15.7 MB after base64 growth).
+
+## Testing the enrollment email without touching a real account
+
+Use a separate test user so your own enrolled account is never re-issued or overwritten. No code or script is needed
+on staging or production; the dashboard already does it.
+
+1. In the dashboard, create a new mystery-shopper user (for example `Test Shopper`) with a **different mailbox you
+   control**: a shared or test mailbox, or a plus-address of yours (`you+test1@your-domain`) if your mail system
+   delivers plus-addresses to the base mailbox (confirm once; not every mail system does).
+2. Use **Email enrollment link** on that user. The email, the sign-in button, the copyable address and the video
+   attachments arrive exactly as a real shopper would receive them.
+3. Open the email in the clients you care about (Outlook, Gmail, Apple Mail, a phone). Opening the email and the
+   sign-in button changes nothing.
+4. Only the **enrollment link** changes the account: finishing it sets that test user's password and authenticator.
+   That is fine for a test user, and never do it on a real shopper's or your own account.
+5. When finished, **suspend** the test user so it cannot be used. Emailing again just issues a fresh link and expires
+   the previous unused one.
+
+Rules: use staging for anything beyond a look at the email; do not use real shoppers' addresses; the test user is
+the only account you re-enroll. For local development only, `scripts/dev/bootstrap_mystery_test_user.py` creates an
+invited user and enrollment link directly in the local Docker database (it has a hard-coded local `DATABASE_URL`).
