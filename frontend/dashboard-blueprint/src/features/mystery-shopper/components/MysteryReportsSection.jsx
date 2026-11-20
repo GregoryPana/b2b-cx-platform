@@ -113,7 +113,7 @@ export default function MysteryReportsSection({
                 </div>
                 {reportSurveyLoading ? <p className="text-sm text-muted-foreground" role="status">Loading available surveys...</p> : null}
                 {!reportSurveyLoading && reportBusinessId && reportEligibleSurveys.length === 0 ? (
-                  <p className="text-sm text-amber-700">No completed or approved surveys are available for this location yet.</p>
+                  <p className="text-sm text-amber-700 dark:text-amber-400">No completed or approved surveys are available for this location yet.</p>
                 ) : null}
                 {reportIneligibleSurveys.length > 0 ? (
                   <Disclosure

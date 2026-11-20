@@ -91,10 +91,10 @@ function SurveyScoreBadge({ score, max }) {
   const label = `${score} / ${max}`;
   const colorClass =
     color === "red"
-      ? "bg-red-100 text-red-700 border-red-300"
+      ? "bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-300 dark:border-red-500/40"
       : color === "amber"
-        ? "bg-amber-100 text-amber-700 border-amber-300"
-        : "bg-emerald-100 text-emerald-700 border-emerald-300";
+        ? "bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/40"
+        : "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40";
   return (
     <span className={`inline-flex items-center rounded border px-2 py-0.5 text-sm font-semibold tabular-nums ${colorClass}`}>
       {label}
@@ -105,10 +105,10 @@ function SurveyScoreBadge({ score, max }) {
 function SurveyYesNoBadge({ value }) {
   const norm = String(value || "").toLowerCase().trim();
   if (norm === "yes") {
-    return <span className="inline-flex items-center rounded border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-sm font-semibold text-emerald-700">Yes</span>;
+    return <span className="inline-flex items-center rounded border border-emerald-300 dark:border-emerald-500/40 bg-emerald-100 dark:bg-emerald-500/15 px-2 py-0.5 text-sm font-semibold text-emerald-700 dark:text-emerald-300">Yes</span>;
   }
   if (norm === "no") {
-    return <span className="inline-flex items-center rounded border border-red-300 bg-red-100 px-2 py-0.5 text-sm font-semibold text-red-700">No</span>;
+    return <span className="inline-flex items-center rounded border border-red-300 dark:border-red-500/40 bg-red-100 dark:bg-red-500/15 px-2 py-0.5 text-sm font-semibold text-red-700 dark:text-red-300">No</span>;
   }
   return <span className="text-sm text-muted-foreground">{value || "--"}</span>;
 }
@@ -3772,7 +3772,7 @@ const platformAbortRef = useRef(null);
                       ))}
                     </datalist>
                     {plannedForm.account_executive_name.trim() && !representatives.some((executive) => (executive.name || "").toLowerCase() === plannedForm.account_executive_name.trim().toLowerCase()) ? (
-                      <p className="text-xs text-amber-700">Not in the account executive directory. Pick an existing name, or add them below.</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400">Not in the account executive directory. Pick an existing name, or add them below.</p>
                     ) : null}
                   </Field>
                   <Field label="Team members" hint="Add each person separately so they stay visible in the dashboard and survey workspace.">
@@ -4236,8 +4236,8 @@ const platformAbortRef = useRef(null);
                 </div>
 
                 {reportType === "lifetime" ? (
-                  <div className="rounded-md border bg-blue-50 p-3">
-                    <p className="text-sm text-blue-900">{isMysteryShopperPlatform ? "This report aggregates Mystery Shopper visits across the selected date scope and available locations." : "This report aggregates all completed and approved surveys across all businesses and all dates. No additional filters are required."}</p>
+                  <div className="rounded-md border bg-blue-50 dark:bg-blue-500/10 p-3">
+                    <p className="text-sm text-blue-900 dark:text-blue-200">{isMysteryShopperPlatform ? "This report aggregates Mystery Shopper visits across the selected date scope and available locations." : "This report aggregates all completed and approved surveys across all businesses and all dates. No additional filters are required."}</p>
                   </div>
                 ) : null}
 
@@ -4264,10 +4264,10 @@ const platformAbortRef = useRef(null);
 
                 {reportType === "date" ? (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div className="rounded-md border bg-blue-50 p-3 md:col-span-2">
-                      <p className="text-sm font-medium text-blue-900">Single Date vs Date Range</p>
-                      <p className="text-xs text-blue-800 mt-1"><strong>Single date:</strong> Shows all surveys completed on exactly that date. Use the date picker below.</p>
-                      <p className="text-xs text-blue-800 mt-1"><strong>Date range:</strong> Shows all surveys completed between two dates. Fill in both "From" and "To" fields below.</p>
+                    <div className="rounded-md border bg-blue-50 dark:bg-blue-500/10 p-3 md:col-span-2">
+                      <p className="text-sm font-medium text-blue-900 dark:text-blue-200">Single Date vs Date Range</p>
+                      <p className="text-xs text-blue-800 dark:text-blue-300 mt-1"><strong>Single date:</strong> Shows all surveys completed on exactly that date. Use the date picker below.</p>
+                      <p className="text-xs text-blue-800 dark:text-blue-300 mt-1"><strong>Date range:</strong> Shows all surveys completed between two dates. Fill in both "From" and "To" fields below.</p>
                     </div>
                     <Field label="From Date">
                       <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
@@ -4309,12 +4309,12 @@ const platformAbortRef = useRef(null);
                   <div className="space-y-2">
                     {reportSurveyLoading ? <p className="text-sm text-muted-foreground">Loading available surveys...</p> : null}
                     {!reportSurveyLoading && reportBusinessId && reportEligibleSurveys.length === 0 ? (
-                      <p className="text-sm text-amber-700">No completed/approved surveys are available for this business yet.</p>
+                      <p className="text-sm text-amber-700 dark:text-amber-400">No completed/approved surveys are available for this business yet.</p>
                     ) : null}
                     {reportIneligibleSurveys.length > 0 ? (
-                      <div className="rounded-md border bg-amber-50 p-3">
-                        <p className="text-sm font-medium text-amber-900">Unavailable surveys (cannot generate report)</p>
-                        <div className="mt-2 space-y-1 text-xs text-amber-800">
+                      <div className="rounded-md border bg-amber-50 dark:bg-amber-500/10 p-3">
+                        <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Unavailable surveys (cannot generate report)</p>
+                        <div className="mt-2 space-y-1 text-xs text-amber-800 dark:text-amber-300">
                           {reportIneligibleSurveys.slice(0, 8).map((visit) => (
                             <p key={`ineligible-${visit.visit_id}`}>Survey on {visit.visit_date || "--"} ({visit.status}) - {visit.reason || "Not report-eligible"}</p>
                           ))}
@@ -4359,7 +4359,7 @@ const platformAbortRef = useRef(null);
                   </Button>
                 </div>
                 {reportType === "survey" ? (
-                  <div className="rounded-md border bg-blue-50 p-3 text-sm text-blue-900">
+                  <div className="rounded-md border bg-blue-50 dark:bg-blue-500/10 p-3 text-sm text-blue-900 dark:text-blue-200">
                     <p className="font-medium">Quick tips</p>
                     <p className="mt-1">1. Select the business or location first.</p>
                     <p className="mt-1">2. Choose one approved survey from the list.</p>

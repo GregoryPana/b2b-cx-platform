@@ -24,10 +24,10 @@ function ScoreBadge({ score, max }) {
   const label = `${score} / ${max}`;
   const colorClass =
     color === "red"
-      ? "bg-red-100 text-red-700 border-red-300"
+      ? "bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-300 dark:border-red-500/40"
       : color === "amber"
-        ? "bg-amber-100 text-amber-700 border-amber-300"
-        : "bg-emerald-100 text-emerald-700 border-emerald-300";
+        ? "bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/40"
+        : "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40";
   return (
     <span className={`inline-flex items-center rounded border px-2 py-0.5 text-sm font-semibold tabular-nums ${colorClass}`}>
       {label}
@@ -38,10 +38,10 @@ function ScoreBadge({ score, max }) {
 function YesNoBadge({ value }) {
   const norm = String(value || "").toLowerCase().trim();
   if (norm === "yes") {
-    return <span className="inline-flex items-center rounded border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-sm font-semibold text-emerald-700">Yes</span>;
+    return <span className="inline-flex items-center rounded border border-emerald-300 dark:border-emerald-500/40 bg-emerald-100 dark:bg-emerald-500/15 px-2 py-0.5 text-sm font-semibold text-emerald-700 dark:text-emerald-300">Yes</span>;
   }
   if (norm === "no") {
-    return <span className="inline-flex items-center rounded border border-red-300 bg-red-100 px-2 py-0.5 text-sm font-semibold text-red-700">No</span>;
+    return <span className="inline-flex items-center rounded border border-red-300 dark:border-red-500/40 bg-red-100 dark:bg-red-500/15 px-2 py-0.5 text-sm font-semibold text-red-700 dark:text-red-300">No</span>;
   }
   return <span className="text-sm text-muted-foreground">{value || "--"}</span>;
 }

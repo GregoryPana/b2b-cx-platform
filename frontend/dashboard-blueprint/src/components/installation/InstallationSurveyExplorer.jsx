@@ -9,10 +9,10 @@ function InstallationScoreBadge({ score }) {
   const n = Number(score);
   if (score == null || score === "" || !Number.isFinite(n)) return <span className="text-sm text-muted-foreground">No score recorded</span>;
   let className = "inline-flex items-center rounded border px-2 py-0.5 text-xs font-semibold";
-  if (n >= 4) className += " border-green-200 bg-green-50 text-green-800";
-  else if (n >= 3) className += " border-amber-300 bg-amber-50 text-amber-800";
-  else if (n >= 2) className += " border-red-200 bg-red-100 text-red-800";
-  else className += " border-red-400 bg-red-200 text-red-900";
+  if (n >= 4) className += " border-green-200 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10 text-green-800 dark:text-green-300";
+  else if (n >= 3) className += " border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300";
+  else if (n >= 2) className += " border-red-200 dark:border-red-500/30 bg-red-100 dark:bg-red-500/15 text-red-800 dark:text-red-300";
+  else className += " border-red-400 dark:border-red-400/60 bg-red-200 dark:bg-red-500/25 text-red-900 dark:text-red-200";
   const label = n >= 4 ? "Excellent" : n >= 3 ? "Satisfactory" : n >= 2 ? "Rework" : "Critical";
   return <span className={className}>{n.toFixed(2)} / 5: {label}</span>;
 }
