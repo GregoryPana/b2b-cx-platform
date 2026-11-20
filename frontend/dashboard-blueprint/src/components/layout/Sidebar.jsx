@@ -1,6 +1,8 @@
 import { ArrowLeftRight, BookOpen, Building2, CalendarDays, ChartLine, ChartPie, ClipboardList, FileChartLine, HardHat, LayoutList, LogOut, MapPin, Menu, MessageSquareWarning, ScanEye, UserRound, Users, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
-import { Button } from "../ui/button";
+import { Button, buttonVariants } from "../ui/button";
+import useFocusTrap from "../shared/useFocusTrap";
 import { cn } from "../../lib/utils";
 
 const BRAND_ASSET_BASE = `${import.meta.env.BASE_URL || "/"}branding/`;
@@ -11,6 +13,26 @@ const PLATFORM_ICON_MAP = {
 };
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile, onLogout, onSwitchPlatform, userName, userEmail, activePlatform, pendingReviewCount }) {
+  const drawerRef = useRef(null);
+  const closeRef = useRef(null);
+  // Below lg the sidebar is a drawer: while open it traps focus, closes on Escape and gives focus back to what opened it.
+  useFocusTrap(drawerRef, mobileOpen);
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const opener = document.activeElement;
+    // Wait briefly: the drawer only becomes visible (and focusable) after this render is styled.
+    const frame = window.setTimeout(() => closeRef.current?.focus(), 50);
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onCloseMobile();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      if (opener && typeof opener.focus === "function") opener.focus();
+    };
+  }, [mobileOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const normalizedPlatform = String(activePlatform || "").toLowerCase();
   const isB2BPlatform = normalizedPlatform.includes("b2b");
   const isMysteryShopperPlatform = normalizedPlatform.includes("mystery");
@@ -56,11 +78,15 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
   return (
     <>
-      {mobileOpen ? <button type="button" className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={onCloseMobile} aria-label="Close navigation" /> : null}
+      {mobileOpen ? <button type="button" className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={onCloseMobile} aria-label="Close navigation" tabIndex={-1} /> : null}
       <aside
+        ref={drawerRef}
+        {...(mobileOpen ? { role: "dialog", "aria-modal": "true", "aria-label": "Navigation" } : {})}
+        tabIndex={-1}
         className={cn(
           "fixed left-0 top-0 z-40 flex h-screen flex-col overflow-hidden border-r bg-card transition-all duration-300",
-          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+          // Closed drawer is also hidden from Tab and screen readers below lg; the desktop sidebar is always visible.
+          mobileOpen ? "translate-x-0" : "invisible -translate-x-full lg:visible lg:translate-x-0",
           collapsed ? "w-72 lg:w-20" : "w-72",
         )}
       >
@@ -72,10 +98,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
             </span>
           ) : (activePlatformIcon ? <img src={activePlatformIcon} alt={`${activePlatform || "Platform"} icon`} className="h-6 w-6 object-contain" /> : null)}
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="lg:hidden" onClick={onCloseMobile} aria-label="Close navigation">
+            <Button ref={closeRef} variant="ghost" size="icon" className="lg:hidden" onClick={onCloseMobile} aria-label="Close navigation">
               <X className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="hidden lg:inline-flex" onClick={onToggle} aria-label="Toggle sidebar">
+            <Button variant="ghost" size="icon" className="hidden lg:inline-flex" onClick={onToggle} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed}>
               <Menu className="h-4 w-4" />
             </Button>
           </div>
@@ -91,27 +117,28 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
               <div className="space-y-1">
                 {group.items.map((item) => {
                   const Icon = item.icon;
+                  const showBadge = item.to === "/review" && pendingReviewCount > 0;
+                  const badgeText = pendingReviewCount > 99 ? "99+" : pendingReviewCount;
                   return (
-                    <NavLink key={item.to} to={item.to} end={item.to === "/"} onClick={() => onCloseMobile()}>
-                      {({ isActive }) => (
-                        <Button
-                          variant={isActive ? "secondary" : "ghost"}
-                          className={cn("w-full justify-start", collapsed && "justify-center px-0")}
-                          title={collapsed ? item.label : undefined}
-                          aria-label={collapsed ? item.label : undefined}
-                        >
-                          <Icon className="h-4 w-4" aria-hidden="true" />
-                          {!collapsed ? <span>{item.label}</span> : null}
-                          {item.to === "/review" && pendingReviewCount > 0 ? (
-                            <span className={cn(
-                              "ml-auto inline-flex items-center justify-center rounded-full bg-destructive text-[10px] font-bold leading-none text-destructive-foreground",
-                              collapsed ? "h-4 w-4 -ml-1 -mt-3" : "h-5 min-w-[20px] px-1",
-                            )}>
-                              {pendingReviewCount > 99 ? "99+" : pendingReviewCount}
-                            </span>
-                          ) : null}
-                        </Button>
-                      )}
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === "/"}
+                      onClick={() => onCloseMobile()}
+                      title={collapsed ? item.label : undefined}
+                      aria-label={collapsed ? (showBadge ? `${item.label}, ${badgeText} pending` : item.label) : undefined}
+                      className={({ isActive }) => cn(buttonVariants({ variant: isActive ? "secondary" : "ghost" }), "w-full justify-start", collapsed && "justify-center px-0")}
+                    >
+                      <Icon className="h-4 w-4" aria-hidden="true" />
+                      {!collapsed ? <span>{item.label}</span> : null}
+                      {showBadge ? (
+                        <span className={cn(
+                          "ml-auto inline-flex items-center justify-center rounded-full bg-destructive text-[10px] font-bold leading-none text-destructive-foreground",
+                          collapsed ? "h-4 w-4 -ml-1 -mt-3" : "h-5 min-w-[20px] px-1",
+                        )}>
+                          {badgeText}
+                        </span>
+                      ) : null}
                     </NavLink>
                   );
                 })}
@@ -135,7 +162,17 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
               </Button>
             </div>
           </div>
-        ) : null}
+        ) : (
+          // Collapsed: keep Switch and Logout reachable as icon buttons. The signed-in name goes in the tooltip.
+          <div className="shrink-0 space-y-1 border-t bg-card p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+            <Button variant="outline" size="icon" className="w-full" onClick={onSwitchPlatform} title="Switch platform" aria-label="Switch platform">
+              <ArrowLeftRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button variant="outline" size="icon" className="w-full" onClick={onLogout} title={`Logout${userName ? ` (${userName})` : ""}`} aria-label="Logout">
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
+        )}
       </aside>
     </>
   );
