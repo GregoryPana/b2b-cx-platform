@@ -66,7 +66,7 @@ function LinkCountdown({ expiresAt, now, emptyLabel = "No link created" }) {
   if (Number.isNaN(target)) return <span className="text-xs text-muted-foreground">{emptyLabel}</span>;
   const remaining = target - now;
   if (remaining <= 0) return <span className="text-xs font-medium text-destructive">Expired</span>;
-  const tone = remaining < 5 * 60 * 1000 ? "text-amber-700" : "text-emerald-700";
+  const tone = remaining < 5 * 60 * 1000 ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-300";
   return (
     <span className={`text-xs font-medium tabular-nums ${tone}`} title={`Expires ${new Date(target).toLocaleString()}`}>
       Expires in {formatRemaining(remaining)}
@@ -294,7 +294,7 @@ export default function MysteryUsersSection({
 
       <CardContent className="space-y-6">
         {mysteryEnrollmentLink ? (
-          <div className="space-y-3 rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
+          <div className="space-y-3 rounded-lg border border-emerald-300 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/10 p-4 text-sm text-emerald-950 dark:text-emerald-100">
             <div className="flex items-start justify-between gap-3">
               <p className="font-semibold">Enrollment link for {mysteryEnrollmentLink.full_name || mysteryEnrollmentLink.email}</p>
               <Button type="button" size="sm" variant="ghost" onClick={clearMysteryEnrollmentLink}>Dismiss</Button>
@@ -304,11 +304,11 @@ export default function MysteryUsersSection({
             </p>
             <p>
               <LinkCountdown expiresAt={mysteryEnrollmentLink.expires_at} now={now} />
-              <span className="ml-2 text-xs text-emerald-900">
+              <span className="ml-2 text-xs text-emerald-900 dark:text-emerald-200">
                 until {formatDateTime(mysteryEnrollmentLink.expires_at)} · single use
               </span>
             </p>
-            <p className="text-xs text-emerald-900">
+            <p className="text-xs text-emerald-900 dark:text-emerald-200">
               This link is shown only once. Copy it now or email it to the shopper. If it expires or is lost, create a new one; their account is not affected.
             </p>
             <div className="flex flex-wrap gap-2">

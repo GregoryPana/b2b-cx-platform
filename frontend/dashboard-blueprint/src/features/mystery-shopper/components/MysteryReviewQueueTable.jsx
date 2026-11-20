@@ -34,7 +34,7 @@ function MandatoryProgress({ answered, total }) {
           style={{ width: `${Math.min(pct, 100)}%` }}
         />
       </div>
-      <span className={`text-xs tabular-nums ${complete ? "text-emerald-700" : "text-amber-700"}`}>
+      <span className={`text-xs tabular-nums ${complete ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-400"}`}>
         {answered}/{total}
       </span>
     </div>

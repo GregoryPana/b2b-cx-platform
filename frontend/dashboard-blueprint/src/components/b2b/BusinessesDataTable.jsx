@@ -167,7 +167,7 @@ export default function BusinessesDataTable({
             <option value="inactive">Inactive</option>
           </Select>
         ) : (
-          <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs ${business.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
+          <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs ${business.active ? "bg-green-100 dark:bg-green-500/15 text-green-800 dark:text-green-300" : "bg-gray-100 dark:bg-gray-500/20 text-gray-800 dark:text-gray-200"}`}>
             {business.active ? "Active" : "Retired"}
           </span>
         );
