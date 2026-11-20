@@ -12,7 +12,7 @@ export default function SigningInScreen() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm text-center">
+      <div className="w-full max-w-sm text-center" role="status" aria-live="polite">
         <p className="text-sm text-muted-foreground">Signing you in...</p>
         {showHelp ? (
           <div className="mt-6 rounded-lg border bg-card p-4 text-left text-sm shadow-sm">
