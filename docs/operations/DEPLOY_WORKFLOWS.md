@@ -36,15 +36,32 @@ environment.
 | `deploy-production` | manual | Install the frozen ZIP | Keep |
 | `deploy-mystery-public` | manual | DMZ build, deploy, rollback, recover | Keep |
 | `mystery-public-preflight` | manual | Read-only check of the DMZ host | Keep (cheap safety check before a first or risky DMZ deploy) |
-| `analytics-release-preflight` | manual | Read-only inspection of staging or production hosts | Candidate to retire or fold into a "preflight" step |
-| `analytics-host-repair` | PR, push, manual | One-off repairs (for example staging TLS) plus tests for the artifact script | Candidate to retire the manual repair once it is no longer needed; its tests stay |
+| `analytics-release-preflight` | removed 2026-11-20 | Was a manual read-only host check | Removed (see 2a) |
+| `analytics-host-repair` | PR, push | CI tests for the release-artifact and repair scripts only. Manual repair job removed 2026-11-20. | Keep the tests |
+
+### 2a. The two analytics workflows (history)
+
+On 2026-11-20 the manual parts were removed on the owner's instruction. What they did, for the record and in case
+any of it is wanted back:
+
+- **`analytics-release-readonly-preflight` (deleted).** Read-only host check, last run 2026-10-19: service running,
+  disk >= 1 GB, `/health` and database healthy, six backend files equal to the checkout, live Alembic head equal
+  to a hard-coded `20260714_000032`, anonymous API returns 401, NGINX site and TLS certificate correct, served
+  dashboard bundle equal to the installed one. The normal deploys do not cover the database head, installed-source or
+  certificate checks. Restore it from git history if needed. The hard-coded head had to be bumped for every migration.
+- **`analytics-host-repair`, manual `repair` job (deleted).** Ran `scripts/linux/analytics_host_repair.py` as root to
+  fix NGINX and TLS (`staging_tls`, `production_site`), restoring old files if verification failed; last run
+  2026-10-15. The `test` job stays and runs automatically.
+- **Left in place:** `scripts/linux/analytics_host_repair.py` and its tests, and `inspect_auth_timestamp_metadata.py`.
+  Nothing calls the repair script now. It can be deleted later together with its tests if it is judged obsolete.
 
 ## 3. Why there are "so many" deploy actions
 
 - **Different instances.** Internal and DMZ differ in auth mode, build, host and approval environment, so they cannot
   share one deploy.
-- **Separation of duties.** Building, validating and installing are separate jobs on separate runners with their own
-  environment approvals. This is deliberate: it is what lets production trust a staging result.
+- **Separation of duties.** Building, validating and installing are separate jobs on separate runners. This is
+  deliberate: it is what lets production trust a staging result. Only the DMZ `mystery-public` environment has a
+  required reviewer; `staging` and `production` have none (checked 2026-11-19).
 - **Historical helpers.** The two analytics workflows were added for specific incidents (a host repair, a release
   inspection). They are still listed beside the real deploys, which is most of the noise.
 - **Manual handoff.** Nothing links step 1 to 2 to 3, so you copy a run id, a SHA256 and a source commit between
@@ -64,18 +81,23 @@ environment.
 1. **A `promote` workflow (recommended; planned as the next item).** One manual workflow that runs staging, then
    export, then production in sequence, passing the run id, SHA256 and source commit between jobs automatically.
    Keep every existing gate: the production job still downloads the artifact, still validates digest, source commit
-   and producer, and still waits for the `production` environment approval. The three existing workflows stay for
+   and producer, and still stops on a bad digest. (Today `production` has no required reviewer, so there is no human pause; see section 6.) The three existing workflows stay for
    manual use and recovery. Value: removes the copy and paste step, not any safety check.
 2. **Reusable workflows for the shared shell.** Move the install and rollback script into one reusable workflow or a
    script under `scripts/linux/` called by staging and production. Lower risk if done as a script first.
-3. **Retire the analytics helpers** once the incidents they were written for are closed, keeping their unit tests.
+3. Retire the analytics helpers: done 2026-11-20 (manual parts removed, see 2a).
 4. **Delete the unused change-detection jobs** (or make them gate something), so nobody assumes they do.
 
 Not recommended: merging internal and DMZ deploys, or letting production rebuild. Both would weaken the guarantee
 that production runs exactly what was tested.
 
-## 6. Open questions for the owner
+## 6. Decisions
 
-- Are `analytics-release-preflight` and the manual repair path of `analytics-host-repair` still used?
-- Should `promote` pause for approval between staging and production, or only at the existing `production`
-  environment gate?
+- **Approvals (decided 2026-11-19):** for now there is no required reviewer on `staging` or `production`. The control
+  is the pull request: a commit is approved on `main` (one approving review, required checks) and then deployed.
+  The DMZ keeps its required reviewer on `mystery-public`. Today only the DMZ deploy waits for a human.
+- **Keep the option open.** A required reviewer on `production` can be added later in GitHub (Settings, Environments,
+  production) with no workflow changes, because the deploy jobs already name `environment: production`. The
+  `promote` workflow must be written so that the production job keeps that `environment:` line and any later
+  reviewer takes effect automatically. Do not remove it.
+- **Preflight:** removed, so `promote` will not include it.
