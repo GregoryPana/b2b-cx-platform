@@ -1,0 +1,184 @@
+name: promote
+
+# One manual button for the normal release path:
+#   deploy-staging -> export-validated-staging -> deploy-production
+#
+# This workflow does NOT replace any gate. It dispatches the three existing workflows, waits for each, and hands
+# the run id / SHA256 / source commit from one to the next (the copy-and-paste step). deploy-production still
+# downloads the artifact and validates digest, source commit and producer by itself, exactly as when run by hand.
+# The three workflows stay usable on their own for recovery. The DMZ (deploy-mystery-public) is NOT part of this.
+#
+# These workflows are dispatched rather than called as reusable workflows on purpose: the production provenance
+# check requires the staging run to be a run of deploy-staging.yml and the artifact producer to be a run of
+# export-validated-staging.yml, both on main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "Full 40-character commit SHA on main that you approved. Must equal the current tip of main."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write # dispatch the existing workflows and read their runs/artifacts
+
+concurrency:
+  group: promote-deploy
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  REPO: ${{ github.repository }}
+  SOURCE_SHA: ${{ inputs.source_sha }}
+
+jobs:
+  staging:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      staging_run: ${{ steps.run.outputs.run_id }}
+    steps:
+      - name: Check the commit you approved is the tip of main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::source_sha must be a full 40-character lowercase SHA"; exit 1; }
+          [[ "${GITHUB_SHA}" == "${SOURCE_SHA}" ]] || { echo "::error::main is at ${GITHUB_SHA}, not the approved ${SOURCE_SHA}. Re-run with the current tip if that is what you want."; exit 1; }
+
+      - name: Run deploy-staging and wait for it
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          before="$(gh run list --repo "$REPO" --workflow deploy-staging.yml --event workflow_dispatch --limit 50 --json databaseId --jq '.[].databaseId')"
+          gh workflow run deploy-staging.yml --repo "$REPO" --ref main
+          run_id=""
+          for _ in $(seq 1 36); do
+            sleep 5
+            for id in $(gh run list --repo "$REPO" --workflow deploy-staging.yml --event workflow_dispatch --limit 50 --json databaseId --jq '.[].databaseId'); do
+              grep -qx "$id" <<<"$before" || { run_id="$id"; break; }
+            done
+            [[ -n "$run_id" ]] && break
+          done
+          [[ -n "$run_id" ]] || { echo "::error::Could not find the dispatched deploy-staging run"; exit 1; }
+          head_sha="$(gh run view "$run_id" --repo "$REPO" --json headSha --jq .headSha)"
+          [[ "$head_sha" == "$SOURCE_SHA" ]] || { echo "::error::deploy-staging run $run_id is on $head_sha, not the approved $SOURCE_SHA (main moved?). Stopping."; exit 1; }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "deploy-staging run: https://github.com/$REPO/actions/runs/$run_id"
+          while :; do
+            status="$(gh run view "$run_id" --repo "$REPO" --json status,conclusion --jq '.status+" "+(.conclusion // "")')"
+            case "$status" in
+              "completed success") break ;;
+              completed*) echo "::error::deploy-staging finished as: $status"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "deploy-staging succeeded"
+
+  export:
+    needs: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      export_run: ${{ steps.run.outputs.run_id }}
+      sha256: ${{ steps.digest.outputs.sha256 }}
+    steps:
+      - name: Run export-validated-staging and wait for it
+        id: run
+        shell: bash
+        env:
+          STAGING_RUN: ${{ needs.staging.outputs.staging_run }}
+        run: |
+          set -euo pipefail
+          before="$(gh run list --repo "$REPO" --workflow export-validated-staging.yml --event workflow_dispatch --limit 50 --json databaseId --jq '.[].databaseId')"
+          gh workflow run export-validated-staging.yml --repo "$REPO" --ref main -f staging_deployment_run="$STAGING_RUN"
+          run_id=""
+          for _ in $(seq 1 36); do
+            sleep 5
+            for id in $(gh run list --repo "$REPO" --workflow export-validated-staging.yml --event workflow_dispatch --limit 50 --json databaseId --jq '.[].databaseId'); do
+              grep -qx "$id" <<<"$before" || { run_id="$id"; break; }
+            done
+            [[ -n "$run_id" ]] && break
+          done
+          [[ -n "$run_id" ]] || { echo "::error::Could not find the dispatched export run"; exit 1; }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "export-validated-staging run: https://github.com/$REPO/actions/runs/$run_id"
+          while :; do
+            status="$(gh run view "$run_id" --repo "$REPO" --json status,conclusion --jq '.status+" "+(.conclusion // "")')"
+            case "$status" in
+              "completed success") break ;;
+              completed*) echo "::error::export finished as: $status"; exit 1 ;;
+            esac
+            sleep 15
+          done
+
+      - name: Read the release receipt and re-check the digest
+        id: digest
+        shell: bash
+        env:
+          EXPORT_RUN: ${{ steps.run.outputs.run_id }}
+          STAGING_RUN: ${{ needs.staging.outputs.staging_run }}
+        run: |
+          set -euo pipefail
+          gh run download "$EXPORT_RUN" --repo "$REPO" --name cwscx-validated-staging-release --dir "$RUNNER_TEMP/release"
+          receipt="$RUNNER_TEMP/release/release.json"
+          zip="$RUNNER_TEMP/release/cwscx-release.zip"
+          receipt_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$receipt")"
+          receipt_src="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_sha"])' "$receipt")"
+          receipt_run="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["staging_deployment_run"])' "$receipt")"
+          zip_sha="$(sha256sum "$zip" | cut -d' ' -f1)"
+          [[ "$zip_sha" == "$receipt_sha" ]] || { echo "::error::ZIP digest $zip_sha does not match the receipt $receipt_sha"; exit 1; }
+          [[ "$receipt_src" == "$SOURCE_SHA" ]] || { echo "::error::Receipt source $receipt_src is not the approved $SOURCE_SHA"; exit 1; }
+          [[ "$receipt_run" == "$STAGING_RUN" ]] || { echo "::error::Receipt staging run $receipt_run is not $STAGING_RUN"; exit 1; }
+          echo "sha256=$zip_sha" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Validated release"
+            echo "- source commit: \`$SOURCE_SHA\`"
+            echo "- staging run: $STAGING_RUN"
+            echo "- export run: $EXPORT_RUN"
+            echo "- sha256: \`$zip_sha\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  production:
+    needs: [staging, export]
+    runs-on: ubuntu-latest
+    # Keep this line. A required reviewer added to the production environment in GitHub settings will then pause
+    # here, before production is dispatched, with no workflow edits (deploy-production's own job also names it).
+    environment: production
+    timeout-minutes: 90
+    steps:
+      - name: Run deploy-production and wait for it
+        shell: bash
+        env:
+          EXPORT_RUN: ${{ needs.export.outputs.export_run }}
+          SHA256: ${{ needs.export.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          before="$(gh run list --repo "$REPO" --workflow deploy-production.yml --event workflow_dispatch --limit 50 --json databaseId --jq '.[].databaseId')"
+          gh workflow run deploy-production.yml --repo "$REPO" --ref main \
+            -f validated_artifact_run_id="$EXPORT_RUN" \
+            -f validated_artifact_sha256="$SHA256" \
+            -f validated_source_sha="$SOURCE_SHA"
+          run_id=""
+          for _ in $(seq 1 36); do
+            sleep 5
+            for id in $(gh run list --repo "$REPO" --workflow deploy-production.yml --event workflow_dispatch --limit 50 --json databaseId --jq '.[].databaseId'); do
+              grep -qx "$id" <<<"$before" || { run_id="$id"; break; }
+            done
+            [[ -n "$run_id" ]] && break
+          done
+          [[ -n "$run_id" ]] || { echo "::error::Could not find the dispatched deploy-production run"; exit 1; }
+          echo "deploy-production run: https://github.com/$REPO/actions/runs/$run_id"
+          echo "- production run: https://github.com/$REPO/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
+          while :; do
+            status="$(gh run view "$run_id" --repo "$REPO" --json status,conclusion --jq '.status+" "+(.conclusion // "")')"
+            case "$status" in
+              "completed success") break ;;
+              completed*) echo "::error::deploy-production finished as: $status"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "deploy-production succeeded"
