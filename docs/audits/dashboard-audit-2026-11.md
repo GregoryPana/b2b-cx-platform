@@ -54,7 +54,7 @@ Read in full: Planned Visits, Actions, Contractors, Businesses and Executives pa
 | R12 | Med | Mystery Users has its own modal (`role=dialog aria-modal`) without a focus trap (same gap as G2), a native `<select>` for link validity, a `window.prompt` fallback when the clipboard fails, and the row menu (`role=menu`) has no arrow-key navigation. | Use `ActionDialog` / `useFocusTrap`; the shared `Select`; show the link in a read-only, select-all field instead of `prompt`; arrow keys in the menu. | I | done (PR I) |
 | R13 | Low | The Locations and Purposes tables filter with a placeholder-only input (`SimpleStatusDataTable`). | Add a name. | H | done (PR H) |
 | R14 | Low | "Signing you in..." and the help text that appears after 6 s are not announced (no `role=status`). | Add `role=status` / `aria-live`. | E | done (PR E) |
-| R15 | Low | The theme starts as light and ignores the system setting, and the `dark` class is toggled while rendering (a side effect in render). | Move the class toggle into an effect. Default theme is an **owner decision**. | E | effect fix done (PR E); default theme still an owner decision |
+| R15 | Low | The theme starts as light and ignores the system setting, and the `dark` class is toggled while rendering (a side effect in render). | Move the class toggle into an effect. Default theme is an **owner decision**. | E | done: effect fix in PR E (#81); owner decided 2026-11-23 to keep the default theme light, so no further change |
 
 ### Still not read
 The B2B/Mystery Survey Results table block, the Installation explorer detail panel and data tables beyond their filters, `PlatformUserGuidePage`, `PlatformSelectionPage`, the Mystery Reports and Review Queue components in full, and everything at phone width.
@@ -70,11 +70,11 @@ The B2B/Mystery Survey Results table block, the Installation explorer detail pan
 | C2 | G5 | One label, "Verbatim / Comments", on every platform. Open. |
 | D | G6, G8 | Charts and copy. Merged (#79). |
 
-| E | R1-R4, R14, R15 | App shell: sidebar drawer, collapsed sidebar, nav links, skip link, signing-in announcement. Open. |
-| F | R5 | Dark-mode colours, after checking them in a browser. Open. |
-| G | R6, R7 | Report builder (R6 partly done, open) and Survey Results filters (R7 not started, needs owner OK). |
-| H | R8-R11, R13 | Planned Visits, Contractors, directory headers, Seed Old Data, status-table filter. Open (R11 held for owner decision). |
-| I | R12 (and R11 confirmation) | Mystery Users dialog, select, prompt and menu; Seed Old Data confirmation. Open. |
+| E | R1-R4, R14, R15 | App shell: sidebar drawer, collapsed sidebar, nav links, skip link, signing-in announcement. Merged (#81). |
+| F | R5 | Dark-mode colours, after checking them in a browser. Merged (#83). |
+| G | R6, R7 | Report builder (R6 partly done, #85; builders not merged into one component) and Survey Results filters (R7, #88). Merged. |
+| H | R8-R11, R13 | Planned Visits, Contractors, directory headers, Seed Old Data, status-table filter. Merged (#86); R11 handled in I. |
+| I | R12 (and R11 confirmation) | Mystery Users dialog, select, prompt and menu; Seed Old Data confirmation. Merged (#87). |
 
 ## Owner decisions
 
@@ -83,7 +83,7 @@ The B2B/Mystery Survey Results table block, the Installation explorer detail pan
 - **G5:** decided 2026-11-19: the label is **"Verbatim / Comments"** on every platform (shopper app, B2B survey, dashboard review screens, report column and PDF heading).
 - **R7:** approved 2026-11-23: date filter, labels and filter chips added to Survey Results (both APIs already took date_from/date_to).
 - **R11:** decided 2026-11-23: keep behind a confirmation that says what it adds (done in PR I).
-- **R15:** default theme: keep light, or follow the system setting?
+- **R15:** decided 2026-11-23: keep the default theme light (do not follow the system setting). The class toggle fix in PR E stands; nothing else to change.
 
 ## Verification plan
 
@@ -107,3 +107,4 @@ Same technique as the shopper audit: a throwaway mounted harness with a mocked A
 | 2026-11-23 | PR H built: R8 (required marker via Field `required`), R9 (visible labels, loading announced), R10 (directory headers with description, Refresh on the right), R13 (filter has an accessible name). R11 Seed Old Data NOT touched: waiting for owner decision. |
 | 2026-11-23 | PR I built: R12 (focus trap and focus return, shared Select, no window.prompt, arrow keys in row menu; also the enrollment link box was white-on-light in dark mode) and R11 (Seed Old Data now asks first and lists what it adds; button renamed "Add from past visits"). Remaining open owner decision: R7, R15 default theme. |
 | 2026-11-23 | R7 built: Survey Results (B2B and Mystery) has labelled Status/Business|Location, the shared date range filter (inclusive, reversed range sends nothing and warns) and removable filter chips with Clear filters. Both list endpoints already accepted date_from/date_to, so no backend change. Only R15 (default theme) remains an owner decision. |
+| 2026-11-23 | R15 closed: owner keeps the default theme light. Round 2 has no open owner decisions; remaining items are the unread pages listed above and the unmerged-builders part of R6. |
