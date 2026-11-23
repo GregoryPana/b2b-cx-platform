@@ -3732,11 +3732,11 @@ const platformAbortRef = useRef(null);
             <Card>
               <CardHeader>
                 <CardTitle>Create Planned Visit</CardTitle>
-                <CardDescription>Create a draft visit that surveyors can open and complete.</CardDescription>
+                <CardDescription>Create a draft visit that surveyors can open and complete. Fields marked <span className="text-destructive" aria-hidden="true">*</span><span className="sr-only">with an asterisk</span> are required.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <Field label="Business">
+                  <Field label="Business" required>
                     <Select value={plannedForm.business_id} onChange={(event) => handlePlannedBusinessChange(event.target.value)}>
                       <option value="">Select business</option>
                       {businesses.map((business) => (
@@ -3744,7 +3744,7 @@ const platformAbortRef = useRef(null);
                       ))}
                     </Select>
                   </Field>
-                  <Field label="Visit date">
+                  <Field label="Visit date" required>
                     <Input type="date" value={plannedForm.visit_date} onChange={(event) => setPlannedForm((prev) => ({ ...prev, visit_date: event.target.value }))} />
                   </Field>
                   <Field label="Visit type">
@@ -3880,24 +3880,26 @@ const platformAbortRef = useRef(null);
               <CardDescription>Create and search contractor names used by installation surveys.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                <Input
-                  value={newInstallationContractorName}
-                  onChange={(event) => setNewInstallationContractorName(event.target.value)}
-                  aria-label="Contractor name"
-                  placeholder="Enter contractor name"
-                />
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <Field label="Contractor name" className="md:flex-1">
+                  <Input
+                    value={newInstallationContractorName}
+                    onChange={(event) => setNewInstallationContractorName(event.target.value)}
+                    placeholder="Enter contractor name"
+                  />
+                </Field>
                 <Button type="button" onClick={createInstallationContractor} disabled={installationContractorSaving}>
                   {installationContractorSaving ? "Saving..." : "Add Contractor"}
                 </Button>
               </div>
-              <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                <Input
-                  value={installationContractorQuery}
-                  onChange={(event) => setInstallationContractorQuery(event.target.value)}
-                  aria-label="Search contractors"
-                  placeholder="Search contractors"
-                />
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <Field label="Search contractors" className="md:flex-1">
+                  <Input
+                    value={installationContractorQuery}
+                    onChange={(event) => setInstallationContractorQuery(event.target.value)}
+                    placeholder="Search contractors"
+                  />
+                </Field>
                 <Button type="button" variant="outline" onClick={() => loadInstallationContractors(installationContractorQuery)}>
                   {installationContractorsLoading ? "Searching..." : "Search"}
                 </Button>
@@ -3932,7 +3934,7 @@ const platformAbortRef = useRef(null);
                   <TableBody>
                     {installationContractorsLoading ? (
                       <TableRow>
-                        <TableCell colSpan={2}>Loading contractors...</TableCell>
+                        <TableCell colSpan={2}><span role="status">Loading contractors...</span></TableCell>
                       </TableRow>
                     ) : installationContractors.length ? (
                       installationContractors.map((contractor) => (
@@ -4688,8 +4690,13 @@ const platformAbortRef = useRef(null);
          <>
             <Card>
               <CardHeader>
-                <CardTitle>Business Directory</CardTitle>
-                <Button type="button" variant="outline" size="sm" onClick={loadBusinesses} title="Reload the business directory list">Refresh</Button>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1.5">
+                    <CardTitle>Business Directory</CardTitle>
+                    <CardDescription>Businesses that visits can be planned for. Add, edit, retire or reactivate them here.</CardDescription>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={loadBusinesses} title="Reload the business directory list">Refresh</Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <BusinessesDataTable
@@ -4765,8 +4772,13 @@ const platformAbortRef = useRef(null);
           <>
             <Card>
               <CardHeader>
-                <CardTitle>Account Executive Directory</CardTitle>
-                <Button type="button" variant="outline" size="sm" onClick={loadRepresentatives}>Refresh</Button>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1.5">
+                    <CardTitle>Account Executive Directory</CardTitle>
+                    <CardDescription>Account executives that can be assigned to businesses and planned visits.</CardDescription>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={loadRepresentatives}>Refresh</Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <ExecutivesDataTable
