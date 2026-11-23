@@ -78,11 +78,19 @@ any of it is wanted back:
 
 ## 5. Proposals, in order of value and safety
 
-1. **A `promote` workflow (recommended; planned as the next item).** One manual workflow that runs staging, then
-   export, then production in sequence, passing the run id, SHA256 and source commit between jobs automatically.
-   Keep every existing gate: the production job still downloads the artifact, still validates digest, source commit
-   and producer, and still stops on a bad digest. (Today `production` has no required reviewer, so there is no human pause; see section 6.) The three existing workflows stay for
-   manual use and recovery. Value: removes the copy and paste step, not any safety check.
+1. **A `promote` workflow (drafted in `.github/workflows/promote.yml`; not yet run).** One manual workflow, input
+   `source_sha` (the full commit you approved; it must equal the tip of main). It dispatches `deploy-staging`, waits,
+   dispatches `export-validated-staging` with that staging run id, waits, reads the release receipt, and dispatches
+   `deploy-production` with the export run id, the SHA256 and the source commit. It dispatches the existing workflows
+   rather than calling them as reusable workflows because the production provenance check needs the staging run
+   and the producer to be real runs of those two files on main. Every existing gate stays: production still
+   downloads the artifact, validates digest, source commit and producer, and stops on a mismatch. Added checks:
+   the approved SHA must equal main's tip and each dispatched run must be on that SHA; the receipt's source,
+   staging run and ZIP digest must agree before production is dispatched. The three existing workflows stay for
+   manual use and recovery. The DMZ is not included. The production job names `environment: production`, so a
+   reviewer added later pauses it before production is dispatched (and then again inside `deploy-production`).
+   Limit: the digest is now read from the export artifact instead of being copied by a person, so the check that
+   production does is "artifact matches its own receipt and the approved commit", not an independently typed digest.
 2. **Reusable workflows for the shared shell.** Move the install and rollback script into one reusable workflow or a
    script under `scripts/linux/` called by staging and production. Lower risk if done as a script first.
 3. Retire the analytics helpers: done 2026-11-20 (manual parts removed, see 2a).
@@ -98,6 +106,6 @@ that production runs exactly what was tested.
   The DMZ keeps its required reviewer on `mystery-public`. Today only the DMZ deploy waits for a human.
 - **Keep the option open.** A required reviewer on `production` can be added later in GitHub (Settings, Environments,
   production) with no workflow changes, because the deploy jobs already name `environment: production`. The
-  `promote` workflow must be written so that the production job keeps that `environment:` line and any later
+  `promote` workflow is written so that the production job keeps that `environment:` line and any later
   reviewer takes effect automatically. Do not remove it.
 - **Preflight:** removed, so `promote` will not include it.
