@@ -1,0 +1,50 @@
+name: work-tracking-check
+
+# Enforces docs/operations/WORK_TRACKING.md: a PR that changes code or workflows must also
+# touch a tracking record (workstream doc or the Hermes pending log), or say in the PR body
+# why not with a line starting "Tracking: not needed" followed by the reason.
+# Not path-filtered on purpose (same reason as backend-ci): a required check must always report.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  tracking:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Require a tracking record for code changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          echo "Changed files:"
+          echo "$changed"
+
+          if ! echo "$changed" | grep -Eq '^(frontend|backend|scripts|\.github)/'; then
+            echo "No code or workflow changes; tracking record not required."
+            exit 0
+          fi
+
+          if echo "$changed" | grep -Eq '^(docs/audits/|docs/features/|docs/operations/|docs/handoffs/|\.opencode/hermes-pending-updates\.md$)'; then
+            echo "Tracking record updated."
+            exit 0
+          fi
+
+          if printf '%s\n' "$PR_BODY" | grep -Eiq '^[[:space:]]*Tracking:[[:space:]]*not needed[[:space:]]*[-:]?[[:space:]]*[^[:space:]]'; then
+            echo "PR body declares tracking not needed, with a reason."
+            exit 0
+          fi
+
+          echo "::error::This PR changes code or workflows but updates no tracking record."
+          echo "Update the workstream doc under docs/audits/ (or docs/features/) and/or append to .opencode/hermes-pending-updates.md (see docs/operations/WORK_TRACKING.md)."
+          echo "If tracking truly is not needed, add a line to the PR body: 'Tracking: not needed - <reason>'."
+          exit 1
