@@ -1,5 +1,11 @@
 # Hermes Pending Updates
 
+## 2026-11-23 - Internal dashboard UI/UX audit, rounds 1 and 2 (PRs #70-#90)
+- branch/commit: all merged to main by the owner (#70-#90); pushed: yes. Deployed by this workstream: no.
+- files: frontend/dashboard-blueprint (DashboardPage, Sidebar, MainLayout, shared Field/ActionDialog/useFocusTrap, Mystery components), docs/audits/dashboard-audit-2026-11.md, one backend report heading change in visits_dashboard.py (#75)
+- verification: browser harness with mocked API (desktop, 600px frame, dark mode); frontend tests 6 baseline failures on Windows (CRLF), CI green; NOT verified: real backend, screen reader, phone width
+- flags: behaviour/data changes (#73 AE chart, #74 and #88 date filters, #87 seed confirmation); decisions made (R15 keep light, R7, R11); deployment-needed for #83 and #85-#90 unless another run covered them; failures, assumptions and decisions are in the audit doc
+
 ## Final application release candidate — 19 October 2026
 
 All 78 reviewed application/test/QA paths are checkpointed at `8daedbf6d1efe5f02f4198c46f66bc6717d6fe75` and reconciled with PR33 main `7e6263b52bfedf6bf98a486ac524e564dbefa41a`, preserving both histories and pending notes. Backend946 and final frontend263 Node/42 Vitest, six builds and both component browsers passed before this source-equivalent controls merge; exact merged-tree/control gates and independent final B2B recheck remain required. Native auth20 UTC/20 +04 and parent20 SQLite cases passed; deployed auth timestamp metadata check is newly prepared, not executed. No final application publication/deployment is claimed by this note. Web01 still requires the previously supplied controls-only administrator upgrade; fresh read-only CI39210954960 confirms its signedf936 baseline/archive/no recovery, but oldsuite339 differs from expectedb930. Existing staging39210290680 and app0139210303719 read-only preflights passed, not new activation.
