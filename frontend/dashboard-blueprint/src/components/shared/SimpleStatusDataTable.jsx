@@ -54,7 +54,7 @@ export default function SimpleStatusDataTable({ data, entityLabel, onActivate, o
     <div className="space-y-4">
       <div className="rounded-md border">
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
-          <Input value={table.getColumn("name")?.getFilterValue() ?? ""} onChange={(event) => table.getColumn("name")?.setFilterValue(event.target.value)} placeholder={`Filter ${entityLabel.toLowerCase()}`} className="md:max-w-sm" />
+          <Input aria-label={`Filter ${entityLabel.toLowerCase()}`} value={table.getColumn("name")?.getFilterValue() ?? ""} onChange={(event) => table.getColumn("name")?.setFilterValue(event.target.value)} placeholder={`Filter ${entityLabel.toLowerCase()}`} className="md:max-w-sm" />
           <DataTableViewOptions table={table} />
         </div>
         <Table>
