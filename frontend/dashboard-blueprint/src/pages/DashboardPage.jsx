@@ -32,7 +32,7 @@ import { dirtyReviewResponseIds } from "../components/shared/reviewDrafts";
 import ChartScope, { chartScopeText } from "../components/shared/ChartScope";
 import { CHART_SEMANTIC, CHART_SERIES } from "../lib/chartColors";
 import Disclosure from "../components/shared/Disclosure";
-import DateRangeFilter from "../components/shared/DateRangeFilter";
+import DateRangeFilter, { describeDateRange } from "../components/shared/DateRangeFilter";
 import Field from "../components/shared/Field";
 import FilterBar from "../components/shared/FilterBar";
 import SidePanel from "../components/shared/SidePanel";
@@ -408,6 +408,8 @@ export default function DashboardPage({ headers, activePlatform, onSessionExpire
   const [surveyStatusFilter, setSurveyStatusFilter] = useState("all");
   const [selectedSurveyBusiness, setSelectedSurveyBusiness] = useState("");
   const [selectedSurveyLocation, setSelectedSurveyLocation] = useState("");
+  const [surveyDateRange, setSurveyDateRange] = useState({ from: "", to: "" });
+  const surveyDateRangeInvalid = Boolean(surveyDateRange.from && surveyDateRange.to && surveyDateRange.from > surveyDateRange.to);
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [reportDateFrom, setReportDateFrom] = useState("");
   const [reportDateTo, setReportDateTo] = useState("");
@@ -1365,6 +1367,11 @@ const platformAbortRef = useRef(null);
     if (isB2BPlatform && selectedSurveyBusiness) params.set("business_name", selectedSurveyBusiness);
     if (isMysteryShopperPlatform && selectedSurveyLocation) params.set("business_name", selectedSurveyLocation);
     if (!isMysteryShopperPlatform && activePlatform) params.set("survey_type", activePlatform);
+    // Dates filter on the visit date, inclusive. A reversed range is not sent (the filter shows a warning).
+    if (!surveyDateRangeInvalid) {
+      if (surveyDateRange.from) params.set("date_from", surveyDateRange.from);
+      if (surveyDateRange.to) params.set("date_to", surveyDateRange.to);
+    }
 
     setSurveyLoading(true);
     setSurveyResults([]);
@@ -2106,7 +2113,7 @@ const platformAbortRef = useRef(null);
    useEffect(() => {
      if (location.pathname !== "/surveys") return;
     loadSurveyResults();
-   }, [location.pathname, activePlatform, surveyStatusFilter, selectedSurveyBusiness, selectedSurveyLocation]);
+   }, [location.pathname, activePlatform, surveyStatusFilter, selectedSurveyBusiness, selectedSurveyLocation, surveyDateRange.from, surveyDateRange.to, surveyDateRangeInvalid]);
 
    useEffect(() => {
      if (location.pathname !== "/planned") return;
@@ -4202,31 +4209,59 @@ const platformAbortRef = useRef(null);
             </CardHeader>
             <CardContent className="space-y-4">
               {location.pathname === "/surveys" ? (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-2">
-                <Select aria-label="Status" value={surveyStatusFilter} onChange={(event) => setSurveyStatusFilter(event.target.value)}>
-                  <option value="all">All Statuses</option>
-                  <option value="Draft">Draft</option>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Field label="Status">
+                    <Select value={surveyStatusFilter} onChange={(event) => setSurveyStatusFilter(event.target.value)}>
+                      <option value="all">All Statuses</option>
+                      <option value="Draft">Draft</option>
                       <option value="Pending">Pending</option>
                       <option value="Approved">Approved</option>
                       <option value="Rejected">Rejected</option>
                     </Select>
-                {isB2BPlatform ? (
-                  <Select aria-label="Business" value={selectedSurveyBusiness} onChange={(event) => setSelectedSurveyBusiness(event.target.value)}>
-                    <option value="">All Businesses</option>
-                    {businesses.map((business) => (
-                      <option key={business.id} value={business.name}>{business.name}</option>
-                    ))}
-                  </Select>
-                ) : isMysteryShopperPlatform ? (
-                  <Select aria-label="Location" value={selectedSurveyLocation} onChange={(event) => setSelectedSurveyLocation(event.target.value)}>
-                    <option value="">All Locations</option>
-                    {mysteryLocations.map((locationItem) => (
-                      <option key={locationItem.id} value={locationItem.name}>{locationItem.name}</option>
-                    ))}
-                  </Select>
-                ) : (
-                  <div className="hidden lg:block" />
-                )}
+                  </Field>
+                  {isB2BPlatform ? (
+                    <Field label="Business">
+                      <Select value={selectedSurveyBusiness} onChange={(event) => setSelectedSurveyBusiness(event.target.value)}>
+                        <option value="">All Businesses</option>
+                        {businesses.map((business) => (
+                          <option key={business.id} value={business.name}>{business.name}</option>
+                        ))}
+                      </Select>
+                    </Field>
+                  ) : isMysteryShopperPlatform ? (
+                    <Field label="Location">
+                      <Select value={selectedSurveyLocation} onChange={(event) => setSelectedSurveyLocation(event.target.value)}>
+                        <option value="">All Locations</option>
+                        {mysteryLocations.map((locationItem) => (
+                          <option key={locationItem.id} value={locationItem.name}>{locationItem.name}</option>
+                        ))}
+                      </Select>
+                    </Field>
+                  ) : null}
+                </div>
+                <DateRangeFilter from={surveyDateRange.from} to={surveyDateRange.to} invalid={surveyDateRangeInvalid} onChange={setSurveyDateRange} />
+                {(() => {
+                  const chips = [
+                    surveyStatusFilter !== "all" ? { key: "status", label: `Status: ${surveyStatusFilter}`, clear: () => setSurveyStatusFilter("all") } : null,
+                    isB2BPlatform && selectedSurveyBusiness ? { key: "business", label: `Business: ${selectedSurveyBusiness}`, clear: () => setSelectedSurveyBusiness("") } : null,
+                    isMysteryShopperPlatform && selectedSurveyLocation ? { key: "location", label: `Location: ${selectedSurveyLocation}`, clear: () => setSelectedSurveyLocation("") } : null,
+                    !surveyDateRangeInvalid && (surveyDateRange.from || surveyDateRange.to) ? { key: "dates", label: `Dates: ${describeDateRange(surveyDateRange.from, surveyDateRange.to)}`, clear: () => setSurveyDateRange({ from: "", to: "" }) } : null,
+                  ].filter(Boolean);
+                  if (!chips.length) return null;
+                  return (
+                    <div className="flex flex-wrap items-center gap-2" aria-label="Active filters" role="group">
+                      {chips.map((chip) => (
+                        <button key={chip.key} type="button" onClick={chip.clear} aria-label={`Remove filter: ${chip.label}`} className="inline-flex items-center gap-1 rounded-full border bg-muted px-3 py-1 text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          {chip.label} <span aria-hidden="true">&times;</span>
+                        </button>
+                      ))}
+                      <Button type="button" variant="ghost" size="sm" onClick={() => { setSurveyStatusFilter("all"); setSelectedSurveyBusiness(""); setSelectedSurveyLocation(""); setSurveyDateRange({ from: "", to: "" }); }}>
+                        Clear filters
+                      </Button>
+                    </div>
+                  );
+                })()}
               </div>
               ) : null}
 
@@ -4429,7 +4464,7 @@ const platformAbortRef = useRef(null);
               <>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={loadSurveyResults} title="Reload the current survey list using the selected filters">Refresh</Button>
-                <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${surveyResults.length} results`}</span>
+                <span className="inline-flex items-center text-sm text-muted-foreground">{surveyLoading ? "Loading..." : `${surveyResults.length} result${surveyResults.length === 1 ? "" : "s"}`}</span>
               </div>
 
               <SurveysDataTable
