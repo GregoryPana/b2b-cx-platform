@@ -3,6 +3,8 @@ import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
+import { Select } from "../../../components/ui/select";
+import useFocusTrap from "../../../components/shared/useFocusTrap";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table";
 
 const STATUS_META = {
@@ -101,17 +103,36 @@ function RowMenu({ label, children }) {
       if (menuRef.current?.contains(event.target) || buttonRef.current?.contains(event.target)) return;
       close();
     };
+    const items = () => Array.from(menuRef.current?.querySelectorAll('[role="menuitem"]') || []);
     const onKey = (event) => {
       if (event.key === "Escape") {
         close();
         buttonRef.current?.focus();
+        return;
       }
+      if (event.key === "Tab") {
+        close();
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      const list = items();
+      if (!list.length) return;
+      event.preventDefault();
+      const index = list.indexOf(document.activeElement);
+      let next = 0;
+      if (event.key === "ArrowDown") next = index + 1 >= list.length ? 0 : index + 1;
+      else if (event.key === "ArrowUp") next = index <= 0 ? list.length - 1 : index - 1;
+      else if (event.key === "End") next = list.length - 1;
+      list[next].focus();
     };
+    // Focus the first item once the menu is on screen so the arrow keys work straight away.
+    const focusTimer = window.setTimeout(() => items()[0]?.focus(), 0);
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     window.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
     return () => {
+      window.clearTimeout(focusTimer);
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", close, true);
@@ -194,8 +215,23 @@ export default function MysteryUsersSection({
   const [dialog, setDialog] = useState(null);
   const [dialogMinutes, setDialogMinutes] = useState(DEFAULT_LINK_MINUTES);
   const [dialogBusy, setDialogBusy] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const dialogRef = useRef(null);
+  const linkRef = useRef(null);
+  useFocusTrap(dialogRef, Boolean(dialog));
+  const openerRef = useRef(null);
+  const dialogOpen = Boolean(dialog);
+  // Give focus back to the control that opened the dialog (recorded in openDialog, before autofocus moves it).
+  useEffect(() => {
+    if (!dialogOpen) return undefined;
+    return () => {
+      const opener = openerRef.current;
+      if (opener && typeof opener.focus === "function" && document.contains(opener)) opener.focus();
+    };
+  }, [dialogOpen]);
 
   const openDialog = (mode, user = null) => {
+    openerRef.current = document.activeElement;
     setDialogMinutes(DEFAULT_LINK_MINUTES); // always start from the safe default so the choice is deliberate
     setDialog({ mode, user });
   };
@@ -243,7 +279,16 @@ export default function MysteryUsersSection({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.prompt("Copy the enrollment link:", value);
+      // Clipboard blocked: select the link text on screen so Ctrl+C works, instead of a browser prompt.
+      setCopyFailed(true);
+      const node = linkRef.current;
+      if (node && window.getSelection) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
     }
   };
 
@@ -299,7 +344,7 @@ export default function MysteryUsersSection({
               <p className="font-semibold">Enrollment link for {mysteryEnrollmentLink.full_name || mysteryEnrollmentLink.email}</p>
               <Button type="button" size="sm" variant="ghost" onClick={clearMysteryEnrollmentLink}>Dismiss</Button>
             </div>
-            <p className="break-all rounded-md bg-white px-3 py-2 font-mono text-xs">
+            <p ref={linkRef} className="break-all rounded-md bg-background px-3 py-2 font-mono text-xs text-foreground">
               {mysteryEnrollmentLink.enrollment_url || mysteryEnrollmentLink.enrollment_token}
             </p>
             <p>
@@ -313,6 +358,8 @@ export default function MysteryUsersSection({
             </p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" onClick={copyLink}>{copied ? "Copied!" : "Copy link"}</Button>
+              {copied ? <span role="status" className="sr-only">Link copied to clipboard</span> : null}
+              {copyFailed ? <p role="status" className="basis-full text-xs">Your browser blocked copying. The link above is selected: press Ctrl+C (Cmd+C on a Mac) to copy it.</p> : null}
               <Button
                 type="button"
                 size="sm"
@@ -468,6 +515,8 @@ export default function MysteryUsersSection({
               onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}
             >
               <div
+                ref={dialogRef}
+                tabIndex={-1}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="link-dialog-title"
@@ -514,10 +563,9 @@ export default function MysteryUsersSection({
 
                 <div className="space-y-2">
                   <label htmlFor="link-validity" className="text-sm font-medium">How long should the link stay valid?</label>
-                  <select
+                  <Select
                     id="link-validity"
                     autoFocus={!isAdd}
-                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
                     value={dialogMinutes}
                     onChange={(event) => setDialogMinutes(Number(event.target.value))}
                     disabled={dialogBusy}
@@ -525,7 +573,7 @@ export default function MysteryUsersSection({
                     {LINK_VALIDITY_OPTIONS.map((option) => (
                       <option key={option.minutes} value={option.minutes}>{option.label}</option>
                     ))}
-                  </select>
+                  </Select>
                   <p className="rounded-md bg-muted px-3 py-2 text-xs">
                     Expires <strong>{expiresAt.toLocaleString()}</strong> and can be used once. Shorter is safer; choose longer only if the shopper may not open the email straight away.
                   </p>

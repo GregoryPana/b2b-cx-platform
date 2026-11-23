@@ -50,8 +50,8 @@ Read in full: Planned Visits, Actions, Contractors, Businesses and Executives pa
 | R8 | Low | Planned Visit form: required fields (business, date) are not marked and only checked on submit with one generic message ("Business and visit date are required."). | Mark required, show the message next to the field. | H | done (PR H) |
 | R9 | Low | Contractors: the add and search inputs have only a hidden name and a placeholder (no visible label); a plain `Table` with no sort or paging; "Loading..." inside a table cell is not announced. | Visible `Field` labels; `role=status` for loading. DataTable only if the list grows (owner call). | H | done (PR H) |
 | R10 | Low | Businesses and Account Executives: the card header stacks the title and a **Refresh** button vertically (`CardHeader` is a column) and there is no description line, unlike the other pages. | Page-anatomy header with the button on the right and a one-line description. | H | done (PR H) |
-| R11 | Med | **BEHAVIOUR/DATA.** Mystery Locations has a **Seed Old Data** button next to Refresh. It posts to `seed-legacy` immediately: no explanation, no confirmation, and it writes locations and purposes. | Confirm dialog saying what it adds, or remove the button if the one-time migration is finished. **Owner decision.** | H | needs owner decision |
-| R12 | Med | Mystery Users has its own modal (`role=dialog aria-modal`) without a focus trap (same gap as G2), a native `<select>` for link validity, a `window.prompt` fallback when the clipboard fails, and the row menu (`role=menu`) has no arrow-key navigation. | Use `ActionDialog` / `useFocusTrap`; the shared `Select`; show the link in a read-only, select-all field instead of `prompt`; arrow keys in the menu. | I | todo |
+| R11 | Med | **BEHAVIOUR/DATA.** Mystery Locations has a **Seed Old Data** button next to Refresh. It posts to `seed-legacy` immediately: no explanation, no confirmation, and it writes locations and purposes. | Confirm dialog saying what it adds, or remove the button if the one-time migration is finished. **Owner decision.** | H | done (PR I): owner chose confirmation |
+| R12 | Med | Mystery Users has its own modal (`role=dialog aria-modal`) without a focus trap (same gap as G2), a native `<select>` for link validity, a `window.prompt` fallback when the clipboard fails, and the row menu (`role=menu`) has no arrow-key navigation. | Use `ActionDialog` / `useFocusTrap`; the shared `Select`; show the link in a read-only, select-all field instead of `prompt`; arrow keys in the menu. | I | done (PR I) |
 | R13 | Low | The Locations and Purposes tables filter with a placeholder-only input (`SimpleStatusDataTable`). | Add a name. | H | done (PR H) |
 | R14 | Low | "Signing you in..." and the help text that appears after 6 s are not announced (no `role=status`). | Add `role=status` / `aria-live`. | E | done (PR E) |
 | R15 | Low | The theme starts as light and ignores the system setting, and the `dark` class is toggled while rendering (a side effect in render). | Move the class toggle into an effect. Default theme is an **owner decision**. | E | effect fix done (PR E); default theme still an owner decision |
@@ -74,7 +74,7 @@ The B2B/Mystery Survey Results table block, the Installation explorer detail pan
 | F | R5 | Dark-mode colours, after checking them in a browser. Open. |
 | G | R6, R7 | Report builder (R6 partly done, open) and Survey Results filters (R7 not started, needs owner OK). |
 | H | R8-R11, R13 | Planned Visits, Contractors, directory headers, Seed Old Data, status-table filter. Open (R11 held for owner decision). |
-| I | R12 | Mystery Users dialog, select, prompt and menu. |
+| I | R12 (and R11 confirmation) | Mystery Users dialog, select, prompt and menu; Seed Old Data confirmation. Open. |
 
 ## Owner decisions
 
@@ -82,7 +82,7 @@ The B2B/Mystery Survey Results table block, the Installation explorer detail pan
 - **G7:** approved, API supports it.
 - **G5:** decided 2026-11-19: the label is **"Verbatim / Comments"** on every platform (shopper app, B2B survey, dashboard review screens, report column and PDF heading).
 - **R7:** add a date filter and chips to Survey Results? (API supports it for B2B.)
-- **R11:** is the one-time "Seed Old Data" still needed? Keep behind a confirmation, or remove?
+- **R11:** decided 2026-11-23: keep behind a confirmation that says what it adds (done in PR I).
 - **R15:** default theme: keep light, or follow the system setting?
 
 ## Verification plan
@@ -105,3 +105,4 @@ Same technique as the shopper audit: a throwaway mounted harness with a mocked A
 | 2026-11-20 | PR F built: R5 confirmed in dark mode (light panels, dim amber text), fixed with `dark:` variants on 33 lines in 7 files. Light mode unchanged. Charts and tokens untouched. |
 | 2026-11-23 | PR G (R6 part): checked first. Lifetime really does send From/To (buildReportParams), so the "No filters needed" copy was wrong; the report-type change already clears all report state, so no stale dates. Fixed copy, moved labelled dates into step 2, Installation hint says From/To override Month, Installation Download HTML no longer waits for a preview (the server builds it anyway). R7 held for owner OK. |
 | 2026-11-23 | PR H built: R8 (required marker via Field `required`), R9 (visible labels, loading announced), R10 (directory headers with description, Refresh on the right), R13 (filter has an accessible name). R11 Seed Old Data NOT touched: waiting for owner decision. |
+| 2026-11-23 | PR I built: R12 (focus trap and focus return, shared Select, no window.prompt, arrow keys in row menu; also the enrollment link box was white-on-light in dark mode) and R11 (Seed Old Data now asks first and lists what it adds; button renamed "Add from past visits"). Remaining open owner decision: R7, R15 default theme. |
