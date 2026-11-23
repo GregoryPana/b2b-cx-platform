@@ -28,7 +28,7 @@ export default function MysteryLocationsSection({
           <Button type="button" onClick={createMysteryLocation}>Add Location</Button>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={loadMysteryLocations}>{mysteryLocationsLoading ? "Refreshing..." : "Refresh"}</Button>
-            <Button type="button" variant="outline" onClick={seedMysteryLegacyData} disabled={mysteryLegacySeeding}>{mysteryLegacySeeding ? "Seeding..." : "Seed Old Data"}</Button>
+            <Button type="button" variant="outline" onClick={seedMysteryLegacyData} disabled={mysteryLegacySeeding}>{mysteryLegacySeeding ? "Adding..." : "Add from past visits"}</Button>
           </div>
         </div>
 

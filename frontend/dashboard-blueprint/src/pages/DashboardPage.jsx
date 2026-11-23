@@ -3013,6 +3013,25 @@ const platformAbortRef = useRef(null);
     setMysteryLegacySeeding(false);
   };
 
+  // Seeding writes rows, so it asks first and says exactly what it adds.
+  const requestSeedMysteryLegacyData = () => {
+    askConfirm({
+      title: "Add locations and purposes from past visits?",
+      description: (
+        <>
+          <p>This adds, only where they do not exist yet:</p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>a location for each business that already has Mystery Shopper visits (named after the business location);</li>
+            <li>a purpose option for each purpose of visit used in past Mystery Shopper assessments.</li>
+          </ul>
+          <p>Nothing is changed or removed, and running it again adds nothing that is already there.</p>
+        </>
+      ),
+      label: "Add them",
+      run: seedMysteryLegacyData,
+    });
+  };
+
   const toggleAnalyticsBusiness = (businessId) => {
     setSelectedAnalyticsBusinessIds((prev) => {
       if (prev.includes(businessId)) {
@@ -4632,7 +4651,7 @@ const platformAbortRef = useRef(null);
             createMysteryLocation={createMysteryLocation}
             loadMysteryLocations={loadMysteryLocations}
             mysteryLocationsLoading={mysteryLocationsLoading}
-            seedMysteryLegacyData={seedMysteryLegacyData}
+            seedMysteryLegacyData={requestSeedMysteryLegacyData}
             mysteryLegacySeeding={mysteryLegacySeeding}
             mysteryLocations={mysteryLocations}
             reactivateMysteryLocation={reactivateMysteryLocation}
