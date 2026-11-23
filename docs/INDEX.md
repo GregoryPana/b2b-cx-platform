@@ -77,6 +77,7 @@ CWSCX is the Cable & Wireless Seychelles Customer Experience Platform. It combin
 - `docs/operations/ENTRA_SESSION_POLICY.md`
 - `docs/operations/MYSTERY_SHOPPER_OPERATIONS_GUIDE.md`
 - `docs/operations/AI_SKILL_DEPLOYMENT_SOURCE.md`
+- `docs/operations/WORK_TRACKING.md` (how agents record steps, failures, assumptions and decisions)
 
 ### Features
 - `docs/features/ADMIN_DASHBOARD_IMPLEMENTATION.md`
