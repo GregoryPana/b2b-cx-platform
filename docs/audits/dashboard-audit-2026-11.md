@@ -108,3 +108,42 @@ Same technique as the shopper audit: a throwaway mounted harness with a mocked A
 | 2026-11-23 | PR I built: R12 (focus trap and focus return, shared Select, no window.prompt, arrow keys in row menu; also the enrollment link box was white-on-light in dark mode) and R11 (Seed Old Data now asks first and lists what it adds; button renamed "Add from past visits"). Remaining open owner decision: R7, R15 default theme. |
 | 2026-11-23 | R7 built: Survey Results (B2B and Mystery) has labelled Status/Business|Location, the shared date range filter (inclusive, reversed range sends nothing and warns) and removable filter chips with Clear filters. Both list endpoints already accepted date_from/date_to, so no backend change. Only R15 (default theme) remains an owner decision. |
 | 2026-11-23 | R15 closed: owner keeps the default theme light. Round 2 has no open owner decisions; remaining items are the unread pages listed above and the unmerged-builders part of R6. |
+
+## Failures and fixes
+
+| Date | What went wrong | Cause | Fix / lesson |
+| ---- | --------------- | ----- | ------------ |
+| 2026-11 (PR E) | Drawer did not move focus to Close on open | `requestAnimationFrame` ran while the drawer was still hidden | `window.setTimeout(..., 50)`; re-checked in the browser |
+| 2026-11 (PR E) | Computed `visibility` read "visible" right after Escape | Style read mid-transition | Re-read after the transition; do not trust a style read taken straight after a state change |
+| 2026-11 (checks) | `resize_window` did not change the viewport | Tool limitation | Test narrow width in a 600px iframe |
+| 2026-11 (checks) | Browser tool blocked output containing URLs with query strings | Tool guard | Return parsed params only, never raw URLs |
+| 2026-11 (PR G) | Edit script aborted | Target text was JSX content, not a quoted string | Match `>...<`; the script asserts match counts, so nothing was half-written |
+| 2026-11 (PR I) | Dialog did not return focus to its opener | The select's `autoFocus` ran before the effect recorded the opener | Record `document.activeElement` in `openDialog`, before render |
+| 2026-11 (PR #88) | Pushed with a 7th frontend test failure | `dashboardRequests.test.mjs` slices handlers by `const <name> =` and runs them in a stub context; the new `surveyDateRange` state was not stubbed | Added the stubs in a follow-up commit. **Lesson: run the frontend tests BEFORE pushing and compare with the 6 baseline failures.** |
+| 2026-11 (R7) | A `git stash` stashed the owner's unrelated modified files | Agent mistake: ran stash to switch branches in a dirty tree | Popped immediately; verified the same 13 files and an empty stash list; disclosed. **Lesson: never `git stash` here; branch with `git checkout -b x origin/main`.** |
+| 2026-11-23 (#89) | `release-contract` CI check failed | actionlint download got HTTP 403 (transient, before any check ran) | `gh run rerun <id> --failed`; passed. Read the log before assuming the change broke it. |
+| 2026-11-23 (process) | A cross-session summary had to be rebuilt from memory | Pending log not updated since October; PR rows left as `Open` after merging | Added `docs/operations/WORK_TRACKING.md`; fixed the stale rows (#90) |
+
+## Assumptions
+
+| Assumption | Status | How to verify |
+| ---------- | ------ | ------------- |
+| The 6 frontend test failures on the Windows checkout are CRLF baseline; CI on Linux is the gate | Verified against main before and after each PR | Compare failure names, not just the count |
+| `date_from`/`date_to` on `/dashboard-visits/all` and `/mystery-shopper/admin/visits` filter `visit_date` inclusively | **Unverified against a real backend** (read from code, mocked in the browser) | Run against a database and compare counts |
+| `/mystery-shopper/seed-legacy` is idempotent and only inserts missing rows | **Unverified** (read from code) | Run twice on a copy of the data |
+| PR numbers for A/B/B2/C/C2 (#71, #73, #78, #74, #75) | Inferred from merge-commit branch names, not the PR pages | Open the PRs |
+| Which audit PRs are deployed | **Unknown**: another session's deploys were at commit 929aecc, which predates #83 and #85-#90 | Check the commit of the latest promote and DMZ runs |
+| Phone width, screen-reader output, dark mode with live data | **Not checked** (phone width skipped by the owner's choice) | Manual pass on a real device and screen reader |
+
+## Decisions
+
+| Date | Decision | By | Why |
+| ---- | -------- | -- | --- |
+| 2026-11-19 | G9: keep Question Trend on Trends only | Owner | Removes a duplicate chart |
+| 2026-11-19 | G7: date filter approved (API supports it) | Owner | Behaviour/data change, flagged separately |
+| 2026-11-19 | G5: one label, "Verbatim / Comments", on every platform | Owner | Four different names existed |
+| 2026-11-23 | R11: seeding old Mystery data sits behind a confirmation that says what it adds | Owner | It writes rows |
+| 2026-11-23 | R7: add the date filter to Survey Results | Owner | The API params already existed |
+| 2026-11-23 | R15: keep the default theme light | Owner | No code change |
+| 2026-11 | R6 remainder (merging the three report builders) not done | Agent judgement | Low value for the risk; revisit only if asked |
+| 2026-11 | Protected test slices (`closeSurveyDetails`, `loadSurveyResults`) are not restructured; UI paths wrap them | Agent judgement | The tests depend on the handler text |
