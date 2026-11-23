@@ -63,11 +63,11 @@ The B2B/Mystery Survey Results table block, the Installation explorer detail pan
 
 | PR | Items | Notes |
 | -- | ----- | ----- |
-| A | G1, G2, G10 | Accessibility only. No data or handler changes. Open (this PR). |
-| B | G11, G9 | Trends fixes: load the AE chart on Trends (bug), remove the duplicate Question Trend from Analytics. Behaviour change. Open. |
-| B2 | G3, G4 | Review detail panels. Open. |
-| C | G7 | Date filter on Analytics and Trends (API already supports it). Merged. |
-| C2 | G5 | One label, "Verbatim / Comments", on every platform. Open. |
+| A | G1, G2, G10 | Accessibility only. No data or handler changes. Merged (#71). |
+| B | G11, G9 | Trends fixes: load the AE chart on Trends (bug), remove the duplicate Question Trend from Analytics. Behaviour change. Merged (#73). |
+| B2 | G3, G4 | Review detail panels. Merged (#78). |
+| C | G7 | Date filter on Analytics and Trends (API already supports it). Merged (#74). |
+| C2 | G5 | One label, "Verbatim / Comments", on every platform. Merged (#75). |
 | D | G6, G8 | Charts and copy. Merged (#79). |
 
 | E | R1-R4, R14, R15 | App shell: sidebar drawer, collapsed sidebar, nav links, skip link, signing-in announcement. Merged (#81). |
