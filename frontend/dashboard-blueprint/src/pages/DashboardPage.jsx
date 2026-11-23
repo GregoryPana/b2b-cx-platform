@@ -3996,7 +3996,7 @@ const platformAbortRef = useRef(null);
               <div>
                 <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">2</span><h3 className="text-base font-semibold tracking-tight">Define Report Scope</h3></div>
                 {installReportType === "lifetime" ? (
-                  <p className="text-xs text-muted-foreground">Lifetime Summary uses all installation data. Optionally filter by date range.</p>
+                  <p className="text-xs text-muted-foreground">Lifetime Summary uses all installation data. Optionally limit it by month or date range; if you fill in From or To, they take priority over Month.</p>
                 ) : installReportType === "survey" ? (
                   <p className="text-xs text-muted-foreground">Select a single installation survey to generate a detailed report.</p>
                 ) : null}
@@ -4061,7 +4061,7 @@ const platformAbortRef = useRef(null);
                 <Button type="button" variant="outline" onClick={handleInstallationPreviewReport} disabled={installReportLoading}>
                   {installReportLoading ? "Generating..." : "Preview Report"}
                 </Button>
-                <Button type="button" variant="outline" onClick={handleInstallationDownloadReport} disabled={!installReportPreviewHtml}>Download HTML</Button>
+                <Button type="button" variant="outline" onClick={handleInstallationDownloadReport}>Download HTML</Button>
                 <Button type="button" variant="outline" onClick={handleInstallationDownloadPdfReport}>Download PDF</Button>
                 <Button type="button" onClick={handleInstallationEmailReport} disabled={installReportSending}>
                   {installReportSending ? "Sending..." : "Email Report"}
@@ -4225,7 +4225,7 @@ const platformAbortRef = useRef(null);
                 <div>
                   <div className="mb-1 flex items-center gap-3"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground" aria-hidden="true">2</span><h3 className="text-base font-semibold tracking-tight">Define Report Scope</h3></div>
                   {reportType === "lifetime" ? (
-                    <p className="text-xs text-muted-foreground">{isMysteryShopperPlatform ? "Lifetime overview uses all Mystery Shopper data across the selected scope." : "Lifetime Overview uses all data across the platform. No filters needed."}</p>
+                    <p className="text-xs text-muted-foreground">{isMysteryShopperPlatform ? "Lifetime overview uses all Mystery Shopper data across the selected scope." : "Lifetime Overview uses all completed and approved surveys. Optionally limit it to a date range."}</p>
                   ) : reportType === "survey" ? (
                     <p className="text-xs text-muted-foreground">{isMysteryShopperPlatform ? "Select a location, then pick an approved survey to view its full details." : "Select a business, then pick an approved survey to view its full details."}</p>
                   ) : reportType === "date" ? (
@@ -4237,7 +4237,18 @@ const platformAbortRef = useRef(null);
 
                 {reportType === "lifetime" ? (
                   <div className="rounded-md border bg-blue-50 dark:bg-blue-500/10 p-3">
-                    <p className="text-sm text-blue-900 dark:text-blue-200">{isMysteryShopperPlatform ? "This report aggregates Mystery Shopper visits across the selected date scope and available locations." : "This report aggregates all completed and approved surveys across all businesses and all dates. No additional filters are required."}</p>
+                    <p className="text-sm text-blue-900 dark:text-blue-200">{isMysteryShopperPlatform ? "This report aggregates Mystery Shopper visits across the selected date scope and available locations." : "This report aggregates all completed and approved surveys across all businesses. Leave both dates blank to include every date."}</p>
+                  </div>
+                ) : null}
+
+                {reportType === "lifetime" ? (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <Field label="From Date (optional)">
+                      <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
+                    </Field>
+                    <Field label="To Date (optional)">
+                      <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
+                    </Field>
                   </div>
                 ) : null}
 
@@ -4331,12 +4342,6 @@ const platformAbortRef = useRef(null);
                   <p className="text-xs text-muted-foreground">Preview in-page, download as HTML, or send by email.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                  {reportType === "lifetime" ? (
-                    <>
-                      <Input type="date" aria-label="From date (optional)" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
-                      <Input type="date" aria-label="To date (optional)" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
-                    </>
-                  ) : null}
                   <EmailRecipientsInput
                     label="Email recipients"
                     placeholder="manager@example.com"
