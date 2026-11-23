@@ -35,7 +35,7 @@ function harness(overrides = {}) {
     isB2BPlatform: false, isInstallationPlatform: false, location: { pathname: '/' },
     platformRequestVersion: { current: 1 }, selectedAnalyticsEntityIds: [], selectedQuestionId: '1',
     analyticsDateFrom: '', analyticsDateTo: '',
-    surveyStatusFilter: 'all', selectedSurveyLocation: '', selectedSurveyBusiness: '',
+    surveyStatusFilter: 'all', selectedSurveyLocation: '', selectedSurveyBusiness: '', surveyDateRange: { from: '', to: '' }, surveyDateRangeInvalid: false,
     reportType: 'survey', reportBusinessId: '1', reportVisitId: 'visit1',
     reportSelectedDate: '', reportDateFrom: '', reportDateTo: '',
     reportEmailRecipients: ['qa@example.invalid'], reportEmailDraft: '',
