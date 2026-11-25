@@ -124,15 +124,16 @@ export default function MysteryReviewQueueTable({ data, onView, onApprove, onRej
         const visit = row.original;
         const visitId = String(visit.id || visit.visit_id || "");
         const isLoading = loadingVisitId === visitId;
+        const where = `visit at ${visit.location_name || visit.business_name || "location"}${visit.visit_date ? ` on ${visit.visit_date}` : ""}`;
         return (
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={() => onView(visitId)} disabled={isLoading}>
+            <Button type="button" size="sm" variant="outline" aria-label={`View ${where}`} onClick={() => onView(visitId)} disabled={isLoading}>
               View
             </Button>
-            <Button type="button" size="sm" onClick={() => onApprove(visit)} disabled={isLoading}>
+            <Button type="button" size="sm" aria-label={`Approve ${where}`} onClick={() => onApprove(visit)} disabled={isLoading}>
               Approve
             </Button>
-            <Button type="button" size="sm" variant="destructive" onClick={() => onReject(visit)} disabled={isLoading}>
+            <Button type="button" size="sm" variant="destructive" aria-label={`Reject ${where}`} onClick={() => onReject(visit)} disabled={isLoading}>
               Reject
             </Button>
           </div>

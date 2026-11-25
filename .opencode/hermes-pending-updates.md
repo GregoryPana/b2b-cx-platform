@@ -1,5 +1,11 @@
 # Hermes Pending Updates
 
+## 2026-11-25 - Dashboard audit PR K (R20-R22)
+- branch/commit: feature/dashboard-round3-k (PR pending owner review); not merged, not deployed.
+- files: SurveysDataTable.jsx, MysteryReviewQueueTable.jsx, InstallationSurveyExplorer.jsx, MysteryReportsSection.jsx, DateRangeFilter.jsx (optional invalidMessage), docs/audits/dashboard-audit-2026-11.md
+- verification: browser harness with mocked data (filters, labels, reversed ranges); build ok; frontend tests 6 failures = baseline on Windows (CRLF), run before pushing; NOT verified: real backend, screen reader, real phone
+- flags: UI behaviour changes owner approved (Survey Results filter clears on column change; Installation Search paused on a reversed range; Mystery report buttons disabled on a reversed range); no data/API change; deployment-needed after merge
+
 ## 2026-11-25 - Dashboard audit PR J (R16-R19)
 - branch/commit: feature/dashboard-round3-j (PR pending owner review); not merged, not deployed.
 - files: MysteryReportsSection.jsx, EntityCombobox.jsx (shared), InstallationSurveyExplorer.jsx, PlatformUserGuidePage.jsx, docs/audits/dashboard-audit-2026-11.md

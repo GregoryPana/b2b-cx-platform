@@ -47,6 +47,10 @@ export default function MysteryReportsSection({
   reportPreviewHtml,
   mysteryReportMetricCards,
 }) {
+  const dateRangeInvalid = Boolean(reportDateFrom && reportDateTo && reportDateFrom > reportDateTo);
+  const dateRangeWarning = dateRangeInvalid ? (
+    <p className="text-sm text-destructive" role="alert">The From date is after the To date. Fix one of the dates before you preview, download or email the report.</p>
+  ) : null;
   const optionalDateRange = (
     <Disclosure
       summary="Limit by date range (optional)"
@@ -56,10 +60,10 @@ export default function MysteryReportsSection({
     >
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="From date">
-          <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
+          <Input type="date" value={reportDateFrom} max={reportDateTo || undefined} onChange={(event) => setReportDateFrom(event.target.value)} />
         </Field>
         <Field label="To date">
-          <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
+          <Input type="date" value={reportDateTo} min={reportDateFrom || undefined} onChange={(event) => setReportDateTo(event.target.value)} />
         </Field>
       </div>
     </Disclosure>
@@ -133,15 +137,16 @@ export default function MysteryReportsSection({
             {reportType === "date" ? (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <Field label="From date" hint="Use the same date in both fields to see a single day.">
-                  <Input type="date" value={reportDateFrom} onChange={(event) => setReportDateFrom(event.target.value)} />
+                  <Input type="date" value={reportDateFrom} max={reportDateTo || undefined} onChange={(event) => setReportDateFrom(event.target.value)} />
                 </Field>
                 <Field label="To date" hint="Pick a later date to cover a week, month, or quarter.">
-                  <Input type="date" value={reportDateTo} onChange={(event) => setReportDateTo(event.target.value)} />
+                  <Input type="date" value={reportDateTo} min={reportDateFrom || undefined} onChange={(event) => setReportDateTo(event.target.value)} />
                 </Field>
               </div>
             ) : null}
 
             {reportType === "lifetime" ? optionalDateRange : null}
+            {dateRangeWarning}
           </ReportStep>
 
           <ReportStep number={3} title="Preview, download, or share">
@@ -163,10 +168,10 @@ export default function MysteryReportsSection({
               />
             </Disclosure>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={handlePreviewReport} disabled={reportLoading}>{reportLoading ? "Generating..." : "Preview report"}</Button>
-              <Button type="button" variant="outline" onClick={handleDownloadReport}>Download HTML</Button>
-              <Button type="button" variant="outline" onClick={handleDownloadPdfReport}>Download PDF</Button>
-              <Button type="button" variant="outline" onClick={handleEmailReport} disabled={reportSending}>{reportSending ? "Sending..." : "Email report"}</Button>
+              <Button type="button" onClick={handlePreviewReport} disabled={reportLoading || dateRangeInvalid}>{reportLoading ? "Generating..." : "Preview report"}</Button>
+              <Button type="button" variant="outline" onClick={handleDownloadReport} disabled={dateRangeInvalid}>Download HTML</Button>
+              <Button type="button" variant="outline" onClick={handleDownloadPdfReport} disabled={dateRangeInvalid}>Download PDF</Button>
+              <Button type="button" variant="outline" onClick={handleEmailReport} disabled={reportSending || dateRangeInvalid}>{reportSending ? "Sending..." : "Email report"}</Button>
             </div>
 
             {reportPreview ? (

@@ -4,6 +4,8 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Select } from "../ui/select";
+import Field from "../shared/Field";
+import DateRangeFilter from "../shared/DateRangeFilter";
 import InstallationSurveysDataTable from "./InstallationSurveysDataTable";
 
 function InstallationScoreBadge({ score }) {
@@ -29,6 +31,7 @@ export default function InstallationSurveyExplorer({
   selectedSurvey,
   onCloseDetails,
 }) {
+  const dateRangeInvalid = Boolean(filters.date_from && filters.date_to && filters.date_from > filters.date_to);
   const detailRef = useRef(null);
   // The detail opens below a long table, so bring it into view and move focus to it (otherwise "View" looks like it did nothing).
   useEffect(() => {
@@ -56,26 +59,43 @@ export default function InstallationSurveyExplorer({
           <CardDescription>Search assessment records by job, customer, location, date, customer type or worker type. Results contain Installation Assessment records only.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Input aria-label="Customer name" placeholder="Customer name" value={filters.customer_name} onChange={(event) => onFilterChange("customer_name", event.target.value)} />
-            <Input aria-label="Quality Assurance Inspector" placeholder="Quality Assurance Inspector" value={filters.inspector_name} onChange={(event) => onFilterChange("inspector_name", event.target.value)} />
-            <Input aria-label="Work order" placeholder="Work order" value={filters.work_order} onChange={(event) => onFilterChange("work_order", event.target.value)} />
-            <Input aria-label="Installation location" placeholder="Location" value={filters.location} onChange={(event) => onFilterChange("location", event.target.value)} />
-            <Input aria-label="Assessment date from" type="date" value={filters.date_from} onChange={(event) => onFilterChange("date_from", event.target.value)} />
-            <Input aria-label="Assessment date to" type="date" value={filters.date_to} onChange={(event) => onFilterChange("date_to", event.target.value)} />
-            <Select aria-label="Customer type" value={filters.customer_type} onChange={(event) => onFilterChange("customer_type", event.target.value)}>
-              <option value="">All customer types</option>
-              <option value="B2B">B2B</option>
-              <option value="B2C">B2C</option>
-            </Select>
-            <Select aria-label="Worker type" value={filters.worker_type} onChange={(event) => onFilterChange("worker_type", event.target.value)}>
-              <option value="">All worker types</option>
-              <option value="Field Team">Field Team</option>
-              <option value="Contractor">Contractor</option>
-            </Select>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Field label="Customer name">
+              <Input placeholder="Customer name" value={filters.customer_name} onChange={(event) => onFilterChange("customer_name", event.target.value)} />
+            </Field>
+            <Field label="Quality Assurance Inspector">
+              <Input placeholder="Inspector name" value={filters.inspector_name} onChange={(event) => onFilterChange("inspector_name", event.target.value)} />
+            </Field>
+            <Field label="Work order">
+              <Input placeholder="Work order" value={filters.work_order} onChange={(event) => onFilterChange("work_order", event.target.value)} />
+            </Field>
+            <Field label="Location">
+              <Input placeholder="Location" value={filters.location} onChange={(event) => onFilterChange("location", event.target.value)} />
+            </Field>
+            <Field label="Customer type">
+              <Select value={filters.customer_type} onChange={(event) => onFilterChange("customer_type", event.target.value)}>
+                <option value="">All customer types</option>
+                <option value="B2B">B2B</option>
+                <option value="B2C">B2C</option>
+              </Select>
+            </Field>
+            <Field label="Worker type">
+              <Select value={filters.worker_type} onChange={(event) => onFilterChange("worker_type", event.target.value)}>
+                <option value="">All worker types</option>
+                <option value="Field Team">Field Team</option>
+                <option value="Contractor">Contractor</option>
+              </Select>
+            </Field>
           </div>
+          <DateRangeFilter
+            from={filters.date_from}
+            to={filters.date_to}
+            invalid={dateRangeInvalid}
+            invalidMessage="The From date is after the To date. Searching is paused until one of the dates is fixed."
+            onChange={({ from, to }) => { onFilterChange("date_from", from); onFilterChange("date_to", to); }}
+          />
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" onClick={onSearch} disabled={loading}>{loading ? "Searching assessments..." : "Search assessments"}</Button>
+            <Button type="button" variant="outline" onClick={onSearch} disabled={loading || dateRangeInvalid}>{loading ? "Searching assessments..." : "Search assessments"}</Button>
             <Button type="button" variant="ghost" onClick={onReset} disabled={loading}>Clear filters</Button>
             <span className="text-sm text-muted-foreground" role="status">{loading ? "Loading installation assessments..." : `${surveys.length} submitted assessment${surveys.length === 1 ? "" : "s"}`}</span>
           </div>

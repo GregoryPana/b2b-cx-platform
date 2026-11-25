@@ -17,7 +17,7 @@ export function describeDateRange(from, to) {
 }
 
 // Inclusive date range on the visit date. The same date in both fields shows a single day.
-export default function DateRangeFilter({ from, to, invalid, onChange, className }) {
+export default function DateRangeFilter({ from, to, invalid, onChange, className, invalidMessage }) {
   const active = Boolean(from || to);
   return (
     <Disclosure
@@ -38,7 +38,7 @@ export default function DateRangeFilter({ from, to, invalid, onChange, className
         </Button>
       </div>
       {invalid ? (
-        <p className="text-sm text-destructive" role="alert">The From date is after the To date, so no date filter is applied. Fix one of the dates.</p>
+        <p className="text-sm text-destructive" role="alert">{invalidMessage || "The From date is after the To date, so no date filter is applied. Fix one of the dates."}</p>
       ) : null}
     </Disclosure>
   );
