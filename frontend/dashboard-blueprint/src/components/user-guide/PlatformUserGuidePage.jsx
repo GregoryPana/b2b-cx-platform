@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import { Select } from "../ui/select";
+import Field from "../shared/Field";
+import useFocusTrap from "../shared/useFocusTrap";
 
 const guideAssetBase = (path) => `${import.meta.env.BASE_URL}guides/${path}`;
 
@@ -283,6 +286,31 @@ export default function PlatformUserGuidePage({ platform }) {
   const [selectedImage, setSelectedImage] = useState(null);
   const [activeSlug, setActiveSlug] = useState(null);
   const sectionRefs = useRef({});
+  const lightboxRef = useRef(null);
+  const lightboxCloseRef = useRef(null);
+  const lightboxOpenerRef = useRef(null);
+  useFocusTrap(lightboxRef, Boolean(selectedImage));
+
+  const openImage = (image, opener) => {
+    lightboxOpenerRef.current = opener || document.activeElement;
+    setSelectedImage(image);
+  };
+
+  /* Screenshot viewer: Escape closes it, focus moves in, and returns to the thumbnail on close. */
+  useEffect(() => {
+    if (!selectedImage) return undefined;
+    const opener = lightboxOpenerRef.current;
+    const onKey = (event) => {
+      if (event.key === "Escape") setSelectedImage(null);
+    };
+    document.addEventListener("keydown", onKey);
+    const timer = window.setTimeout(() => lightboxCloseRef.current?.focus(), 50);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      window.clearTimeout(timer);
+      if (opener && typeof opener.focus === "function" && document.contains(opener)) opener.focus();
+    };
+  }, [selectedImage]);
 
   const sectionSlugs = guide ? guide.sections.map((s) => slugify(s.title)) : [];
 
@@ -342,7 +370,7 @@ export default function PlatformUserGuidePage({ platform }) {
     <div className="flex gap-6">
       {/* Sticky TOC sidebar */}
       <aside className="hidden w-52 flex-shrink-0 lg:block">
-        <div className="sticky top-4 space-y-1">
+        <nav aria-label="On this page" className="sticky top-4 space-y-1">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">On this page</p>
           {guide.sections.map((section, i) => {
             const slug = sectionSlugs[i];
@@ -352,6 +380,7 @@ export default function PlatformUserGuidePage({ platform }) {
                 key={slug}
                 type="button"
                 onClick={() => scrollToSection(slug)}
+                aria-current={isActive ? "location" : undefined}
                 className={[
                   "block w-full rounded px-3 py-1.5 text-left text-sm transition-colors",
                   isActive
@@ -363,7 +392,7 @@ export default function PlatformUserGuidePage({ platform }) {
               </button>
             );
           })}
-        </div>
+        </nav>
       </aside>
 
       {/* Main content */}
@@ -373,6 +402,16 @@ export default function PlatformUserGuidePage({ platform }) {
             <CardTitle className="text-xl font-semibold tracking-tight">{guide.title}</CardTitle>
             <CardDescription>{guide.description}</CardDescription>
           </CardHeader>
+          {/* The side list is hidden below 1024 px, so smaller screens get a jump menu instead. */}
+          <CardContent className="lg:hidden">
+            <Field label="Jump to section">
+              <Select value={activeSlug || ""} onChange={(event) => scrollToSection(event.target.value)}>
+                {guide.sections.map((section, i) => (
+                  <option key={sectionSlugs[i]} value={sectionSlugs[i]}>{section.title}</option>
+                ))}
+              </Select>
+            </Field>
+          </CardContent>
         </Card>
 
         {guide.sections.map((section, i) => {
@@ -411,7 +450,7 @@ export default function PlatformUserGuidePage({ platform }) {
                       <figure key={image.src} className="space-y-2 rounded-md border p-3">
                         <button
                           type="button"
-                          onClick={() => setSelectedImage(image)}
+                          onClick={(event) => openImage(image, event.currentTarget)}
                           className="block w-full overflow-hidden rounded border bg-background transition hover:opacity-95"
                         >
                           <img src={image.src} alt={image.alt} className="w-full rounded object-contain" />
@@ -429,6 +468,11 @@ export default function PlatformUserGuidePage({ platform }) {
 
       {selectedImage ? (
         <div
+          ref={lightboxRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Screenshot: ${selectedImage.alt}`}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
           onClick={() => setSelectedImage(null)}
         >
@@ -437,8 +481,9 @@ export default function PlatformUserGuidePage({ platform }) {
             onClick={(event) => event.stopPropagation()}
           >
             <button
+              ref={lightboxCloseRef}
               type="button"
-              className="absolute right-2 top-2 rounded bg-black/70 px-3 py-1 text-sm text-white"
+              className="absolute right-2 top-2 rounded bg-black/70 px-3 py-1 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               onClick={() => setSelectedImage(null)}
             >
               Close

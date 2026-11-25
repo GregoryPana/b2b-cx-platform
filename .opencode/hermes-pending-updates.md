@@ -1,5 +1,11 @@
 # Hermes Pending Updates
 
+## 2026-11-25 - Dashboard audit PR J (R16-R19)
+- branch/commit: feature/dashboard-round3-j (PR pending owner review); not merged, not deployed.
+- files: MysteryReportsSection.jsx, EntityCombobox.jsx (shared), InstallationSurveyExplorer.jsx, PlatformUserGuidePage.jsx, docs/audits/dashboard-audit-2026-11.md
+- verification: browser harness with mocked data (typing, detail scroll/focus, guide at 390 and 1300 px, lightbox keys); build ok; frontend tests 6 failures = baseline on Windows (CRLF), run before pushing; NOT verified: real backend, screen reader, real phone
+- flags: behaviour change in the shared EntityCombobox (typing now keeps text and no longer empties on deleting a letter; affects Actions Business filter and report builders); no data/API change; deployment-needed after merge
+
 ## 2026-11-24 - Dashboard audit Round 3 (read-only) and tracking standard (PRs #89-#92)
 - branch/commit: #89 (R15 recorded), #90 (A/B/B2/C/C2 marked merged), #91 (work tracking standard + backfill), #92 (work-tracking-check CI): all merged by the owner. Round 3 findings on branch docs/dashboard-audit-round3 (docs only, PR pending).
 - files: docs/operations/WORK_TRACKING.md, .github/workflows/work-tracking-check.yml, docs/audits/dashboard-audit-2026-11.md; Round 3 changed no code

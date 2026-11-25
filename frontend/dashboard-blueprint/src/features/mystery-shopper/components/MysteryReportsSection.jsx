@@ -4,6 +4,7 @@ import { Input } from "../../../components/ui/input";
 import { Select } from "../../../components/ui/select";
 import Disclosure from "../../../components/shared/Disclosure";
 import EmailRecipientsInput from "../../../components/shared/EmailRecipientsInput";
+import EntityCombobox from "../../../components/shared/EntityCombobox";
 import Field from "../../../components/shared/Field";
 import ReportStep from "../../../components/shared/ReportStep";
 import ReportTypePicker from "../../../components/shared/ReportTypePicker";
@@ -85,22 +86,16 @@ export default function MysteryReportsSection({
               <>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <Field label="Location">
-                    <Input
-                      type="text"
-                      list="report-mystery-location-list"
-                      placeholder="Type to search location..."
-                      value={mysteryLocations.find((item) => String(item.id) === reportBusinessId)?.name || ""}
-                      onChange={(event) => {
-                        const match = mysteryLocations.find((item) => item.name === event.target.value);
-                        setReportBusinessId(match ? String(match.id) : "");
+                    {/* EntityCombobox keeps the text you type; the old input rebuilt its value from the selected id, so partial text was wiped. */}
+                    <EntityCombobox
+                      options={mysteryLocations}
+                      value={reportBusinessId}
+                      onChange={(locationId) => {
+                        setReportBusinessId(locationId);
                         setReportVisitId("");
                       }}
+                      placeholder="Type to search location..."
                     />
-                    <datalist id="report-mystery-location-list">
-                      {mysteryLocations.map((item) => (
-                        <option key={item.id} value={item.name} />
-                      ))}
-                    </datalist>
                   </Field>
                   <Field label="Survey">
                     <Select aria-label="Approved Mystery Shopper visit" value={reportVisitId} onChange={(event) => setReportVisitId(event.target.value)} disabled={!reportBusinessId || reportSurveyLoading}>
