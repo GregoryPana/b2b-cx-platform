@@ -57,7 +57,7 @@ Read in full: Planned Visits, Actions, Contractors, Businesses and Executives pa
 | R15 | Low | The theme starts as light and ignores the system setting, and the `dark` class is toggled while rendering (a side effect in render). | Move the class toggle into an effect. Default theme is an **owner decision**. | E | done: effect fix in PR E (#81); owner decided 2026-11-23 to keep the default theme light, so no further change |
 
 ### Still not read
-The B2B/Mystery Survey Results table block, the Installation explorer detail panel and data tables beyond their filters, `PlatformUserGuidePage`, `PlatformSelectionPage`, the Mystery Reports and Review Queue components in full, and everything at phone width.
+Read and checked on 2026-11-24 (see Round 3). Still not covered: real backend data, screen-reader output, real phone, dark mode of these pages.
 
 ## Proposed PRs (one at a time, each after the previous merges)
 
@@ -108,6 +108,34 @@ Same technique as the shopper audit: a throwaway mounted harness with a mocked A
 | 2026-11-23 | PR I built: R12 (focus trap and focus return, shared Select, no window.prompt, arrow keys in row menu; also the enrollment link box was white-on-light in dark mode) and R11 (Seed Old Data now asks first and lists what it adds; button renamed "Add from past visits"). Remaining open owner decision: R7, R15 default theme. |
 | 2026-11-23 | R7 built: Survey Results (B2B and Mystery) has labelled Status/Business|Location, the shared date range filter (inclusive, reversed range sends nothing and warns) and removable filter chips with Clear filters. Both list endpoints already accepted date_from/date_to, so no backend change. Only R15 (default theme) remains an owner decision. |
 | 2026-11-23 | R15 closed: owner keeps the default theme light. Round 2 has no open owner decisions; remaining items are the unread pages listed above and the unmerged-builders part of R6. |
+| 2026-11-24 | Round 3 (read-only): read the remaining pages (Survey Results table and detail, Installation explorer, User Guide, Platform selection, Mystery Reports and Review Queue) and checked them at 390 px in a throwaway harness. 12 findings R16-R27; two reproduced as real faults (R16 location field wipes typing, R17 Installation detail opens off screen). No page overflows sideways on a phone. Harness and dev server removed. Nothing changed; PRs J, K, L proposed. |
+
+## Round 3 findings (read-only pass, 2026-11-24)
+
+Scope: the pages listed as "not read" in Round 2, plus phone width (390 px frames, mocked data, desktop Chrome). "Verified" means reproduced in a browser harness; "from code" means read but not run. Nothing here was changed. No data or API changes are proposed.
+
+| # | Where | Finding | Evidence |
+| - | ----- | ------- | -------- |
+| R16 | Mystery Reports, "Single visit", Location | **Bug.** The field is a text input over a datalist whose value is recomputed from the selected id, so typing "Vic" is wiped to empty on every keystroke; it only works if the full name is typed exactly or picked from the list. The placeholder says "Type to search location...". `EntityCombobox` already exists and keeps partial text. | Verified: typed "Vic" gave "", typed "Victoria Centre" gave "Victoria Centre" |
+| R17 | Installation Surveys, View | The detail card opens below the table (1324 px down in a 800 px window); nothing scrolls to it and focus is lost to the page body, so a click on View looks like it did nothing. | Verified |
+| R18 | User Guide image lightbox | No `role="dialog"`, no Escape, no focus trap or focus return, backdrop-only close (same class as R12). | From code (Mystery guide has no images, so not run) |
+| R19 | User Guide, narrow widths | The "On this page" list is `hidden lg:block`, so below 1024 px there is no section navigation at all, and the list is not a `nav` landmark (no `aria-current`). | Verified at 390 px: no list, 0 `nav` |
+| R20 | Survey Results table (B2B and Mystery) | Changing "Filter by ..." column keeps the earlier column's filter active but hidden, so rows disappear for no visible reason; the Review Queue table clears filters on change. Also, the "N results" count is the server count, not the rows left after the table filter. | From code |
+| R21 | Survey Results and Review Queue tables | Row buttons say only "View Details" / "View", "Approve", "Reject" with no row context for screen readers. | From code |
+| R22 | Installation Surveys filters | Placeholders only, no visible labels; the two date inputs are unlabeled on screen (From and To are only `aria-label`s) and there is no reversed-range check (the shared `DateRangeFilter` and `Field` exist). Mystery Reports date range has the same missing reversed-range check. | From code |
+| R23 | Survey Results detail (B2B) | Card inside a side panel, then boxed category, then boxed question, then boxed answer (the G3 pattern fixed in the review panel); a duplicate "Close Details" under the panel's own close; a run-on header line of pipe-separated facts. | From code |
+| R24 | Platform selection | The page title is an `h2` with no `h1`; each platform icon has alt text repeating the adjacent name ("B2B icon" next to "B2B"). | From code |
+| R25 | Mystery Review Queue | The red count badge is a bare number with no accessible meaning. | From code |
+| R26 | Phone width (390 px) | No page-level horizontal overflow on any page checked. Tables scroll inside their container, which works but is long: Installation table 1540 px wide in a 292 px view (View is at the far end), Review Queue 930, Survey Results 712. The column-visibility checkboxes are 13 px. Platform selection and Mystery Reports have no small targets. | Verified |
+| R27 | Mystery guide copy | "Setting Up Reference Data" does not mention the new "Add from past visits" button. | From code |
+
+Not covered even now: real backend data, screen-reader output, a real phone, dark mode of these pages, the Mystery variant of the Survey Results table with live data.
+
+### Proposed Round 3 PRs (none started; owner approval needed to start each)
+
+- **J** (R16, R17, R18, R19): the four things that work wrongly or not at all. R16 is a fix to typing in one field and R17 adds scroll/focus on View; neither changes data.
+- **K** (R20, R21, R22): table and filter behaviour. R20 changes what the Survey Results filter does when the column changes (UI behaviour, flag for owner).
+- **L** (R23, R24, R25, R27, R26 touch targets): layout, headings, labels, copy.
 
 ## Failures and fixes
 

@@ -1,5 +1,11 @@
 # Hermes Pending Updates
 
+## 2026-11-24 - Dashboard audit Round 3 (read-only) and tracking standard (PRs #89-#92)
+- branch/commit: #89 (R15 recorded), #90 (A/B/B2/C/C2 marked merged), #91 (work tracking standard + backfill), #92 (work-tracking-check CI): all merged by the owner. Round 3 findings on branch docs/dashboard-audit-round3 (docs only, PR pending).
+- files: docs/operations/WORK_TRACKING.md, .github/workflows/work-tracking-check.yml, docs/audits/dashboard-audit-2026-11.md; Round 3 changed no code
+- verification: Round 3 used a throwaway browser harness at 390 px with mocked data (R16 and R17 reproduced); harness deleted, port freed; CI on #89-#92 green; NOT verified: real backend, screen reader, real phone
+- flags: no deployment by this workstream; #83 and #85-#92 deployed status unknown; new risk: R16 (location search in Mystery single-visit report is effectively unusable) and R17 (Installation detail opens off screen); owner decision needed to start PRs J, K, L
+
 ## 2026-11-23 - Internal dashboard UI/UX audit, rounds 1 and 2 (PRs #70-#90)
 - branch/commit: all merged to main by the owner (#70-#90); pushed: yes. Deployed by this workstream: no.
 - files: frontend/dashboard-blueprint (DashboardPage, Sidebar, MainLayout, shared Field/ActionDialog/useFocusTrap, Mystery components), docs/audits/dashboard-audit-2026-11.md, one backend report heading change in visits_dashboard.py (#75)
