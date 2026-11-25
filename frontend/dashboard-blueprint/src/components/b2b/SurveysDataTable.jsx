@@ -86,7 +86,13 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
       headerTitle: "Action",
       header: "Action",
       cell: ({ row }) => (
-        <Button type="button" variant="outline" size="sm" onClick={() => onViewDetails(row.original.id)}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={`View details for ${row.original.business_name || "survey"}${row.original.visit_date ? ` on ${row.original.visit_date}` : ""}`}
+          onClick={() => onViewDetails(row.original.id)}
+        >
           View Details
         </Button>
       ),
@@ -117,7 +123,7 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
       <div className="rounded-md border">
         <div className="flex flex-col gap-3 border-b p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <Select aria-label="Column to filter by" value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} className="md:w-[220px]">
+            <Select aria-label="Column to filter by" value={filterColumn} onChange={(event) => { setFilterColumn(event.target.value); setColumnFilters([]); }} className="md:w-[220px]">
               <option value="business_name">Filter by business</option>
               <option value="visit_date">Filter by date</option>
               <option value="account_executive_name">Filter by account executive</option>
@@ -132,6 +138,11 @@ export default function SurveysDataTable({ data, loading, isMysteryShopperPlatfo
               onChange={(event) => table.getColumn(filterColumn)?.setFilterValue(event.target.value)}
               className="md:max-w-sm"
             />
+            {columnFilters.length ? (
+              <span className="text-sm text-muted-foreground" role="status">
+                Showing {table.getFilteredRowModel().rows.length} of {data.length} result{data.length === 1 ? "" : "s"}
+              </span>
+            ) : null}
           </div>
           <div className="flex gap-2">
             <DataTableViewOptions table={table} />
