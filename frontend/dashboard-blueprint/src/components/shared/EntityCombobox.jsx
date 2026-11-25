@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Input } from "../ui/input";
 
 /**
@@ -23,9 +23,18 @@ export default function EntityCombobox({
   const selected = options.find((option) => getValue(option) === String(value ?? ""));
   const selectedLabel = selected ? getLabel(selected) : "";
   const [text, setText] = useState(selectedLabel);
+  // Remembers the value this field itself just reported, so the effect below can tell "the parent echoed my typing" from "something else changed the value".
+  const emittedRef = useRef(null);
 
   useEffect(() => {
+    if (emittedRef.current !== null && emittedRef.current === String(value ?? "")) {
+      // Our own typing caused this change (for example deleting one letter of a picked name): keep what the user typed.
+      emittedRef.current = null;
+      return;
+    }
+    emittedRef.current = null;
     setText(selectedLabel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedLabel]);
 
   const handleChange = (event) => {
@@ -33,7 +42,10 @@ export default function EntityCombobox({
     setText(next);
     const match = options.find((option) => String(getLabel(option) || "").toLowerCase() === next.trim().toLowerCase());
     const nextValue = match ? getValue(match) : "";
-    if (nextValue !== String(value ?? "")) onChange(nextValue);
+    if (nextValue !== String(value ?? "")) {
+      emittedRef.current = nextValue;
+      onChange(nextValue);
+    }
   };
 
   const unmatched = text.trim() !== "" && !selected;

@@ -109,6 +109,7 @@ Same technique as the shopper audit: a throwaway mounted harness with a mocked A
 | 2026-11-23 | R7 built: Survey Results (B2B and Mystery) has labelled Status/Business|Location, the shared date range filter (inclusive, reversed range sends nothing and warns) and removable filter chips with Clear filters. Both list endpoints already accepted date_from/date_to, so no backend change. Only R15 (default theme) remains an owner decision. |
 | 2026-11-23 | R15 closed: owner keeps the default theme light. Round 2 has no open owner decisions; remaining items are the unread pages listed above and the unmerged-builders part of R6. |
 | 2026-11-24 | Round 3 (read-only): read the remaining pages (Survey Results table and detail, Installation explorer, User Guide, Platform selection, Mystery Reports and Review Queue) and checked them at 390 px in a throwaway harness. 12 findings R16-R27; two reproduced as real faults (R16 location field wipes typing, R17 Installation detail opens off screen). No page overflows sideways on a phone. Harness and dev server removed. Nothing changed; PRs J, K, L proposed. |
+| 2026-11-25 | PR J built (R16-R19). R16: the Mystery Reports Location field now uses the shared `EntityCombobox`, so partial typing is kept. **Found while testing:** `EntityCombobox` itself wiped the text when you deleted one letter of a picked name (the parent echoing "no match" reset the text); fixed with a ref that tells the field's own typing from an outside change, which also fixes the Actions Business filter and the report builders. R17: the Installation detail now scrolls into view and takes focus (respects reduced motion). R18: the guide screenshot viewer is a labelled modal dialog with Escape, focus trap, focus on Close and focus return. R19: the guide has a `nav` landmark with `aria-current`, and a "Jump to section" menu below 1024 px. Verified in a browser harness (mocked data): typing Vic keeps text, full name selects id 1, deleting a letter keeps the text and shows the hint, switching names works, an outside clear empties the field; Installation View scrolls the detail to the top of the window with focus on it (page scrolled 1286 px); at 390 px the jump menu shows, no side list, no horizontal overflow, jumping scrolls the section to the top; at 1300 px the nav shows with one `aria-current` and the jump menu is hidden; lightbox opens with focus on Close, Tab and Shift+Tab stay inside, Escape closes and focus returns to the thumbnail. Build ok; frontend tests 6 failures, the same 6 as main (InfoHint, mysteryStates, tests 17, 18, 19, 61), run before pushing. Not checked: a real backend, screen-reader output, a real phone, dark mode of these pages. |
 
 ## Round 3 findings (read-only pass, 2026-11-24)
 
@@ -116,10 +117,10 @@ Scope: the pages listed as "not read" in Round 2, plus phone width (390 px frame
 
 | # | Where | Finding | Evidence |
 | - | ----- | ------- | -------- |
-| R16 | Mystery Reports, "Single visit", Location | **Bug.** The field is a text input over a datalist whose value is recomputed from the selected id, so typing "Vic" is wiped to empty on every keystroke; it only works if the full name is typed exactly or picked from the list. The placeholder says "Type to search location...". `EntityCombobox` already exists and keeps partial text. | Verified: typed "Vic" gave "", typed "Victoria Centre" gave "Victoria Centre" |
-| R17 | Installation Surveys, View | The detail card opens below the table (1324 px down in a 800 px window); nothing scrolls to it and focus is lost to the page body, so a click on View looks like it did nothing. | Verified |
-| R18 | User Guide image lightbox | No `role="dialog"`, no Escape, no focus trap or focus return, backdrop-only close (same class as R12). | From code (Mystery guide has no images, so not run) |
-| R19 | User Guide, narrow widths | The "On this page" list is `hidden lg:block`, so below 1024 px there is no section navigation at all, and the list is not a `nav` landmark (no `aria-current`). | Verified at 390 px: no list, 0 `nav` |
+| R16 (fixed in PR J) | Mystery Reports, "Single visit", Location | **Bug.** The field is a text input over a datalist whose value is recomputed from the selected id, so typing "Vic" is wiped to empty on every keystroke; it only works if the full name is typed exactly or picked from the list. The placeholder says "Type to search location...". `EntityCombobox` already exists and keeps partial text. | Verified: typed "Vic" gave "", typed "Victoria Centre" gave "Victoria Centre" |
+| R17 (fixed in PR J) | Installation Surveys, View | The detail card opens below the table (1324 px down in a 800 px window); nothing scrolls to it and focus is lost to the page body, so a click on View looks like it did nothing. | Verified |
+| R18 (fixed in PR J) | User Guide image lightbox | No `role="dialog"`, no Escape, no focus trap or focus return, backdrop-only close (same class as R12). | From code (Mystery guide has no images, so not run) |
+| R19 (fixed in PR J) | User Guide, narrow widths | The "On this page" list is `hidden lg:block`, so below 1024 px there is no section navigation at all, and the list is not a `nav` landmark (no `aria-current`). | Verified at 390 px: no list, 0 `nav` |
 | R20 | Survey Results table (B2B and Mystery) | Changing "Filter by ..." column keeps the earlier column's filter active but hidden, so rows disappear for no visible reason; the Review Queue table clears filters on change. Also, the "N results" count is the server count, not the rows left after the table filter. | From code |
 | R21 | Survey Results and Review Queue tables | Row buttons say only "View Details" / "View", "Approve", "Reject" with no row context for screen readers. | From code |
 | R22 | Installation Surveys filters | Placeholders only, no visible labels; the two date inputs are unlabeled on screen (From and To are only `aria-label`s) and there is no reversed-range check (the shared `DateRangeFilter` and `Field` exist). Mystery Reports date range has the same missing reversed-range check. | From code |
@@ -133,7 +134,7 @@ Not covered even now: real backend data, screen-reader output, a real phone, dar
 
 ### Proposed Round 3 PRs (none started; owner approval needed to start each)
 
-- **J** (R16, R17, R18, R19): the four things that work wrongly or not at all. R16 is a fix to typing in one field and R17 adds scroll/focus on View; neither changes data.
+- **J** (R16, R17, R18, R19; built 2026-11-25, see progress log): the four things that work wrongly or not at all. R16 is a fix to typing in one field and R17 adds scroll/focus on View; neither changes data.
 - **K** (R20, R21, R22): table and filter behaviour. R20 changes what the Survey Results filter does when the column changes (UI behaviour, flag for owner).
 - **L** (R23, R24, R25, R27, R26 touch targets): layout, headings, labels, copy.
 
@@ -151,6 +152,9 @@ Not covered even now: real backend data, screen-reader output, a real phone, dar
 | 2026-11 (R7) | A `git stash` stashed the owner's unrelated modified files | Agent mistake: ran stash to switch branches in a dirty tree | Popped immediately; verified the same 13 files and an empty stash list; disclosed. **Lesson: never `git stash` here; branch with `git checkout -b x origin/main`.** |
 | 2026-11-23 (#89) | `release-contract` CI check failed | actionlint download got HTTP 403 (transient, before any check ran) | `gh run rerun <id> --failed`; passed. Read the log before assuming the change broke it. |
 | 2026-11-23 (process) | A cross-session summary had to be rebuilt from memory | Pending log not updated since October; PR rows left as `Open` after merging | Added `docs/operations/WORK_TRACKING.md`; fixed the stale rows (#90) |
+| 2026-11-24 (Round 3) | A shell command failed to parse and ran nothing | Quotes inside a long heredoc | Wrote files with the Write tool instead; checked nothing had run before retrying |
+| 2026-11-25 (PR J) | Browser tool blocked a result as "Cookie/query string data" | The result text looked like `a=1;b=2` | Replaced `=` and `;` in the returned text |
+| 2026-11-25 (PR J) | R16 fix looked done but deleting one letter of a picked name still emptied the field | A bug inside the shared `EntityCombobox` (its reset effect treated the parent echoing the typed value as an outside change), only visible after the first fix worked | Fixed in the component with an emitted-value ref; added the delete-one-letter and outside-clear cases to the checks. Lesson: test the second keystroke, not just the first. |
 
 ## Assumptions
 
@@ -175,3 +179,4 @@ Not covered even now: real backend data, screen-reader output, a real phone, dar
 | 2026-11-23 | R15: keep the default theme light | Owner | No code change |
 | 2026-11 | R6 remainder (merging the three report builders) not done | Agent judgement | Low value for the risk; revisit only if asked |
 | 2026-11 | Protected test slices (`closeSurveyDetails`, `loadSurveyResults`) are not restructured; UI paths wrap them | Agent judgement | The tests depend on the handler text |
+| 2026-11-25 | PR J also changes the shared `EntityCombobox` (typing behaviour) instead of working around it in one page | Agent judgement, flagged in the PR | The same defect affected the Actions Business filter and both report builders; owner can ask to split it out |

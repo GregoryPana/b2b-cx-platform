@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -28,6 +29,16 @@ export default function InstallationSurveyExplorer({
   selectedSurvey,
   onCloseDetails,
 }) {
+  const detailRef = useRef(null);
+  // The detail opens below a long table, so bring it into view and move focus to it (otherwise "View" looks like it did nothing).
+  useEffect(() => {
+    if (!selectedSurvey || !detailRef.current) return;
+    const node = detailRef.current;
+    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    node.focus({ preventScroll: true });
+    node.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  }, [selectedSurvey]);
+
   const categoryGroups = selectedSurvey
     ? (selectedSurvey.responses || []).reduce((acc, resp) => {
         const cat = resp.category || "Uncategorized";
@@ -82,6 +93,7 @@ export default function InstallationSurveyExplorer({
       </Card>
 
       {selectedSurvey ? (
+        <div ref={detailRef} tabIndex={-1} role="region" aria-label="Installation assessment details" className="scroll-mt-4 outline-none">
         <Card>
           <CardHeader>
             <CardTitle>Review one installation assessment</CardTitle>
@@ -141,6 +153,7 @@ export default function InstallationSurveyExplorer({
             <Button type="button" variant="outline" onClick={onCloseDetails}>Close Details</Button>
           </CardContent>
         </Card>
+        </div>
       ) : null}
     </div>
   );
