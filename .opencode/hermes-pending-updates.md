@@ -1,5 +1,8 @@
 # Hermes Pending Updates
 
+## 2026-11-26 - Dashboard audit Round 3 closed
+- PRs J, K, L merged (#94, #95, #96); audit doc rows updated to Merged. Docs only; not deployed by this session.
+
 ## 2026-11-26 - Dashboard audit PR L (R23-R27)
 - branch/commit: feature/dashboard-round3-l (PR pending owner review); not merged, not deployed.
 - files: DashboardPage.jsx (Survey Results detail layout), PlatformSelectionPage.jsx, MysteryReviewQueueSection.jsx, PlatformUserGuidePage.jsx, data-table-view-options.jsx, docs/audits/dashboard-audit-2026-11.md
