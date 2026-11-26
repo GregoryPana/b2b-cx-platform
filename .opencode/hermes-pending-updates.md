@@ -1,5 +1,11 @@
 # Hermes Pending Updates
 
+## 2026-11-26 - Dashboard audit PR L (R23-R27)
+- branch/commit: feature/dashboard-round3-l (PR pending owner review); not merged, not deployed.
+- files: DashboardPage.jsx (Survey Results detail layout), PlatformSelectionPage.jsx, MysteryReviewQueueSection.jsx, PlatformUserGuidePage.jsx, data-table-view-options.jsx, docs/audits/dashboard-audit-2026-11.md
+- verification: browser harness with mocked data for R24/R25/R26; build ok; frontend tests 6 failures = baseline on Windows (CRLF), run before pushing; NOT verified: R23 with real data, R27 rendered, screen reader, real phone
+- flags: UI and copy only; no behaviour, data or API change; deployment-needed after merge
+
 ## 2026-11-25 - Dashboard audit PR K (R20-R22)
 - branch/commit: feature/dashboard-round3-k (PR pending owner review); not merged, not deployed.
 - files: SurveysDataTable.jsx, MysteryReviewQueueTable.jsx, InstallationSurveyExplorer.jsx, MysteryReportsSection.jsx, DateRangeFilter.jsx (optional invalidMessage), docs/audits/dashboard-audit-2026-11.md

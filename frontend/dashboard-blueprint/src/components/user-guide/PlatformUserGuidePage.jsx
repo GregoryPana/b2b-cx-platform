@@ -205,6 +205,7 @@ const GUIDE_CONTENT = {
         summary: "Shoppers can only pick from what you maintain here. Do this before inviting anyone.",
         steps: [
           "Use Locations to add every customer service centre that can be mystery-shopped. Archive (deactivate) locations that close rather than deleting them, so history is kept.",
+          "If visits already exist from before this list was set up, use \"Add from past visits\" on the Locations page to bring in the locations and purposes they used. It only adds missing entries; it does not change or remove existing ones.",
           "Use Purposes to maintain the list of visit reasons shoppers choose from (for example bill payment, new connection, fault report).",
           "Review both lists periodically - a missing location is the most common reason a shopper cannot start a survey.",
         ],
