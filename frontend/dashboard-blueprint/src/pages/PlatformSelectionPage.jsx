@@ -18,7 +18,7 @@ export default function PlatformSelectionPage({ userName, userEmail, availablePl
           <div className="flex items-center gap-4">
             <img src={CWS_LOGO_SRC} alt="Cable and Wireless Seychelles logo" className="h-12 w-12 rounded-lg border bg-background p-2 object-contain" />
             <div>
-            <h2 className="text-2xl font-semibold">Platform Access</h2>
+            <h1 className="text-2xl font-semibold">Platform Access</h1>
             <p className="text-sm text-muted-foreground">Your available platforms are based on your Entra role assignments.</p>
             </div>
           </div>
@@ -54,7 +54,7 @@ export default function PlatformSelectionPage({ userName, userEmail, availablePl
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg border bg-muted/40">
-                      <img src={platformIcon} alt={`${platform.name} icon`} className="h-5 w-5 object-contain" />
+                      <img src={platformIcon} alt="" aria-hidden="true" className="h-5 w-5 object-contain" />
                     </span>
                     {platform.name}
                   </CardTitle>

@@ -15,7 +15,7 @@ export function DataTableViewOptions({ table }) {
           <p className="text-sm font-medium">Visible Columns</p>
           <button
             type="button"
-            className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+            className="px-2 py-2 text-xs text-muted-foreground underline-offset-4 hover:underline"
             onClick={(event) => {
               event.preventDefault();
               columns.forEach((column) => column.toggleVisibility(true));
@@ -26,9 +26,10 @@ export function DataTableViewOptions({ table }) {
         </div>
         <div className="space-y-2">
           {columns.map((column) => (
-            <label key={column.id} className="flex items-center gap-2 text-sm">
+            <label key={column.id} className="flex min-h-9 cursor-pointer items-center gap-2 text-sm">
               <input
                 type="checkbox"
+                className="h-4 w-4"
                 checked={column.getIsVisible()}
                 onChange={(event) => column.toggleVisibility(event.target.checked)}
               />

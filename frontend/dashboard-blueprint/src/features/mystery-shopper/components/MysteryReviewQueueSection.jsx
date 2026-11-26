@@ -20,8 +20,13 @@ export default function MysteryReviewQueueSection({
             </CardDescription>
           </div>
           {pendingVisits.length > 0 && (
-            <span className="inline-flex h-8 min-w-[2rem] items-center justify-center rounded-full bg-red-500 px-2 text-sm font-bold text-white">
-              {pendingVisits.length}
+            <span
+              role="status"
+              aria-label={`${pendingVisits.length} visit${pendingVisits.length === 1 ? "" : "s"} waiting for review`}
+              title={`${pendingVisits.length} waiting for review`}
+              className="inline-flex h-8 min-w-[2rem] items-center justify-center rounded-full bg-red-500 px-2 text-sm font-bold text-white"
+            >
+              <span aria-hidden="true">{pendingVisits.length}</span>
             </span>
           )}
         </div>

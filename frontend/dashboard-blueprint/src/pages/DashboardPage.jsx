@@ -4489,35 +4489,39 @@ const platformAbortRef = useRef(null);
                 onClose={closeSurveyDetails}
               />
             ) : (
-              <Card id="survey-visit-detail">
-                <CardHeader>
-                <CardTitle className="text-xl font-semibold tracking-tight">Survey Detail - {selectedSurveyVisit.business_name || "Visit"}</CardTitle>
-                <CardDescription>
-                  {selectedSurveyVisit.visit_date || "--"} | {selectedSurveyVisit.status || "--"} | Representative: {selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"}
-                </CardDescription>
-                <CardDescription>
-                  Account Executive: {selectedSurveyVisit.account_executive_name || "--"} | Team Members: {(selectedSurveyVisit.team_member_names || []).join(", ") || "--"}
-                </CardDescription>
-                <CardDescription>
-                    Audit Signature: {selectedSurveyVisit.submitted_by_name || "--"} ({selectedSurveyVisit.submitted_by_email || "--"}) {selectedSurveyVisit.submitted_at ? `at ${formatReadableDateTime(selectedSurveyVisit.submitted_at)}` : ""}
-                </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {surveyResponseCategoryGroups.length > 0 ? (
-                    surveyResponseCategoryGroups.map(({ category, responses }) => (
-                      <div key={category} className="space-y-3 rounded-lg border p-4">
-                        <div className="flex items-center justify-between">
-                          <p className="text-base font-semibold tracking-tight">{category}</p>
-                          <Badge variant="secondary">{responses.length} questions</Badge>
-                        </div>
+              <div id="survey-visit-detail" className="space-y-4">
+                {/* Flat layout like the review panel: one header, category sections separated by rules, questions separated by dividers. The panel's own Close button closes it. */}
+                <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  {[
+                    ["Visit date", selectedSurveyVisit.visit_date || "--"],
+                    ["Status", selectedSurveyVisit.status || "--"],
+                    ["Representative", selectedSurveyVisit.representative_name || selectedSurveyVisit.representative_id || "--"],
+                    ["Account Executive", selectedSurveyVisit.account_executive_name || "--"],
+                    ["Team Members", (selectedSurveyVisit.team_member_names || []).join(", ") || "--"],
+                    ["Audit Signature", `${selectedSurveyVisit.submitted_by_name || "--"} (${selectedSurveyVisit.submitted_by_email || "--"})${selectedSurveyVisit.submitted_at ? ` at ${formatReadableDateTime(selectedSurveyVisit.submitted_at)}` : ""}`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
+                      <dd className="break-words">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {surveyResponseCategoryGroups.length > 0 ? (
+                  surveyResponseCategoryGroups.map(({ category, responses }) => (
+                    <section key={category} aria-label={category}>
+                      <div className="flex items-center justify-between border-b pb-2">
+                        <h3 className="text-base font-semibold tracking-tight">{category}</h3>
+                        <Badge variant="secondary">{responses.length} questions</Badge>
+                      </div>
+                      <div className="divide-y">
                         {responses.map((response) => {
                           const qLabel = response.display_number ?? response.question_number ?? response.question_id;
                           return (
-                            <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="rounded-md border bg-background p-4 space-y-2">
+                            <div key={response.response_id || `${response.question_id}-${response.created_at || ""}`} className="space-y-2 py-4">
                               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Q{qLabel}</p>
                               <p className="text-sm font-semibold leading-snug">{response.question_text || "--"}</p>
-                              <div className="flex items-start gap-3 rounded bg-muted/30 px-3 py-2">
-                                <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-0.5">Answer</span>
+                              <div className="flex items-start gap-3">
+                                <span className="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Answer</span>
                                 <div className="min-w-0 text-sm"><SurveyResponseDisplay response={response} /></div>
                               </div>
                               {response.verbatim ? (
@@ -4530,15 +4534,12 @@ const platformAbortRef = useRef(null);
                           );
                         })}
                       </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No responses found for this visit.</p>
-                  )}
-                  <div>
-                    <Button type="button" variant="outline" onClick={closeSurveyDetails}>Close Details</Button>
-                  </div>
-                </CardContent>
-              </Card>
+                    </section>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No responses found for this visit.</p>
+                )}
+              </div>
             )}
             </SidePanel>
           ) : null}
