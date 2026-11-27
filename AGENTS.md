@@ -12,6 +12,7 @@ Use canonical project name **CWSCX Platform**. Do not use the deprecated alias "
 4. `.opencode/skills/hermes-handoff-after-opencode-task/SKILL.md` and `skills/hermes-handoff-after-opencode-task.md` for handoffs.
 5. `HERMES_UPDATE_PACK.md` for latest known pack context.
 6. Relevant docs under `docs/architecture/`, `docs/deployment/`, `docs/operations/`, and `docs/testing/` before touching those areas.
+7. `docs/AGENT_DESIGN_SKILLS.md` and `docs/design/DESIGN_SYSTEM.md` before substantial frontend/UI work; record the selected design route before implementation.
 
 ## CodeGraph-first navigation
 
@@ -43,3 +44,12 @@ Before claiming completion, report files changed, commands/tests/checks run, ver
 ## Hermes Update Pack cadence
 
 After meaningful work, append a compact entry to `.opencode/hermes-pending-updates.md`, then ask Gregory whether to generate the consolidated Hermes Update Pack. Only produce the full pack when he says yes or runs `/hermes-handoff`; skip the queue only for production/staging deployment, auth/schema/migration, destructive, or security events.
+
+
+## Work tracking (mandatory)
+
+Follow `docs/operations/WORK_TRACKING.md` on every task: record steps, failures and fixes, assumptions (verified or not) and decisions in the workstream doc in the same PR as the code, append to `.opencode/hermes-pending-updates.md` after each PR, and mark PRs `Merged (#n)` once merged. Answer cross-session summary requests from these records, not from memory.
+
+## Project flow mapping
+
+Before substantial redesign, migration, architecture change, cross-cutting implementation, audit, handover, or deployment planning, read `docs/agent-skills/project-flow-mapping/SKILL.md`. Use it to map the applicable user, administrator, system, data, state, integration, failure/recovery, operational, delivery, and manual flows from repository evidence. Do not require a full remap for a small, bounded change when a current flow map already covers the affected area; update only the impacted slice. Start read-only and do not convert discovered gaps into implementation scope without owner approval.
